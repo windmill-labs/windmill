@@ -9,8 +9,6 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import { onDestroy } from 'svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
-	import { Menu } from 'lucide-svelte'
 	import CreatedResourceActionDrawers from './CreatedResourceActionDrawers.svelte'
 
 	interface Props {
@@ -20,7 +18,6 @@
 		transitionClass?: string
 		isMobile?: boolean
 		children: any
-		onMenuOpen?: () => void
 		disableAi?: boolean
 		// Whether this layout loads the workspace AI config. It gates far more than
 		// the docked pane (code completion, metadata generation, the "open in AI
@@ -40,7 +37,6 @@
 		transitionClass = 'transition-all ease-in-out duration-200',
 		isMobile = false,
 		children,
-		onMenuOpen,
 		disableAi,
 		loadAiConfig = true,
 		showSessionsBetaBanner = false
@@ -81,24 +77,8 @@
 		aiChatManager.cancel('aiChatLayout destroyed')
 		historyManager.close()
 	})
-</script>
 
-{#snippet burgerRow()}
-	<div
-		class={classNames(
-			'py-0.5 px-4 sm:px-4 shadow-sm max-w-7xl md:hidden justify-start flex',
-			noBorder ? 'hidden' : ''
-		)}
-	>
-		<Button
-			variant="subtle"
-			unifiedSize="lg"
-			onClick={() => onMenuOpen?.()}
-			startIcon={{ icon: Menu }}
-			iconOnly
-		/>
-	</div>
-{/snippet}
+</script>
 
 {#if !disableAi}
 	<CreatedResourceActionDrawers />
@@ -111,7 +91,6 @@
 			>
 				<main class="flex-1 flex flex-col min-h-0">
 					<div class="relative w-full flex-1 flex flex-col min-h-0">
-						{@render burgerRow()}
 						<div class="flex-1 min-h-0">
 							{@render children?.()}
 						</div>
@@ -138,12 +117,14 @@
 		{/if}
 	</Splitpanes>
 {:else}
+	<!-- The scroll lives here, below the page header, exactly as it does in the docked-chat layout
+	     above: a page taller than the window scrolls inside this box, so the band stays on screen
+	     instead of leaving with the content. -->
 	<div
 		id="content"
-		class={classNames('flex-1 min-h-0 flex flex-col', transitionClass)}
+		class={classNames('flex-1 min-h-0 flex flex-col overflow-y-auto', transitionClass)}
 		style:padding-left="{contentPadLeft}rem"
 	>
-		{@render burgerRow()}
 		<div class="flex-1 min-h-0 flex flex-col">
 			{@render children?.()}
 		</div>

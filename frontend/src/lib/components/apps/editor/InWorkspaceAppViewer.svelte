@@ -13,7 +13,6 @@
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
-	import { appHeaderPinned } from '$lib/components/apps/appHeaderPin.svelte'
 	import { Button } from '$lib/components/common'
 	import { AppService, OpenAPI } from '$lib/gen'
 	import { userStore } from '$lib/stores'
@@ -126,15 +125,7 @@
 	})
 </script>
 
-<!-- The line separating the app from the band exists only while the band does: unpinned there is
-     nothing above the app to separate it from. It goes on the app's wrapper rather than on the
-     frame, which the header-less public page shares — and as an inset shadow rather than a border,
-     which would take a pixel off an app sized to fill the page exactly and leave it scrolling. -->
-<div
-	class="h-full {appHeaderPinned.val
-		? 'shadow-[inset_0_1px_0_0_rgb(var(--color-border-light))]'
-		: ''}"
->
+<div class="h-full">
 	<PublicAppFrame
 		{fetchEmbedToken}
 		{viewerUrl}

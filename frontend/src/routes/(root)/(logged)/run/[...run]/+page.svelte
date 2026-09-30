@@ -70,7 +70,9 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
+	import { Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import JobDetailHeader from '$lib/components/runs/JobDetailHeader.svelte'
 	import ScriptRetryChain from '$lib/components/runs/ScriptRetryChain.svelte'
 	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
@@ -648,6 +650,10 @@
 		}
 	})
 	onDestroy(resetFavicon)
+
+	// The bar shares its row with the breadcrumb, and this page's name is a uuid that gives way
+	// grudgingly, so the buttons drop their labels rather than push each other off the end.
+	const compactBar = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < 1150)
 </script>
 
 <HighlightTheme />
@@ -805,25 +811,19 @@
 		class="max-w-7xl p-4 mx-auto w-full"
 		loading={!job}
 		layout={[
-			// 1. Top Action Bar (buttons on right side)
-			[
-				{ h: 2.5, w: 60 },
-				{ h: 2.5, w: 40 }
-			],
-			1,
-			// 2. Job Header
+			// 1. Job Header
 			[{ h: 12, w: 100 }],
 			1,
-			// 3. Progress Bar
+			// 2. Progress Bar
 			[{ h: 2, w: 100 }],
 			1.5
 		]}
 	/>
-	<ActionRow class="max-w-7xl px-4 mx-auto w-full">
-		{#snippet left()}
-			<h1 class="text-sm font-semibold text-primary">run/{page.params.run}</h1>
-		{/snippet}
-		{#snippet right()}
+	<!-- The row this page drew above its card now belongs to the layout: the run's own name is the
+	     breadcrumb's last part, and the buttons that acted on it are the bar's actions. -->
+	<PageHeaderContent section={{ label: `run/${page.params.run}` }} actions={runActions} />
+
+	{#snippet runActions()}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const isHubFlowPreview = isFlowPreview(job?.job_kind) && isHubFlowPath(job?.script_path)}
 			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
@@ -849,7 +849,14 @@
 					{/snippet}
 				</Dropdown>
 				{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-					<Button href={runsHref} variant="default" unifiedSize="sm" startIcon={{ icon: List }}>
+					<Button
+					href={runsHref}
+					variant="default"
+					unifiedSize="sm"
+					iconOnly={compactBar}
+					title="View runs"
+					startIcon={{ icon: List }}
+				>
 						View runs
 					</Button>
 				{/if}
@@ -877,7 +884,14 @@
 					]}
 				>
 					{#snippet buttonReplacement()}
-						<Button nonCaptureEvent variant="default" unifiedSize="sm" startIcon={{ icon: Share2 }}>
+						<Button
+							nonCaptureEvent
+							variant="default"
+							unifiedSize="sm"
+							iconOnly={compactBar}
+							title="Share"
+							startIcon={{ icon: Share2 }}
+						>
 							Share
 						</Button>
 					{/snippet}
@@ -912,6 +926,10 @@
 				<Button
 					unifiedSize="sm"
 					variant="default"
+					iconOnly={compactBar}
+					title={isHubFlowPreview
+						? 'Fork flow into workspace'
+						: `Fork ${isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview`}
 					startIcon={{ icon: GitBranch }}
 					on:click={forkPreview}
 				>
@@ -924,6 +942,8 @@
 				<Button
 					unifiedSize="sm"
 					variant="default"
+					iconOnly={compactBar}
+					title="Current runs"
 					startIcon={{ icon: Activity }}
 					on:click={() => {
 						persistentScriptDrawer?.open?.(persistentScriptDefinition)
@@ -1009,6 +1029,8 @@
 					}}
 					unifiedSize="sm"
 					variant="default"
+					iconOnly={compactBar}
+					title="Run again"
 					startIcon={{ icon: RefreshCw }}
 					loading={runImmediatelyLoading}
 					dropdownItems={[
@@ -1037,6 +1059,8 @@
 							unifiedSize="sm"
 							variant="default"
 							disabled={!showEditButton}
+							iconOnly={compactBar}
+							title="Edit"
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
 						{#if showEditButton}
@@ -1061,6 +1085,8 @@
 								})}
 							unifiedSize="sm"
 							variant="default"
+							iconOnly={compactBar}
+							title={editInForkLabel($workspaceStore, $userWorkspaces)}
 							startIcon={{ icon: Pen }}>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
 						>
 					{/if}
@@ -1071,6 +1097,8 @@
 					href={viewHref}
 					unifiedSize="sm"
 					variant="accent"
+					iconOnly={compactBar}
+					title="View {job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}"
 					startIcon={{
 						icon:
 							job?.job_kind === 'script' || job?.job_kind === 'script_hub'
@@ -1083,11 +1111,10 @@
 					View {job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}
 				</Button>
 			{/if}
-		{/snippet}
-	</ActionRow>
+	{/snippet}
 	<div class={twMerge('w-full', isNotFlow(job?.job_kind) && 'pb-8')}>
 		<!-- Flow Detail Header Card -->
-		<div class="max-w-7xl mx-auto px-4 py-0">
+		<div class="max-w-7xl mx-auto px-4 pt-4">
 			<Skeleton loading={!job} layout={[[24]]} />
 			{#if job}
 				<JobDetailHeader

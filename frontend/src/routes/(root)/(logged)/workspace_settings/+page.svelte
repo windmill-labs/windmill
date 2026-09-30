@@ -1459,7 +1459,7 @@
 	)
 </script>
 
-<CenteredPage wrapperClasses="pb-0 h-screen" handleOverflow={false} class="flex flex-col h-full">
+<CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
 	{#if canAdmin || isForkOwner}
 		<PageHeader title="Workspace settings: {$workspaceStore}">
 			{#snippet titleActions()}

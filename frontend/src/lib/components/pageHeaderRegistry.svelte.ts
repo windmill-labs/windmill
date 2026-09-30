@@ -29,6 +29,10 @@ export type PageHeaderContent = {
 	/** Orders these buttons among the other registrations', ascending; registration order breaks a
 	 *  tie. For a menu that must stay at the far end however many pages register before it. */
 	actionsOrder?: number
+	/** These actions include something that can give width back — a search field rather than a row
+	 *  of buttons. On a phone the bar then lets their box shrink; without it the box holds its
+	 *  content width, because squeezing a row of buttons only pushes them out of the bar. */
+	actionsFlexible?: boolean
 	/** Rendered right after the page's name in the breadcrumb: a mark that belongs to the name,
 	 *  like a documentation tooltip, or a control that acts on the thing named — an app's Edit,
 	 *  which at the far end of the bar would be a journey away from what it edits. */
@@ -62,6 +66,19 @@ export type PageHeaderContent = {
 let entries = $state<{ id: number; get: () => PageHeaderContent }[]>([])
 let nextId = 0
 
+/**
+ * Below this bar width a page keeps one button — the thing the page is for — and folds the rest
+ * into the menu it already shows when compact. A phone in portrait is ~390px of bar and a tablet
+ * in portrait ~720; the breadcrumb with its workspace disc takes ~150 of either, which is why the
+ * line sits above the tablet rather than between the two.
+ */
+export const PHONE_BAR = 800
+
+// The bar's own width, written by the bar and read by the pages that fill it. A page's buttons
+// share that row with the breadcrumb, so it is the width they crowd against — not the window's,
+// which the sidebar and a page's side panel both take from.
+let barWidth = $state(0)
+
 export const pageHeader = {
 	/**
 	 * The registrations merged, later ones winning field by field: a route sets the frame (where
@@ -80,6 +97,7 @@ export const pageHeader = {
 			if (c.actingWorkspaceId !== undefined) merged.actingWorkspaceId = c.actingWorkspaceId
 			if (c.barRightInset !== undefined) merged.barRightInset = c.barRightInset
 			if (c.fullBleed !== undefined) merged.fullBleed = c.fullBleed
+			if (c.actionsFlexible !== undefined) merged.actionsFlexible = c.actionsFlexible
 		}
 		return merged
 	},
@@ -96,6 +114,13 @@ export const pageHeader = {
 					: []
 			})
 			.sort((a, b) => a.order - b.order || a.i - b.i)
+	},
+	/** Width of the bar in px, or 0 before it has been measured. */
+	get barWidth(): number {
+		return barWidth
+	},
+	setBarWidth(w: number) {
+		barWidth = w
 	},
 	/** Registers on mount and returns the id to release on destroy. */
 	register(get: () => PageHeaderContent): number {

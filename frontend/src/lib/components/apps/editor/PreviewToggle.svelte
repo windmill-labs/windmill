@@ -8,9 +8,11 @@
 
 	interface Props {
 		loading?: boolean
+		/** Drops the two labels, for a bar with no room for them: the pen and the eye carry it. */
+		iconOnly?: boolean
 	}
 
-	let { loading = false }: Props = $props()
+	let { loading = false, iconOnly = false }: Props = $props()
 
 	const { mode, jobs, jobsById } = getContext<AppViewerContext>('AppViewerContext')
 </script>
@@ -24,7 +26,8 @@
 >
 	{#snippet children({ item })}
 		<ToggleButton
-			label="Editor"
+			label={iconOnly ? undefined : 'Editor'}
+			tooltip={iconOnly ? 'Editor mode' : undefined}
 			value="dnd"
 			icon={Pen}
 			disabled={loading}
@@ -33,7 +36,7 @@
 			{item}
 		/>
 		<ToggleButton
-			label="Preview"
+			label={iconOnly ? undefined : 'Preview'}
 			value="preview"
 			icon={Eye}
 			tooltip="Preview mode"

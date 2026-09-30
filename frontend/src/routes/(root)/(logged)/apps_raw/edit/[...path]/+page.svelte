@@ -30,11 +30,7 @@
 	import RawAppTemplatePicker, {
 		type RawAppTemplatePickerResult
 	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
-	import {
-		react19Template,
-		STARTER_RUNNABLE,
-		STARTER_RUNNABLE_KEY
-	} from '$lib/components/raw_apps/templates'
+	import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
 	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type RawAppDraft = {
@@ -273,7 +269,7 @@
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
 			const seedFiles = { ...react19Template }
-			const seedRunnables = { [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
+			const seedRunnables = structuredClone(STARTER_RUNNABLES)
 			savedApp = {
 				summary: '',
 				value: { files: seedFiles as any, runnables: seedRunnables as any },
@@ -524,7 +520,7 @@
 
 	function onTemplatePickerStart(result: RawAppTemplatePickerResult, withPrompt: boolean) {
 		files = { ...result.files }
-		runnables = { ...result.runnables, [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
+		runnables = { ...result.runnables, ...structuredClone(STARTER_RUNNABLES) }
 		data = result.data
 		summary = result.summary
 		policy = result.policy
@@ -607,7 +603,7 @@
 
 {#if files}
 	{#key redraw}
-		<div class="h-screen">
+		<div class="h-full">
 			<RawAppEditor
 				bind:this={rawAppEditor}
 				onSavedNewAppPath={(savedPath) => {

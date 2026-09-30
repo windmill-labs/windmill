@@ -44,6 +44,7 @@
 		devopsRole,
 		whitelabelNameStore,
 		globalDbManagerDrawer,
+		instanceSettingsSelectedTab,
 		globalForkModal,
 		globalS3FilePickerExplorer,
 		nonMemberWorkspaces,
@@ -64,7 +65,10 @@
 		getFavoriteHref,
 		getFavoriteLabel
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
+	import {
+		parseSuperadminSettingsHash,
+		USER_SETTINGS_HASH
+	} from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import {
 		PanelLeft,
@@ -202,6 +206,15 @@
 	let sidebarTransitionClass = $derived(
 		resizingSidebar && !sidebarSnapping ? '' : 'transition-all duration-200 ease-in-out'
 	)
+	// The band spans two edges that different things move. Its left follows the rail, so it
+	// eases with it; its right follows a splitter the page owns (a session's side panel),
+	// which tracks the pointer. Easing that one leaves the band lying over the panel it is
+	// meant to stop beside — an empty strip across that panel's own header until it catches up.
+	let bandTransitionClass = $derived(
+		resizingSidebar && !sidebarSnapping
+			? ''
+			: 'transition-[left,padding-left] duration-200 ease-in-out'
+	)
 	// Set while a drag is live so it can be torn down if the layout unmounts
 	// mid-drag (otherwise the window listeners would leak).
 	let stopSidebarResize: (() => void) | null = null
@@ -325,7 +338,9 @@
 	}
 
 	function onQueryChangeAdminSettings() {
-		if (superadminSettings && page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+		const target = parseSuperadminSettingsHash(page.url.hash)
+		if (superadminSettings && target) {
+			if (target.tab) instanceSettingsSelectedTab.set(target.tab)
 			superadminSettings.openDrawer()
 		}
 	}
@@ -493,18 +508,20 @@
 	})
 
 	let innerWidth = $state(BROWSER ? window.innerWidth : 2000)
-	// The drawer holds the sidebar below 768px and, at any width, while it is detached.
+	// The sidebar leaves the layout and becomes a card under the band's handle when it is
+	// detached, and below 768px, where a 13rem rail would take a third of the screen. One
+	// presentation for both: a phone gets the card the handle already opens, not a modal.
 	let useDrawer = $derived(innerWidth < 768 || navDetached.val)
-	// Below 768px the burger row opens the drawer; wider, a detached sidebar has a floating handle.
-	let detachedFloating = $derived(navDetached.val && innerWidth >= 768)
+	// Hover opened the card, so the pointer leaving closes it — where there is a pointer to
+	// leave. A tap opened it on a touch screen, and it stays until it is dismissed.
+	const hoverPointer = BROWSER && window.matchMedia('(hover: hover)').matches
+	const peeksOnHover = $derived(useDrawer && hoverPointer)
 	// The peek card is a hover affordance, so it goes away when the pointer does — off the handle
 	// and off the card both. The delay is what lets the pointer cross the gap between them: they
 	// do not touch, and the leave of the one fires before the enter of the other.
 	const PEEK_CLOSE_DELAY_MS = 200
 	const { debounced: schedulePeekClose, clearDebounce: cancelPeekClose } = debounce(() => {
-		// Only the floating card peeks; the mobile drawer is opened deliberately and stays until
-		// it is dismissed.
-		if (detachedFloating) menuOpen = false
+		if (peeksOnHover) menuOpen = false
 	}, PEEK_CLOSE_DELAY_MS)
 
 	// A deployed app owns the viewport: the band floats above it until the corner handle calls it
@@ -730,8 +747,12 @@
 		}
 	})
 
+	// Narrow enough that the rail is in the way: collapse it, transiently (see `collapsedState`).
+	// The drawer widths below 768 are included — there the sidebar is a modal panel over the page,
+	// and a window that has been that narrow should come back to the icon rail rather than to a
+	// 13rem one it no longer has room for.
 	function changeCollapsed() {
-		if (innerWidth < 1248 && innerWidth >= 768 && !collapsedState) {
+		if (innerWidth < 1248 && !collapsedState) {
 			collapsedState = true
 		}
 	}
@@ -769,7 +790,7 @@
 	let superadminSettingsRequested = $state(false)
 	$effect(() => {
 		if (page.url.hash.startsWith(USER_SETTINGS_HASH)) userSettingsRequested = true
-		if (page.url.hash === SUPERADMIN_SETTINGS_HASH) superadminSettingsRequested = true
+		if (parseSuperadminSettingsHash(page.url.hash)) superadminSettingsRequested = true
 	})
 	let dbManagerRequested = $state(false)
 	$effect(() => {
@@ -1134,6 +1155,164 @@
 	</div>
 {/snippet}
 
+<!-- The sidebar's one column, rendered in whichever shell the width calls for: the rail docked
+     at the left edge, or the same column as a panel over the page (`panel`) below 768px and
+     whenever the nav is detached. The shells differ, the sections do not, so a change to the
+     rail cannot miss the panel. -->
+{#snippet sidebarColumn(panel: boolean)}
+	{@const collapsed = panel ? false : isCollapsed}
+	<div
+		class={twMerge(
+			'flex flex-col',
+			panel
+				? 'h-full w-52'
+				: 'flex-1 min-h-0 shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151] [html.github-dark_&]:shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))]'
+		)}
+		style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
+	>
+		{#if !panel}
+			<!-- Resize handle straddling the right edge: drag to resize, into the
+			     left snap zone to collapse, or out of it to expand. -->
+			<div
+				role="separator"
+				aria-orientation="vertical"
+				aria-label="Resize sidebar"
+				title="Drag to resize"
+				class={classNames(
+					'absolute inset-y-0 -right-0.5 w-1.5 cursor-col-resize z-50 transition-colors',
+					resizingSidebar ? '' : 'hover:bg-surface-hover'
+				)}
+				onpointerdown={startSidebarResize}
+			></div>
+		{/if}
+		<!-- Top row: the workspace ⇄ sessions switch, level with the page header's own
+		     row so the two read as one band. The workspace picker itself lives in that
+		     header, which is why nothing names the workspace here. -->
+		{#if !embedded && sessionsSwitchShown}
+			<div
+				class="flex-shrink-0 px-2 gap-1 flex {collapsed
+					? 'flex-col items-center py-2'
+					: 'h-12 items-center'}"
+			>
+				<div class="min-w-0 flex-1">
+					<SessionModeSwitch
+						mode={sessionMode ? 'session' : 'nav'}
+						isCollapsed={collapsed}
+						onToggle={panel ? () => (preserveMenuOnNextNav = true) : undefined}
+					/>
+				</div>
+			</div>
+		{/if}
+
+		{#if sessionMode}
+			<!-- Session mode: the session list owns the column. Workspace nav moves
+			     into the preview side panel (the iframe renders its own nav). -->
+			<div class="px-2 py-2 flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto">
+				<SessionPicker isCollapsed={collapsed} embedded collapsible={false} />
+			</div>
+			{@render settingsMenu(collapsed)}
+		{:else}
+			<!-- Navigation mode: Home → Settings scroll as ONE block with an
+			     overflow fade hint. The three sections (Home/Runs + Favorites +
+			     Search / workspace items / instance settings) are spaced by the
+			     scroll area's gap rather than each scrolling on its own. -->
+			<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
+				<!-- Section 1: Home/Runs + Favorites + Search -->
+				<div class="px-2 pt-1 flex flex-col gap-1">
+					{@render quickLinks(collapsed)}
+					<Menubar class="flex flex-col gap-1">
+						{#snippet children({ createMenu })}
+							<FavoriteMenu
+								{createMenu}
+								favoriteLinks={favoriteManager.current}
+								isCollapsed={collapsed}
+							/>
+						{/snippet}
+					</Menubar>
+					<MenuButton
+						stopPropagationOnClick={true}
+						on:click={() => openSearchModal()}
+						isCollapsed={collapsed}
+						icon={Search}
+						label="Search"
+						class="!text-xs"
+						shortcut={`${getModifierKey()}k`}
+					/>
+					{#if askAiShown}
+						<!-- Legacy Ask-AI pane, shown only when the user opted out of the
+						     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
+						<MenuButton
+							stopPropagationOnClick={true}
+							on:click={() => aiChatManager.toggleOpen()}
+							isCollapsed={collapsed}
+							icon={WandSparkles}
+							iconProps={{ forceDarkMode: true }}
+							label="Ask AI"
+							class="!text-xs"
+							iconClasses="!text-ai"
+							shortcut={`${getModifierKey()}L`}
+						/>
+					{/if}
+				</div>
+
+				<!-- Section 2: workspace items -->
+				<SidebarContent
+					isCollapsed={collapsed}
+					showSecondary={false}
+					excludeMainLabels={['Home', 'Runs']}
+					numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+						? 0
+						: numUnacknowledgedCriticalAlerts}
+				/>
+
+				<!-- Section 3: instance settings — mt-auto drops it to the bottom
+				     when the column has spare room, and collapses back to the normal
+				     inter-section gap once the content overflows and scrolls. -->
+				<div class="mt-auto">
+					{@render settingsMenu(collapsed)}
+				</div>
+			</SidebarScrollArea>
+		{/if}
+
+		<div class="flex-shrink-0">
+			{@render accountSetupBanner(collapsed)}
+			<SidebarUsage isCollapsed={collapsed} />
+		</div>
+
+		<div
+			class="flex-shrink-0 flex pt-3 pb-3.5 {collapsed
+				? 'flex-col items-center gap-3'
+				: 'items-center justify-between px-4'}"
+		>
+			{@render brandMark(collapsed)}
+			<div class="flex {collapsed ? 'flex-col gap-3' : 'gap-3'}">
+				{#if !panel || navDetached.val}
+					{@render sidebarToggle()}
+				{/if}
+				<!-- Collapsing belongs to the rail: the panel is over the page already, and the way
+				     out of it is the handle in the band or a click outside. -->
+				{#if !panel && !$userStore?.operator}
+					<button
+						class={SIDEBAR_ICON_BUTTON}
+						title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+						onclick={() => {
+							collapsedState = !collapsedState
+							// Manual toggle is the persisted preference (auto-collapse isn't).
+							collapsePref.val = collapsedState
+						}}
+					>
+						{#if collapsed}
+							<PanelLeftOpen size={16} class="flex-shrink-0 text-hint" />
+						{:else}
+							<PanelLeftClose size={16} class="flex-shrink-0 text-hint" />
+						{/if}
+					</button>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/snippet}
+
 <!-- The drawers and modals below are dynamic imports mounted on first open: this layout
      wraps every workspace page, so a static import gates first paint, and a load on mount
      competes with the page for bandwidth (several of them reach monaco). -->
@@ -1173,7 +1352,7 @@
 			<div class="fixed inset-0 z-50 cursor-col-resize select-none"></div>
 		{/if}
 		{#if !menuHidden}
-			{#if detachedFloating && !menuOpen && !devOnly}
+			{#if navDetached.val && hoverPointer && !menuOpen && !devOnly}
 				<!-- Edge band: the other way to reach a detached sidebar. It opens only once its
 				     tint has faded in, so a pointer brushing the screen edge does not open it. -->
 				<div
@@ -1197,33 +1376,21 @@
 						devOnly ? 'hidden' : ''
 					)}
 					role="dialog"
-					aria-modal="true"
 				>
-					<!-- The detached card floats over the page without dimming it: it opens on hover,
-					     so a backdrop would flash on every pass of the left edge. -->
-					{#if !detachedFloating}
-						<div
-							class={classNames(
-								'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300 z-40',
-								menuOpen ? 'opacity-100' : 'opacity-0'
-							)}
-						></div>
-					{/if}
-
 					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-					<!-- Detached, the drawer is a card floating over the page, inset and rounded. Over an
-					     app it is not: the app owns the window, and the sidebar revealed beside it reads
-					     as the panel the header sits on — flush to the left and bottom edges, square,
-					     with one border down its right side. -->
-					<!-- Detached, this outside-click catcher starts where the card does rather than at
-					     the top of the viewport: it would otherwise cover the header's toggle, whose
-					     hover opened the card, and swallow the click meant to put the sidebar back. -->
+					<!-- The card floats over the page, inset and rounded. Over an app it is not: the app
+					     owns the window, and the sidebar revealed beside it reads as the panel the header
+					     sits on — flush to the left and bottom edges, square, with one border down its
+					     right side. -->
+					<!-- This outside-click catcher starts where the card does rather than at the top of
+					     the viewport: it would otherwise cover the header's toggle, whose hover opened the
+					     card, and swallow the click meant to put the sidebar back. -->
 					<div
 						class={classNames(
 							'fixed left-0 right-0 bottom-0 flex z-40',
-							detachedFloating ? (fullBleed ? '' : 'pl-1 pb-2') : 'top-0'
+							fullBleed ? '' : 'pl-1 pb-2'
 						)}
-						style:top={detachedFloating ? `${navHandleSlot.cardTop}px` : undefined}
+						style:top="{navHandleSlot.cardTop}px"
 						onclick={(e) => {
 							if (e.target === e.currentTarget) menuOpen = false
 						}}
@@ -1242,143 +1409,16 @@
 								if (bandPeek) scheduleBandHide()
 							}}
 							class={classNames(
-								'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform',
-								detachedFloating
-									? fullBleed
-										? 'border-r shadow-lg overflow-hidden'
-										: 'rounded-lg border shadow-lg overflow-hidden'
-									: '',
+								'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform shadow-lg overflow-hidden',
+								fullBleed ? 'border-r' : 'rounded-lg border',
 								menuOpen
 									? 'translate-x-0'
-									: detachedFloating && !fullBleed
-										? '-translate-x-[calc(100%+0.5rem)]'
-										: '-translate-x-full'
+									: fullBleed
+										? '-translate-x-full'
+										: '-translate-x-[calc(100%+0.5rem)]'
 							)}
 						>
-							<div
-								class={classNames(
-									'absolute top-0 right-4 -mr-12 pt-2 ease-in-out duration-300',
-									menuOpen ? 'opacity-100' : 'opacity-0',
-									detachedFloating ? 'hidden' : ''
-								)}
-							>
-								<button
-									type="button"
-									onclick={() => {
-										menuOpen = !menuOpen
-									}}
-									class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
-									aria-label="Close"
-								>
-									<svg
-										class="h-4 w-4 text-white"
-										xmlns="http://www.w3.org/2000/svg"
-										fill="none"
-										viewBox="0 0 24 24"
-										stroke-width="2"
-										stroke="currentColor"
-										aria-hidden="true"
-									>
-										<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-									</svg>
-								</button>
-							</div>
-							<div
-								class="h-full flex flex-col"
-								style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
-							>
-								<!-- Top row: the workspace ⇄ sessions switch, as in the docked rail. -->
-								{#if !embedded && sessionsSwitchShown}
-									<div class="flex-shrink-0 px-2 h-12 w-52 flex items-center">
-										<SessionModeSwitch
-											mode={sessionMode ? 'session' : 'nav'}
-											onToggle={() => (preserveMenuOnNextNav = true)}
-										/>
-									</div>
-								{/if}
-
-								{#if sessionMode}
-									<!-- Session mode: the session list owns the rail.
-										     w-52 cap (matches the desktop sidebar width): the drawer is
-										     max-w-min, and long session titles (nowrap before truncation)
-										     would otherwise inflate its min-content width to the full
-										     text width. -->
-									<div class="px-2 py-2 w-52 flex-1 min-h-0 overflow-y-auto">
-										<SessionPicker isCollapsed={false} embedded collapsible={false} />
-									</div>
-									{@render settingsMenu(false)}
-								{:else}
-									<!-- Navigation mode: Home → Settings scroll as ONE block with an
-										     overflow fade hint (same treatment as the desktop rail). -->
-									<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
-										<!-- Section 1: Home/Runs + Favorites + Search -->
-										<div class="px-2 pt-1 w-52 flex flex-col gap-1">
-											{@render quickLinks(false)}
-											<Menubar>
-												{#snippet children({ createMenu })}
-													<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
-												{/snippet}
-											</Menubar>
-											<MenuButton
-												stopPropagationOnClick={true}
-												on:click={() => openSearchModal()}
-												isCollapsed={false}
-												icon={Search}
-												label="Search"
-												class="!text-xs"
-												shortcut={`${getModifierKey()}k`}
-											/>
-											{#if askAiShown}
-												<!-- Legacy Ask-AI pane, shown only when the user opted out of the
-													     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
-												<MenuButton
-													stopPropagationOnClick={true}
-													on:click={() => aiChatManager.toggleOpen()}
-													isCollapsed={false}
-													icon={WandSparkles}
-													iconProps={{ forceDarkMode: true }}
-													label="Ask AI"
-													class="!text-xs"
-													iconClasses="!text-ai"
-													shortcut={`${getModifierKey()}L`}
-												/>
-											{/if}
-										</div>
-
-										<!-- Section 2: workspace items -->
-										<SidebarContent
-											isCollapsed={false}
-											showSecondary={false}
-											excludeMainLabels={['Home', 'Runs']}
-											numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-												? 0
-												: numUnacknowledgedCriticalAlerts}
-										/>
-
-										<!-- Section 3: instance settings — mt-auto drops it to the bottom
-											     when there is spare room (see the desktop rail for the rationale). -->
-										<div class="mt-auto">
-											{@render settingsMenu(false)}
-										</div>
-									</SidebarScrollArea>
-								{/if}
-
-								<div class="w-52">
-									{@render accountSetupBanner(false)}
-									<SidebarUsage isCollapsed={false} />
-								</div>
-
-								<!-- Same footer slot the docked rail puts it in, so the control that hides the
-								     sidebar and the one that brings it back sit in the same place. -->
-								<div class="px-4 pt-3 pb-3.5 w-52 flex items-center justify-between">
-									{@render brandMark(false)}
-									{#if detachedFloating}
-										<div class="flex gap-3">
-											{@render sidebarToggle()}
-										</div>
-									{/if}
-								</div>
-							</div>
+							{@render sidebarColumn(true)}
 						</div>
 					</div>
 				</div>
@@ -1396,141 +1436,7 @@
 					in:railMorph={{ offscreen: false }}
 					out:railMorph={{ offscreen: true }}
 				>
-					<div
-						class="flex-1 flex flex-col min-h-0 shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151] [html.github-dark_&]:shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))]"
-						style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
-					>
-						<!-- Resize handle straddling the right edge: drag to resize, into the
-						     left snap zone to collapse, or out of it to expand. -->
-						<div
-							role="separator"
-							aria-orientation="vertical"
-							aria-label="Resize sidebar"
-							title="Drag to resize"
-							class={classNames(
-								'absolute inset-y-0 -right-0.5 w-1.5 cursor-col-resize z-50 transition-colors',
-								resizingSidebar ? '' : 'hover:bg-surface-hover'
-							)}
-							onpointerdown={startSidebarResize}
-						></div>
-						<!-- Top row: the workspace ⇄ sessions switch, level with the page header's own
-						     row so the two read as one band. The workspace picker itself lives in that
-						     header, which is why nothing names the workspace here. -->
-						{#if !embedded && sessionsSwitchShown}
-							<div
-								class="flex-shrink-0 px-2 gap-1 flex {isCollapsed
-									? 'flex-col items-center py-2'
-									: 'h-12 items-center'}"
-							>
-								<div class="min-w-0 flex-1">
-									<SessionModeSwitch mode={sessionMode ? 'session' : 'nav'} {isCollapsed} />
-								</div>
-							</div>
-						{/if}
-
-						{#if sessionMode}
-							<!-- Session mode: the session list owns the rail. Workspace nav moves
-								     into the preview side panel (the iframe renders its own nav). -->
-							<div class="px-2 py-2 flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto">
-								<SessionPicker {isCollapsed} embedded collapsible={false} />
-							</div>
-							{@render settingsMenu(isCollapsed)}
-						{:else}
-							<!-- Navigation mode: Home → Settings scroll as ONE block with an
-								     overflow fade hint. The three sections (Home/Runs + Favorites +
-								     Search / workspace items / instance settings) are spaced by the
-								     scroll area's gap rather than each scrolling on its own. -->
-							<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
-								<!-- Section 1: Home/Runs + Favorites + Search -->
-								<div class="px-2 pt-1 flex flex-col gap-1">
-									{@render quickLinks(isCollapsed)}
-									<Menubar class="flex flex-col gap-1">
-										{#snippet children({ createMenu })}
-											<FavoriteMenu
-												{createMenu}
-												favoriteLinks={favoriteManager.current}
-												{isCollapsed}
-											/>
-										{/snippet}
-									</Menubar>
-									<MenuButton
-										stopPropagationOnClick={true}
-										on:click={() => openSearchModal()}
-										{isCollapsed}
-										icon={Search}
-										label="Search"
-										class="!text-xs"
-										shortcut={`${getModifierKey()}k`}
-									/>
-									{#if askAiShown}
-										<!-- Legacy Ask-AI pane, shown only when the user opted out of the
-											     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
-										<MenuButton
-											stopPropagationOnClick={true}
-											on:click={() => aiChatManager.toggleOpen()}
-											{isCollapsed}
-											icon={WandSparkles}
-											iconProps={{ forceDarkMode: true }}
-											label="Ask AI"
-											class="!text-xs"
-											iconClasses="!text-ai"
-											shortcut={`${getModifierKey()}L`}
-										/>
-									{/if}
-								</div>
-
-								<!-- Section 2: workspace items -->
-								<SidebarContent
-									{isCollapsed}
-									showSecondary={false}
-									excludeMainLabels={['Home', 'Runs']}
-									numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-										? 0
-										: numUnacknowledgedCriticalAlerts}
-								/>
-
-								<!-- Section 3: instance settings — mt-auto drops it to the bottom
-									     when the column has spare room, and collapses back to the normal
-									     inter-section gap once the content overflows and scrolls. -->
-								<div class="mt-auto">
-									{@render settingsMenu(isCollapsed)}
-								</div>
-							</SidebarScrollArea>
-						{/if}
-
-						<div class="flex-shrink-0">
-							{@render accountSetupBanner(isCollapsed)}
-							<SidebarUsage {isCollapsed} />
-						</div>
-
-						<div
-							class="flex-shrink-0 flex pt-3 pb-3.5 {isCollapsed
-								? 'flex-col items-center gap-3'
-								: 'items-center justify-between px-4'}"
-						>
-							{@render brandMark(isCollapsed)}
-							<div class="flex {isCollapsed ? 'flex-col gap-3' : 'gap-3'}">
-								{@render sidebarToggle()}
-								{#if !$userStore?.operator}
-									<button
-										class={SIDEBAR_ICON_BUTTON}
-										title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-										onclick={() => {
-											collapsedState = !collapsedState
-											// Manual toggle is the persisted preference (auto-collapse isn't).
-											collapsePref.val = collapsedState
-										}}
-									>
-										{#if isCollapsed}
-											<PanelLeftOpen size={16} class="flex-shrink-0 text-hint" />
-										{:else}
-											<PanelLeftClose size={16} class="flex-shrink-0 text-hint" />
-										{/if}
-									</button>
-								{/if}
-							</div>
-						</div>
-					</div>
+					{@render sidebarColumn(false)}
 				</div>
 			{/if}
 			<!-- Legacy menu -->
@@ -1654,7 +1560,7 @@
 						bandPeek
 							? (bandPeekSettled ? 'transition-transform duration-150 ease-out ' : '') +
 									(bandShown ? 'translate-y-0' : '-translate-y-full pointer-events-none')
-							: sidebarTransitionClass
+							: bandTransitionClass
 					)}
 					style:left={floatBand ? `${leftInset}rem` : undefined}
 					style:right={floatBand ? `${rightInset ?? 0}px` : undefined}
@@ -1679,6 +1585,7 @@
 					<PageHeaderBar
 						navHidden={menuHidden}
 						hideNavHandle={bandPeek}
+						panelled={useDrawer}
 						onUnpin={fullBleed && appHeaderPinned.val
 							? () => (appHeaderPinned.val = false)
 							: undefined}
@@ -1778,7 +1685,6 @@
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
 				isMobile={useDrawer}
-				onMenuOpen={() => navHandleSlot.open()}
 			/>
 		</div>
 	</div>
