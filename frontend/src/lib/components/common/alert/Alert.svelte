@@ -24,7 +24,8 @@
 		descriptionStyle?: string | undefined
 		class?: string | undefined
 		isCollapsed?: boolean
-		/** Buttons under the body, colored to match the alert's type. */
+		/** Buttons under the body, colored to match the alert's type. They stay visible while a
+		 * collapsible alert is collapsed. */
 		actions?: AlertAction[]
 		children?: import('svelte').Snippet
 	}
@@ -124,7 +125,7 @@
 			{/if}
 
 			{#if actions.length > 0}
-				<div class="mt-2 flex flex-wrap gap-2">
+				<div class={twMerge('flex flex-wrap gap-2', hasTitleRow || children ? 'mt-2' : '')}>
 					{#each actions as action}
 						<Button
 							unifiedSize={size === 'sm' ? 'sm' : 'xs'}

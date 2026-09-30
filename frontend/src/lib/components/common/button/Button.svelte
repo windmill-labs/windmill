@@ -4,7 +4,6 @@
 	const bubble = createBubbler()
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { ButtonType } from './model'
-	import type { AlertType } from '../alert/model'
 	import { twMerge } from 'tailwind-merge'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { getModifierKey, type Item } from '$lib/utils'
@@ -82,7 +81,7 @@
 		endIcon?: ButtonType.Icon | undefined
 		destructive?: boolean
 		/** Colors the `accent`, `default` and `subtle` variants to match an Alert of this type. */
-		tone?: AlertType
+		tone?: ButtonType.Tone
 		shortCut?: { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean } | undefined
 		tooltipPopover?:
 			| {
@@ -199,7 +198,9 @@
 				((typeof dropdownItems === 'function' && dropdownItems().length > 0) ||
 					dropdownItems.length > 0)
 			) {
-				style = style.replace('border border-border-light', '')
+				style = tone
+					? style.replace(/(^|\s)(dark:)?border(-\S+)?(?=\s|$)/g, '')
+					: style.replace('border border-border-light', '')
 			}
 			return style
 		}
