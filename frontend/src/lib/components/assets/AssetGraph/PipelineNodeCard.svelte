@@ -57,6 +57,13 @@ and the controls hung around the card.
 			'flex items-center w-full text-left font-normal rounded-md drop-shadow-sm overflow-hidden border transition-colors',
 			surface === 'primary' ? 'bg-surface' : 'bg-surface-secondary',
 			'border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500',
+			// Like a flow step: a card with a background needs no edge, only its shadow,
+			// until one of the states below draws one.
+			surface === 'primary' &&
+				!draft &&
+				!selected &&
+				!tone &&
+				'border-transparent dark:border-transparent hover:border-transparent dark:hover:border-transparent',
 			draft && 'border-dashed border-gray-400 dark:border-gray-500',
 			// Like a selected flow step: the fill and the edge colour change, the edge's
 			// width and dashes stay.
