@@ -327,6 +327,8 @@ export type PipelineNodeErrors = {
 	unwritten: Map<string, { asset: { kind: AssetKind; path: string }; subscribers: string[] }>
 	/** Script path → the unwritten asset it runs on (its first, when several). */
 	waitsOn: Map<string, { kind: AssetKind; path: string }>
+	/** Pipeline scripts nothing starts: no trigger of any kind. */
+	untriggered: Set<string>
 }
 
 /**
@@ -384,7 +386,17 @@ export function pipelineNodeErrors(
 			}
 		}
 	}
-	return { assets: errors, scripts: scriptErrors, unwritten, waitsOn }
+	// A pipeline script nothing starts runs only by hand. dbt projects and macro
+	// libraries are never started on their own, so they are left out.
+	const triggered = new Set(graph.triggers.map((t) => t.runnable_path))
+	const untriggered = new Set<string>()
+	for (const r of graph.runnables) {
+		if (r.usage_kind !== 'script' || !r.in_pipeline || r.dbt || r.macros?.length) continue
+		if (triggered.has(r.path) || scriptErrors.has(r.path)) continue
+		untriggered.add(r.path)
+		scriptErrors.set(r.path, 'nothing starts it: it has no trigger')
+	}
+	return { assets: errors, scripts: scriptErrors, unwritten, waitsOn, untriggered }
 }
 
 function referencedAssetKeys(

@@ -101,6 +101,7 @@
 	import type { NodeFixSpec } from '$lib/components/assets/AssetGraph/NodeFixButton.svelte'
 	import { TRIGGER_NODE_STYLE } from '$lib/components/assets/AssetGraph/TriggerNode.svelte'
 	import {
+		addTriggerDirective,
 		assetRef,
 		listenToAsset,
 		removeTriggerDirective,
@@ -1471,6 +1472,55 @@
 							pe.selection = pe.drafts.has(path)
 								? undefined
 								: { kind: 'runnable', runnable_kind: 'script', path }
+						}
+					}
+				]
+			})
+		}
+		for (const path of nodeErrors.untriggered) {
+			const unsaved = displayGraph.runnables.some((r) => r.path === path && r.unsaved)
+			fixes.set(`script:${path}`, {
+				explainer: [
+					'Nothing starts ',
+					scriptLink(path),
+					': it has no trigger, so it only runs by hand.'
+				],
+				actions: [
+					{
+						label: 'Run it on a schedule',
+						detail: `Opens the schedule setup. On create: adds \`on schedule\` in ${path}, with the schedule as a draft.`,
+						scheduleFor: {
+							script: path,
+							onSchedule: async (schedule) => {
+								const ok = await editScriptHeader(
+									path,
+									(c) => addTriggerDirective(c, 'schedule'),
+									'Added a schedule'
+								)
+								if (!ok) return
+								if (!pe.setTriggerDraft({ kind: 'schedule', config: { ...schedule, script_path: path } })) {
+									sendUserToast(
+										`Another draft schedule already uses the path ${schedule.path}; ${path} has no schedule yet`,
+										true
+									)
+								}
+							}
+						}
+					},
+					{
+						label: 'Run it from a webhook',
+						detail: `Adds \`on webhook\` in ${path}: it runs when its webhook URL is called. Saved as a draft.`,
+						run: () =>
+							editScriptHeader(path, (c) => addTriggerDirective(c, 'webhook'), 'Added a webhook')
+					},
+					{
+						label: unsaved ? 'Discard it' : 'Remove it',
+						detail: unsaved
+							? 'Drops the draft.'
+							: 'Opens its archive or delete confirmation.',
+						run: () => {
+							if (mode !== 'edit') setMode('edit')
+							handleRunnableMenuRemove({ runnable_kind: 'script', path, unsaved })
 						}
 					}
 				]

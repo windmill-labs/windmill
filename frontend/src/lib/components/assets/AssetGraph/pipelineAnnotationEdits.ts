@@ -123,6 +123,11 @@ export function scheduleInsteadOfAsset(
 	return hasDirective(out, onTrigger('schedule')) ? out : addDirective(out, 'on schedule')
 }
 
+/** Adds a `// on <trigger kind>` line (`schedule`, `webhook`, …) unless it has one. */
+export function addTriggerDirective(content: string, kind: string): string {
+	return hasDirective(content, onTrigger(kind)) ? content : addDirective(content, `on ${kind}`)
+}
+
 /** Drops a `// on <trigger kind>` line (`kafka`, `schedule`, …). */
 export function removeTriggerDirective(content: string, kind: string): string {
 	return removeDirective(content, onTrigger(kind))

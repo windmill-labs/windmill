@@ -1275,6 +1275,25 @@ describe('pipelineNodeErrors', () => {
 		expect([...errors.scripts.keys()]).toEqual(['f/x/cons'])
 	})
 
+	it('flags a pipeline script nothing starts, but not a macro library or a triggered one', () => {
+		const g = baseGraph({
+			runnables: [
+				{ path: 'f/x/stray', usage_kind: 'script', in_pipeline: true },
+				{ path: 'f/x/lib', usage_kind: 'script', in_pipeline: true, macros: [{ name: 'm' }] },
+				{ path: 'f/x/timed', usage_kind: 'script', in_pipeline: true }
+			] as any,
+			triggers: [
+				{
+					trigger_kind: 'schedule',
+					path: 'f/x/timed_schedule',
+					runnable_kind: 'script',
+					runnable_path: 'f/x/timed'
+				}
+			]
+		})
+		expect([...pipelineNodeErrors(g, new Map()).untriggered]).toEqual(['f/x/stray'])
+	})
+
 	it('clears a subscription the workspace writes outside the pipeline', () => {
 		const errors = pipelineNodeErrors(
 			graph,
