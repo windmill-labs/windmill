@@ -1,5 +1,5 @@
-// Opening the detached sidebar's card, from the handle or from anywhere else that reaches for the
-// nav (the left edge band, the AI chat layout's menu button).
+// Opening the detached sidebar's card, from the band's own handle or from the corner control that
+// stands in for it on a page which hides the band.
 let opener: (() => void) | undefined
 // Closing it once the pointer is off both the handle and the card, which the layout owns because
 // the card is its markup.
