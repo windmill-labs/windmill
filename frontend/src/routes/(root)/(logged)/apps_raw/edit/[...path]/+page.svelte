@@ -608,7 +608,7 @@
 
 {#if files}
 	{#key redraw}
-		<div class="h-screen">
+		<div class="h-full">
 			<RawAppEditor
 				bind:this={rawAppEditor}
 				onSavedNewAppPath={(savedPath) => {
