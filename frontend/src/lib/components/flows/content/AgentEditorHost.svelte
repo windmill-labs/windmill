@@ -629,14 +629,12 @@
 					<!-- An agent reused as a step has no use for memory unless its flow gives it a
 						     conversation, and the form is where such an agent is tried. -->
 					{#if !chatGap?.memory && !readOnly}
-						<Alert type="info" size="xs" title="" notRounded class="shrink-0 border-b">
-							<div class="flex items-center gap-2">
-								<span class="flex-1">
-									Managed memory keeps the conversation between runs. It's useful if you chat with
-									this agent, use it in a flow in chat mode, or pass it a memory id. Otherwise, you
-									can turn it off.
-								</span>
-								<Button unifiedSize="2xs" variant="subtle" onClick={turnOffMemory}>Turn off</Button>
+						<Alert type="info" size="xs" title="Managed memory is on" class="m-2 shrink-0">
+							It keeps the conversation between runs, which is useful if you chat with this agent,
+							use it in a flow in chat mode, or pass it a memory id. Otherwise, you can turn it off.
+							<div class="flex mt-2">
+								<Button unifiedSize="2xs" variant="default" onClick={turnOffMemory}>Turn off</Button
+								>
 							</div>
 						</Alert>
 					{/if}
@@ -693,19 +691,22 @@
 							{/if}
 						</div>
 					{:else if chatGap?.noStream}
-						<Alert type="info" size="xs" title="" notRounded class="shrink-0 border-b">
-							<div class="flex items-center gap-2">
-								<span class="flex-1">
-									{chatGap.noStream === 'image'
-										? 'Image answers do not stream: each one shows once its run ends.'
-										: 'Streaming is off: each answer shows once its run ends.'}
-								</span>
-								{#if chatGap.noStream === 'off' && !readOnly}
-									<Button unifiedSize="2xs" variant="subtle" onClick={turnOnStreaming}
+						<Alert
+							type="info"
+							size="xs"
+							title={chatGap.noStream === 'image'
+								? 'Image answers do not stream'
+								: 'Streaming is off'}
+							class="m-2 shrink-0"
+						>
+							Each answer shows once its run ends.
+							{#if chatGap.noStream === 'off' && !readOnly}
+								<div class="flex mt-2">
+									<Button unifiedSize="2xs" variant="default" onClick={turnOnStreaming}
 										>Turn on</Button
 									>
-								{/if}
-							</div>
+								</div>
+							{/if}
 						</Alert>
 					{/if}
 					<!-- Hidden rather than unmounted while memory is off: switching it off mid-turn must
