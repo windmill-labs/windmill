@@ -2652,6 +2652,17 @@
 	{#if summary.length > 0}
 		<span class="text-2xs text-secondary truncate">{summary.join(' · ')}</span>
 	{/if}
+	{#if mode === 'edit' && $workspaceStore}
+		<!-- Draft sync for the whole pipeline bundle, beside its name like a flow's.
+		     Distinct from "Save all", which deploys the drafts. -->
+		<AutosaveIndicator
+			workspace={$workspaceStore}
+			itemKind={PIPELINE_DRAFT_KIND}
+			path={pipelineDraftPath}
+			draftOnly
+			loadedFromDraft={pe.loadedFromDbDraft}
+		/>
+	{/if}
 {/snippet}
 
 {#snippet pipelineActions()}
@@ -2758,18 +2769,6 @@
 				</Popover>
 			{/if}
 			{#if mode === 'edit' && pendingCount > 0}
-				<!-- Draft autosave status for the whole pipeline bundle. Distinct
-				     from "Save all", which DEPLOYS the drafts — this only reflects
-				     that in-flight edits are persisted to the per-user server draft. -->
-				{#if $workspaceStore}
-					<AutosaveIndicator
-						workspace={$workspaceStore}
-						itemKind={PIPELINE_DRAFT_KIND}
-						path={pipelineDraftPath}
-						draftOnly
-						loadedFromDraft={pe.loadedFromDbDraft}
-					/>
-				{/if}
 				<Button
 					variant="accent"
 					unifiedSize="sm"
