@@ -824,32 +824,27 @@
 	<PageHeaderContent section={{ label: `run/${page.params.run}` }} actions={runActions} />
 
 	{#snippet runActions()}
-			{@const isScript = job?.job_kind === 'script'}
-			{@const isHubFlowPreview = isFlowPreview(job?.job_kind) && isHubFlowPath(job?.script_path)}
-			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
-			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
-				<Dropdown
-					items={[
-						{
-							displayName: 'Delete result, logs and args (admin only)',
-							action: () => {
-								job?.id && deleteCompletedJob(job.id)
-							},
-							type: 'delete'
-						}
-					]}
-				>
-					{#snippet buttonReplacement()}
-						<Button
-							nonCaptureEvent
-							variant="default"
-							unifiedSize="sm"
-							startIcon={{ icon: Trash }}
-						/>
-					{/snippet}
-				</Dropdown>
-				{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-					<Button
+		{@const isScript = job?.job_kind === 'script'}
+		{@const isHubFlowPreview = isFlowPreview(job?.job_kind) && isHubFlowPath(job?.script_path)}
+		{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
+		{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
+			<Dropdown
+				items={[
+					{
+						displayName: 'Delete result, logs and args (admin only)',
+						action: () => {
+							job?.id && deleteCompletedJob(job.id)
+						},
+						type: 'delete'
+					}
+				]}
+			>
+				{#snippet buttonReplacement()}
+					<Button nonCaptureEvent variant="default" unifiedSize="sm" startIcon={{ icon: Trash }} />
+				{/snippet}
+			</Dropdown>
+			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
+				<Button
 					href={runsHref}
 					variant="default"
 					unifiedSize="sm"
@@ -857,260 +852,260 @@
 					title="View runs"
 					startIcon={{ icon: List }}
 				>
-						View runs
-					</Button>
-				{/if}
+					View runs
+				</Button>
 			{/if}
-			{#if job}
+		{/if}
+		{#if job}
+			<Dropdown
+				customWidth={280}
+				items={[
+					{
+						displayName: 'Copy link for members',
+						icon: Users,
+						tooltip:
+							'Read-only link to this run for another member of this workspace. They must be logged in.',
+						action: () => job && shareReadLink(job.id)
+					},
+					{
+						displayName: 'Copy public link',
+						icon: Globe,
+						disabled: !canSharePublicly,
+						tooltip: canSharePublicly
+							? "Read-only link that anyone on the internet can open, without logging in. It shows a minimal version of this page: this run's inputs, result and logs, and for a flow its graph plus every step's inputs, result, logs and code. The link cannot be revoked."
+							: 'Sharing a run publicly is restricted in this workspace. Ask an admin to share it, or to grant you a bypass on the ruleset.',
+						action: () => job && sharePublicLink(job.id)
+					}
+				]}
+			>
+				{#snippet buttonReplacement()}
+					<Button
+						nonCaptureEvent
+						variant="default"
+						unifiedSize="sm"
+						iconOnly={compactBar}
+						title="Share"
+						startIcon={{ icon: Share2 }}
+					>
+						Share
+					</Button>
+				{/snippet}
+			</Dropdown>
+		{/if}
+		{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
+		{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+		{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
+			<div class="inline">
 				<Dropdown
-					customWidth={280}
 					items={[
 						{
-							displayName: 'Copy link for members',
-							icon: Users,
-							tooltip:
-								'Read-only link to this run for another member of this workspace. They must be logged in.',
-							action: () => job && shareReadLink(job.id)
-						},
-						{
-							displayName: 'Copy public link',
-							icon: Globe,
-							disabled: !canSharePublicly,
-							tooltip: canSharePublicly
-								? "Read-only link that anyone on the internet can open, without logging in. It shows a minimal version of this page: this run's inputs, result and logs, and for a flow its graph plus every step's inputs, result, logs and code. The link cannot be revoked."
-								: 'Sharing a run publicly is restricted in this workspace. Ask an admin to share it, or to grant you a bypass on the ruleset.',
-							action: () => job && sharePublicLink(job.id)
+							displayName: 'Show Flow Debug Info',
+							action: () => {
+								debugInfo()
+							}
 						}
 					]}
+					class="h-auto"
 				>
 					{#snippet buttonReplacement()}
-						<Button
-							nonCaptureEvent
-							variant="default"
-							unifiedSize="sm"
-							iconOnly={compactBar}
-							title="Share"
-							startIcon={{ icon: Share2 }}
-						>
-							Share
+						<Button nonCaptureEvent unifiedSize="sm" variant="subtle">
+							<div class="flex flex-row items-center">
+								<EllipsisVertical size={14} />
+							</div>
 						</Button>
 					{/snippet}
 				</Dropdown>
-			{/if}
-			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
-			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-			{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
-				<div class="inline">
-					<Dropdown
-						items={[
-							{
-								displayName: 'Show Flow Debug Info',
-								action: () => {
-									debugInfo()
-								}
-							}
-						]}
-						class="h-auto"
-					>
-						{#snippet buttonReplacement()}
-							<Button nonCaptureEvent unifiedSize="sm" variant="subtle">
-								<div class="flex flex-row items-center">
-									<EllipsisVertical size={14} />
-								</div>
-							</Button>
-						{/snippet}
-					</Dropdown>
-				</div>
-			{/if}
-			{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
+			</div>
+		{/if}
+		{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
+			<Button
+				unifiedSize="sm"
+				variant="default"
+				iconOnly={compactBar}
+				title={isHubFlowPreview
+					? 'Fork flow into workspace'
+					: `Fork ${isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview`}
+				startIcon={{ icon: GitBranch }}
+				on:click={forkPreview}
+			>
+				{isHubFlowPreview
+					? 'Fork flow into workspace'
+					: `Fork ${isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview`}
+			</Button>
+		{/if}
+		{#if persistentScriptDefinition !== undefined}
+			<Button
+				unifiedSize="sm"
+				variant="default"
+				iconOnly={compactBar}
+				title="Current runs"
+				startIcon={{ icon: Activity }}
+				on:click={() => {
+					persistentScriptDrawer?.open?.(persistentScriptDefinition)
+				}}
+			>
+				Current runs
+			</Button>
+		{/if}
+		{#if canRunNow}
+			<Button
+				unifiedSize="md"
+				variant="default"
+				startIcon={{ icon: Play }}
+				on:click={() => job?.id && runJobNow(job.id)}
+				title="Start this job now instead of at its scheduled time, skipping any remaining delay or sleep. It keeps the same id, and a concurrency limit is still enforced."
+			>
+				Run now
+			</Button>
+		{/if}
+		{#if job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
+			{#if !forceCancel}
 				<Button
-					unifiedSize="sm"
-					variant="default"
-					iconOnly={compactBar}
-					title={isHubFlowPreview
-						? 'Fork flow into workspace'
-						: `Fork ${isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview`}
-					startIcon={{ icon: GitBranch }}
-					on:click={forkPreview}
-				>
-					{isHubFlowPreview
-						? 'Fork flow into workspace'
-						: `Fork ${isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview`}
-				</Button>
-			{/if}
-			{#if persistentScriptDefinition !== undefined}
-				<Button
-					unifiedSize="sm"
-					variant="default"
-					iconOnly={compactBar}
-					title="Current runs"
-					startIcon={{ icon: Activity }}
-					on:click={() => {
-						persistentScriptDrawer?.open?.(persistentScriptDefinition)
-					}}
-				>
-					Current runs
-				</Button>
-			{/if}
-			{#if canRunNow}
-				<Button
-					unifiedSize="md"
-					variant="default"
-					startIcon={{ icon: Play }}
-					on:click={() => job?.id && runJobNow(job.id)}
-					title="Start this job now instead of at its scheduled time, skipping any remaining delay or sleep. It keeps the same id, and a concurrency limit is still enforced."
-				>
-					Run now
-				</Button>
-			{/if}
-			{#if job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
-				{#if !forceCancel}
-					<Button
-						unifiedSize="sm"
-						variant="accent"
-						destructive
-						startIcon={{ icon: TimerOff }}
-						on:click|once={() => {
-							if (job?.id) {
-								cancelJob(job?.id)
-								setTimeout(() => {
-									forceCancel = true
-								}, 3001)
-							}
-						}}
-						title={`Cancel the ${job?.job_kind === 'script' ? 'script' : job?.job_kind === 'flow' ? 'flow' : 'job'}`}
-					>
-						Cancel
-					</Button>
-				{:else}
-					<Button
-						unifiedSize="sm"
-						variant="accent"
-						destructive
-						startIcon={{ icon: TimerOff }}
-						on:click|once={() => {
-							if (job?.id) {
-								cancelJob(job?.id)
-							}
-						}}
-					>
-						Force Cancel
-					</Button>
-				{/if}
-			{/if}
-			{#if job?.schedule_path}
-				<Button
-					unifiedSize="sm"
-					variant="default"
-					on:click={() => {
-						if (!job || !job.schedule_path) {
-							return
-						}
-						scheduleEditor?.openEdit(job.schedule_path, job.job_kind == 'flow')
-					}}
-					startIcon={{ icon: Calendar }}>Edit schedule</Button
-				>
-			{/if}
-			{#if restartStep !== undefined && canRestart(restart)}
-				{@render flowRestartButton(restart, restartStep, 'button')}
-			{/if}
-			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
-				<Button
-					on:click|once={async () => {
-						// The form this lands on rebuilds the whole project. When resuming
-						// THIS run is the cheaper thing to do, name it so the form can
-						// offer that in one click rather than leaving the reader to know.
-						const from = dbtResumable ? `?dbt_retry_from=${job?.id}` : ''
-						goto(
-							viewHref +
-								from +
-								`#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
-						)
-					}}
-					unifiedSize="sm"
-					variant="default"
-					iconOnly={compactBar}
-					title="Run again"
-					startIcon={{ icon: RefreshCw }}
-					loading={runImmediatelyLoading}
-					dropdownItems={[
-						// A failed dbt run's cheap next step is resuming its failed and skipped
-						// nodes rather than rebuilding the project, and `dbt_command` is the
-						// only argument that differs. Offered first, and only while the saved
-						// failure is still this run — which is what `dbtResumable` answers.
-						...(dbtResumable ? [{ label: 'dbt retry with same args', onClick: resumeDbtRun }] : []),
-						{
-							label: 'Run immediately with same args',
-							onClick: () => runImmediately()
-						}
-					]}
-				>
-					Run again
-				</Button>
-			{/if}
-			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-				{#if !$userStore?.operator}
-					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
-						<Button
-							href={`${stem}/edit/${job?.script_path}?workspace=${$workspaceStore}`}
-							on:click={() => {
-								$initialArgsStore = job?.args
-							}}
-							unifiedSize="sm"
-							variant="default"
-							disabled={!showEditButton}
-							iconOnly={compactBar}
-							title="Edit"
-							startIcon={{ icon: Pen }}>Edit</Button
-						>
-						{#if showEditButton}
-							<!-- Opens the deployed runnable at this job's path, like Edit — unlike
-							     "View script", which pins the hash this run executed. Same gate as
-							     Edit: where direct deployment is off, the way in is "Edit in fork". -->
-							<OpenInSessionButton
-								source={{
-									target: { kind: isScript ? 'script' : 'flow', path: job?.script_path ?? '' },
-									workspaceId: $workspaceStore ?? undefined
-								}}
-								btnProps={{ unifiedSize: 'sm' }}
-							/>
-						{/if}
-					{/if}
-					{#if !showEditButton && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)}
-						<Button
-							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
-							onClick={(e) =>
-								onEditInForkClick(e, isScript ? 'script' : 'flow', job?.script_path ?? '', {
-									hasHref: true
-								})}
-							unifiedSize="sm"
-							variant="default"
-							iconOnly={compactBar}
-							title={editInForkLabel($workspaceStore, $userWorkspaces)}
-							startIcon={{ icon: Pen }}>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
-						>
-					{/if}
-				{/if}
-			{/if}
-			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
-				<Button
-					href={viewHref}
 					unifiedSize="sm"
 					variant="accent"
-					iconOnly={compactBar}
-					title="View {job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}"
-					startIcon={{
-						icon:
-							job?.job_kind === 'script' || job?.job_kind === 'script_hub'
-								? Code2
-								: job?.job_kind === 'flow'
-									? BarsStaggered
-									: Code2
+					destructive
+					startIcon={{ icon: TimerOff }}
+					on:click|once={() => {
+						if (job?.id) {
+							cancelJob(job?.id)
+							setTimeout(() => {
+								forceCancel = true
+							}, 3001)
+						}
+					}}
+					title={`Cancel the ${job?.job_kind === 'script' ? 'script' : job?.job_kind === 'flow' ? 'flow' : 'job'}`}
+				>
+					Cancel
+				</Button>
+			{:else}
+				<Button
+					unifiedSize="sm"
+					variant="accent"
+					destructive
+					startIcon={{ icon: TimerOff }}
+					on:click|once={() => {
+						if (job?.id) {
+							cancelJob(job?.id)
+						}
 					}}
 				>
-					View {job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}
+					Force Cancel
 				</Button>
 			{/if}
+		{/if}
+		{#if job?.schedule_path}
+			<Button
+				unifiedSize="sm"
+				variant="default"
+				on:click={() => {
+					if (!job || !job.schedule_path) {
+						return
+					}
+					scheduleEditor?.openEdit(job.schedule_path, job.job_kind == 'flow')
+				}}
+				startIcon={{ icon: Calendar }}>Edit schedule</Button
+			>
+		{/if}
+		{#if restartStep !== undefined && canRestart(restart)}
+			{@render flowRestartButton(restart, restartStep, 'button')}
+		{/if}
+		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
+			<Button
+				on:click|once={async () => {
+					// The form this lands on rebuilds the whole project. When resuming
+					// THIS run is the cheaper thing to do, name it so the form can
+					// offer that in one click rather than leaving the reader to know.
+					const from = dbtResumable ? `?dbt_retry_from=${job?.id}` : ''
+					goto(
+						viewHref +
+							from +
+							`#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
+					)
+				}}
+				unifiedSize="sm"
+				variant="default"
+				iconOnly={compactBar}
+				title="Run again"
+				startIcon={{ icon: RefreshCw }}
+				loading={runImmediatelyLoading}
+				dropdownItems={[
+					// A failed dbt run's cheap next step is resuming its failed and skipped
+					// nodes rather than rebuilding the project, and `dbt_command` is the
+					// only argument that differs. Offered first, and only while the saved
+					// failure is still this run — which is what `dbtResumable` answers.
+					...(dbtResumable ? [{ label: 'dbt retry with same args', onClick: resumeDbtRun }] : []),
+					{
+						label: 'Run immediately with same args',
+						onClick: () => runImmediately()
+					}
+				]}
+			>
+				Run again
+			</Button>
+		{/if}
+		{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
+			{#if !$userStore?.operator}
+				{#if canWrite(job?.script_path ?? '', {}, $userStore)}
+					<Button
+						href={`${stem}/edit/${job?.script_path}?workspace=${$workspaceStore}`}
+						on:click={() => {
+							$initialArgsStore = job?.args
+						}}
+						unifiedSize="sm"
+						variant="default"
+						disabled={!showEditButton}
+						iconOnly={compactBar}
+						title="Edit"
+						startIcon={{ icon: Pen }}>Edit</Button
+					>
+					{#if showEditButton}
+						<!-- Opens the deployed runnable at this job's path, like Edit — unlike
+							     "View script", which pins the hash this run executed. Same gate as
+							     Edit: where direct deployment is off, the way in is "Edit in fork". -->
+						<OpenInSessionButton
+							source={{
+								target: { kind: isScript ? 'script' : 'flow', path: job?.script_path ?? '' },
+								workspaceId: $workspaceStore ?? undefined
+							}}
+							btnProps={{ unifiedSize: 'sm' }}
+						/>
+					{/if}
+				{/if}
+				{#if !showEditButton && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)}
+					<Button
+						href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
+						onClick={(e) =>
+							onEditInForkClick(e, isScript ? 'script' : 'flow', job?.script_path ?? '', {
+								hasHref: true
+							})}
+						unifiedSize="sm"
+						variant="default"
+						iconOnly={compactBar}
+						title={editInForkLabel($workspaceStore, $userWorkspaces)}
+						startIcon={{ icon: Pen }}>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
+					>
+				{/if}
+			{/if}
+		{/if}
+		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
+			<Button
+				href={viewHref}
+				unifiedSize="sm"
+				variant="accent"
+				iconOnly={compactBar}
+				title="View {job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}"
+				startIcon={{
+					icon:
+						job?.job_kind === 'script' || job?.job_kind === 'script_hub'
+							? Code2
+							: job?.job_kind === 'flow'
+								? BarsStaggered
+								: Code2
+				}}
+			>
+				View {job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}
+			</Button>
+		{/if}
 	{/snippet}
 	<div class={twMerge('w-full', isNotFlow(job?.job_kind) && 'pb-8')}>
 		<!-- Flow Detail Header Card -->

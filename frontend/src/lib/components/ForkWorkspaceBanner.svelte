@@ -109,7 +109,7 @@
 		if (comparisonFor !== ws) {
 			comparison = undefined
 			comparisonFor = undefined
-			}
+		}
 		const seq = ++requestSeq
 		loading = true
 		error = undefined
