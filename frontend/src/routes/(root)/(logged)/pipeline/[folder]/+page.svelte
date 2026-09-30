@@ -3390,7 +3390,7 @@
 								}
 							)
 						}}
-				onAddAssetTrigger={isOperator
+				onAddAssetTrigger={isOperator || mode !== 'edit'
 					? undefined
 					: ({
 							scripts,
