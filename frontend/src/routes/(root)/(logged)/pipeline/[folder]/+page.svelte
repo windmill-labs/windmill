@@ -833,11 +833,16 @@
 		for (let i = 0; i < results.length; i++) {
 			const r = results[i]
 			const [path] = entries[i]
-			if (r.status === 'fulfilled') {
+			const msg =
+				r.status === 'rejected'
+					? String((r.reason as any)?.body ?? (r.reason as any)?.message ?? r.reason)
+					: ''
+			// A draft identical to the deployed script is refused as a duplicate: it
+			// has nothing to deploy, so it is done rather than failed.
+			if (r.status === 'fulfilled' || /same hash/i.test(msg)) {
 				savedPaths.push(path)
 			} else {
-				const e: any = r.reason
-				errors.set(path, e?.body ?? e?.message ?? String(e))
+				errors.set(path, msg)
 			}
 		}
 		const savedTriggers = await deployTriggerDrafts(ws, savedPaths, errors)
