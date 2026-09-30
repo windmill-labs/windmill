@@ -1339,10 +1339,7 @@
 				{/if}
 			</div>
 		{:else if !isDraft && scriptRes.loading && !script}
-			<div class="absolute inset-0 flex items-center justify-center gap-2 text-tertiary">
-				<Loader2 size={16} class="animate-spin" />
-				<span class="text-xs">Loading script…</span>
-			</div>
+			<!-- Blank while the script loads: the fetch is short, and a spinner only flashes. -->
 		{:else if !isDraft && scriptRes.error}
 			<div class="p-3 text-xs text-red-500">
 				Failed to load: {scriptRes.error.message}
