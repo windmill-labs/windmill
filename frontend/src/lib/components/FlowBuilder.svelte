@@ -223,7 +223,14 @@
 	// rely on viewport `md:` because the editor lives inside other panes
 	// (session pane, drawer, etc.) where the viewport stays wide.
 	let topbarWidth = $state(0)
-	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+	// In the page header the buttons share the row with the breadcrumb, so they collapse sooner:
+	// the trail and the summary take ~560px before either truncates, and the full group — the
+	// dropdown, Diff, the preview trio and Deploy — is ~610px.
+	const compactBelow = $derived(ownsPageHeader ? 1200 : 720)
+	const compactTopbar = $derived.by(() => {
+		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
+		return w > 0 && w < compactBelow
+	})
 	// A phone's bar holds the trail and Deploy: the diff joins the menu and the preview buttons
 	// stand down, since there is no room to run a flow beside its own name.
 	const phoneTopbar = $derived(
@@ -1701,9 +1708,11 @@
 				/>
 			{/snippet}
 
-			<!-- Rendered either inline in the top bar (wide) or as a graph overlay
-			     (compactTopbar). Crossing the 720px threshold remounts
-			     FlowPreviewButtons; any open preview state will reset. -->
+			<!-- Rendered either inline in the top bar (wide) or as a graph overlay. The two
+			     conditions are exact complements: testing the flow is reachable at every width,
+			     and FlowPreviewButtons — which owns the preview state and the handles the graph
+			     calls into — is mounted exactly once. Crossing a threshold remounts it, so any
+			     open preview resets. -->
 			{#snippet previewButtons()}
 				<FlowPreviewButtons
 					{suspendStatus}
@@ -1733,7 +1742,7 @@
 			{#if flowStateStore.val}
 				<FlowEditor
 					bind:this={flowEditor}
-					graphOverlay={compactTopbar ? previewButtons : undefined}
+					graphOverlay={compactTopbar || phoneTopbar ? previewButtons : undefined}
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}

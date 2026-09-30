@@ -149,13 +149,17 @@
 	</PublicAppFrame>
 </div>
 
-{#if canWriteApp && !hideEditBtn}
-	<!-- The page header carries it, with the app's name: a floating button over the app's own
-	     canvas lands on whatever the app draws there. -->
-	<!-- Edit sits with the app's name rather than at the far end of the bar: on a page whose header
-	     is only there while hovered, the far end is a journey across the window. -->
-	<PageHeaderContent item={{ kind: 'app', path }} afterName={editAction} fullBleed />
-{/if}
+<!-- The band names the app for whoever opened it, write access or not: the route alone registers
+     no item, and the breadcrumb would fall back to the section name "Apps".
+     Edit is carried here too, rather than floating over the app's own canvas where it would land
+     on whatever the app draws there. It sits with the name instead of at the far end of the bar:
+     on a page whose header is only there while hovered, the far end is a journey across the
+     window. -->
+<PageHeaderContent
+	item={{ kind: 'app', path }}
+	afterName={canWriteApp && !hideEditBtn ? editAction : undefined}
+	fullBleed
+/>
 
 {#snippet editAction()}
 	<Button

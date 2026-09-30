@@ -7,7 +7,7 @@ section name — and the route's own buttons at the far end.
 The row's height matches the sidebar's own header row, so the two read as one band.
 -->
 <script lang="ts">
-	import { PanelLeft, PanelTopDashed } from 'lucide-svelte'
+	import { PanelLeft, PanelTop, PanelTopDashed } from 'lucide-svelte'
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
@@ -20,6 +20,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		navHidden = false,
 		hideNavHandle = false,
 		panelled = false,
+		onPin,
 		onUnpin
 	}: {
 		navHidden?: boolean
@@ -29,6 +30,10 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		/** The sidebar is a panel over the page rather than a rail beside it — detached, or a
 		 *  window too narrow to seat one. Either way this bar carries the switch that opens it. */
 		panelled?: boolean
+		/** Keeps the band on a page that owns the viewport. The corner handle that called the band
+		 *  down is underneath it by the time the pointer arrives, so this bar has to carry the pin
+		 *  itself — it lands on the same pixels, in place of the sidebar handle it hides. */
+		onPin?: () => void
 		/** Sends the band back behind its handle, on a page that owns the viewport. */
 		onUnpin?: () => void
 	} = $props()
@@ -110,6 +115,19 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		</div>
 	{/if}
 
+	{#if onPin}
+		<!-- Same box and offsets as the corner handle it comes to rest over, so the pointer that
+		     called the band down is already on this button. -->
+		<button
+			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
+			aria-label="Pin the header on deployed apps"
+			title="Pin the header on deployed apps"
+			onclick={() => onPin?.()}
+		>
+			<PanelTop size={16} class="flex-shrink-0 text-hint" />
+		</button>
+	{/if}
+
 	{#if onUnpin}
 		<!-- After the sidebar's handle: the sidebar is the outer thing, the band sits inside it. -->
 		<button
@@ -141,6 +159,12 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 				afterName={content?.afterName}
 				actingWorkspaceId={content?.actingWorkspaceId}
 			/>
+		</div>
+	{:else if content?.afterName}
+		<!-- An embed has no trail, but what sits after the name is the page's own control — an
+		     app's Edit — and dropping it with the trail would take that with it. -->
+		<div class="flex items-center min-w-0">
+			{@render content.afterName()}
 		</div>
 	{/if}
 

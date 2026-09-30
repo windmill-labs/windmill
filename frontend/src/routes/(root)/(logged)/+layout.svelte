@@ -528,7 +528,16 @@
 	// do not touch, and the leave of the one fires before the enter of the other.
 	const PEEK_CLOSE_DELAY_MS = 200
 	const { debounced: schedulePeekClose, clearDebounce: cancelPeekClose } = debounce(() => {
-		if (peeksOnHover) menuOpen = false
+		if (!peeksOnHover) return
+		// A menu opened inside the card portals to `body` (overlayPortalTarget), so the pointer
+		// moving into it leaves the card. The card has to outlive the menus it opens, or it slides
+		// out from under the one being read: hold while the pointer is in a menu, and take the
+		// close from the leave of that instead.
+		if (document.querySelector('[role="menu"]:hover')) {
+			schedulePeekClose()
+			return
+		}
+		menuOpen = false
 	}, PEEK_CLOSE_DELAY_MS)
 
 	// A deployed app owns the viewport: the band floats above it until the corner handle calls it
@@ -558,6 +567,13 @@
 	const { debounced: scheduleBandHide, clearDebounce: cancelBandHide } = debounce(() => {
 		bandPeeked = false
 	}, PEEK_CLOSE_DELAY_MS)
+
+	// Offered both by the corner handle and by the band it calls down, which covers that handle.
+	function pinAppHeader() {
+		appHeaderPinned.val = true
+		// The band stays because it is pinned now, not because the pointer is still on it.
+		bandPeeked = false
+	}
 
 	// The handle and the edge band both open the card this layout owns.
 	navHandleSlot.setOpener(() => (menuOpen = true), {
@@ -1549,7 +1565,7 @@
 			<!-- `menuHidden` hides the workspace navigation, not the page: an embedded Runs or detail
 			     page keeps its own controls, which now live in this band and nowhere else. The band
 			     renders without its breadcrumb there, so the embed gains no workspace nav. -->
-			{#if !devOnly && (!menuHidden || pageHeader.actions.length > 0)}
+			{#if !devOnly && (!menuHidden || pageHeader.actions.length > 0 || pageHeader.content?.afterName)}
 				{@const rightInset = pageHeader.content?.barRightInset}
 				{@const leftInset = useDrawer ? 0 : railWidth}
 				<!-- One element for every placement, styled rather than branched: a page registers its
@@ -1593,6 +1609,7 @@
 						navHidden={menuHidden}
 						hideNavHandle={bandPeek}
 						panelled={useDrawer}
+						onPin={bandPeek ? pinAppHeader : undefined}
 						onUnpin={fullBleed && appHeaderPinned.val
 							? () => (appHeaderPinned.val = false)
 							: undefined}
@@ -1634,10 +1651,7 @@
 							class="flex items-center p-1.5 rounded bg-surface/80 backdrop-blur-sm shadow-sm hover:bg-surface"
 							aria-label="Pin the header on deployed apps"
 							title="Pin the header on deployed apps"
-							onclick={() => {
-								appHeaderPinned.val = true
-								bandPeeked = false
-							}}
+							onclick={pinAppHeader}
 						>
 							<PanelTop size={16} class="flex-shrink-0 text-hint" />
 						</button>
