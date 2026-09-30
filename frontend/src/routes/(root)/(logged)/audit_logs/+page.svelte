@@ -122,40 +122,40 @@
 		{/snippet}
 
 		{#snippet auditActions()}
-				<div class="hidden 2xl:block">
-					<AuditLogsFilters
-						{logs}
-						bind:username
-						bind:before
-						bind:after
-						bind:actionKind
-						bind:operation
-						bind:resource
-						bind:pageIndex
-						bind:perPage
-						bind:scope
-						loading={auditLogsLoader.loading}
-						onRefresh={() => auditLogsLoader.reload()}
-					/>
-				</div>
-				<div class="2xl:hidden">
-					<AuditLogMobileFilters>
-						{#snippet filters()}
-							<AuditLogsFilters
-								{logs}
-								bind:username
-								bind:before
-								bind:after
-								bind:actionKind
-								bind:operation
-								bind:resource
-								bind:scope
-								loading={auditLogsLoader.loading}
-								onRefresh={() => auditLogsLoader.reload()}
-							/>
-						{/snippet}
-					</AuditLogMobileFilters>
-				</div>
+			<div class="hidden 2xl:block">
+				<AuditLogsFilters
+					{logs}
+					bind:username
+					bind:before
+					bind:after
+					bind:actionKind
+					bind:operation
+					bind:resource
+					bind:pageIndex
+					bind:perPage
+					bind:scope
+					loading={auditLogsLoader.loading}
+					onRefresh={() => auditLogsLoader.reload()}
+				/>
+			</div>
+			<div class="2xl:hidden">
+				<AuditLogMobileFilters>
+					{#snippet filters()}
+						<AuditLogsFilters
+							{logs}
+							bind:username
+							bind:before
+							bind:after
+							bind:actionKind
+							bind:operation
+							bind:resource
+							bind:scope
+							loading={auditLogsLoader.loading}
+							onRefresh={() => auditLogsLoader.reload()}
+						/>
+					{/snippet}
+				</AuditLogMobileFilters>
+			</div>
 		{/snippet}
 		<!-- The band draws no edge of its own, so the timeline keeps a little air under it. -->
 		<div class="h-2/6 pt-2">

@@ -193,34 +193,36 @@
 	)
 	// Labels, paths and icons come from the shared page table, so the nav and the page header's
 	// breadcrumb always call a page the same thing. Everything else here is nav-only.
-	const MAIN_MENU_EXTRAS: Record<string, { aiId: string; aiDescription: string; onclick?: () => void }> =
-		{
-			Home: {
-				aiId: 'sidebar-menu-link-home',
-				aiDescription:
-					"Button to navigate to home which contains all the user's scripts, flows and apps"
-			},
-			Runs: {
-				aiId: 'sidebar-menu-link-runs',
-				aiDescription: 'Button to navigate to runs',
-				onclick: () => {
-					setTimeout(() => {
-						window.dispatchEvent(new Event('popstate'))
-					}, 100)
-				}
-			},
-			Variables: {
-				aiId: 'sidebar-menu-link-variables',
-				aiDescription: 'Button to navigate to variables'
-			},
-			Resources: {
-				aiId: 'sidebar-menu-link-resources',
-				aiDescription: 'Button to navigate to resources'
-			},
-			Assets: { aiId: 'sidebar-menu-link-assets', aiDescription: 'Button to navigate to assets' },
-			Folders: { aiId: 'sidebar-menu-link-folders', aiDescription: 'Button to navigate to folders' },
-			Groups: { aiId: 'sidebar-menu-link-groups', aiDescription: 'Button to navigate to groups' }
-		}
+	const MAIN_MENU_EXTRAS: Record<
+		string,
+		{ aiId: string; aiDescription: string; onclick?: () => void }
+	> = {
+		Home: {
+			aiId: 'sidebar-menu-link-home',
+			aiDescription:
+				"Button to navigate to home which contains all the user's scripts, flows and apps"
+		},
+		Runs: {
+			aiId: 'sidebar-menu-link-runs',
+			aiDescription: 'Button to navigate to runs',
+			onclick: () => {
+				setTimeout(() => {
+					window.dispatchEvent(new Event('popstate'))
+				}, 100)
+			}
+		},
+		Variables: {
+			aiId: 'sidebar-menu-link-variables',
+			aiDescription: 'Button to navigate to variables'
+		},
+		Resources: {
+			aiId: 'sidebar-menu-link-resources',
+			aiDescription: 'Button to navigate to resources'
+		},
+		Assets: { aiId: 'sidebar-menu-link-assets', aiDescription: 'Button to navigate to assets' },
+		Folders: { aiId: 'sidebar-menu-link-folders', aiDescription: 'Button to navigate to folders' },
+		Groups: { aiId: 'sidebar-menu-link-groups', aiDescription: 'Button to navigate to groups' }
+	}
 	let mainMenuLinks = $derived(
 		NAV_PAGES.filter((p) => p.label in MAIN_MENU_EXTRAS)
 			.map((p) => ({

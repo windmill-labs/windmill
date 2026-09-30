@@ -123,9 +123,9 @@
 				{/if}
 				<div class="flex items-center gap-3 max-w-full">
 					<span
-						class="{compact ? 'text-xs font-medium' : 'text-sm font-semibold'} truncate {emptyString(
-							summary
-						)
+						class="{compact
+							? 'text-xs font-medium'
+							: 'text-sm font-semibold'} truncate {emptyString(summary)
 							? 'text-tertiary italic font-normal'
 							: 'text-emphasis'}"
 					>
