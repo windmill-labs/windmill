@@ -7,13 +7,13 @@ popover is open this holds the path as it was when it opened, so the trail — a
 to it — does not reflow under the pointer as the user types, which floating-ui would follow.
 -->
 <script lang="ts">
+	import type { ComponentProps } from 'svelte'
 	import { Pencil } from 'lucide-svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import type { WorkspaceItemKind } from '$lib/components/workspacePicker'
 	import { isOwner } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import {
@@ -36,7 +36,10 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 		path?: string
 		/** The item's *saved* path on the server, so the popover can say a rename needs deploying. */
 		savedPath?: string
-		kind?: WorkspaceItemKind
+		/** Scopes the path picker's validation, and names the item in the placeholder and the
+		 *  deploy note. An agent lives at a resource path, so this is wider than the three
+		 *  workspace item kinds. */
+		kind?: ComponentProps<typeof Path>['kind']
 		/** Workspace the path picker scopes to; defaults to the operating workspace. */
 		workspaceId?: string
 		/** When set, warns that a redeploy happens on behalf of the current user instead. */

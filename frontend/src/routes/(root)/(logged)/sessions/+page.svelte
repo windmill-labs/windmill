@@ -68,10 +68,15 @@
 		type PageItemRef,
 		parsePreviewItemRoute,
 		previewLocationLabel,
+		resolvePreviewTab,
 		workspacePageHref,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
-	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
+	import {
+		toolReloadEffect,
+		tabsToReload,
+		viewerTabsToReload
+	} from '$lib/components/sessions/previewReload'
 	import { isPageItemListPath, stripBase } from '$lib/components/sessions/previewPaths'
 	import {
 		leafKeyFor,
@@ -428,6 +433,15 @@
 			title: tabTitleFor(t, previewWorkspace ?? '')
 		}))
 	)
+
+	/** Marks the editor side, since both sides of one item can be open at once and would
+	 * otherwise be two tabs with the same name. Only the editor is marked: the deployed
+	 * page is the item itself, and a page, artifact or pipeline has no second side to be
+	 * told apart from. */
+	function sideSuffix(url: string): string {
+		const slot = resolvePreviewTab(url)
+		return slot.kind === 'editor' && slot.editorKind !== 'pipeline' ? ' (edit)' : ''
+	}
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
 	// same time as the tab-strip "+" popover, so sharing one flag would open both
@@ -585,18 +599,20 @@
 
 	// Reload mounted preview tabs affected by a mutating chat tool. Item and pipeline
 	// tabs are live editors that self-sync from the store the chat mutates, so nothing
-	// reloads them. List-page tabs (schedules, resources, …) and page item tabs reload
-	// only when a tool actually changed *their* page or item (toolReloadEffect) — so a
-	// schedule write leaves the Resources tab alone, and a purely local tool (saving
-	// user instructions) reloads nothing.
+	// reloads them. Three kinds do need telling, each only when a tool actually changed
+	// what IT shows (toolReloadEffect): list-page tabs (schedules, resources, …), page
+	// item tabs, and tabs on an item's View side, which render the deployed version over
+	// the API. So a schedule write leaves the Resources tab alone, and a purely local
+	// tool (saving user instructions) reloads nothing.
 	const tabHosts: Record<string, PreviewTabHost | undefined> = {}
 
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
 	// Per workspace a chat round touched since the last flush: base-stripped list-page paths
-	// (e.g. `/schedules`, see toolReloadEffect) and the page items its tools named, as tab
-	// urls. By workspace because a path names an item only within one: a write in one fork
-	// must not remount the same path's editor in a session on another.
-	let pending = new Map<string, { pages: Set<string>; items: Set<string> }>()
+	// (e.g. `/schedules`, see toolReloadEffect), the page items its tools named, as tab urls,
+	// and the item paths whose deployed version changed. By workspace because a path names an
+	// item only within one: a write in one fork must not remount the same path's editor in a
+	// session on another.
+	let pending = new Map<string, { pages: Set<string>; items: Set<string>; deployed: Set<string> }>()
 
 	// Reload the mounted tabs a chat round changed in each warm session acting on that
 	// workspace (a hidden preview would otherwise show pre-mutation content on return).
@@ -607,7 +623,11 @@
 			const scope = touched.get(getEffectiveWorkspaceId(s) ?? $workspaceStore ?? '')
 			const owner = getRuntime(s.id)?.previewTabs
 			if (!scope || !owner) continue
-			for (const tab of tabsToReload(owner.tabs, scope.pages, scope.items)) {
+			const affected = [
+				...tabsToReload(owner.tabs, scope.pages, scope.items),
+				...viewerTabsToReload(owner.tabs, scope.deployed)
+			]
+			for (const tab of affected) {
 				const key = tabKey(s.id, tab.id)
 				if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
 			}
@@ -616,12 +636,17 @@
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
 		setToolCompletionListener((name, args, workspace) => {
-			const { pages, items } = toolReloadEffect(name, args)
-			if (pages.length === 0) return
+			const { pages, items, deployed } = toolReloadEffect(name, args)
+			if (pages.length === 0 && deployed.length === 0) return
 			let scope = pending.get(workspace)
-			if (!scope) pending.set(workspace, (scope = { pages: new Set(), items: new Set() }))
+			if (!scope)
+				pending.set(
+					workspace,
+					(scope = { pages: new Set(), items: new Set(), deployed: new Set() })
+				)
 			for (const p of pages) scope.pages.add(p)
 			for (const item of items) scope.items.add(pageItemUrl(item))
+			for (const d of deployed) scope.deployed.add(d)
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
@@ -642,7 +667,7 @@
 			if (!o) return
 			const target = previewTargetForSessionTarget(action.previewKind, action.path)
 			if (!target) return
-			o.open(target)
+			o.open(target.type === 'item' ? { ...target, mode: action.mode } : target)
 		})
 	})
 	// Variables, resources, schedules and triggers the chat links to open as tabs of their
@@ -721,6 +746,9 @@
 					: undefined
 	)
 	let activeTabPickerOpen = $state(false)
+	/** Measured width of the floating action controls, reserved as the tab strip's right
+	 * padding so tabs stop before them instead of scrolling underneath. */
+	let previewActionsWidth = $state(0)
 
 	// Breadcrumb picks steer the *active* tab; the "+" picker opens new ones. An
 	// editable item also becomes the session's live editor (owner.navigate).
@@ -780,11 +808,11 @@
 	// for summary-less items and non-item pages.
 	function tabLabelFor(tab: SessionPreviewTab, workspace: string): string {
 		const listed = listedItemFor(tab, workspace)
-		return (
+		const name =
 			tab.friendlyLabel ??
 			(listed && itemDisplayName(listed.path, listed.draftPath, listed.summary)) ??
 			previewLocationLabel(tab.loc)
-		)
+		return name + sideSuffix(tab.url)
 	}
 
 	// Hover title for a tab. A summary label is free text the strip truncates, and
@@ -814,6 +842,15 @@
 			return
 		}
 		owner?.navigate({ type: 'item', item })
+	}
+
+	// An editor's `Exit & see details`: the session hosts the details page itself, so the
+	// tab moves to the item's deployed view rather than the browser leaving the session.
+	// `open`, not `navigate`: leaving the editor to look at what is deployed is not a
+	// redirect of the tab you are working in — you are stepping away from an editor you
+	// still want, so the deployed page arrives beside it.
+	function seeDetailsInPreview(item: WorkspaceItem) {
+		owner?.open({ type: 'item', item, mode: 'view' })
 	}
 
 	// A preview iframe that navigates to an editor route posts up to us instead of
@@ -1007,10 +1044,16 @@
 							bind:clientWidth={previewWidth}
 							class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0' : 'p-2 pl-0'}"
 						>
+							<!-- The action controls float over the tab strip, so the strip has to reserve
+							     their width or tabs slide underneath them. Measured rather than guessed:
+							     the set changes with the tab (an artifact has no "Open in workspace", a
+							     page has no View|Edit toggle), so a fixed padding is either short for
+							     the widest case or wasted space for the narrowest. -->
 							<div
 								class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {fullscreen
 									? ''
 									: 'rounded-md border border-light'}"
+								style="--preview-actions-w: {previewActionsWidth + 8}px"
 							>
 								{#if !fullscreen}
 									<!-- Collapse the preview panel — floats over the top-left corner so
@@ -1028,7 +1071,14 @@
 
 								<!-- Open-in-full-page + full-screen toggle, floating over the top-right
 								     corner to mirror the collapse control. -->
-								<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
+								<!-- Spans the tab strip's own height and centres within it, rather than
+							     being pinned a fixed distance from the top, so these controls sit on
+							     the same axis as the collapse button opposite. Its width is measured
+							     so the strip can reserve room and its tabs never scroll underneath. -->
+								<div
+									bind:clientWidth={previewActionsWidth}
+									class="absolute top-0 right-1 z-30 flex h-8 items-center gap-0.5"
+								>
 									{#if activeWorkspaceHref}
 										<a
 											href={withWorkspaceParam(activeWorkspaceHref, previewWorkspace)}
@@ -1067,7 +1117,7 @@
 									onReorder={reorderTabs}
 									class="session-preview-tab-strip h-8 border-b border-light bg-surface-secondary/50 {fullscreen
 										? 'pl-1.5'
-										: 'pl-9'} pr-16"
+										: 'pl-9'} pr-[var(--preview-actions-w,4rem)]"
 								>
 									{#snippet tabAccessory(_tab, isActive)}
 										{#if isActive}
@@ -1182,6 +1232,7 @@
 												darkMode={isDarkMode.val}
 												{fullscreen}
 												onNavigate={navigateEditorTo}
+												onSeeDetails={seeDetailsInPreview}
 												onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
 											/>
 										{/each}

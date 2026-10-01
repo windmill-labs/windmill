@@ -15,6 +15,7 @@
 		path,
 		workspaceId,
 		onNavigate,
+		onSeeDetails,
 		isActiveSession = true,
 		active = true,
 		initialSelectedId
@@ -23,6 +24,9 @@
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
+		/** `Exit & see details` — flips this tab to the item's deployed view rather than
+		 * navigating out of the session. */
+		onSeeDetails?: (e: { path: string }) => void
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
@@ -124,15 +128,13 @@
 			version={cell.saved.val?.version_id}
 			{diffDrawer}
 			{onNavigate}
+			onDetails={onSeeDetails}
 			condensedHeader={true}
 			customUi={{ topBar: { aiBuilder: false } }}
 			onDeploy={() => {
-				// FlowBuilder has no deploy toast and the session stays put, so toast
-				// here, then sync the preview to deployed (pulls the new locks + version_id).
+				// FlowBuilder has no deploy toast and the session stays put, so toast here.
 				sendUserToast('Deployed')
-				runtime.syncPreviewWithDeployed(workspaceId, 'flow', path)
-				// Deploying clears the item's pending draft — refresh the Draft Count.
-				invalidateWorkspaceDrafts(workspaceId)
+				runtime.itemDeployed(workspaceId, 'flow', path)
 			}}
 		/>
 	{/snippet}

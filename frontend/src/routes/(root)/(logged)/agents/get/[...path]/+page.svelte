@@ -88,6 +88,7 @@
 
 <main class="h-full w-full flex flex-col">
 	<DetailPageHeader
+		ownsPageHeader
 		summary={config ? agent?.state?.description : undefined}
 		{path}
 		{menuItems}

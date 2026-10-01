@@ -68,7 +68,7 @@
 	// `if (!inSessionPane) UserDraft.remove(...)` guards below skip the editor's
 	// own removal (it would target the wrong, navigation-workspace key). The
 	// session-side equivalent is RawAppEditorView's `onDeploy` →
-	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
+	// `runtime.itemDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import { stripRawAppDiffNoise } from './utils'

@@ -32,6 +32,8 @@
 	import AgentEvalsModal from './AgentEvalsModal.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
+	import { emptyString } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -87,6 +89,9 @@
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
 	let settingsDrawer: Drawer | undefined = $state(undefined)
+	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
 	let saving = $state(false)
 
@@ -310,7 +315,7 @@
 			     breadcrumb, the level it is on reads after that name, and its controls are the band's
 			     actions. -->
 			<PageHeaderContent
-				item={{ path: shownPath, summaryContent: agentBadges }}
+				item={{ path: pathSnapshot ?? shownPath, summaryContent: agentSummary }}
 				afterName={agentHint}
 				actions={settings}
 			/>
@@ -322,11 +327,46 @@
 		{/if}
 	{/key}
 
-	{#snippet agentBadges()}
-		<!-- The version rides with the agent's name, as the linked-agent card in the step panel has
-		     it. The trail's levels are not here: this layout opens settings in a drawer and evals
-		     over the page, so it never stands on one. -->
-		{@render titleBadge()}
+	{#snippet agentSummary()}
+		<!-- What the agent is, beside what it is called, and the pen that renames both — the same
+		     shape the script, flow and app editors carry. The version rides along, as the
+		     linked-agent card in the step panel has it. The trail's levels are not here: this layout
+		     opens settings in a drawer and evals over the page, so it never stands on one. -->
+		<div class="group flex items-center gap-1 min-w-0">
+			{#if draft?.state}
+				<span
+					class="min-w-0 truncate text-xs {emptyString(draft.state.description)
+						? 'text-tertiary italic font-normal'
+						: 'font-medium text-emphasis'}"
+					title={draft.state.description}
+					>{emptyString(draft.state.description)
+						? 'Add a summary...'
+						: draft.state.description}</span
+				>
+				<PathEditPopover
+					bind:summary={
+						() => draft.state?.description ?? '',
+						(v) => {
+							if (draft.state) draft.state.description = v
+						}
+					}
+					bind:path={
+						() => draft.state?.path ?? '',
+						(v) => {
+							if (draft.state) draft.state.path = v
+						}
+					}
+					bind:snapshotPath={pathSnapshot}
+					savedPath={draft?.noDeployed ? undefined : target?.path}
+					kind="resource"
+					workspaceId={ws}
+					pathEditable={!readOnly}
+					summaryEditable={!readOnly}
+					penVisibility={emptyString(draft.state.description) ? 'always' : 'hover'}
+				/>
+			{/if}
+			{@render titleBadge()}
+		</div>
 	{/snippet}
 	{#snippet agentHint()}
 		{#if description}

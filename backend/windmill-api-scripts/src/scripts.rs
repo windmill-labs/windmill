@@ -17,7 +17,7 @@ use windmill_common::{
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
-    DB,
+    DeletedScriptVersions, DB,
 };
 use windmill_queue::schedule::clear_schedule;
 
@@ -816,6 +816,16 @@ async fn deploy_script(
 fn invalidate_script_path_caches(w_id: &str, script_path: &str) {
     windmill_common::invalidate_latest_script_hash_caches(w_id, script_path);
     RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{w_id}:{script_path}"));
+}
+
+/// [`DeletedScriptVersions::evict`], plus this crate's own path -> hash cache. Run by the
+/// deleting process after its commit and by every process on the deletion event.
+pub fn evict_deleted_script_versions(deleted: DeletedScriptVersions) {
+    deleted.evict_with(|deleted| {
+        for path in &deleted.paths {
+            RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{}:{path}", deleted.workspace_id));
+        }
+    });
 }
 
 /// What a script deploy still has to do once its transaction has committed.
@@ -4161,6 +4171,8 @@ async fn delete_script_by_hash(
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
     clear_macro_registry(&mut *tx, &w_id, &script.path).await?;
+    let deleted = DeletedScriptVersions::new(&w_id, [(script.path.clone(), hash.0)]);
+    deleted.notify(&mut *tx).await?;
 
     audit_log(
         &mut *tx,
@@ -4173,6 +4185,7 @@ async fn delete_script_by_hash(
     )
     .await?;
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     webhook.send_message(
         w_id.clone(),
@@ -4240,14 +4253,24 @@ async fn delete_script_by_path(
     .fetch_all(&mut *tx)
     .await?;
 
-    let script = sqlx::query_scalar!(
-        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+    let deleted_hashes = sqlx::query_scalar!(
+        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING hash",
         path,
         w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_all(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?;
+    if deleted_hashes.is_empty() {
+        return Err(Error::NotFound(format!(
+            "script {path} not found in {w_id}"
+        )));
+    }
+    let script = path.to_string();
+    let deleted = DeletedScriptVersions::new(
+        &w_id,
+        deleted_hashes.into_iter().map(|h| (script.clone(), h)),
+    );
 
     // After the DELETE, never before: every dbt writer locks the `script` row
     // first, so taking a sidecar ahead of it deadlocks one of the pair. The
@@ -4287,6 +4310,7 @@ async fn delete_script_by_path(
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
     clear_macro_registry(&mut *tx, &w_id, path).await?;
+    deleted.notify(&mut *tx).await?;
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(
@@ -4317,6 +4341,7 @@ async fn delete_script_by_path(
     )
     .await?;
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     handle_deployment_metadata(
         &authed.email,
@@ -4412,14 +4437,21 @@ async fn delete_scripts_bulk(
         }
     }
 
-    let mut deleted_paths = sqlx::query_scalar!(
-        "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
-        w_id,
-        &request.paths
-    )
-    .fetch_all(&mut *tx)
-    .await
-    .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?;
+    let deleted = DeletedScriptVersions::new(
+        &w_id,
+        sqlx::query!(
+            "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path, hash",
+            w_id,
+            &request.paths
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?
+        .into_iter()
+        .map(|r| (r.path, r.hash)),
+    );
+    deleted.notify(&mut *tx).await?;
+    let deleted_paths = deleted.paths.clone();
 
     // Same reason as the single-path delete, over every requested path rather
     // than the deleted ones: a path that had no script left can still hold state.
@@ -4427,10 +4459,6 @@ async fn delete_scripts_bulk(
         windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, p).await?;
         windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, p).await?;
     }
-
-    // remove duplicates from deleted_paths
-    deleted_paths.sort();
-    deleted_paths.dedup();
 
     sqlx::query!(
         "DELETE FROM draft WHERE workspace_id = $1 AND path = ANY($2) AND typ = 'script'",
@@ -4472,6 +4500,7 @@ async fn delete_scripts_bulk(
     .await?;
 
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     try_join_all(deleted_paths.iter().map(|path| {
         handle_deployment_metadata(
