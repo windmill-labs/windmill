@@ -4329,11 +4329,15 @@ describe('DOM selector chips scoped by app path', () => {
 describe('AIChatManager.waitForPipelineHelpers', () => {
 	function fakePipelineHelpers(): PipelineAIChatHelpers {
 		return {
+			getFolder: () => 'f',
+			hasDrafts: () => false,
 			getPipelineContext: () => ({ folder: 'f', mode: 'edit', nodes: [], assets: [] }),
 			getNodeBody: async () => undefined,
 			proposeNode: async () => ({ path: '', detectedReads: [], detectedWrites: [] }),
 			editNode: async () => ({ detectedReads: [], detectedWrites: [] }),
 			removeProposedNode: async () => {},
+			unconfiguredTriggers: async () => [],
+			setNodeTrigger: async () => ({ path: '', replaced: false }),
 			testNode: async () => undefined
 		}
 	}
@@ -4341,16 +4345,28 @@ describe('AIChatManager.waitForPipelineHelpers', () => {
 	it('resolves true immediately when a pipeline editor is already registered', async () => {
 		const manager = new AIChatManager()
 		manager.setPipelineHelpers(fakePipelineHelpers())
-		await expect(manager.waitForPipelineHelpers(1000)).resolves.toBe(true)
+		await expect(manager.waitForPipelineHelpers(undefined, 1000)).resolves.toBe(true)
 	})
 
 	it('resolves true once a pipeline editor registers', async () => {
 		const manager = new AIChatManager()
 		let outcome: boolean | undefined
-		const wait = manager.waitForPipelineHelpers(1000).then((v) => (outcome = v))
+		const wait = manager.waitForPipelineHelpers(undefined, 1000).then((v) => (outcome = v))
 		await Promise.resolve()
 		expect(outcome).toBeUndefined()
 		manager.setPipelineHelpers(fakePipelineHelpers())
+		await wait
+		expect(outcome).toBe(true)
+	})
+
+	it('waits for the editor of the requested folder, not any editor', async () => {
+		const manager = new AIChatManager()
+		manager.setPipelineHelpers(fakePipelineHelpers())
+		let outcome: boolean | undefined
+		const wait = manager.waitForPipelineHelpers('sales', 1000).then((v) => (outcome = v))
+		await Promise.resolve()
+		expect(outcome).toBeUndefined()
+		manager.setPipelineHelpers({ ...fakePipelineHelpers(), getFolder: () => 'sales' })
 		await wait
 		expect(outcome).toBe(true)
 	})
@@ -4360,7 +4376,7 @@ describe('AIChatManager.waitForPipelineHelpers', () => {
 	// than silently claim success.
 	it('resolves false after the timeout when no editor ever registers', async () => {
 		const manager = new AIChatManager()
-		await expect(manager.waitForPipelineHelpers(10)).resolves.toBe(false)
+		await expect(manager.waitForPipelineHelpers(undefined, 10)).resolves.toBe(false)
 	})
 })
 

@@ -143,7 +143,8 @@
 				writes: { kind: AssetWithAltAccessType['kind']; path: string }[]
 				// Body-inferred reads, so the parent's draft keeps its input
 				// lineage while inactive (no live inference runs for it).
-				reads: { kind: AssetWithAltAccessType['kind']; path: string }[]
+				// Undefined when nothing was inferred: keep what the draft has.
+				reads?: { kind: AssetWithAltAccessType['kind']; path: string }[]
 				// Full edited script — set when the source is a persisted
 				// script (needed to seed a brand-new draft entry).
 				script?: Script
@@ -299,6 +300,19 @@
 		// can persist a data-upload entry's staged input (drives node readiness).
 		// `isValid` is the full-schema validity, not just "file present".
 		onRunFormArgsChange?: (path: string, args: Record<string, any>, isValid: boolean) => void
+		// Show only the open script's inputs and runs (a data-upload click), not
+		// its editor. `onRunInputs` runs it with them, drafts included, and
+		// `onShowScript` leaves this view for the script.
+		inputsOnly?: boolean
+		/** `live` is the pane's buffer when it differs from what is stored: always
+		 * for a draft, and for a deployed script edited before switching to the
+		 * inputs view. A run with it previews that body. */
+		onRunInputs?: (
+			path: string,
+			args: Record<string, any>,
+			live?: { content: string; language: ScriptLang }
+		) => Promise<string | undefined>
+		onShowScript?: () => void
 	}
 	let {
 		selection,
@@ -351,7 +365,10 @@
 		onRunByPath,
 		onRunCascadeByPath,
 		runFormInitialArgs,
-		onRunFormArgsChange
+		onRunFormArgsChange,
+		inputsOnly = false,
+		onRunInputs,
+		onShowScript
 	}: Props = $props()
 
 	let readOnly = $derived(mode !== 'edit')
@@ -433,7 +450,7 @@
 	// PipelineScriptView renders instead of the test panel.
 	let viewReadyForTarget = $derived.by(
 		() =>
-			readOnly &&
+			(readOnly || inputsOnly) &&
 			runTargetPath !== undefined &&
 			script?.path === runTargetPath &&
 			(isDraft || (!scriptRes.loading && scriptRes.current?.path === runTargetPath))
@@ -509,6 +526,12 @@
 	// alongside `liveBodyAssets` and forwarded so the live graph can show
 	// inferred column lineage on the edited script before it deploys.
 	let liveColumnLineage = $state<ColumnLineage[] | undefined>(undefined)
+	// The script whose editor last bound `liveBodyAssets` (undefined there means it
+	// inferred nothing). They stay bound after that editor unmounts, so a script
+	// that never had one (the inputs-only view) must not report or persist them as
+	// its lineage. Set by an effect declared after the save-on-switch one, whose
+	// cleanup still needs the previous owner when the selection moves.
+	let liveAssetsOwner: string | undefined = undefined
 
 	// Bumped when the runs panel reports a watched job has reached a
 	// terminal state. Drives S3FilePreview's refreshKey so the preview
@@ -574,7 +597,9 @@
 	let args = $state<Record<string, any>>({})
 	let argsSeedPath: string | undefined = undefined
 	$effect.pre(() => {
-		const p = script?.path
+		// Re-seeded on leaving the inputs-only view too, so the file picked there
+		// shows in the editor's test form.
+		const p = script?.path === undefined ? undefined : `${script.path}|${inputsOnly}`
 		if (p === argsSeedPath) return
 		argsSeedPath = p
 		args = runFormInitialArgs ? structuredClone($state.snapshot(runFormInitialArgs)) : {}
@@ -584,7 +609,8 @@
 	// required field (not just the S3 file) is satisfied.
 	let runFormIsValid = $state(true)
 	$effect(() => {
-		if (readOnly || !script) return
+		// Inputs-only mounts no ScriptEditor: PipelineScriptView reports its own args.
+		if (readOnly || inputsOnly || !script) return
 		onRunFormArgsChange?.(script.path, $state.snapshot(args), runFormIsValid)
 	})
 
@@ -621,18 +647,25 @@
 			b: Array<{ kind: string; path: string }>
 		) => a.length === b.length && a.every((x, i) => x.kind === b[i]?.kind && x.path === b[i]?.path)
 		return () => {
-			const writes = (liveBodyAssets ?? [])
+			// No editor inferred this script (the inputs-only view): keep its stored
+			// lineage rather than persisting it as empty.
+			const inferred = liveAssetsOwner === captured.path
+			const writes = !inferred
+				? (writesAtRegister ?? [])
+				: (liveBodyAssets ?? [])
 				.filter((a) => {
 					const t = a.access_type ?? a.alt_access_type
 					return t === 'w' || t === 'rw'
 				})
 				.map((a) => ({ kind: a.kind, path: a.path }))
-			const reads = (liveBodyAssets ?? [])
-				.filter((a) => {
-					const t = a.access_type ?? a.alt_access_type
-					return t === 'r' || t === 'rw'
-				})
-				.map((a) => ({ kind: a.kind, path: a.path }))
+			const reads = !inferred
+				? readsAtRegister
+				: (liveBodyAssets ?? [])
+						.filter((a) => {
+							const t = a.access_type ?? a.alt_access_type
+							return t === 'r' || t === 'rw'
+						})
+						.map((a) => ({ kind: a.kind, path: a.path }))
 			// Draft runs: emit only when content or lineage changed in THIS clone.
 			// An unconditional emit ping-pongs forever when the entry is rewritten
 			// externally while the pane stays mounted (rename rekey, AI edit):
@@ -642,6 +675,7 @@
 				(captured.content ?? '') === contentAtRegister &&
 				refsEq(writesAtRegister ?? [], writes) &&
 				readsAtRegister != undefined &&
+				reads != undefined &&
 				refsEq(readsAtRegister, reads)
 			)
 				return
@@ -676,12 +710,42 @@
 		}
 	})
 
+	$effect(() => {
+		if (script && !readOnly && !inputsOnly) liveAssetsOwner = script.path
+	})
+
 	let saving = $state(false)
 	// What this pane last deployed, so the persist-back cleanup can tell "the
 	// buffer equals the new deployed head" from real unsaved edits (plain
 	// variable: only read inside the untracked cleanup).
 	let deployedFromPane: { path: string; content: string } | undefined = undefined
 	let isDraft = $derived(draftScript != undefined)
+	function liveBody(): { content: string; language: ScriptLang } | undefined {
+		if (!script) return undefined
+		const live = { content: script.content ?? '', language: script.language as ScriptLang }
+		if (isDraft) return live
+		const orig = scriptRes.current
+		return orig?.path === script.path && (orig.content ?? '') !== live.content ? live : undefined
+	}
+	// A draft's stored schema is empty until an editor infers it, and the inputs
+	// view mounts none: infer from the body here so its fields (the file picker)
+	// show up.
+	const inputsSchema = resource(
+		[() => (inputsOnly && isDraft ? script?.content : undefined), () => script?.language],
+		async ([content, language]) => {
+			if (content === undefined || !language) return undefined
+			const schema = emptySchema()
+			try {
+				await inferArgs(language, content, schema as Schema)
+			} catch {
+				return undefined
+			}
+			return schema
+		}
+	)
+	let inputsScript = $derived(
+		script && inputsSchema.current ? { ...script, schema: inputsSchema.current } : undefined
+	)
 
 	// Single trash-bin button opens one modal that exposes both Archive
 	// (always available) and Delete permanently (admin-only). Archive is
@@ -788,7 +852,7 @@
 		onAnnotationsChange?.(script?.path, liveAnnotations)
 	})
 	$effect(() => {
-		if (readOnly) return
+		if (readOnly || (inputsOnly && liveAssetsOwner !== script?.path)) return
 		onAssetsChange?.(script?.path, liveBodyAssets ?? [], liveColumnLineage)
 	})
 	$effect(() => {
@@ -1333,6 +1397,26 @@
 			<div class="p-3 text-xs text-red-500">
 				Failed to load: {scriptRes.error.message}
 			</div>
+		{:else if script && inputsOnly}
+			{#key script.path}
+				<PipelineScriptView
+					{isDraft}
+					canRun
+					runsDrafts
+					inputsOnly
+					{onShowScript}
+					onRun={onRunInputs && ((path, args) => onRunInputs(path, args, liveBody()))}
+					script={inputsScript ?? script}
+					{runsRefreshKey}
+					{runsPendingJobId}
+					initialArgs={runFormInitialArgs}
+					onArgsChange={onRunFormArgsChange}
+					onRunCompleted={() => {
+						previewRefreshKey += 1
+						onRunCompleted?.()
+					}}
+				/>
+			{/key}
 		{:else if script && readOnly}
 			<!-- Read-only modes: no Monaco/ScriptEditor (operators are
 			     backend-blocked from previews anyway) — highlighted source,

@@ -1,5 +1,6 @@
 import { base } from '$lib/base'
 import type { WorkspaceItemKind } from '$lib/components/workspacePicker'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 
 // The paths a preview location can point at, and the base handling around them. Kept apart
 // from `previewRouter`, which reads a location's *view* from each page's filter schema and
@@ -165,4 +166,12 @@ export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null
 	if (m[1] === 'flows') return { kind: 'flow', raw_app: false, itemPath }
 	if (m[1] === 'apps_raw') return { kind: 'app', raw_app: true, itemPath }
 	return { kind: 'app', raw_app: false, itemPath }
+}
+
+// A `/pipeline/<folder>` route is the data-pipeline graph editor for that folder
+// (the folder is a single path segment, not a workspace item path). The bare
+// `/pipeline` list page is not an editor. Returns the folder name, or null.
+export function parsePipelineRoute(fullPath: string): string | null {
+	const m = stripBase(fullPath).match(/^\/pipeline\/([^/?#]+)/)
+	return m ? normalizePipelineFolder(decodeURIComponent(m[1])) : null
 }

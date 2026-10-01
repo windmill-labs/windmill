@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { resource } from 'runed'
-	import { tick, untrack } from 'svelte'
-	import { Loader2, Workflow } from 'lucide-svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
+	import { Loader2, Save, Workflow } from 'lucide-svelte'
 	import PipelineGraphEditor from '$lib/components/assets/AssetGraph/PipelineGraphEditor.svelte'
 	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
+	import { usePipelineDataUploads } from '$lib/components/assets/AssetGraph/pipelineDataUploads.svelte'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import { useActiveRunnableIds } from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
 	import type {
@@ -11,10 +12,26 @@
 		AssetGraphSelection,
 		NativeTriggerKind
 	} from '$lib/components/assets/AssetGraph/types'
-	import { AssetService, JobService, type AssetKind } from '$lib/gen'
+	import { AssetService, JobService, type ScriptLang } from '$lib/gen'
+	import { DATA_ASSET_KINDS } from '$lib/components/assets/AssetGraph/cascadeRun'
+	import { usePipelineAssetPrefetch } from '$lib/components/assets/AssetGraph/pipelineAssetPrefetch.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { createPipelineAiHelpers } from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
+	import { deployPipelineDrafts } from '$lib/components/assets/AssetGraph/pipelineDeploy.svelte'
+	import {
+		diffDeployedGraph,
+		extractCascadeFacts,
+		formatDrift
+	} from '$lib/components/assets/AssetGraph/deployGraphDiff'
+	import PipelineDeployErrors from '$lib/components/assets/AssetGraph/PipelineDeployErrors.svelte'
+	import PipelineDeployTriggersModal from '$lib/components/assets/AssetGraph/PipelineDeployTriggersModal.svelte'
+	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
+	import { Button } from '$lib/components/common'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
+	import type { DeployResult } from '$lib/utils_workspace_deploy'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
+	import { maskKey } from './modifiedItemsMask'
 
 	let {
 		runtime,
@@ -29,7 +46,7 @@
 		/** Folder name the pipeline graph is scoped to (not a workspace item path). */
 		path: string
 		workspaceId: string
-		/** Only the visible session registers the pipeline tools on its manager. */
+		/** Only the visible session polls the live run badges. */
 		isActiveSession?: boolean
 		/** Whether this is the foreground preview tab. */
 		active?: boolean
@@ -43,49 +60,35 @@
 	// wrong chat — leaving this session's chat unable to build canvas nodes.
 	const aiChatManager = runtime.manager
 
-	// Only the foreground tab of the foreground session owns the chat's pipeline
-	// tools and runs the live-badge poll — a background tab (another preview tab is
-	// showing, or another session is active) must not shadow that context or poll.
+	// Only the foreground tab of the foreground session runs the live-badge poll.
 	const engaged = $derived(isActiveSession && active)
 
-	// Externalized editor state — lives on the runtime so the drafts persist across
-	// hide/show of the preview pane (the pane unmounts on hide).
-	const pe = runtime.pipelineEditorState
-
-	// The reused `pe` is scoped to a folder. A same-folder remount (hide→show)
-	// keeps the drafts; a retarget to a different folder resets so stale drafts
-	// don't bleed across folders. untrack the writes so this can't self-loop.
-	$effect(() => {
-		const folder = path
-		untrack(() => {
-			if (pe.folder !== folder) {
-				if (pe.folder !== undefined) {
-					pe.reset()
-					// A retarget without remount re-scopes the poll, so the release
-					// effect could never match the old folder's job — drop the hint.
-					activeRunnable = undefined
-					activeRunnableJobId = undefined
-					// Re-scope the Global pipeline prompt to the new folder (the helper
-					// methods already read the reactive path, but the system message
-					// string was built for the old one). Only when this tab is engaged —
-					// its helpers are the registered set; a background tab reconfigures
-					// when it next becomes the foreground one.
-					if (engaged) aiChatManager.rebuildGlobalSystemMessage()
-				}
-				pe.folder = folder
-			}
-		})
-	})
+	// This folder's editor state lives on the runtime, so its drafts survive a
+	// remount. The host remounts this view when the tab moves to another folder, so
+	// `path` is fixed for its lifetime.
+	const pe = untrack(() => runtime.pipelineEditor(path))
 
 	const EMPTY_GRAPH: AssetGraphResponse = { assets: [], runnables: [], edges: [], triggers: [] }
-	const EMPTY_PATH_MAP = new Map<string, Array<{ kind: AssetKind; path: string }>>()
-	const EMPTY_NATIVE_MAP = new Map<string, Set<any>>()
 
+	// Data assets only, as on the pipeline page: variables and resources are
+	// config most scripts reference, and would swamp the layout as hub nodes.
 	const graphRes = resource(
 		() => ({ workspace: workspaceId, folder: path }),
 		async ({ workspace, folder }) =>
-			workspace && folder ? await AssetService.getAssetsGraph({ workspace, folder }) : EMPTY_GRAPH
+			workspace && folder
+				? await AssetService.getAssetsGraph({
+						workspace,
+						folder,
+						assetKinds: DATA_ASSET_KINDS.join(',')
+					})
+				: EMPTY_GRAPH
 	)
+
+	const assetPrefetch = usePipelineAssetPrefetch({
+		getWorkspace: () => workspaceId,
+		getGraph: () => graphRes.current as AssetGraphResponse | undefined,
+		editor: pe
+	})
 
 	// Folder whose graph is actually rendered — `graphRes.current` is stale-
 	// while-revalidate on a folder retarget, so the canvas's one-shot initial
@@ -97,9 +100,7 @@
 	})
 
 	// Deployed graph + the in-flight draft overlay (AI-built nodes render as plain
-	// dashed unsaved drafts, same as manual drafts). The session
-	// skips the route page's folder-wide asset prefetch (empty inferred maps); the
-	// open script's live overlays still feed the graph. (resolveGraph's base is the
+	// dashed unsaved drafts, same as manual drafts). (resolveGraph's base is the
 	// pipeline runnables subset; the 'job' usage_kind of the wire type never appears.)
 	let resolvedGraph = $derived.by<AssetGraphResponse>(() =>
 		resolveGraph({
@@ -107,9 +108,10 @@
 			drafts: pe.drafts,
 			liveBodyAssets: pe.liveBodyAssets,
 			liveAnnotations: pe.liveAnnotations,
-			inferredWritesByPath: EMPTY_PATH_MAP,
-			inferredReadsByPath: EMPTY_PATH_MAP,
-			annotatedNativeKindsByPath: EMPTY_NATIVE_MAP
+			inferredWritesByPath: assetPrefetch.inferredWritesByPath,
+			inferredReadsByPath: assetPrefetch.inferredReadsByPath,
+			annotatedNativeKindsByPath: assetPrefetch.annotatedNativeKindsByPath,
+			triggerDrafts: pe.triggerDrafts.values()
 		})
 	)
 
@@ -120,6 +122,9 @@
 		getDrafts: () => pe.drafts,
 		setDrafts: (next) => (pe.drafts = next),
 		newDraftLocalId: pe.newDraftLocalId,
+		hasTriggerDrafts: () => pe.triggerDrafts.size > 0,
+		getTriggerDrafts: () => pe.triggerDrafts,
+		setTriggerDraft: pe.setTriggerDraft,
 		onForgetPath: (p) => {
 			pe.forgetPath(p)
 			pe.discardTriggerDraftsFor(p)
@@ -138,6 +143,7 @@
 	})
 
 	function handleCanvasSelect(s: AssetGraphSelection | undefined) {
+		uploadInputsPath = undefined
 		if (s && s.kind === 'runnable' && s.runnable_kind === 'script' && pe.drafts.has(s.path)) {
 			pe.activeDraftPath = s.path
 			pe.selection = undefined
@@ -148,6 +154,7 @@
 	}
 
 	async function afterSaved(savedPath: string) {
+		assetPrefetch.forget(savedPath)
 		const next = new Map(pe.drafts)
 		next.delete(savedPath)
 		pe.drafts = next
@@ -197,7 +204,11 @@
 
 	// Data upload has no trigger row — open the target in the details pane and pulse
 	// the signal so its auto-generated run form focuses the S3 input.
+	// A data-upload click opens the node on its inputs alone; any other selection
+	// (or "Open script") goes back to the editor.
+	let uploadInputsPath = $state<string | undefined>(undefined)
 	function openDataUploadRun(scriptPath: string) {
+		uploadInputsPath = scriptPath
 		if (pe.drafts.has(scriptPath)) {
 			pe.activeDraftPath = scriptPath
 			pe.selection = undefined
@@ -239,29 +250,40 @@
 		}
 	})
 
+	const dataUploads = usePipelineDataUploads(() => resolvedGraph)
+
 	function runProducer(producer: { kind: 'script' | 'flow'; path: string; cascade?: boolean }) {
 		// Pipeline nodes are scripts; a flow producer can't be preview/by-path run.
 		if (producer.kind !== 'script') return Promise.resolve(undefined)
-		return runNode(producer.path, {}, producer.cascade ?? false)
+		// A data-upload entry runs on the file staged in its run form.
+		return runNode(producer.path, dataUploads.argsFor(producer.path) ?? {}, producer.cascade ?? false)
 	}
 
+	// Tell the open node's runs list a job started, so it shows it right away.
+	let runsRefreshKey = $state(0)
+	let runsPendingJobId = $state<string | undefined>(undefined)
+
+	// `live` is an open editor's body, newer than what is stored: it is previewed,
+	// a deployed node included.
 	async function runNode(
 		nodePath: string,
 		args: Record<string, any> = {},
-		cascade = false
+		cascade = false,
+		live?: { content: string; language: ScriptLang }
 	): Promise<string | undefined> {
 		const draft = pe.drafts.get(nodePath)
+		const body = live ?? (draft && { content: draft.script.content, language: draft.script.language })
 		activeRunnables.arm(`script:${nodePath}`)
 		try {
 			let jobId: string
-			if (draft) {
-				// Preview-run the draft content; a preview never dispatches downstream.
+			if (body) {
+				// Preview-run the unsaved body; a preview never dispatches downstream.
 				jobId = await JobService.runScriptPreview({
 					workspace: workspaceId,
 					requestBody: {
 						path: nodePath,
-						content: draft.script.content,
-						language: draft.script.language,
+						content: body.content,
+						language: body.language,
 						args
 					}
 				})
@@ -278,6 +300,8 @@
 			}
 			activeRunnable = { kind: 'script', path: nodePath }
 			activeRunnableJobId = jobId
+			runsPendingJobId = jobId
+			runsRefreshKey++
 			return jobId
 		} catch (e: any) {
 			sendUserToast(`Run failed: ${e?.body ?? e?.message ?? e}`, true)
@@ -285,14 +309,124 @@
 		}
 	}
 
-	// Register the pipeline tools on this session's manager while this tab is the
-	// engaged (foreground) one. setPipelineHelpers rebuilds the global tool set to
-	// include the pipeline tools and tears them down on cleanup — so switching to
-	// another preview tab or session releases them.
-	$effect(() => {
-		if (!engaged) return
-		return aiChatManager.setPipelineHelpers(helpers)
-	})
+	// Register this folder's pipeline tools on the session's own manager for as long
+	// as the view is mounted — background tabs included, since each folder's tools
+	// act on its own state — and release them on unmount.
+	$effect(() => aiChatManager.setPipelineHelpers(helpers))
+
+	// ── Deploy all ───────────────────────────────────────────────────────────
+	// The same deploy as the pipeline page's "Save all", reached from this tab's
+	// button and from the session's changes list (through the runtime).
+	const pendingCount = $derived(pe.drafts.size + pe.triggerDrafts.size)
+	let deploying = $state(false)
+	let deployErrors = $state<Map<string, string>>(new Map())
+	let deployErrorsOpen = $state(false)
+
+	let triggerConfirmOpen = $state(false)
+	let resolveTriggerConfirm: ((ok: boolean) => void) | undefined
+	function confirmTriggers(): Promise<boolean> {
+		triggerConfirmOpen = true
+		return new Promise((resolve) => (resolveTriggerConfirm = resolve))
+	}
+	function answerTriggerConfirm(ok: boolean) {
+		triggerConfirmOpen = false
+		resolveTriggerConfirm?.(ok)
+		resolveTriggerConfirm = undefined
+	}
+
+	// A deploy asked for from the changes list can arrive while the tab is still
+	// loading this folder's drafts.
+	async function hydrated(timeoutMs = 10000): Promise<boolean> {
+		for (let waited = 0; !pe.hydratedFromDb && waited < timeoutMs; waited += 100) {
+			await new Promise((resolve) => setTimeout(resolve, 100))
+		}
+		return pe.hydratedFromDb
+	}
+
+	async function deployAll(): Promise<DeployResult> {
+		// Taken before any await: a second caller (the tab's button and the changes
+		// list both reach here) would otherwise replace the pending confirmation and
+		// leave the first one waiting forever.
+		if (deploying) return { success: false, error: 'This pipeline is already deploying.' }
+		deploying = true
+		try {
+			if (!(await hydrated())) return { success: false, error: 'The pipeline drafts did not load.' }
+			if (pendingCount === 0) {
+				// Nothing left to deploy, but an earlier deploy may have failed to save
+				// that: the server would still hold the deployed drafts.
+				const unsaved = await saveRemaining()
+				return unsaved ? { success: false, error: unsaved } : { success: true }
+			}
+			if (pe.triggerDrafts.size > 0 && !(await confirmTriggers())) {
+				return { success: false, error: 'Deploy cancelled.' }
+			}
+			// What the canvas promises for each draft, checked against what the
+			// backend derived once deployed.
+			const predicted = new Map(
+				[...pe.drafts.keys()].map((p) => [p, extractCascadeFacts(resolvedGraph, p)])
+			)
+			const { savedPaths, savedTriggers, errors } = await deployPipelineDrafts(pe, workspaceId)
+			assetPrefetch.forget(...savedPaths)
+			const bundleKey = maskKey(PIPELINE_DRAFT_KIND, pipelineBundlePath(path))
+			if (aiChatManager.modifiedItems?.has(bundleKey)) {
+				await aiChatManager.recordDeployedItems('script', savedPaths)
+			}
+			if (savedPaths.length > 0 || savedTriggers.length > 0) {
+				await graphRes.refetch()
+				const deployed = new Map([...predicted].filter(([p]) => savedPaths.includes(p)))
+				const drift = formatDrift(
+					diffDeployedGraph(deployed, (graphRes.current ?? EMPTY_GRAPH) as AssetGraphResponse)
+				)
+				if (drift) sendUserToast(drift, true)
+			}
+			// The session's changes list re-reads the draft once this resolves, so
+			// what is left of it has to be saved by then.
+			const unsaved = await saveRemaining()
+			deployErrors = errors
+			if (unsaved) return { success: false, error: `Deployed, but ${unsaved}` }
+			if (errors.size > 0) {
+				deployErrorsOpen = true
+				return {
+					success: false,
+					error: `${errors.size} of the pipeline's drafts failed to deploy, see its tab.`
+				}
+			}
+			return { success: true }
+		} finally {
+			deploying = false
+		}
+	}
+
+	// Saves what is left of the folder's draft and says why if that failed. A
+	// flush resolves even when the save failed, and the server would then keep
+	// drafts already deployed — deploying them again would recreate their
+	// triggers. A failed save stays queued until one succeeds, so the flush
+	// retries exactly what failed, an open script's unsaved edits included.
+	async function saveRemaining(): Promise<string | undefined> {
+		await tick()
+		const draft = {
+			workspace: workspaceId,
+			itemKind: PIPELINE_DRAFT_KIND,
+			path: pipelineBundlePath(path)
+		}
+		await UserDraftDbSyncer.flush(draft)
+		if (UserDraftDbSyncer.getConflict(draft).conflict)
+			return 'the remaining drafts conflict with a newer version.'
+		const sync = UserDraftDbSyncer.getState(draft)
+		if (sync.state === 'failed')
+			return `the remaining drafts could not be saved: ${sync.failureMessage ?? 'unknown error'}.`
+		return undefined
+	}
+
+	async function deployAllFromButton() {
+		const count = pendingCount
+		const res = await deployAll()
+		if (res.success) sendUserToast(`Deployed ${count} draft${count === 1 ? '' : 's'}`)
+	}
+
+	$effect(() => runtime.registerPipelineView(path, { deployAll }))
+	// A deploy waiting on the trigger confirmation must still settle when the tab goes.
+	onDestroy(() => answerTriggerConfirm(false))
 </script>
 
 <div class="flex flex-col h-full w-full bg-surface">
@@ -302,6 +436,31 @@
 		<Workflow size={14} />
 		<span class="font-mono text-emphasis truncate">f/{path}</span>
 		<span class="text-tertiary">· data pipeline</span>
+		{#if workspaceId}
+			<AutosaveIndicator
+				workspace={workspaceId}
+				itemKind={PIPELINE_DRAFT_KIND}
+				path={pipelineBundlePath(path)}
+				draftOnly
+				loadedFromDraft={pe.loadedFromDbDraft}
+			/>
+		{/if}
+		<div class="flex-1"></div>
+		{#if deployErrors.size > 0}
+			<PipelineDeployErrors errors={deployErrors} bind:open={deployErrorsOpen} />
+		{/if}
+		{#if pendingCount > 0}
+			<Button
+				variant="accent"
+				unifiedSize="xs"
+				startIcon={{ icon: deploying ? Loader2 : Save }}
+				onclick={deployAllFromButton}
+				disabled={deploying}
+				title={deploying ? 'Deploying drafts…' : `Deploy all ${pendingCount} drafts`}
+			>
+				{deploying ? 'Deploying…' : `Deploy all (${pendingCount})`}
+			</Button>
+		{/if}
 	</div>
 	<div class="flex-1 min-h-0">
 		<!-- Only block on the deployed-graph fetch when there's nothing to show yet.
@@ -331,6 +490,8 @@
 				folder={path}
 				viewportFitKey={viewportFitFolder}
 				persistDrafts={true}
+				modalPanel
+				prefetchingAssets={assetPrefetch.prefetching}
 				displayGraph={resolvedGraph}
 				mode="edit"
 				workspace={workspaceId}
@@ -341,12 +502,21 @@
 				onOpenWebhook={openWebhookDrawer}
 				onOpenDataUpload={openDataUploadRun}
 				focusUploadSignal={focusDataUploadSignal}
+				readyDataUploadPaths={dataUploads.readyPaths}
+				runFormInitialArgs={pe.openScriptPath ? dataUploads.argsFor(pe.openScriptPath) : undefined}
+				onRunFormArgsChange={dataUploads.stage}
 				{activeRunnable}
+				{runsRefreshKey}
+				{runsPendingJobId}
 				activeRunnableIds={activeRunnables.ids}
 				runStates={activeRunnables.states}
 				eventLogEvents={activeRunnables.events}
 				onRunProducer={runProducer}
 				onRunByPath={(path, args) => runNode(path, args)}
+				inputsOnly={uploadInputsPath !== undefined &&
+					(pe.openScriptPath === undefined || uploadInputsPath === pe.openScriptPath)}
+				onRunInputs={(path, args, live) => runNode(path, args, false, live)}
+				onShowScript={() => (uploadInputsPath = undefined)}
 				canRunByPath
 				onTestStateChange={(running) => {
 					const openPath = pe.openScriptPath
@@ -373,6 +543,7 @@
 					await graphRes.refetch()
 				}}
 				onScriptRenamed={async (oldPath, newPath) => {
+					assetPrefetch.forget(oldPath, newPath)
 					// Repoint the selection so the canvas follows the renamed node instead
 					// of staying on the now-gone old path until an unrelated refetch.
 					if (pe.selection?.kind === 'runnable' && pe.selection.path === oldPath) {
@@ -404,4 +575,11 @@
 	mountTriggerEditors
 	workspace={workspaceId}
 	onUpdate={() => graphRes.refetch()}
+/>
+
+<PipelineDeployTriggersModal
+	open={triggerConfirmOpen}
+	triggerDrafts={pe.triggerDrafts}
+	onConfirmed={() => answerTriggerConfirm(true)}
+	onCanceled={() => answerTriggerConfirm(false)}
 />

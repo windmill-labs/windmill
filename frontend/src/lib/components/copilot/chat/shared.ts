@@ -830,6 +830,13 @@ async function callTool<T>({
 }): Promise<string> {
 	const tool = tools.find((t) => t.def.function.name === functionName)
 	if (!tool) {
+		// The pipeline tools exist only while a pipeline editor is mounted, and change_mode
+		// cannot mount one, so the generic hint would send the model probing.
+		if (/_pipeline_node$|^get_pipeline_graph$/.test(functionName)) {
+			throw new Error(
+				`${functionName} is not available yet: no pipeline editor is open for this chat. Call open_preview(kind="pipeline", path="<folder>") first and wait for its result; once it reports the editor open, the pipeline tools are callable. Do not fall back to write_script.`
+			)
+		}
 		throw new Error(
 			`Unknown tool call: ${functionName}. Probably not in the correct mode, use the change_mode tool to switch to the correct mode.`
 		)
@@ -920,22 +927,33 @@ type ToolCallStatus =
 	| 'blocked_plan_mode'
 	| 'held_for_instructions'
 
+/** Re-reads the chat loop's current tools and helpers. A call earlier in the same
+ * response can register tools (open_preview mounting the pipeline editor, change_mode),
+ * so a later call in that batch must resolve against the live set, not the snapshot the
+ * response was requested with. */
+export type LiveToolSet = () => { tools: Tool<any>[]; helpers: any }
+
 export async function processToolCall<T>({
-	tools,
+	tools: snapshotTools,
 	toolCall,
-	helpers,
+	helpers: snapshotHelpers,
 	toolCallbacks,
 	workspace,
-	messages = []
+	messages = [],
+	live
 }: {
 	tools: Tool<T>[]
 	toolCall: ChatCompletionMessageFunctionToolCall
 	helpers: T
+	live?: LiveToolSet
 	toolCallbacks: ToolCallbacks
 	workspace?: string
 	/** The conversation so far, for which folder instructions it already carries. */
 	messages?: readonly ChatCompletionMessageParam[]
 }): Promise<ChatCompletionMessageParam> {
+	const current = live?.()
+	const tools: Tool<T>[] = current?.tools ?? snapshotTools
+	const helpers: T = current ? current.helpers : snapshotHelpers
 	const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
 	const workspaceId = workspace ?? get(workspaceStore) ?? ''
 

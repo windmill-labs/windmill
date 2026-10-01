@@ -1,5 +1,7 @@
 <script lang="ts">
 	import '@xyflow/svelte/dist/base.css'
+	import { randomUUID } from '$lib/utils/uuid'
+	import { onMount } from 'svelte'
 	import {
 		SvelteFlow,
 		Controls,
@@ -54,7 +56,7 @@
 		CONTEXT_MENU_ITEM_HOVER_CLASS
 	} from '$lib/components/common/contextmenu/contextMenuStyles'
 	import { computeMutedReadKeys, dbtAssociations } from './resolveGraph'
-	import { buildDownstreamMap } from './graphTraversal'
+	import { buildDownstreamMap, hoverLineage, transitivelyImpliedEdges } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
 	import type {
 		AssetGraphResponse,
@@ -69,7 +71,12 @@
 	interface Props {
 		graph: AssetGraphResponse
 		selection?: AssetGraphSelection | undefined
-		onselect?: (selection: AssetGraphSelection | undefined) => void
+		/** `open` marks a selection asked to be shown (a script's open button), as
+		 * opposed to a click on a node, which only selects it. */
+		onselect?: (
+			selection: AssetGraphSelection | undefined,
+			opts?: { open?: boolean }
+		) => void
 		// Called when the user clicks the per-asset + button (consumer-script
 		// entry). Kept optional so the canvas stays usable outside the
 		// pipeline editor.
@@ -858,11 +865,14 @@
 									const owner = model.dbtOwnerByAsset.get(assetId)
 									const [kind, ...rest] = owner?.split(':') ?? []
 									if (kind && rest.length) {
-										onselect?.({
-											kind: 'runnable',
-											runnable_kind: kind as 'script' | 'flow',
-											path: rest.join(':')
-										})
+										onselect?.(
+											{
+												kind: 'runnable',
+												runnable_kind: kind as 'script' | 'flow',
+												path: rest.join(':')
+											},
+											{ open: true }
+										)
 									}
 								}
 							}
@@ -1315,6 +1325,7 @@
 		label: string
 		/** Nothing to show: the edges into the node already say it runs on writes. */
 		hidden?: boolean
+		kind?: string
 		nodeId?: string
 		missing?: boolean
 		draft?: boolean
@@ -1342,6 +1353,7 @@
 							: undefined
 		return {
 			label,
+			kind,
 			nodeId: t.nodeId,
 			missing,
 			draft: t.data?.draft,
@@ -1382,7 +1394,10 @@
 									language: d.language,
 									unsaved: d.unsaved as boolean | undefined,
 									onOpen: () =>
-										onselect?.({ kind: 'runnable', runnable_kind: d.runnable_kind, path: d.path })
+										onselect?.(
+											{ kind: 'runnable', runnable_kind: d.runnable_kind, path: d.path },
+											{ open: true }
+										)
 								})),
 							// Every script's own triggers; asset triggers show as edges instead.
 							triggers: (u.multiple ? u.runnableIds : [])
@@ -1412,11 +1427,10 @@
 							runState: r.runState,
 							trigger: triggerChip(u.trigger, r.path),
 							onOpen: () =>
-								onselect?.({
-									kind: 'runnable',
-									runnable_kind: r.runnable_kind,
-									path: r.path
-								})
+								onselect?.(
+									{ kind: 'runnable', runnable_kind: r.runnable_kind, path: r.path },
+									{ open: true }
+								)
 						}
 			const toDelete =
 				onDeleteAssetUpstream && u && !u.multiple && r
@@ -1603,6 +1617,74 @@
 	// project node lights up every model it owns. Clicking the badge selects the
 	// project node, so the association survives the pointer leaving.
 	let dbtHoverId = $state<string | undefined>(undefined)
+
+	// Hovering a node keeps its lineage — everything upstream and downstream of
+	// it, recursively — at full strength and fades the rest. Off while a bounded
+	// pick or a subscribe drag owns the graph's dimming.
+	let hoveredNodeId = $state<string | undefined>(undefined)
+	// A click re-renders the graph under the cursor (the selection rebuilds the
+	// nodes, the details pane resizes or covers the canvas), which fires bursts of
+	// leave/enter. The fade waits for the pointer to settle on a node, outlives a
+	// brief leave, and stays off on a node just clicked until another is hovered.
+	let hoverTimer: ReturnType<typeof setTimeout> | undefined
+	let clickedNodeId: string | undefined
+	function onNodePointerEnter(id: string) {
+		clearTimeout(hoverTimer)
+		if (id === clickedNodeId) return
+		clickedNodeId = undefined
+		hoverTimer = setTimeout(() => (hoveredNodeId = id), 120)
+	}
+	function onNodePointerLeave() {
+		clearTimeout(hoverTimer)
+		hoverTimer = setTimeout(() => (hoveredNodeId = undefined), 80)
+	}
+	$effect(() => () => clearTimeout(hoverTimer))
+	let lineage = $derived(
+		hoveredNodeId && hoveredNodeId !== ADD_NODE_ID && !boundPick && !onDrag
+			? hoverLineage(
+					view.edges.filter((e) => e.kind !== 'add-anchor'),
+					hoveredNodeId
+				)
+			: undefined
+	)
+	// The fade goes through a stylesheet keyed on node and edge ids, never through
+	// the graph's node or edge objects: new node objects make the flow re-measure
+	// them and rebuild every edge they touch, and a rebuilt element jumps to its
+	// new opacity instead of easing there.
+	const canvasId = randomUUID()
+	let lineageFadeCss = $derived.by(() => {
+		if (!lineage) return ''
+		const scope = `[data-asset-canvas="${canvasId}"]`
+		const nodes = view.nodes
+			.filter((n) => outsideLineage(n.id))
+			.map((n) => `${scope} .svelte-flow__node[data-id="${CSS.escape(n.id)}"]`)
+		const edges = view.edges
+			.filter((e) => e.kind !== 'add-anchor' && !lineage!.hasEdge(e))
+			.map((e) => `${scope} .svelte-flow__edge[data-id="${CSS.escape(e.id)}"]`)
+		return [
+			nodes.length ? `${nodes.join(',')}{opacity:0.5}` : '',
+			edges.length ? `${edges.join(',')}{opacity:0.35}` : ''
+		].join('')
+	})
+	// Assets-only: a trigger edge A → C that A → B → … → C already implies says
+	// nothing new, so it recedes; the chain carries the cascade.
+	let impliedTriggerEdges = $derived(
+		assetsOnly
+			? transitivelyImpliedEdges(view.edges.filter((e) => e.kind === 'asset-flow' && e.reactive))
+			: new Set<string>()
+	)
+	let lineageSheet = $state<HTMLStyleElement | undefined>(undefined)
+	onMount(() => {
+		const sheet = document.createElement('style')
+		document.head.appendChild(sheet)
+		lineageSheet = sheet
+		return () => sheet.remove()
+	})
+	$effect(() => {
+		if (lineageSheet) lineageSheet.textContent = lineageFadeCss
+	})
+	const outsideLineage = (id: string) =>
+		!!lineage && id !== ADD_NODE_ID && !lineage.upstream.has(id) && !lineage.downstream.has(id)
 	let dbtEmphasisIds = $derived.by(() => {
 		if (!dbtHoverId) return new Set<string>()
 		const owned = model.dbtWritesByOwner.get(dbtHoverId)
@@ -1916,7 +1998,7 @@
 						// Assets-only: a write upstream reruns what builds the target
 						// (solid, like a trigger), or the target only reads it (dashed gray).
 						if (e.reactive) {
-							style = 'stroke: rgb(59 130 246); stroke-width: 1.5px;'
+							style = `stroke: rgb(59 130 246); stroke-width: 1.5px;${impliedTriggerEdges.has(e.id) ? ' opacity: 0.35;' : ''}`
 							markerColor = 'rgb(59 130 246)'
 						} else {
 							style = 'stroke: rgb(156 163 175); stroke-width: 1px;'
@@ -2079,6 +2161,9 @@
 	}
 
 	function handleNodeClick({ node }: { node: Node }) {
+		clearTimeout(hoverTimer)
+		hoveredNodeId = undefined
+		clickedNodeId = node.id
 		// Bounded-run pick mode intercepts clicks: an eligible (downstream)
 		// node toggles as an end bound; the start, dimmed nodes, and
 		// triggers/+ are inert. Selection (details pane) is suppressed so the
@@ -2130,6 +2215,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div
 	class="w-full h-full relative"
+	data-asset-canvas={canvasId}
 	bind:this={flowEl}
 	bind:clientWidth={paneWidth}
 	onclickcapture={handleBackgroundClick}
@@ -2152,6 +2238,8 @@
 		defaultEdgeOptions={{ type: 'asset' }}
 		proOptions={{ hideAttribution: true }}
 		onnodeclick={handleNodeClick}
+		onnodepointerenter={({ node }) => onNodePointerEnter(node.id)}
+		onnodepointerleave={onNodePointerLeave}
 		onedgepointerenter={onEdgeEnter}
 		onedgepointerleave={onEdgeLeave}
 		--background-color={false}
@@ -2416,6 +2504,11 @@
 	}
 	:global(.svelte-flow__node.wm-bound-end .drop-shadow-sm) {
 		@apply outline outline-[3px] outline-amber-500;
+	}
+	/* Hovering a node fades what is not in its lineage (see lineageFadeCss). */
+	:global(.svelte-flow__node),
+	:global(.svelte-flow__edge) {
+		transition: opacity 120ms;
 	}
 	:global(.svelte-flow__node.wm-bound-dim) {
 		@apply opacity-30;

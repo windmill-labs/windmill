@@ -109,28 +109,37 @@
 	// Lane offset: half a node plus a margin that stays inside the
 	// inter-column gutter (gap.horizontal / 2).
 	const LANE = NODE.width / 2 + NODE.gap.horizontal / 2
-	const CORNER = 14
 
-	// Rounded-orthogonal detour: drop out of the source, swing into the
-	// gutter lane at `midX`, run it down past the intermediate rows, swing
-	// back into the target.
+	// Detour through the gutter lane at `midX`, drawn with the same curves as
+	// every other edge: curve out of the source into the lane within the gap
+	// below it, run down the lane past the rows in between, curve into the
+	// target within the gap above it.
 	function gutterPath(midX: number): string {
-		const yTop = sourceY + 24
-		const yBot = targetY - 24
-		const outDir = midX > sourceX ? 1 : -1
-		const inDir = targetX > midX ? 1 : -1
-		return [
-			`M ${sourceX} ${sourceY}`,
-			`L ${sourceX} ${yTop - CORNER}`,
-			`Q ${sourceX} ${yTop} ${sourceX + outDir * CORNER} ${yTop}`,
-			`L ${midX - outDir * CORNER} ${yTop}`,
-			`Q ${midX} ${yTop} ${midX} ${yTop + CORNER}`,
-			`L ${midX} ${yBot - CORNER}`,
-			`Q ${midX} ${yBot} ${midX + inDir * CORNER} ${yBot}`,
-			`L ${targetX - inDir * CORNER} ${yBot}`,
-			`Q ${targetX} ${yBot} ${targetX} ${yBot + CORNER}`,
-			`L ${targetX} ${targetY}`
-		].join(' ')
+		const bend = NODE.gap.vertical
+		const yTop = sourceY + bend
+		// Clamp only downward edges: an upward (feedback) edge must still run up the
+		// lane, or its last curve cuts across the node the detour was clearing.
+		const yBot = targetY > sourceY ? Math.max(yTop, targetY - bend) : targetY - bend
+		const [out] = getBezierPath({
+			sourceX,
+			sourceY,
+			sourcePosition,
+			targetX: midX,
+			targetY: yTop,
+			targetPosition,
+			curvature: 0.25
+		})
+		const [into] = getBezierPath({
+			sourceX: midX,
+			sourceY: yBot,
+			sourcePosition,
+			targetX,
+			targetY,
+			targetPosition,
+			curvature: 0.25
+		})
+		// Continue from the lane rather than lifting the pen.
+		return `${out} L${midX},${yBot} ${into.replace(/^M/, 'L')}`
 	}
 
 	// Long edges bend out of the source within the layer gap and descend in

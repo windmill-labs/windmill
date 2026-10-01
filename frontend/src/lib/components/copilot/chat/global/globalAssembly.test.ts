@@ -15,22 +15,17 @@ vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({ default:
 vi.mock('$lib/components/vscode', () => ({}))
 
 import { getSessionContextPromptSection, type SessionPromptContext } from './core'
-import { getPipelinePromptSection, type PipelineContext } from '../pipeline/core'
+import { getPipelinePromptSection } from '../pipeline/core'
 import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssembly'
 
 const sessionContext: SessionPromptContext = { workspaceId: 'ws', parentWorkspaceId: 'parent' }
-const pipelineContext: PipelineContext = {
-	folder: 'myfolder',
-	mode: 'edit',
-	nodes: [],
-	assets: []
-}
+const pipelineFolders = ['myfolder']
 
 describe('assembleGlobalTools', () => {
 	it('includes the pipeline tools only when a pipeline editor is active', () => {
 		const names = (opts: Parameters<typeof assembleGlobalTools>[0]) =>
 			assembleGlobalTools(opts).map((t) => t.def.function.name)
-		expect(names({ pipelineContext })).toContain('get_pipeline_graph')
+		expect(names({ pipelineFolders })).toContain('get_pipeline_graph')
 		expect(names({})).not.toContain('get_pipeline_graph')
 	})
 })
@@ -41,13 +36,13 @@ describe('assembleGlobalSystemMessage', () => {
 	it('carries both optional sections when both contexts are given', () => {
 		const content = assembleGlobalSystemMessage(undefined, {
 			sessionContext,
-			pipelineContext
+			pipelineFolders
 		}).content as string
 		expect(content).toContain(getSessionContextPromptSection(sessionContext))
-		expect(content).toContain(getPipelinePromptSection(pipelineContext))
+		expect(content).toContain(getPipelinePromptSection(pipelineFolders))
 		// Order is part of the assembled output, so it is pinned too.
 		expect(content.indexOf(getSessionContextPromptSection(sessionContext))).toBeLessThan(
-			content.indexOf(getPipelinePromptSection(pipelineContext))
+			content.indexOf(getPipelinePromptSection(pipelineFolders))
 		)
 	})
 
@@ -58,6 +53,6 @@ describe('assembleGlobalSystemMessage', () => {
 		// shares, so a stray section built from any other context still trips them.
 		const heading = (s: string) => s.trim().split('\n')[0]
 		expect(content).not.toContain(heading(getSessionContextPromptSection(sessionContext)))
-		expect(content).not.toContain(heading(getPipelinePromptSection(pipelineContext)))
+		expect(content).not.toContain(heading(getPipelinePromptSection(pipelineFolders)))
 	})
 })
