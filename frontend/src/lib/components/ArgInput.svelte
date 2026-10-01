@@ -43,6 +43,7 @@
 	import { base } from '$lib/base'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
+	import AiDecisionQuestionsEditor from './AiDecisionQuestionsEditor.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
 	import { randomUUID } from '$lib/utils/uuid'
@@ -1484,7 +1485,15 @@
 				{showSchemaExplorer}
 			/>
 		{:else if inputCat == 'ai-provider'}
-			<AIProviderPicker bind:value {disabled} {actions} {workspace} />
+			<AIProviderPicker
+				bind:value
+				{disabled}
+				{actions}
+				{workspace}
+				decision={format === 'ai-decision-provider'}
+			/>
+		{:else if inputCat == 'ai-decision-questions'}
+			<AiDecisionQuestionsEditor bind:value {disabled} />
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}

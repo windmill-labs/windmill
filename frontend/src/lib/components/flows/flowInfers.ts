@@ -212,6 +212,34 @@ export const AI_AGENT_SCHEMA: Schema = {
 	]
 }
 
+/** The inputs of an AI decision step: one call to a decision model (TypeSafe's Jev). */
+export const AI_DECISION_SCHEMA: Schema = {
+	$schema: 'https://json-schema.org/draft/2020-12/schema',
+	properties: {
+		provider: {
+			type: 'object',
+			format: 'ai-decision-provider',
+			description: 'The TypeSafe resource and model the decision runs on.'
+		},
+		// Untyped, so the static editor takes any JSON: TypeSafe reads a string, an object or an
+		// array of strings.
+		state: {
+			type: undefined,
+			description:
+				'What the questions are asked about: a text, an object or a list of texts. Name each part of an object, and send only what the questions need: detail they do not need makes the answers less accurate.'
+		},
+		questions: {
+			type: 'object',
+			format: 'ai-decision-questions',
+			description:
+				'What to ask about the state. A choice picks one of its options, a score places the state on a scale of 2 to 10 levels, and a yes/no gives the probability of yes. As an expression: { <name>: { type: choice | score | noul, instructions, criteria } }.'
+		}
+	},
+	required: ['provider', 'state', 'questions'],
+	type: 'object',
+	order: ['provider', 'state', 'questions']
+}
+
 /** Memory shapes the editor no longer offers for new steps. The step form offers one only to a step that still holds it,
  *  since the one-of field rewrites a value that matches none of its options. No field carries a
  *  default: the form writes one into a missing field on open, and a missing count runs as off. */
@@ -381,6 +409,15 @@ export async function loadSchemaFromModule(
 			// renders (`InputTransformForm` binds `schema.properties[argName]`), and the tool names
 			// one step offers would otherwise become every step's.
 			schema: structuredClone(AI_AGENT_SCHEMA)
+		}
+	} else if (mod.type === 'aidecision') {
+		const input_transforms = mod.input_transforms ?? {}
+		return {
+			input_transforms: Object.keys(AI_DECISION_SCHEMA.properties ?? {}).reduce((accu, key) => {
+				accu[key] = input_transforms[key] ?? { type: 'static', value: undefined }
+				return accu
+			}, {}),
+			schema: structuredClone(AI_DECISION_SCHEMA)
 		}
 	}
 

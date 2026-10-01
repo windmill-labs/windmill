@@ -718,6 +718,7 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
                     FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
                     FlowModuleValue::FlowScript { input_transforms, .. } => input_transforms,
                     FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+                    FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
                     _ => return false,
                 };
 

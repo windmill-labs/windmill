@@ -182,6 +182,86 @@ names, so neither is name-checked at all — leave those summaries as they are.
   whenever the name alone does not make that obvious; it overrides the description derived from the
   underlying script
 
+## AI Decision Modules
+
+An `aidecision` module asks a decision model (TypeSafe's Jev) typed questions about a `state` and
+answers each with calibrated probabilities instead of text. Prefer it over an `aiagent` when the step
+is a judgment (classify, route, score or a yes/no check) that needs no tools and no free text: it
+is faster, cheaper, and its answers have a fixed shape.
+
+```json
+{
+  "id": "triage",
+  "summary": "Classify the ticket",
+  "value": {
+    "type": "aidecision",
+    "input_transforms": {
+      "provider": {
+        "type": "static",
+        "value": { "kind": "typesafe", "resource": "$res:f/ai/typesafe", "model": "jev-latest" }
+      },
+      "state": { "type": "javascript", "expr": "({ message: flow_input.message, plan: results.get_account.plan })" },
+      "questions": {
+        "type": "static",
+        "value": {
+          "intent": {
+            "type": "choice",
+            "instructions": "What does the customer want?",
+            "criteria": { "refund": "Money back", "bug": "Something is broken", "other": "Anything else" }
+          },
+          "urgency": {
+            "type": "score",
+            "instructions": "How urgent is the ticket?",
+            "criteria": ["Can wait", "This week", "Today", "Right now"]
+          },
+          "angry": { "type": "noul", "instructions": "Is the customer angry?" }
+        }
+      }
+    }
+  }
+}
+```
+
+- `provider.kind` is `typesafe`; `model` is `jev-latest` unless a version is pinned
+- `state` is what the questions are about: a string, an object or an array of strings. An object
+  with descriptive keys holding only what the questions need works best
+- `questions` maps each question name to `{ type, instructions, criteria }`:
+  - `choice`: `criteria` maps each option to its description (up to 255 options). The answer has
+    `choice`, `probabilities` and `confidence`
+  - `score`: `criteria` is an ordered array of 2 to 10 level descriptions. The answer has `score`,
+    `legend`, `probabilities` and `confidence`
+  - `noul`: yes/no, `criteria` optionally `{ "true": ..., "false": ... }` descriptions. The answer has
+    `noul`, the probability of yes from 0 to 1
+- The result is `{ output, model, usage }` with `output` keyed by question name, so a later step
+  reads `results.triage.output.intent.choice`, `results.triage.output.urgency.score` or
+  `results.triage.output.angry.noul > 0.7`
+
+### Branching on the Answers
+
+To route on the answers, put a `branchone` right after the decision, one branch per option, with
+each `expr` reading the decision by id:
+
+```json
+{
+  "id": "route",
+  "value": {
+    "type": "branchone",
+    "branches": [
+      { "summary": "refund", "expr": "results.triage.output.intent.choice === 'refund'", "modules": [...] },
+      { "summary": "bug", "expr": "results.triage.output.intent.choice === 'bug'", "modules": [...] }
+    ],
+    "default": [...]
+  }
+}
+```
+
+### As an Agent Tool
+
+An `aidecision` can be a `flowmodule` tool of an `aiagent` (`"tool_type": "flowmodule", "type":
+"aidecision"`): set `state` to `{ "type": "ai" }` so the calling model supplies it, and only `output`
+goes back to the model. The Tool Naming Rules apply to its `summary`. Only a flow's own agent step
+can call one, not an agent used as a tool.
+
 ## Common Mistakes to Avoid
 
 - Missing `input_transforms` - Rawscript parameters won't receive values without them

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Badge, Tab, Tabs } from '$lib/components/common'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { GripVertical, Plus, Trash2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -22,6 +22,8 @@
 	import BranchPredicateEditor from './BranchPredicateEditor.svelte'
 	import FlowRunSettings from './FlowRunSettings.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
+	import { push } from '$lib/history.svelte'
+	import { addChoiceBranches, checkRouting } from '../aiDecisionBranching'
 
 	interface Props {
 		flowModule: FlowModule
@@ -102,6 +104,15 @@
 		refreshStateStore(flowStore)
 	}
 
+	// Kept in step with the AI decision questions its branches were generated from.
+	let routingChecks = $derived(checkRouting(flowStore.val, flowModule))
+
+	function addMissing(decisionId: string, question: string, missing: string[]) {
+		push(history, flowStore.val)
+		addChoiceBranches(flowModule, decisionId, question, missing)
+		refreshStateStore(flowStore)
+	}
+
 	let runSettings: FlowRunSettings | undefined = $state(undefined)
 	let selectedTab = $state('branches')
 
@@ -140,6 +151,33 @@
 				{#if selectedTab === 'branches'}
 					<section>
 						<div class="flex flex-col gap-3">
+							{#each routingChecks as check (check.decisionId + check.question)}
+								{#if check.missing.length > 0}
+									<Alert
+										type="info"
+										size="xs"
+										title="The {check.question} question of {check.decisionId} has {check.missing
+											.length === 1
+											? 'an option'
+											: 'options'} with no branch: {check.missing.join(', ')}"
+										actions={[
+											{
+												label: check.missing.length === 1 ? 'Add branch' : 'Add branches',
+												onClick: () => addMissing(check.decisionId, check.question, check.missing)
+											}
+										]}
+									/>
+								{/if}
+								{#each check.stale as stale (stale.index)}
+									<Alert
+										type="warning"
+										size="xs"
+										title="Branch {stale.index +
+											1} handles {stale.option}, which the {check.question} question of {check.decisionId} no longer offers"
+										actions={[{ label: 'Remove branch', onClick: () => removeBranch(stale.index) }]}
+									/>
+								{/each}
+							{/each}
 							<section
 								class="flex flex-col gap-3"
 								use:dragHandleZone={{ items, flipDurationMs: 150, dropTargetStyle: {} }}

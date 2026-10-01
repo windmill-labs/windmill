@@ -63,7 +63,7 @@
 		/>
 	{/if}
 
-	{#if module.value.type === 'aiagent' && customUi?.tagEdit != false}
+	{#if (module.value.type === 'aiagent' || module.value.type === 'aidecision') && customUi?.tagEdit != false}
 		<FlowModuleWorkerTagSelect
 			isPreprocessor={false}
 			placeholder={customUi?.tagSelectPlaceholder}

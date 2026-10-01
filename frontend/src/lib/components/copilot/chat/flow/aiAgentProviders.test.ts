@@ -107,6 +107,27 @@ describe('validateAiAgentProviders', () => {
 		).not.toThrow()
 		expect(warnings).toHaveLength(1)
 	})
+
+	it('keeps TypeSafe to AI decision steps', () => {
+		const typesafe = {
+			type: 'static',
+			value: { kind: 'typesafe', resource: '$res:u/admin/typesafe', model: 'jev-latest' }
+		}
+		const anthropic = {
+			type: 'static',
+			value: { kind: 'anthropic', resource: '$res:u/admin/anthropic', model: 'claude-sonnet-5' }
+		}
+		const decision = (provider: unknown) => [
+			{ id: 'd', value: { type: 'aidecision', input_transforms: { provider } } }
+		]
+
+		expect(() => validateAiAgentProviders(decision(anthropic), undefined)).toThrow(
+			/Step "d".*must be "typesafe"/
+		)
+		expect(() => validateAiAgentProviders(agentStep(typesafe), undefined)).toThrow(
+			/Step "agent".*use an "aidecision" step/
+		)
+	})
 })
 
 describe('formatAiAgentProvidersPrompt', () => {
