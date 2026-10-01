@@ -33,6 +33,8 @@
 			2
 		)
 	)
+	// The code editor reads `code` only when it is created, so a replaced value recreates it.
+	let jsonEditorKey = $state(0)
 
 	let rows: QuestionRow[] = $state(questionsToRows(untrack(() => value)))
 	// What the rows last wrote or were read from. Rows hold drafts the value leaves out (an unnamed
@@ -59,6 +61,7 @@
 				written = json
 				fitsRows = questionsFitRows(value)
 				jsonCode = JSON.stringify(value, null, 2)
+				jsonEditorKey++
 				rows = questionsToRows(value)
 				synced = JSON.stringify(rowsToQuestions(rows))
 			}
@@ -83,16 +86,18 @@
 		<span class="text-xs text-secondary">
 			These questions use structured instructions or descriptions, so they are edited as JSON.
 		</span>
-		{#await import('./JsonEditor.svelte') then Module}
-			<Module.default
-				bind:code={jsonCode}
-				{disabled}
-				on:changeValue={(e) => {
-					written = JSON.stringify(e.detail ?? {})
-					value = e.detail
-				}}
-			/>
-		{/await}
+		{#key jsonEditorKey}
+			{#await import('./JsonEditor.svelte') then Module}
+				<Module.default
+					bind:code={jsonCode}
+					{disabled}
+					on:changeValue={(e) => {
+						written = JSON.stringify(e.detail ?? {})
+						value = e.detail
+					}}
+				/>
+			{/await}
+		{/key}
 	</div>
 {:else}
 	<div class="flex flex-col gap-3 w-full">
