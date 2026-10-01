@@ -49,6 +49,11 @@ describe('choice conditions', () => {
 			expect(parseChoiceCondition(choiceConditionExpr(c))).toEqual(c)
 		}
 		expect(parseChoiceCondition('results.d.output.intent.choice !== "refund"')).toBeUndefined()
+		expect(parseChoiceCondition("results.d.output.intent.choice === 'it\\'s'")).toEqual({
+			decisionId: 'd',
+			question: 'intent',
+			option: "it's"
+		})
 	})
 
 	it('flags the options a branch is missing and the branches whose option is gone', () => {
@@ -63,6 +68,15 @@ describe('choice conditions', () => {
 				missing: ['bug'],
 				stale: [{ index: 1, option: 'cancel' }]
 			}
+		])
+	})
+})
+
+describe('a removed question', () => {
+	it('leaves every branch routing on it stale', () => {
+		const f = flow(choiceBranches('d', 'gone', ['refund']))
+		expect(checkRouting(f, f.value.modules[1])).toEqual([
+			{ decisionId: 'd', question: 'gone', missing: [], stale: [{ index: 0, option: 'refund' }] }
 		])
 	})
 })

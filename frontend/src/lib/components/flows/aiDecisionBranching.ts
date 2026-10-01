@@ -14,8 +14,16 @@ function key(k: string): string {
 
 const KEY = String.raw`(?:\.([A-Za-z_$][\w$]*)|\[("(?:[^"\\]|\\.)*")\])`
 const CONDITION = new RegExp(
-	String.raw`^results${KEY}\.output${KEY}\.choice === ("(?:[^"\\]|\\.)*")$`
+	String.raw`^results${KEY}\.output${KEY}\.choice === ("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')$`
 )
+
+/** A JS string literal as the helper writes it (double quotes) or as people and the AI chat
+ *  usually do (single quotes). */
+function stringLiteral(literal: string): string {
+	return literal.startsWith("'")
+		? literal.slice(1, -1).replace(/\\(.)/g, '$1')
+		: JSON.parse(literal)
+}
 
 export function choiceConditionExpr({ decisionId, question, option }: ChoiceCondition): string {
 	return `results${key(decisionId)}.output${key(question)}.choice === ${JSON.stringify(option)}`
@@ -28,7 +36,7 @@ export function parseChoiceCondition(expr: string | undefined): ChoiceCondition 
 		return {
 			decisionId: m[1] ?? JSON.parse(m[2]),
 			question: m[3] ?? JSON.parse(m[4]),
-			option: JSON.parse(m[5])
+			option: stringLiteral(m[5])
 		}
 	} catch {
 		return undefined
@@ -93,8 +101,8 @@ export type RoutingCheck = {
 }
 
 /** For each decision question a Branch to one routes on, what its branches lack and what they
- *  handle that the question no longer offers. Questions set from an expression are skipped: their
- *  options are only known at run time. */
+ *  handle that the question no longer offers; a question removed from the decision offers nothing.
+ *  Questions set from an expression are skipped: their options are only known at run time. */
 export function checkRouting(flow: OpenFlow, routing: FlowModule): RoutingCheck[] {
 	const conditions = conditionsOf(routing)
 	const modules = getAllModules(flow.value.modules, flow.value.failure_module)
@@ -105,10 +113,14 @@ export function checkRouting(flow: OpenFlow, routing: FlowModule): RoutingCheck[
 	const checks: RoutingCheck[] = []
 	for (const { decisionId, question } of pairs.values()) {
 		const decision = modules.find((m) => m.id === decisionId)
-		const options = decision
-			? decisionChoiceQuestions(decision).find((q) => q.name === question)?.options
-			: undefined
-		if (!options) continue
+		if (
+			decision?.value.type !== 'aidecision' ||
+			decision.value.input_transforms?.questions?.type !== 'static'
+		) {
+			continue
+		}
+		const options =
+			decisionChoiceQuestions(decision).find((q) => q.name === question)?.options ?? []
 		const stale = conditions.flatMap((c, index) =>
 			c?.decisionId === decisionId && c.question === question && !options.includes(c.option)
 				? [{ index, option: c.option }]
