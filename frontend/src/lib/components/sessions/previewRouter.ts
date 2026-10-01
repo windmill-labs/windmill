@@ -21,6 +21,7 @@ import {
 	triggerLabelForPath,
 	TRIGGER_PAGES,
 	type PageItemRef,
+	type PreviewItemMode,
 	type PreviewItemRoute,
 	type TriggerKind
 } from './previewPaths'
@@ -36,6 +37,7 @@ export {
 	stripBase,
 	TRIGGER_PAGES,
 	type PageItemRef,
+	type PreviewItemMode,
 	type PreviewItemRoute,
 	type TriggerKind
 }
@@ -76,10 +78,27 @@ export type ArtifactVersionTarget = number | 'latest'
  * an iframe URL. */
 export type PreviewTarget =
 	| { type: 'page'; href: string; label: string }
-	| { type: 'item'; item: WorkspaceItem }
+	// `mode` picks the side of the item to land on; omitted means Edit, so every
+	// caller that predates the View side keeps opening the editor. `version` pins the
+	// View side to one deployed version, in the query so the tab's identity stays the
+	// item's path rather than becoming the version's own hash.
+	| { type: 'item'; item: WorkspaceItem; mode?: PreviewItemMode; version?: string }
 	| { type: 'artifact'; id: string; name: string; version?: ArtifactVersionTarget }
 	| { type: 'runform'; toolCallId: string; label: string }
 	| { type: 'pageitem'; ref: PageItemRef }
+
+/**
+ * Which side of an item to open when the opener is showing the reader something
+ * that already exists, rather than something it just wrote: the deployed page,
+ * unless nothing is deployed there and the editor is all the item has.
+ *
+ * The openers that follow a write (`open_preview`, the write-result preview card)
+ * pass `'edit'` themselves — the item they mean may well be deployed, and its
+ * deployed page is precisely not what the reader asked to see.
+ */
+export function previewModeFor(item: Pick<WorkspaceItem, 'draftOnly'>): PreviewItemMode {
+	return item.draftOnly ? 'edit' : 'view'
+}
 
 export type PreviewPage = { label: string; path: string; icon: DrillIcon }
 
@@ -527,19 +546,29 @@ export const artifactKey = (id: string) => `artifact:${id}`
 
 export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 
-// How a preview tab should render: as an in-process live editor or an iframe
-// fallback. Any editable item of a wrappable kind (script, flow, raw app) mounts
-// its per-(kind,path) cell editor; a `/pipeline/<folder>` route mounts the
-// data-pipeline graph editor (single, shared runtime.pipelineEditorState — `path`
-// is the folder); the list page of a page item kind mounts that list; everything
+// How a preview tab should render: as an in-process live editor, the deployed
+// item's view page, or an iframe fallback. An item of a wrappable kind (script,
+// flow, raw app) mounts its per-(kind,path) cell editor on `/edit/` and its viewer
+// on `/get/`; a `/pipeline/<folder>` route mounts the data-pipeline graph editor
+// (single, shared runtime.pipelineEditorState — `path` is the folder); the list page
+// of a page item kind mounts that list; everything
 // else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
+	| { kind: 'viewer'; viewerKind: SessionTargetKind; path: string }
 	| { kind: 'artifact'; id: string; version?: number }
 	| { kind: 'runform'; toolCallId: string }
 	| { kind: 'pageitem'; ref: PageItemRef }
 	| { kind: 'pagelist'; path: string }
 	| { kind: 'iframe' }
+
+/** The item kind a preview slot hosts, for the slots that host one — so callers can
+ * ask "which item is this tab on" without caring which side of it is showing. */
+export function slotItemKind(slot: PreviewSlot): SessionTargetKind | 'pipeline' | undefined {
+	if (slot.kind === 'editor') return slot.editorKind
+	if (slot.kind === 'viewer') return slot.viewerKind
+	return undefined
+}
 
 export function resolvePreviewTab(url: string): PreviewSlot {
 	const artifact = parseArtifactRoute(url)
@@ -556,7 +585,7 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	}
 	const item = parsePreviewItemRoute(url)
 	if (!item) return { kind: 'iframe' }
-	const editorKind: SessionTargetKind | undefined =
+	const itemKind: SessionTargetKind | undefined =
 		item.kind === 'script'
 			? 'script'
 			: item.kind === 'flow'
@@ -564,8 +593,9 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 				: item.kind === 'app' && item.raw_app
 					? 'raw_app'
 					: undefined
-	if (!editorKind) return { kind: 'iframe' }
-	return { kind: 'editor', editorKind, path: item.itemPath }
+	if (!itemKind) return { kind: 'iframe' }
+	if (item.mode === 'view') return { kind: 'viewer', viewerKind: itemKind, path: item.itemPath }
+	return { kind: 'editor', editorKind: itemKind, path: item.itemPath }
 }
 
 /** The full workspace page showing what a tab shows ("Open in workspace"), or undefined when
@@ -580,6 +610,7 @@ export function workspacePageHref(location: string): string | undefined {
 		case 'pageitem':
 			return pageItemPageHref(slot.ref)
 		case 'editor':
+		case 'viewer':
 		case 'pagelist':
 		case 'iframe':
 			return location

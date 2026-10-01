@@ -6,12 +6,14 @@
 	import { twMerge } from 'tailwind-merge'
 	import { userStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
-	import { MediaQuery } from 'svelte/reactivity'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import type { TriggerContext } from '../triggers'
 	import type { Item } from '$lib/utils'
 	import { Bell, BellOff, Calendar } from 'lucide-svelte'
 	import { toggleWorkspaceErrorHandler } from './errorHandlerToggle'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type MainButton = {
 		label: string
@@ -49,6 +51,10 @@
 		onSaved?: (newPath: string) => void
 		children?: import('svelte').Snippet
 		trigger_badges?: import('svelte').Snippet
+		/** Whether the bar is wide enough to hold every button beside the summary, decided by
+		 * the layout from its own width. Not a viewport media query: the same page also renders
+		 * inside an AI session's preview panel, where the window is wide and the pane is not. */
+		wide?: boolean
 	}
 
 	let {
@@ -64,15 +70,13 @@
 		inheritedLabels = undefined,
 		onSaved,
 		children,
-		trigger_badges
+		trigger_badges,
+		wide = true
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	// Tailwind's `lg`, matched in JS so the one ellipsis menu can carry the collapsed buttons.
-	const wide = new MediaQuery('(min-width: 1024px)')
-
-	const barButtons = $derived(wide.current ? mainButtons : mainButtons.filter((b) => !b.narrow))
+	const barButtons = $derived(wide ? mainButtons : mainButtons.filter((b) => !b.narrow))
 
 	function dropdownHost(btn: MainButton): MainButton | undefined {
 		if (typeof btn.narrow !== 'object') return undefined
@@ -82,6 +86,7 @@
 
 	async function toggleErrorHandler() {
 		const next = await toggleWorkspaceErrorHandler(
+			$operatingWorkspace,
 			errorHandlerKind,
 			scriptOrFlowPath,
 			errorHandlerMuted
@@ -90,7 +95,7 @@
 	}
 
 	const allMenuItems: Item[] = $derived([
-		...(wide.current ? [] : mainButtons.filter((b) => b.narrow && !dropdownHost(b))).map((b) => ({
+		...(wide ? [] : mainButtons.filter((b) => b.narrow && !dropdownHost(b))).map((b) => ({
 			displayName: b.label,
 			description: b.description,
 			icon: b.buttonProps.startIcon,
@@ -99,7 +104,7 @@
 			disabled: b.buttonProps.disabled,
 			type: 'action' as const
 		})),
-		...(wide.current
+		...(wide
 			? []
 			: [
 					{
@@ -114,12 +119,12 @@
 			icon: item.Icon,
 			action: item.onclick,
 			type: item.color === 'red' ? ('delete' as const) : ('action' as const),
-			separatorTop: i === 0 && !wide.current
+			separatorTop: i === 0 && !wide
 		}))
 	])
 
 	function dropdownItemsOf(host: MainButton) {
-		if (wide.current) return undefined
+		if (wide) return undefined
 		const items = mainButtons
 			.filter((b) => dropdownHost(b) === host)
 			.map((b) => ({
@@ -181,7 +186,7 @@
 						<DropdownV2 items={allMenuItems} placement="bottom-end" size="md" />
 					{/key}
 				{/if}
-				{#if wide.current}
+				{#if wide}
 					<ErrorHandlerToggleButton
 						kind={errorHandlerKind}
 						{scriptOrFlowPath}

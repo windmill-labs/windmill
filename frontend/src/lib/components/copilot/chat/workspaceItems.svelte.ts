@@ -234,14 +234,18 @@ export function workspaceItemAction(
 ): ToolDisplayAction | undefined {
 	if (!kind || !path) return undefined
 
+	// 'view' throughout: this registry is loaded without `include_draft_only`, so a
+	// path only resolves here once something is deployed at it. A mention in prose
+	// names the item as it stands, which is that deployed version — the model shows
+	// its own fresh drafts through `open_preview` and the write-result card instead.
 	if (kind === 'script' || kind === 'flow') {
-		return openItemPreviewAction(kind, path)
+		return openItemPreviewAction(kind, path, 'view')
 	}
 
 	// Raw apps only. A legacy drag-and-drop app has no editor the panel can host, and
 	// legacy items are not extended onto new surfaces — its link stays outbound.
 	if (kind === 'app') {
-		return rawApp ? openItemPreviewAction('raw_app', path) : undefined
+		return rawApp ? openItemPreviewAction('raw_app', path, 'view') : undefined
 	}
 
 	const base = {

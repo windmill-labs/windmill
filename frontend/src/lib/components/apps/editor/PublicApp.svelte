@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { applyDarkModeVariant } from '$lib/darkModeVariant'
-	import { enterpriseLicense, userStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, type UserExt } from '$lib/stores'
 	import { base } from '$app/paths'
 	import { page } from '$app/state'
 	import Login from '$lib/components/Login.svelte'
@@ -32,6 +32,7 @@
 		onLoginSuccess,
 		app,
 		workspace,
+		user = undefined,
 		inWorkspace = false,
 		hideRefreshBar = false
 	}: {
@@ -44,6 +45,11 @@
 		onLoginSuccess: () => void
 		app: (AppWithLastVersion & { value: any; workspace_id?: string }) | undefined
 		workspace: string | undefined
+		/** The viewer's membership in `workspace`, for the app's `ctx`. Without it `ctx` falls
+		 * back to `userStore`, which describes the workspace the page is navigated to — the
+		 * same one on every standalone viewer route, but not inside an AI session's preview
+		 * tab, where the app belongs to the session's workspace. */
+		user?: UserExt | undefined
 		/**
 		 * In-workspace rendering (`/apps/get`, `/app_embed`): keep exact parity
 		 * with the pre-sandbox member viewer — no "Powered by Windmill" badge, no
@@ -55,6 +61,10 @@
 
 	// Use workspace from props or from app.workspace_id (for custom path responses)
 	let effectiveWorkspace = $derived(workspace ?? app?.workspace_id)
+
+	// `ctx.username` / `ctx.groups` are per-workspace, and they sit next to `ctx.workspace`
+	// in the same object, so they have to come from the same workspace it names.
+	let ctxUser = $derived(user ?? $userStore)
 
 	// On the public surfaces (untrusted distribution) runnable-authored html/svg needs
 	// the viewer's approval before it renders, unless the app sandbox isolates it. The
@@ -183,10 +193,10 @@
 						noBackend={false}
 						{hideRefreshBar}
 						context={{
-							email: $userStore?.email,
-							name: $userStore?.name,
-							groups: $userStore?.groups,
-							username: $userStore?.username,
+							email: ctxUser?.email,
+							name: ctxUser?.name,
+							groups: ctxUser?.groups,
+							username: ctxUser?.username,
 							query: urlParamsToObject(page.url.searchParams, { stripReserved: true }),
 							hash: page.url.hash.substring(1)
 						}}

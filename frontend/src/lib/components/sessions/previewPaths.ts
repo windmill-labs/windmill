@@ -151,18 +151,28 @@ export function stripBase(path: string): string {
 	return p || '/'
 }
 
-export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
+/** Which side of an item a route addresses: `/edit/` builds it, `/get/` shows the
+ * deployed version. The two are one tab in a session, switched by re-pointing its URL. */
+export type PreviewItemMode = 'edit' | 'view'
 
-// Parse a preview URL/pathname into the workspace item it edits, or null for a
+export type PreviewItemRoute = {
+	kind: WorkspaceItemKind
+	raw_app: boolean
+	itemPath: string
+	mode: PreviewItemMode
+}
+
+// Parse a preview URL/pathname into the workspace item it addresses, or null for a
 // non-item page (home, runs, …). Shared by the breadcrumb (drill segments) and
 // `previewRouter`'s tab resolver so both agree on what counts as an item route.
 export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null {
 	const p = stripBase(fullPath)
-	const m = p.match(/^\/(scripts|flows|apps|apps_raw)\/(?:edit|get)\/(.+)$/)
+	const m = p.match(/^\/(scripts|flows|apps|apps_raw)\/(edit|get)\/(.+)$/)
 	if (!m) return null
-	const itemPath = decodeURIComponent(m[2])
-	if (m[1] === 'scripts') return { kind: 'script', raw_app: false, itemPath }
-	if (m[1] === 'flows') return { kind: 'flow', raw_app: false, itemPath }
-	if (m[1] === 'apps_raw') return { kind: 'app', raw_app: true, itemPath }
-	return { kind: 'app', raw_app: false, itemPath }
+	const itemPath = decodeURIComponent(m[3])
+	const mode: PreviewItemMode = m[2] === 'get' ? 'view' : 'edit'
+	if (m[1] === 'scripts') return { kind: 'script', raw_app: false, itemPath, mode }
+	if (m[1] === 'flows') return { kind: 'flow', raw_app: false, itemPath, mode }
+	if (m[1] === 'apps_raw') return { kind: 'app', raw_app: true, itemPath, mode }
+	return { kind: 'app', raw_app: false, itemPath, mode }
 }

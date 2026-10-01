@@ -1111,10 +1111,11 @@
 		onClick: () => void
 	}> = []
 
-	// In a session pane every one of these leaves the session (details page, new
-	// tab), so the deploy button carries no dropdown there — as in ScriptBuilder.
-	if (untrack(() => customUi).topBar?.extraDeployOptions != false && !inSessionPane) {
-		if (!newFlow) {
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
+		// The one option that stays in a session pane: the session hosts the details page
+		// itself, so this flips the tab to it rather than leaving the session. Everything
+		// below opens a details page or a new tab outside the session, so it stays hidden.
+		if (!newFlow && savedFlow?.no_deployed !== true) {
 			dropdownItems.push({
 				label: 'Exit & see details',
 				// Use the deployed path, not the live `$pathStore` — the latter
@@ -1124,7 +1125,7 @@
 			})
 		}
 
-		if (!untrack(() => newFlow)) {
+		if (!untrack(() => newFlow) && !inSessionPane) {
 			dropdownItems.push({
 				label: 'Fork',
 				onClick: () => window.open(`/flows/add?template=${initialPath}`)
@@ -1133,6 +1134,7 @@
 
 		if (
 			!untrack(() => newFlow) &&
+			!inSessionPane &&
 			!isCloudHosted() &&
 			editInForkAllowed(opWorkspace, $userWorkspaces)
 		) {
