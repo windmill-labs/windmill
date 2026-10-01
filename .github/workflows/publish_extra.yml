@@ -57,7 +57,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build test image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./docker/DockerfileExtra

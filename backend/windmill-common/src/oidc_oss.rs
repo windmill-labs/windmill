@@ -70,6 +70,10 @@ pub struct JobClaim {
     pub root_path: Option<String>,
     pub root_job_kind: String,
     pub root_trigger_kind: Option<String>,
+    pub latest: bool,
+    pub version: Option<String>,
+    pub root_version: Option<String>,
+    pub jti: String,
 }
 
 #[cfg(not(feature = "private"))]

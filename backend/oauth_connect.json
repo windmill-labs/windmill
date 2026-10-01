@@ -55,8 +55,8 @@
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/spreadsheets"],
     "scope_options": [
-      "https://www.googleapis.com/auth/spreadsheets",
-      "https://www.googleapis.com/auth/spreadsheets.readonly"
+      { "value": "https://www.googleapis.com/auth/spreadsheets", "label": "Read, edit, create and delete spreadsheets" },
+      { "value": "https://www.googleapis.com/auth/spreadsheets.readonly", "label": "Read spreadsheets" }
     ],
     "extra_params": {
       "access_type": "offline",
@@ -68,9 +68,9 @@
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/drive"],
     "scope_options": [
-      "https://www.googleapis.com/auth/drive.file",
-      "https://www.googleapis.com/auth/drive.readonly",
-      "https://www.googleapis.com/auth/drive"
+      { "value": "https://www.googleapis.com/auth/drive.file", "label": "Only files created or opened with this connection" },
+      { "value": "https://www.googleapis.com/auth/drive.readonly", "label": "Read all Drive files" },
+      { "value": "https://www.googleapis.com/auth/drive", "label": "Read, edit, create and delete all Drive files" }
     ],
     "extra_params": {
       "access_type": "offline",
@@ -82,11 +82,11 @@
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/gmail.send"],
     "scope_options": [
-      "https://www.googleapis.com/auth/gmail.send",
-      "https://www.googleapis.com/auth/gmail.readonly",
-      "https://www.googleapis.com/auth/gmail.compose",
-      "https://www.googleapis.com/auth/gmail.modify",
-      "https://www.googleapis.com/auth/gmail.labels"
+      { "value": "https://www.googleapis.com/auth/gmail.send", "label": "Send mail only" },
+      { "value": "https://www.googleapis.com/auth/gmail.readonly", "label": "Read and search mail" },
+      { "value": "https://www.googleapis.com/auth/gmail.compose", "label": "Draft and send mail" },
+      { "value": "https://www.googleapis.com/auth/gmail.modify", "label": "Read, search, label, draft and send mail" },
+      { "value": "https://www.googleapis.com/auth/gmail.labels", "label": "Create, edit and delete labels" }
     ],
     "extra_params": {
       "access_type": "offline",
@@ -98,10 +98,10 @@
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/calendar.events"],
     "scope_options": [
-      "https://www.googleapis.com/auth/calendar.events",
-      "https://www.googleapis.com/auth/calendar.events.readonly",
-      "https://www.googleapis.com/auth/calendar.readonly",
-      "https://www.googleapis.com/auth/calendar"
+      { "value": "https://www.googleapis.com/auth/calendar.events", "label": "Read and edit events on all calendars" },
+      { "value": "https://www.googleapis.com/auth/calendar.events.readonly", "label": "Read events on all calendars" },
+      { "value": "https://www.googleapis.com/auth/calendar.readonly", "label": "Read all calendars and events" },
+      { "value": "https://www.googleapis.com/auth/calendar", "label": "Read, edit, share and delete all calendars" }
     ],
     "extra_params": {
       "access_type": "offline",
@@ -113,10 +113,43 @@
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/forms"],
     "scope_options": [
-      "https://www.googleapis.com/auth/forms",
-      "https://www.googleapis.com/auth/forms.body",
-      "https://www.googleapis.com/auth/forms.body.readonly",
-      "https://www.googleapis.com/auth/forms.responses.readonly"
+      { "value": "https://www.googleapis.com/auth/forms", "label": "Read and manage forms in Drive" },
+      { "value": "https://www.googleapis.com/auth/forms.body", "label": "Read, edit, create and delete forms" },
+      { "value": "https://www.googleapis.com/auth/forms.body.readonly", "label": "Read forms" },
+      { "value": "https://www.googleapis.com/auth/forms.responses.readonly", "label": "Read form responses" }
+    ],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
+  "gdocs": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": ["https://www.googleapis.com/auth/documents"],
+    "scope_options": [
+      { "value": "https://www.googleapis.com/auth/documents", "label": "Read, edit, create and delete documents" },
+      { "value": "https://www.googleapis.com/auth/documents.readonly", "label": "Read documents" },
+      { "value": "https://www.googleapis.com/auth/drive.file", "label": "Only files created or opened with this connection" }
+    ],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
+  "gchat": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/chat.spaces.readonly",
+      "https://www.googleapis.com/auth/chat.messages.create"
+    ],
+    "scope_options": [
+      { "value": "https://www.googleapis.com/auth/chat.spaces.readonly", "label": "Read spaces" },
+      { "value": "https://www.googleapis.com/auth/chat.messages", "label": "Read, send, edit and delete messages" },
+      { "value": "https://www.googleapis.com/auth/chat.messages.readonly", "label": "Read messages" },
+      { "value": "https://www.googleapis.com/auth/chat.messages.create", "label": "Send messages only" },
+      { "value": "https://www.googleapis.com/auth/chat.memberships.readonly", "label": "Read space members" }
     ],
     "extra_params": {
       "access_type": "offline",
@@ -128,8 +161,8 @@
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/cloud-platform"],
     "scope_options": [
-      "https://www.googleapis.com/auth/cloud-platform",
-      "https://www.googleapis.com/auth/cloud-platform.read-only"
+      { "value": "https://www.googleapis.com/auth/cloud-platform", "label": "Read and manage all Google Cloud resources" },
+      { "value": "https://www.googleapis.com/auth/cloud-platform.read-only", "label": "Read Google Cloud resources" }
     ],
     "extra_params": {
       "access_type": "offline",
@@ -146,13 +179,13 @@
       "https://www.googleapis.com/auth/admin.directory.orgunit"
     ],
     "scope_options": [
-      "https://www.googleapis.com/auth/admin.directory.user",
-      "https://www.googleapis.com/auth/admin.directory.user.readonly",
-      "https://www.googleapis.com/auth/admin.directory.group",
-      "https://www.googleapis.com/auth/admin.directory.group.readonly",
-      "https://www.googleapis.com/auth/admin.directory.orgunit",
-      "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
-      "https://www.googleapis.com/auth/admin.directory.user.security"
+      { "value": "https://www.googleapis.com/auth/admin.directory.user", "label": "Read and manage users" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.user.readonly", "label": "Read users" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.group", "label": "Read and manage groups" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.group.readonly", "label": "Read groups" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.orgunit", "label": "Read and manage organizational units" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.orgunit.readonly", "label": "Read organizational units" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.user.security", "label": "Manage user security settings" }
     ],
     "extra_params": {
       "access_type": "offline",

@@ -1,12 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
+  "query": "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path, hash",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "path",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "hash",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
@@ -16,8 +21,9 @@
       ]
     },
     "nullable": [
+      false,
       false
     ]
   },
-  "hash": "819c4d78f10979a83529155c3f101f42f6958742bc68ab384944fa3c5cba094c"
+  "hash": "2d73fe76e45becbcae7a9d4384bbb2f9739cab232b8f3e357e27dc32bb35c3a8"
 }
