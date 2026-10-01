@@ -201,6 +201,26 @@
 	 */
 	let useClientCredentials = $state(false)
 
+	/** Slack v2 grants a user token for `user_scope` and a bot token for `scope`,
+	 * from the same app: the registry's `user_scopes` offers the choice. */
+	let useUserToken = $state(false)
+	/** Both kinds share one resource type, so the default path and description tell them apart. */
+	let tokenKind = $derived(
+		registryEntry()?.user_scopes && !useClientCredentials
+			? useUserToken
+				? 'user'
+				: 'bot'
+			: undefined
+	)
+	let defaultName = $derived(tokenKind ? `${resourceType}_${tokenKind}` : resourceType)
+
+	function selectUserToken(user: boolean) {
+		if (user !== useUserToken) {
+			scopes = user ? (registryEntry()?.user_scopes ?? []) : instanceScopes
+		}
+		useUserToken = user
+	}
+
 	/**
 	 * Client credentials for resource-level OAuth
 	 */
@@ -286,6 +306,7 @@
 	function resetClientCredentialsState() {
 		supportsClientCredentials = false
 		useClientCredentials = false
+		useUserToken = false
 		authCodeUnavailable = false
 		ccInstanceConfigured = false
 		ccBringYourOwn = false
@@ -606,16 +627,20 @@
 			value = data.res.access_token!
 			valueToken = data.res
 			responseExtra = data.extra ?? {}
+			if (tokenKind && emptyString(description)) {
+				description = tokenKind === 'user' ? 'User token' : 'Bot token'
+			}
 			step = 4
 			// `fillPath` decides the path as surely as express does, so neither stops here.
 			if (fillPath || express) {
-				path = fillPath ?? `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+				path = fillPath ?? `u/${$userStore?.username}/${defaultName}_${new Date().getTime()}`
 				next()
 			}
 		}
 	}
 
 	async function getScopesAndParams() {
+		useUserToken = false
 		if (!connects?.includes(connectClient)) {
 			// No instance OAuth client (registry-declared CC-only provider):
 			// defaults come from the static registry instead.
@@ -748,7 +773,7 @@
 					}
 					step = 4
 					if (fillPath || express) {
-						path = fillPath ?? `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+						path = fillPath ?? `u/${$userStore?.username}/${defaultName}_${new Date().getTime()}`
 						next()
 					}
 				} catch (error) {
@@ -764,7 +789,11 @@
 				 * Opens popup for user to authenticate with OAuth provider
 				 */
 				const url = new URL(`/api/oauth/connect/${connectClient}`, window.location.origin)
-				url.searchParams.append('scopes', scopes.join('+'))
+				// An empty `scopes` still overrides the instance's bot scopes.
+				url.searchParams.append('scopes', useUserToken ? '' : scopes.join('+'))
+				if (useUserToken) {
+					url.searchParams.append('user_scope', scopes.join(','))
+				}
 				if (extra_params.length > 0) {
 					extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
 				}
@@ -1557,6 +1586,26 @@
 					</div>
 				{/if}
 
+				{#if registryEntry()?.user_scopes && !useClientCredentials}
+					<div class="flex flex-col gap-1">
+						<h3 class="text-sm font-semibold text-emphasis mb-1">Connect as</h3>
+						<div class="flex flex-col gap-2" role="radiogroup" aria-label="Connect as">
+							<RadioCard
+								label="The app (bot token)"
+								description="Acts as the app's bot user, in the channels it is added to."
+								selected={!useUserToken}
+								onSelect={() => selectUserToken(false)}
+							/>
+							<RadioCard
+								label="Yourself (user token)"
+								description="Acts as you, with access to what you can see: history, DMs and search."
+								selected={useUserToken}
+								onSelect={() => selectUserToken(true)}
+							/>
+						</div>
+					</div>
+				{/if}
+
 				<div class="flex flex-col gap-1">
 					<h3 class="text-xs font-semibold text-emphasis flex gap-4"
 						>Scopes <button
@@ -1588,7 +1637,7 @@
 		<Label label="Path">
 			<Path
 				initialPath=""
-				namePlaceholder={resourceType}
+				namePlaceholder={defaultName}
 				bind:error={pathError}
 				bind:path
 				kind="resource"

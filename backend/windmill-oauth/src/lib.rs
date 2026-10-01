@@ -68,6 +68,7 @@ pub struct ClientWithScopes {
     pub allowed_domains: Option<Vec<String>>,
     pub userinfo_url: Option<String>,
     pub grant_types: Vec<String>,
+    pub token_response_path: Option<String>,
     /// Resolved token endpoint, exposed so the connect dialog can prefill and
     /// persist it on client-credentials accounts.
     pub token_url: String,
@@ -88,10 +89,11 @@ pub struct OAuthConfig {
     #[serde(default = "empty_string")]
     pub token_url: String,
     pub userinfo_url: Option<String>,
-    /// The registry JSON may also carry two frontend-only keys for the connect
+    /// The registry JSON may also carry frontend-only keys for the connect
     /// dialog, deliberately not modelled here: `scope_options`, a scope pick
-    /// list, and `resource_fields`, the fields of the resource type the dialog
-    /// asks for once the token is in (Snowflake's database and warehouse).
+    /// list, `resource_fields`, the fields of the resource type the dialog
+    /// asks for once the token is in (Snowflake's database and warehouse), and
+    /// `user_scopes`, Slack's user-token scopes, sent as `user_scope`.
     pub scopes: Option<Vec<String>>,
     /// Default scopes for the client-credentials (2-legged) flow. These differ
     /// from the authorization-code `scopes` for most providers (member/consent
@@ -103,6 +105,11 @@ pub struct OAuthConfig {
     pub extra_params: Option<HashMap<String, String>>,
     pub extra_params_callback: Option<HashMap<String, String>>,
     pub req_body_auth: Option<bool>,
+    /// Key of a nested object holding the token when the response has none at
+    /// the top level: Slack v2 puts a user token (`user_scope`) under
+    /// `authed_user`, and a bot token, when one was asked for, at the top.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_response_path: Option<String>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
     /// Optional URL overrides for the provider's sandbox environment. When
@@ -793,6 +800,7 @@ pub async fn exchange_token(
     extra_params_callback: Option<&HashMap<String, String>>,
     http_client: &reqwest::Client,
     scopes: Option<&[String]>,
+    token_response_path: Option<&str>,
 ) -> Result<TokenResponse, Error> {
     let token_json = match grant_type {
         "authorization_code" | "" => {
@@ -831,12 +839,24 @@ pub async fn exchange_token(
         }
     };
 
-    let token = serde_json::from_value::<TokenResponse>(token_json.clone()).map_err(|e| {
+    parse_token_response(token_json, token_response_path)
+}
+
+/// Deserialize a token endpoint response, reading the token from the object at
+/// `token_response_path` when the top level carries none.
+pub fn parse_token_response(
+    token_json: serde_json::Value,
+    token_response_path: Option<&str>,
+) -> Result<TokenResponse, Error> {
+    let token_json = match token_response_path.and_then(|p| token_json.get(p)) {
+        Some(nested) if token_json.get("access_token").is_none() => nested.clone(),
+        _ => token_json,
+    };
+    serde_json::from_value::<TokenResponse>(token_json.clone()).map_err(|e| {
         Error::BadConfig(format!(
             "Error deserializing response as a new token: {e}\nresponse:{token_json}"
         ))
-    })?;
-    Ok(token)
+    })
 }
 
 /// Pre-fetched account fields needed for token refresh.
@@ -992,6 +1012,9 @@ pub async fn refresh_token_for_account<'c>(
         extra_params_callback.as_ref(),
         http_client,
         Some(effective_scopes),
+        oauth_client_info
+            .as_ref()
+            .and_then(|i| i.token_response_path.as_deref()),
     )
     .await;
 
@@ -1207,6 +1230,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_parse_token_response_nested() {
+        let bot = serde_json::json!({
+            "ok": true,
+            "access_token": "xoxb-bot",
+            "authed_user": {"id": "U1"}
+        });
+        let token = parse_token_response(bot, Some("authed_user")).unwrap();
+        assert_eq!(&*token.access_token, "xoxb-bot");
+
+        let user = serde_json::json!({
+            "ok": true,
+            "authed_user": {"access_token": "xoxp-user", "refresh_token": "xoxe-1", "expires_in": 43200}
+        });
+        let token = parse_token_response(user, Some("authed_user")).unwrap();
+        assert_eq!(&*token.access_token, "xoxp-user");
+        assert_eq!(&*token.refresh_token.unwrap(), "xoxe-1");
+
+        let refresh =
+            serde_json::json!({"ok": true, "access_token": "xoxe.xoxp-new", "token_type": "user"});
+        let token = parse_token_response(refresh, Some("authed_user")).unwrap();
+        assert_eq!(&*token.access_token, "xoxe.xoxp-new");
+    }
+
     fn sample_oauth_config(with_sandbox: bool) -> OAuthConfig {
         OAuthConfig {
             auth_url: "https://account.example.com/oauth/auth".to_string(),
@@ -1217,6 +1264,7 @@ mod tests {
             extra_params: None,
             extra_params_callback: None,
             req_body_auth: None,
+            token_response_path: None,
             grant_types: default_grant_types(),
             sandbox: with_sandbox.then(|| OAuthSandboxOverride {
                 auth_url: Some("https://account-d.example.com/oauth/auth".to_string()),

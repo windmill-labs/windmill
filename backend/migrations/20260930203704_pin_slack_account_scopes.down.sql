@@ -1,0 +1,1 @@
+-- Irreversible: pinned rows are indistinguishable from accounts that stored these scopes at connect time.
