@@ -76,9 +76,13 @@
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import {
+		operatingWorkspaceContextEntry,
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import EditableInput from '$lib/components/common/EditableInput.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -153,6 +157,8 @@
 		 * EditorHeader's path/breadcrumb row dropped (summary only). Used by the
 		 * session preview to save vertical room. */
 		condensedHeader?: boolean
+		/** True for the route's own editor: its top bar becomes the page header. */
+		ownsPageHeader?: boolean
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		liveEditorDraftStoragePath?: string
 		/** Indicator-only overrides for the sessions preview: the AutosaveIndicator
@@ -223,6 +229,7 @@
 		sidebarCollapsed = false,
 		onToggleSidebar = undefined,
 		condensedHeader = false,
+		ownsPageHeader = false,
 		onNavigate = undefined,
 		liveEditorDraftStoragePath = undefined,
 		autosaveWorkspace = undefined,
@@ -308,11 +315,29 @@
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
-	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+	// In the page header the buttons share the row with the breadcrumb, so they collapse sooner:
+	// the trail and the summary take ~430px of the same row, and the whole group — the menu, Diff,
+	// Jobs, Export, AI and Deploy — is ~560px.
+	const compactBelow = $derived(ownsPageHeader ? 1350 : 720)
+	const compactTopbar = $derived.by(() => {
+		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
+		return w > 0 && w < compactBelow
+	})
+	// A phone's bar holds the trail and Deploy. The file sidebar's toggle, Jobs and the export
+	// join the menu that compact already shows.
+	const phoneTopbar = $derived(
+		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
+	)
 
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
-	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
+	// In the page header the buttons ride a 44px band, the same size the condensed session-pane
+	// header uses.
+	const headerBtnSize = $derived(condensedHeader || ownsPageHeader ? 'sm' : 'md')
+
+	// The actions render under the band, outside the subtree RawAppEditor declared the operating
+	// workspace in, so it has to travel with them: OpenInSessionButton asks who the acting user is.
+	const headerContexts = new Map<any, any>([operatingWorkspaceContextEntry()])
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -903,121 +928,174 @@
 	errorByComponent={{}}
 />
 
-<div
-	bind:clientWidth={topbarWidth}
-	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto shrink-0 {condensedHeader
-		? 'max-h-9 h-9'
-		: 'max-h-12 h-12'}"
->
-	<!-- Identity block: shrinks/truncates first so the cloud indicator and the
+{#if ownsPageHeader}
+	<!-- The editor's own top bar is the page header on this route: the app's path and summary are
+	     the breadcrumb's, and everything else the bar carried rides along as the header's actions.
+	     The path is a plain label there — this editor renames from its deploy drawer. -->
+	<PageHeaderContent
+		item={{ kind: 'app', path: appPath || newPath || undefined, summaryContent: appSummary }}
+		actions={rawAppHeaderActions}
+		contexts={headerContexts}
+	/>
+{:else}
+	<div
+		bind:clientWidth={topbarWidth}
+		class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto shrink-0 {condensedHeader
+			? 'max-h-9 h-9'
+			: 'max-h-12 h-12'}"
+	>
+		<!-- Identity block: shrinks/truncates first so the cloud indicator and the
 	     action buttons stay visible. Without min-w-0 the breadcrumb + summary
 	     overflow this box on narrow widths and get overlapped by the (formerly
 	     un-pinned) action group, hiding the autosave cloud. -->
-	<div class="flex flex-row gap-2 items-center min-w-0">
-		{#if onToggleSidebar}
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				iconOnly
-				startIcon={{ icon: sidebarCollapsed ? PanelLeft : PanelLeftClose }}
-				title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} file sidebar (${isMac() ? '⌘' : 'Ctrl+'}B)`}
-				on:click={() => onToggleSidebar?.()}
-			/>
-		{/if}
-		<div class="min-w-0 overflow-hidden">
-			<EditorHeader
-				bind:summary
-				bind:path={newEditedPath}
-				savedPath={appPath || newPath || undefined}
-				kind="app"
-				raw_app
-				hidePath={condensedHeader}
-				workspaceId={autosaveWorkspace}
-				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
-			/>
+		<div class="flex flex-row gap-2 items-center min-w-0">
+			{@render sidebarToggle()}
+			<div class="min-w-0 overflow-hidden">
+				<EditorHeader
+					bind:summary
+					bind:path={newEditedPath}
+					savedPath={appPath || newPath || undefined}
+					kind="app"
+					raw_app
+					hidePath={condensedHeader}
+					workspaceId={autosaveWorkspace}
+					onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
+				/>
+			</div>
+			{@render autosaveIndicator()}
 		</div>
-		{#if opWorkspace && indicatorPath !== undefined}
-			<AutosaveIndicator
-				workspace={opWorkspace}
-				itemKind="raw_app"
-				path={indicatorPath}
-				draftOnly={newApp}
-				{onResetToDeployed}
-				{loadedFromDraft}
-				{othersDraftsCount}
-				{onOpenOthersDrafts}
-			/>
-		{/if}
-	</div>
 
+		{@render awarenessMark()}
+		<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
+			{@render rawAppActions()}
+		</div>
+	</div>
+{/if}
+
+{#snippet sidebarToggle()}
+	{#if onToggleSidebar}
+		<Button
+			unifiedSize="sm"
+			variant="subtle"
+			iconOnly
+			startIcon={{ icon: sidebarCollapsed ? PanelLeft : PanelLeftClose }}
+			title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} file sidebar (${isMac() ? '⌘' : 'Ctrl+'}B)`}
+			on:click={() => onToggleSidebar?.()}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet autosaveIndicator()}
+	{#if opWorkspace && indicatorPath !== undefined}
+		<AutosaveIndicator
+			workspace={opWorkspace}
+			itemKind="raw_app"
+			path={indicatorPath}
+			draftOnly={newApp}
+			{onResetToDeployed}
+			{loadedFromDraft}
+			{othersDraftsCount}
+			{onOpenOthersDrafts}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet awarenessMark()}
 	{#if $enterpriseLicense && appPath != '' && !inSessionPane}
 		<div class="shrink-0">
 			<Awareness />
 		</div>
 	{/if}
-	<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
-		<DropdownV2 items={moreItems} class="h-auto">
-			{#snippet buttonReplacement()}
-				<Button
-					nonCaptureEvent
-					unifiedSize={headerBtnSize}
-					variant="subtle"
-					startIcon={{ icon: EllipsisVertical }}
-					iconOnly
-				></Button>
-			{/snippet}
-		</DropdownV2>
+{/snippet}
 
-		<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
+{#snippet appSummary()}
+	<!-- The summary stays editable where the editor's own bar had it; the path beside it is the
+	     breadcrumb, which this editor renames from its deploy drawer. -->
+	<EditableInput
+		value={summary ?? ''}
+		placeholder="Add a summary..."
+		commitOnInput
+		size="sm"
+		onSave={(v) => (summary = v.trim())}
+		textClass="text-xs font-medium text-emphasis leading-tight"
+		class="max-w-full min-w-0"
+	/>
+{/snippet}
+
+{#snippet rawAppHeaderActions()}
+	<!-- The bar's own order kept: the file sidebar, how the draft is doing, who else is here, then
+	     what to do with the app. -->
+	{@render sidebarToggle()}
+	{@render autosaveIndicator()}
+	{@render awarenessMark()}
+	{@render rawAppActions()}
+{/snippet}
+
+{#snippet rawAppActions()}
+	<DropdownV2 items={moreItems} class="h-auto">
+		{#snippet buttonReplacement()}
+			<Button
+				nonCaptureEvent
+				unifiedSize={headerBtnSize}
+				variant="subtle"
+				startIcon={{ icon: EllipsisVertical }}
+				iconOnly
+			></Button>
+		{/snippet}
+	</DropdownV2>
+
+	<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
 		     never shows on hover. pointer-events-none on the button lets the hover
 		     reach this titled wrapper instead. -->
-		<div
+	<div
+		title={newApp || savedApp?.no_deployed === true
+			? 'Deploy this app once to compare against the deployed version'
+			: 'Diff'}
+		class={!savedApp || newApp || savedApp?.no_deployed === true
+			? 'flex cursor-not-allowed'
+			: 'flex'}
+	>
+		<Button
+			variant="default"
+			unifiedSize={headerBtnSize}
+			on:click={() => openDiffDrawer()}
+			disabled={!savedApp || newApp || savedApp?.no_deployed === true}
+			btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
+				? 'pointer-events-none'
+				: undefined}
+			iconOnly={compactTopbar}
 			title={newApp || savedApp?.no_deployed === true
 				? 'Deploy this app once to compare against the deployed version'
 				: 'Diff'}
-			class={!savedApp || newApp || savedApp?.no_deployed === true
-				? 'flex cursor-not-allowed'
-				: 'flex'}
+			startIcon={{ icon: DiffIcon }}
 		>
-			<Button
-				variant="default"
-				unifiedSize={headerBtnSize}
-				on:click={() => openDiffDrawer()}
-				disabled={!savedApp || newApp || savedApp?.no_deployed === true}
-				btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
-					? 'pointer-events-none'
-					: undefined}
-				iconOnly={compactTopbar}
-				title={newApp || savedApp?.no_deployed === true
-					? 'Deploy this app once to compare against the deployed version'
-					: 'Diff'}
-				startIcon={{ icon: DiffIcon }}
-			>
-				Diff
-			</Button>
-		</div>
+			Diff
+		</Button>
+	</div>
 
-		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
-			<Button
-				on:click={() => {
-					jobsDrawerOpen = true
-				}}
-				color="light"
-				unifiedSize={headerBtnSize}
-				variant="default"
-				btnClasses="relative"
-			>
-				<div class="flex flex-row gap-1 items-center">
-					<Bug size={14} />
-					<div>Jobs</div>
+	<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
+		<Button
+			on:click={() => {
+				jobsDrawerOpen = true
+			}}
+			color="light"
+			unifiedSize={headerBtnSize}
+			variant="default"
+			btnClasses="relative"
+		>
+			<div class="flex flex-row gap-1 items-center">
+				<Bug size={14} />
+				<div>Jobs</div>
 
-					<div class="text-2xs text-primary"
-						>({jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})</div
-					>
-				</div>
-			</Button>
-		</div>
+				<div class="text-2xs text-primary">({jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})</div>
+			</div>
+		</Button>
+	</div>
+	<!-- Hidden, not unmounted: the menu's own Export entry calls into this instance. -->
+	<span class={phoneTopbar ? 'hidden' : 'contents'}>
 		<AppExportButton bind:this={appExport} />
+	</span>
+	{#if !phoneTopbar}
 		<OpenInSessionButton source={sessionOpen}>
 			{#snippet fallback()}
 				<Button
@@ -1032,34 +1110,34 @@
 				</Button>
 			{/snippet}
 		</OpenInSessionButton>
-		<Button
-			loading={loading.save}
-			startIcon={{ icon: Save }}
-			on:click={save}
-			unifiedSize={headerBtnSize}
-			variant="accent"
-			dropdownItems={appPath != ''
-				? () => [
-						{
-							label: 'Fork',
-							onClick: () => {
-								window.open(`/apps/add?template=${appPath}`)
-							}
-						},
-						...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
-							? [
-									{
-										label: editInForkLabel(opWorkspace, $userWorkspaces),
-										onClick: () => {
-											openEditInFork('raw_app', appPath, opWorkspace)
-										}
+	{/if}
+	<Button
+		loading={loading.save}
+		startIcon={{ icon: Save }}
+		on:click={save}
+		unifiedSize={headerBtnSize}
+		variant="accent"
+		dropdownItems={appPath != ''
+			? () => [
+					{
+						label: 'Fork',
+						onClick: () => {
+							window.open(`/apps/add?template=${appPath}`)
+						}
+					},
+					...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
+						? [
+								{
+									label: editInForkLabel(opWorkspace, $userWorkspaces),
+									onClick: () => {
+										openEditInFork('raw_app', appPath, opWorkspace)
 									}
-								]
-							: [])
-					]
-				: undefined}
-		>
-			Deploy
-		</Button>
-	</div>
-</div>
+								}
+							]
+						: [])
+				]
+			: undefined}
+	>
+		Deploy
+	</Button>
+{/snippet}
