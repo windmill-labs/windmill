@@ -98,6 +98,39 @@
       "prompt": "consent"
     }
   },
+  "gdocs": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": ["https://www.googleapis.com/auth/documents"],
+    "scope_options": [
+      "https://www.googleapis.com/auth/documents",
+      "https://www.googleapis.com/auth/documents.readonly",
+      "https://www.googleapis.com/auth/drive.file"
+    ],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
+  "gchat": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/chat.spaces.readonly",
+      "https://www.googleapis.com/auth/chat.messages.create"
+    ],
+    "scope_options": [
+      "https://www.googleapis.com/auth/chat.spaces.readonly",
+      "https://www.googleapis.com/auth/chat.messages",
+      "https://www.googleapis.com/auth/chat.messages.readonly",
+      "https://www.googleapis.com/auth/chat.messages.create",
+      "https://www.googleapis.com/auth/chat.memberships.readonly"
+    ],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
   "gcloud": {
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
