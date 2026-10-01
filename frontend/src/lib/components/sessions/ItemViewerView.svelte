@@ -79,6 +79,9 @@
 	let notFoundFor: string | undefined = $state(undefined)
 	const notDeployed = $derived(notFoundFor === loadKey)
 	function onLoadState(key: string, state: 'loaded' | 'not_found') {
+		// A load that outlived its key (still in flight when the tab was re-pointed) answers
+		// for an item no longer on screen, either way.
+		if (key !== loadKey) return
 		notFoundFor = state === 'not_found' ? key : undefined
 	}
 

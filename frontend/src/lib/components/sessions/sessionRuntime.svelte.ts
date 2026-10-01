@@ -1343,8 +1343,13 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
 	const runtime = runtimes.get(sessionId)
 	if (!session?.workspace_id || !runtime) return
 	// Peek without creating a cell: a deploy for an item with no open editor tab
-	// must not allocate an empty cell that lingers until the next prune.
-	if (runtime.loadedEditorPath(kind, path) !== path) return
+	// must not allocate an empty cell that lingers until the next prune. The caches
+	// still answer for the item, so they are dropped either way.
+	if (runtime.loadedEditorPath(kind, path) !== path) {
+		invalidateWorkspaceDrafts(session.workspace_id)
+		invalidateWorkspaceItems(session.workspace_id, kind === 'raw_app' ? 'app' : kind)
+		return
+	}
 	runtime.itemDeployed(session.workspace_id, kind, path)
 })
 

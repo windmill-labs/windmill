@@ -317,9 +317,9 @@
 			} catch (e) {
 				// A path with no deployed script 404s here, which is the normal state of a
 				// draft the user has not deployed — the host says so rather than the page
-				// staying blank, so no toast for it.
-				onLoadState?.('not_found')
-				if (!onLoadState) sendUserToast('Could not load script: ' + e.body, true)
+				// staying blank, so no toast for it. Anything else is a real failure.
+				if (onLoadState && e?.status === 404) onLoadState('not_found')
+				else sendUserToast('Could not load script: ' + e.body, true)
 				return
 			}
 		}

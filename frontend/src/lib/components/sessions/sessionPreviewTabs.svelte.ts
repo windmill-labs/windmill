@@ -676,15 +676,6 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
-	/** Point a known tab at something else, in place — for a caller that has already
-	 * decided which one, as the deployed page that adopted a run form has. */
-	retargetById(id: string, url: string): void {
-		const tab = this.#tabs.find((t) => t.id === id)
-		if (!tab) return
-		retargetTab(tab, url)
-		this.#flush()
-	}
-
 	setCollapsed(collapsed: boolean): void {
 		if (this.#collapsed === collapsed) return
 		this.#collapsed = collapsed

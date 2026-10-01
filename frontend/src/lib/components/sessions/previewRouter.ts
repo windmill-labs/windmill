@@ -575,14 +575,6 @@ export type PreviewSlot =
 	| { kind: 'pagelist'; path: string }
 	| { kind: 'iframe' }
 
-/** The item kind a preview slot hosts, for the slots that host one — so callers can
- * ask "which item is this tab on" without caring which side of it is showing. */
-export function slotItemKind(slot: PreviewSlot): SessionTargetKind | 'pipeline' | undefined {
-	if (slot.kind === 'editor') return slot.editorKind
-	if (slot.kind === 'viewer') return slot.viewerKind
-	return undefined
-}
-
 export function resolvePreviewTab(url: string): PreviewSlot {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return { kind: 'artifact', id: artifact.id, version: artifact.version }

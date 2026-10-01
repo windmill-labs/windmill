@@ -603,8 +603,8 @@
 					loadFlow().then(
 						() => onLoadState?.('loaded'),
 						(e) => {
-							onLoadState?.('not_found')
-							if (!onLoadState) console.error('Failed to load flow', e)
+							if (onLoadState && e?.status === 404) onLoadState('not_found')
+							else sendUserToast('Could not load flow: ' + (e?.body ?? e), true)
 						}
 					)
 					loadTriggersCount()
