@@ -69,7 +69,18 @@
 	// Arguments a chat tool filled this item's run form with when it opened the page. Nothing
 	// is waiting on them: the reader runs the page as they would with no chat open, and the
 	// note above the form only says where the values came from.
-	const seededRun = $derived(runtime.seededRunArgsFor(kind, path))
+	// Taken from the runtime once and held here: the request belongs to the turn that made it,
+	// so leaving it in the map would re-apply a stale proposal — and reannounce it — to every
+	// later open of this item's deployed page.
+	let seededRun = $state<{ args: Record<string, any>; seq: number } | undefined>(undefined)
+	$effect(() => {
+		const pending = runtime.seededRunArgsFor(kind, path)
+		if (!pending) return
+		untrack(() => {
+			seededRun = pending
+			runtime.clearSeededRunArgs(kind, path)
+		})
+	})
 
 	/** Refetch the deployed item. The host calls this for the reload signals that reach a
 	 * tab from outside it; nothing about becoming visible triggers it, so a form the reader
@@ -210,7 +221,7 @@
 			{active}
 			embedded
 			{seededRun}
-			onClearSeededRun={() => runtime.clearSeededRunArgs(kind, path)}
+			onClearSeededRun={() => (seededRun = undefined)}
 			onLoadState={setLoadState}
 		/>
 	{:else if kind === 'flow'}
@@ -222,7 +233,7 @@
 			{active}
 			embedded
 			{seededRun}
-			onClearSeededRun={() => runtime.clearSeededRunArgs(kind, path)}
+			onClearSeededRun={() => (seededRun = undefined)}
 			onLoadState={setLoadState}
 		/>
 	{:else}

@@ -372,16 +372,28 @@
 	let flowChat: FlowChat | undefined = $state()
 	let seededSeq: number | undefined = undefined
 	$effect(() => {
-		if (!seededRun) return
-		const surface = chatInputEnabled ? flowChat : runForm
-		if (!surface) return
-		if (seededSeq === seededRun.seq) return
-		seededSeq = seededRun.seq
+		if (!seededRun || seededSeq === seededRun.seq) return
 		if (chatInputEnabled) {
 			const message = seededRun.args?.user_message
-			if (typeof message === 'string' && message) flowChat?.offerMessage(message)
-		} else {
-			runForm?.setArgs(seededRun.args)
+			// Nothing to offer is settled, not pending: latch it so a flow whose schema has no
+			// `user_message` does not re-ask on every flush.
+			if (typeof message !== 'string' || !message) {
+				seededSeq = seededRun.seq
+				return
+			}
+			// The rest of the proposal goes with it: a chat flow's schema can declare more than
+			// `user_message`, and sending the message alone would run on saved values or schema
+			// defaults — a different run from the one being offered.
+			const { user_message: _m, ...inputs } = seededRun.args ?? {}
+			// Only on success. The composer mounts a flush or two after the panel, and a
+			// declined offer here means it is not there yet — this effect tracks the host's
+			// input through `offerMessage` and runs again when it registers. A composer that
+			// already holds a draft also declines, and re-offering on its next change is right:
+			// the reader may clear it, and then the message lands.
+			if (flowChat?.offerMessage(message, inputs)) seededSeq = seededRun.seq
+		} else if (runForm) {
+			seededSeq = seededRun.seq
+			runForm.setArgs(seededRun.args)
 		}
 	})
 

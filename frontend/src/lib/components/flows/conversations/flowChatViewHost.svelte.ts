@@ -570,7 +570,10 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	}
 	// Typed off the interface: a Svelte component's own type resolves differently
 	// across import specifiers, and the two would then not be assignable.
-	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] = null
+	// Reactive, because a caller offering a message has to wait for it: the composer mounts a
+	// flush or two after the panel does, and a reader of this field inside an effect must be
+	// woken when it lands rather than deciding once that there was nowhere to put the message.
+	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] = $state(null)
 	setAiChatInput: ChatViewHost['setAiChatInput'] = (aiChatInput) =>
 		// Called from the composer's mount effect, and taking what a turn handed back reads the
 		// draft it writes: tracked, that would rerun the effect and hand it back again.

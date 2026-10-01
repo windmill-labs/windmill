@@ -178,11 +178,19 @@
 	const shownKey = $derived(poolState?.shownKey)
 
 	/** Put a message in the composer of the conversation on screen, for the reader to edit and
-	 * send. Returns false when that composer already holds a draft — it is never overwritten,
-	 * and the caller leaves the message where the reader can still see it. */
-	export function offerMessage(text: string): boolean {
+	 * send, and set the flow's other inputs to go with it. Returns false when that composer
+	 * already holds a draft — it is never overwritten, and the caller leaves the message where
+	 * the reader can still see it.
+	 *
+	 * `inputs` are the run's non-message arguments: a chat flow's schema can declare more than
+	 * `user_message`, and a message sent without them would run on saved values or schema
+	 * defaults — a different run from the one being offered. Applied only alongside a message
+	 * the composer took, so a declined offer leaves the reader's settings alone. */
+	export function offerMessage(text: string, inputs?: Record<string, any>): boolean {
 		const panel = shownKey ? pool?.get(shownKey) : undefined
-		return panel?.host.offerMessage(text) ?? false
+		if (!panel?.host.offerMessage(text)) return false
+		if (inputs) inputValues = { ...inputValues, ...inputs }
+		return true
 	}
 
 	// Derive additional inputs schema (excluding user_message) for chat mode

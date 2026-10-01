@@ -393,7 +393,10 @@
 	// has no time to give, so its outcome takes the slot — as a word, never "Not run", which
 	// stutters against the "Run <name>" label beside it.
 	const outcome = $derived(failed ? 'Failed' : canceled ? 'Cancelled' : 'Done')
-	const statusTime = $derived(running ? elapsed : duration || outcome)
+	// A call that only opened the page has no outcome and no duration, and "Done" there would
+	// claim the completion the rest of this card is careful not to imply. The label already
+	// says `Opened`, which is the whole status.
+	const statusTime = $derived(openedDeployedPage ? '' : running ? elapsed : duration || outcome)
 
 	// What the preview button opens changes with the card: the form while the call is still
 	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
