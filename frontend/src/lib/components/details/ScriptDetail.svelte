@@ -103,7 +103,8 @@
 		editInForkAllowed,
 		editInForkDescription,
 		editInForkLabel,
-		onEditInForkClick
+		onEditInForkClick,
+		openEditInFork
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
@@ -118,7 +119,7 @@
 		locationHash = '',
 		onNavigate = goto,
 		active = true,
-		syncArgsToUrl = true,
+		embedded = false,
 		onLoadState
 	}: {
 		/** The `[...hash]` route segment: either a script hash or a script path. */
@@ -131,9 +132,9 @@
 		onNavigate?: (url: string) => void | Promise<void>
 		/** Gates the window-level Ctrl+Enter handler, so a hidden instance cannot steal it. */
 		active?: boolean
-		/** Whether the run form may mirror its args into the page URL's fragment. False
-		 * wherever this is embedded in a page that is not the script's own. */
-		syncArgsToUrl?: boolean
+		/** Rendered inside a page that is not the script's own (an AI session preview tab), whose
+		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
+		embedded?: boolean
 		/** How the load ended, for a host that renders its own state around this page.
 		 * Providing it also suppresses the "could not load" toast: a 404 here is the normal
 		 * state of a not-yet-deployed path, which the host explains in place instead. */
@@ -497,6 +498,18 @@
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state()
 	let showEditButtons = $state(false)
 
+	// The dev workspace's editor is not one the session panel can host, so from a preview tab
+	// it opens in a new browser tab, as the session editors' own entry does.
+	function editInFork(e: Event | undefined, itemPath: string) {
+		if (!embedded) {
+			return onEditInForkClick(e, 'script', itemPath, { hasHref: true, prodWorkspace: workspace })
+		}
+		const m = e as MouseEvent | undefined
+		if (m && (m.metaKey || m.ctrlKey || m.shiftKey || m.altKey || (m.button ?? 0) !== 0)) return
+		e?.preventDefault()
+		return openEditInFork('script', itemPath, workspace)
+	}
+
 	function getMainButtons(
 		script: Script | undefined,
 		args: object | undefined,
@@ -532,9 +545,8 @@
 				description: editInForkDescription('script', workspace, $userWorkspaces),
 				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: buildForkEditUrl('script', script.path),
-					onClick: (e: Event | undefined) =>
-						onEditInForkClick(e, 'script', script.path, { hasHref: true }),
+					href: buildForkEditUrl('script', script.path, workspace),
+					onClick: (e: Event | undefined) => editInFork(e, script.path),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
 					startIcon: Pen
@@ -1068,7 +1080,7 @@
 								bind:invisible_to_owner
 								bind:overrideTag
 								{overrideTagNote}
-								{syncArgsToUrl}
+								syncArgsToUrl={!embedded}
 								viewKeybinding
 								loading={runLoading}
 								autofocus

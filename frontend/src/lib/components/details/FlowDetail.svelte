@@ -88,7 +88,8 @@
 		editInForkAllowed,
 		editInForkDescription,
 		editInForkLabel,
-		onEditInForkClick
+		onEditInForkClick,
+		openEditInFork
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -99,7 +100,7 @@
 		locationHash = '',
 		onNavigate = goto,
 		active = true,
-		syncArgsToUrl = true,
+		embedded = false,
 		onLoadState
 	}: {
 		/** The `[...path]` route segment: the flow's path. */
@@ -112,9 +113,9 @@
 		onNavigate?: (url: string) => void | Promise<void>
 		/** Gates the window-level Ctrl+Enter handler, so a hidden instance cannot steal it. */
 		active?: boolean
-		/** Whether the run form may mirror its args into the page URL's fragment. False
-		 * wherever this is embedded in a page that is not the flow's own. */
-		syncArgsToUrl?: boolean
+		/** Rendered inside a page that is not the flow's own (an AI session preview tab), whose
+		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
+		embedded?: boolean
 		/** How the load ended, for a host that renders its own state around this page. */
 		onLoadState?: (state: 'loaded' | 'not_found') => void
 	} = $props()
@@ -344,6 +345,18 @@
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let runForm: RunForm | undefined = $state()
 
+	// The dev workspace's editor is not one the session panel can host, so from a preview tab
+	// it opens in a new browser tab, as the session editors' own entry does.
+	function editInFork(e: Event | undefined, itemPath: string) {
+		if (!embedded) {
+			return onEditInForkClick(e, 'flow', itemPath, { hasHref: true, prodWorkspace: workspace })
+		}
+		const m = e as MouseEvent | undefined
+		if (m && (m.metaKey || m.ctrlKey || m.shiftKey || m.altKey || (m.button ?? 0) !== 0)) return
+		e?.preventDefault()
+		return openEditInFork('flow', itemPath, workspace)
+	}
+
 	function getMainButtons(flow: Flow | undefined, args: object | undefined) {
 		const buttons: any = []
 
@@ -374,9 +387,8 @@
 				description: editInForkDescription('flow', workspace, $userWorkspaces),
 				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: buildForkEditUrl('flow', flow.path),
-					onClick: (e: Event | undefined) =>
-						onEditInForkClick(e, 'flow', flow.path, { hasHref: true }),
+					href: buildForkEditUrl('flow', flow.path, workspace),
+					onClick: (e: Event | undefined) => editInFork(e, flow.path),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
 					startIcon: Pen
@@ -846,7 +858,7 @@
 									bind:invisible_to_owner
 									bind:overrideTag
 									{overrideTagNote}
-									{syncArgsToUrl}
+									syncArgsToUrl={!embedded}
 									viewKeybinding
 									{loading}
 									autofocus

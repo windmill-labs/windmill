@@ -188,7 +188,7 @@
 				{searchParams}
 				{onNavigate}
 				{active}
-				syncArgsToUrl={false}
+				embedded
 				onLoadState={setLoadState}
 			/>
 		{:else if kind === 'flow'}
@@ -198,7 +198,7 @@
 				{searchParams}
 				{onNavigate}
 				{active}
-				syncArgsToUrl={false}
+				embedded
 				onLoadState={setLoadState}
 			/>
 		{:else}
