@@ -21,6 +21,7 @@
 	import { AGENT_FLOW_LOCAL_KEYS } from './flows/agentResourceUtils'
 	import { agentTestInputTransforms } from './flows/agentFormFields'
 	import { sendUserToast } from '$lib/toast'
+	import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -67,7 +68,8 @@
 	// that follow each flow edit stay quiet, so without this a failing expression is silently
 	// `undefined` in what the run is built from. Manually edited args are preserved across the
 	// refresh by `initializeFromSchema`.
-	export function runTestWithStepArgs() {
+	export async function runTestWithStepArgs() {
+		await quickjsReady()
 		stepsInputArgs?.updateStepArgs(
 			mod.id,
 			flowStateStore.val,

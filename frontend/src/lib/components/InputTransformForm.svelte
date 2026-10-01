@@ -12,7 +12,7 @@
 	import type { Schema } from '$lib/common'
 	import type { InputCat, DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { createEventDispatcher, getContext, onDestroy, untrack, type Snippet } from 'svelte'
-	import { computeShow } from '$lib/utils'
+	import { computeShow, quickjsSettled } from '$lib/utils/quickjsEval.svelte'
 
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -479,8 +479,9 @@
 				contextArgs[key] = otherArgValue
 			})
 
-			const shouldShow = computeShow(argName, schemaProperty.showExpr, contextArgs)
-			if (shouldShow || hasJavascript) {
+			const shouldShow = hasJavascript || computeShow(schemaProperty.showExpr, contextArgs)
+			if (shouldShow === undefined) return
+			if (shouldShow) {
 				hidden = false
 			} else if (!hidden) {
 				hidden = true
@@ -596,6 +597,7 @@
 		JSON.stringify(schema)
 		JSON.stringify(arg)
 		JSON.stringify(otherArgs)
+		schema?.properties?.[argName]?.showExpr && quickjsSettled()
 
 		untrack(() => handleFieldVisibility(schema, arg, otherArgs))
 	})
