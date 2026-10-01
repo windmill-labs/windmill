@@ -151,7 +151,7 @@
 				{#if selectedTab === 'branches'}
 					<section>
 						<div class="flex flex-col gap-3">
-							{#each routingChecks as check (check.decisionId + check.question)}
+							{#each routingChecks as check (JSON.stringify([check.decisionId, check.question]))}
 								{#if check.missing.length > 0}
 									<Alert
 										type="info"

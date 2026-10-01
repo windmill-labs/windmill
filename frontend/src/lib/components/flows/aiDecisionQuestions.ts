@@ -107,6 +107,21 @@ export function optionNameError(row: QuestionRow, index: number): string | undef
 	return undefined
 }
 
+function canonical(v: unknown): string {
+	return JSON.stringify(v, (_, x) =>
+		x && typeof x === 'object' && !Array.isArray(x)
+			? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.localeCompare(b)))
+			: x
+	)
+}
+
+/** Whether the question cards hold all of `value`. TypeSafe also takes structured instructions and
+ *  descriptions, which the cards would flatten to text, so those questions stay JSON. */
+export function questionsFitRows(value: unknown): boolean {
+	if (value == undefined) return true
+	return canonical(rowsToQuestions(questionsToRows(value))) === canonical(value)
+}
+
 /** The options of each statically set choice question, in order. */
 export function choiceQuestionOptions(value: unknown): { name: string; options: string[] }[] {
 	return questionsToRows(value)

@@ -497,11 +497,11 @@ async fn enqueue_windmill_tool(
         }
         // Runs as an AI agent job, whose handler finds this tool on the calling agent and answers
         // it as a decision.
-        FlowModuleValue::AIDecision { .. } => JobPayloadWithTag {
+        FlowModuleValue::AIDecision { tag, .. } => JobPayloadWithTag {
             payload: JobPayload::AIAgent {
                 path: format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id),
             },
-            tag: None,
+            tag: tag.filter(|t| !t.trim().is_empty()),
             delete_after_use: tool_module.delete_after_use.unwrap_or(false),
             delete_after_secs: None,
             timeout: None,

@@ -6,7 +6,7 @@ import {
 	choiceConditionExpr,
 	parseChoiceCondition
 } from './aiDecisionBranching'
-import { questionsToRows, rowsToQuestions } from './aiDecisionQuestions'
+import { questionsFitRows, questionsToRows, rowsToQuestions } from './aiDecisionQuestions'
 
 const questions = {
 	intent: {
@@ -84,5 +84,12 @@ describe('a removed question', () => {
 describe('questions editor rows', () => {
 	it('round-trips every question type', () => {
 		expect(rowsToQuestions(questionsToRows(questions))).toEqual(questions)
+		expect(questionsFitRows(questions)).toBe(true)
+	})
+
+	it('leaves structured instructions to the JSON editor', () => {
+		expect(
+			questionsFitRows({ q: { type: 'noul', instructions: { ask: 'Is it urgent?', context: [] } } })
+		).toBe(false)
 	})
 })
