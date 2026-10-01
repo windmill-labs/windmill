@@ -4,7 +4,7 @@
 	import { aiChatManager } from './chat/AIChatManager.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
@@ -16,6 +16,8 @@
 	}
 
 	const { onEditInstructions, instructions, runnableType, path }: Props = $props()
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// Anonymous counter for this card being acted on, keyed by what it sits above. The two
 	// branches share one counter: they are the same intent, and which of them is on screen
@@ -39,7 +41,7 @@
 		path
 			? {
 					target: { kind: runnableType, path } as const,
-					workspaceId: $workspaceStore ?? undefined,
+					workspaceId: $operatingWorkspace ?? undefined,
 					beforeOpen: logAsked,
 					seedPrompt:
 						`Run the deployed ${runnableType} \`${path}\` for me. Pick sensible inputs, ` +

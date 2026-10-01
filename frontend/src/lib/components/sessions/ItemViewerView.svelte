@@ -139,53 +139,72 @@
 			label: previewLocationLabel(clean)
 		})
 	}
+
+	// Every in-app link the page renders, not only the ones that call `onNavigate`: a plain
+	// anchor followed by the browser would take it out of the session. Runs after the link's
+	// own handlers, so a click one of them already routed is left alone.
+	function routeLinkClick(e: MouseEvent): void {
+		if (e.defaultPrevented || e.button !== 0) return
+		if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+		const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+		if (!a || (a.target && a.target !== '_self') || a.hasAttribute('download')) return
+		if (a.getAttribute('href')?.startsWith('#')) return
+		const url = new URL(a.href, window.location.href)
+		if (url.origin !== window.location.origin) return
+		e.preventDefault()
+		onNavigate(`${url.pathname}${url.search}`)
+	}
 </script>
 
 <!-- Remount to refetch: both detail components load on mount, so a deploy lands here
      rather than as a refresh path of their own. -->
-{#key loadKey}
-	{@const mountedKey = loadKey}
-	{@const setLoadState = (state: 'loaded' | 'not_found') => onLoadState(mountedKey, state)}
-	{#if notDeployed}
-		<!-- This side shows the DEPLOYED item, and there isn't one. Without this the detail
+<!-- Not a control: it only routes the clicks links inside it receive, Enter included. -->
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+<div class="contents" onclick={routeLinkClick}>
+	{#key loadKey}
+		{@const mountedKey = loadKey}
+		{@const setLoadState = (state: 'loaded' | 'not_found') => onLoadState(mountedKey, state)}
+		{#if notDeployed}
+			<!-- This side shows the DEPLOYED item, and there isn't one. Without this the detail
 		     page renders nothing and the panel is simply blank, which reads as a failure
 		     rather than as the ordinary state of a draft nobody has deployed yet. -->
-		<div class="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
-			<div class="text-sm text-primary">Not deployed yet</div>
-			<div class="text-xs text-tertiary max-w-sm">
-				Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
-				version to view. Deploy it from the editor to see it here.
+			<div class="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
+				<div class="text-sm text-primary">Not deployed yet</div>
+				<div class="text-xs text-tertiary max-w-sm">
+					Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
+					version to view. Deploy it from the editor to see it here.
+				</div>
+				<Button unifiedSize="sm" variant="default" startIcon={{ icon: Pen }} on:click={toEditSide}>
+					Back to editor
+				</Button>
 			</div>
-			<Button unifiedSize="sm" variant="default" startIcon={{ icon: Pen }} on:click={toEditSide}>
-				Back to editor
-			</Button>
-		</div>
-	{:else if kind === 'script'}
-		<ScriptDetail
-			hash={path}
-			workspace={workspaceId}
-			{searchParams}
-			{onNavigate}
-			{active}
-			syncArgsToUrl={false}
-			onLoadState={setLoadState}
-		/>
-	{:else if kind === 'flow'}
-		<FlowDetail
-			{path}
-			workspace={workspaceId}
-			{searchParams}
-			{onNavigate}
-			{active}
-			syncArgsToUrl={false}
-			onLoadState={setLoadState}
-		/>
-	{:else}
-		<InWorkspaceAppViewer
-			workspace={workspaceId}
-			{path}
-			onEdit={() => onNavigate(`/apps_raw/edit/${path}`)}
-			onLoadState={setLoadState}
-		/>
-	{/if}
-{/key}
+		{:else if kind === 'script'}
+			<ScriptDetail
+				hash={path}
+				workspace={workspaceId}
+				{searchParams}
+				{onNavigate}
+				{active}
+				syncArgsToUrl={false}
+				onLoadState={setLoadState}
+			/>
+		{:else if kind === 'flow'}
+			<FlowDetail
+				{path}
+				workspace={workspaceId}
+				{searchParams}
+				{onNavigate}
+				{active}
+				syncArgsToUrl={false}
+				onLoadState={setLoadState}
+			/>
+		{:else}
+			<InWorkspaceAppViewer
+				workspace={workspaceId}
+				{path}
+				onEdit={() => onNavigate(`/apps_raw/edit/${path}`)}
+				onLoadState={setLoadState}
+			/>
+		{/if}
+	{/key}
+</div>

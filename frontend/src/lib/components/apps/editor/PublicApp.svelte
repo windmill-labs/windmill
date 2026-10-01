@@ -162,7 +162,7 @@
 		{#if app.raw_app && effectiveWorkspace}
 			<RawAppPreview
 				workspace={effectiveWorkspace}
-				user={$userStore}
+				user={ctxUser}
 				secret={app.bundle_secret}
 				path={app.path}
 				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
