@@ -6,12 +6,16 @@
 
 	interface Props {
 		scopes?: string[]
-		/** Scopes the provider is known to accept, offered as checkboxes. Anything
-		 * not in this list stays editable as free text below them. */
-		options?: string[]
+		/** Scopes the provider is known to accept, offered as checkboxes, either a
+		 * bare scope or one with a human label. Anything not in this list stays
+		 * editable as free text below them. */
+		options?: (string | { value: string; label: string })[]
 	}
 
 	let { scopes = $bindable(), options = [] }: Props = $props()
+
+	let choices = $derived(options.map((o) => (typeof o == 'string' ? { value: o, label: o } : o)))
+	let values = $derived(choices.map((c) => c.value))
 
 	// Ticked options and free-text rows are kept apart from `scopes` (the only
 	// value the parent binds) so a row can pass through an option's exact value
@@ -26,11 +30,11 @@
 		if (!scopes) {
 			scopes = []
 		}
-		const json = JSON.stringify([scopes, options])
+		const json = JSON.stringify([scopes, values])
 		if (json != lastWritten) {
 			lastWritten = json
-			ticked = scopes.filter((v) => options.includes(v))
-			custom = scopes.filter((v) => !options.includes(v))
+			ticked = scopes.filter((v) => values.includes(v))
+			custom = scopes.filter((v) => !values.includes(v))
 		}
 	})
 
@@ -38,7 +42,7 @@
 		ticked = nextTicked
 		custom = rows
 		scopes = [...nextTicked.filter((o) => !rows.includes(o)), ...rows]
-		lastWritten = JSON.stringify([scopes, options])
+		lastWritten = JSON.stringify([scopes, values])
 	}
 
 	// Ticking an option absorbs a free-text row holding the same value. The
@@ -59,13 +63,20 @@
 
 {#if options.length > 0}
 	<div class="flex flex-col gap-1 mb-2">
-		{#each options as option (option)}
+		{#each choices as { value, label } (value)}
 			<label class="flex items-center gap-2 text-xs">
 				<Checkbox
-					checked={ticked.includes(option)}
-					onChange={() => toggle(option, !ticked.includes(option))}
+					checked={ticked.includes(value)}
+					onChange={() => toggle(value, !ticked.includes(value))}
 				/>
-				<span class="font-mono break-all">{option}</span>
+				{#if label == value}
+					<span class="font-mono break-all">{value}</span>
+				{:else}
+					<span class="flex flex-col">
+						<span>{label}</span>
+						<span class="text-2xs text-hint font-mono break-all">{value}</span>
+					</span>
+				{/if}
 			</label>
 		{/each}
 	</div>
