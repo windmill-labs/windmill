@@ -425,7 +425,7 @@
 			valid && (valid = false)
 		} else if (nullable && emptyString(v)) {
 			error = ''
-			valid && (valid = true)
+			!valid && (valid = true)
 		} else if (
 			typeof v === 'string' &&
 			(v.startsWith('$var:') || v.startsWith('$res:') || v.startsWith('$jsonvar:'))
