@@ -821,10 +821,11 @@ fn invalidate_script_path_caches(w_id: &str, script_path: &str) {
 /// [`DeletedScriptVersions::evict`], plus this crate's own path -> hash cache. Run by the
 /// deleting process after its commit and by every process on the deletion event.
 pub fn evict_deleted_script_versions(deleted: DeletedScriptVersions) {
-    for path in &deleted.paths {
-        RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{}:{path}", deleted.workspace_id));
-    }
-    deleted.evict();
+    deleted.evict_with(|deleted| {
+        for path in &deleted.paths {
+            RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{}:{path}", deleted.workspace_id));
+        }
+    });
 }
 
 /// What a script deploy still has to do once its transaction has committed.
@@ -4450,7 +4451,7 @@ async fn delete_scripts_bulk(
         .map(|r| (r.path, r.hash)),
     );
     deleted.notify(&mut *tx).await?;
-    let mut deleted_paths = deleted.paths.clone();
+    let deleted_paths = deleted.paths.clone();
 
     // Same reason as the single-path delete, over every requested path rather
     // than the deleted ones: a path that had no script left can still hold state.
@@ -4458,10 +4459,6 @@ async fn delete_scripts_bulk(
         windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, p).await?;
         windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, p).await?;
     }
-
-    // remove duplicates from deleted_paths
-    deleted_paths.sort();
-    deleted_paths.dedup();
 
     sqlx::query!(
         "DELETE FROM draft WHERE workspace_id = $1 AND path = ANY($2) AND typ = 'script'",

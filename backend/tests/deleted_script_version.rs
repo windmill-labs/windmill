@@ -29,3 +29,28 @@ async fn a_deleted_copy_does_not_shadow_a_live_one(db: Pool<Postgres>) {
         .unwrap();
     assert_eq!(data.code, "echo shared");
 }
+
+#[sqlx::test(fixtures("base"))]
+async fn a_large_deletion_is_split_across_events(db: Pool<Postgres>) {
+    let deleted = windmill_common::DeletedScriptVersions::new(
+        "test-workspace",
+        (0..501).map(|h| (format!("f/infra/s{}", h % 2), h)),
+    );
+    let mut conn = db.acquire().await.unwrap();
+    deleted.notify(&mut conn).await.unwrap();
+
+    let events: Vec<String> = sqlx::query_scalar(
+        "SELECT payload FROM notify_event WHERE channel = $1 ORDER BY id",
+    )
+    .bind(windmill_common::SCRIPT_VERSION_DELETED_CHANNEL)
+    .fetch_all(&db)
+    .await
+    .unwrap();
+    let events: Vec<windmill_common::DeletedScriptVersions> =
+        events.iter().map(|e| serde_json::from_str(e).unwrap()).collect();
+    assert_eq!(events.len(), 2);
+    let hashes: Vec<i64> = events.iter().flat_map(|e| e.hashes.clone()).collect();
+    let paths: Vec<String> = events.iter().flat_map(|e| e.paths.clone()).collect();
+    assert_eq!(hashes, deleted.hashes);
+    assert_eq!(paths, deleted.paths);
+}
