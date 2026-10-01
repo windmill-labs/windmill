@@ -216,6 +216,16 @@
 	/** Last description filled in from `tokenKind`, replaced on reconnect unless the user edited it. */
 	let generatedDescription = ''
 
+	function fillGeneratedDescription() {
+		if (description === generatedDescription) {
+			description = ''
+		}
+		generatedDescription = tokenKind ? `${resourceType} ${tokenKind} token` : ''
+		if (emptyString(description)) {
+			description = generatedDescription
+		}
+	}
+
 	function selectUserToken(user: boolean) {
 		if (user !== useUserToken) {
 			scopes = user ? (registryEntry()?.user_scopes ?? []) : instanceScopes
@@ -629,13 +639,7 @@
 			value = data.res.access_token!
 			valueToken = data.res
 			responseExtra = data.extra ?? {}
-			if (description === generatedDescription) {
-				description = ''
-			}
-			generatedDescription = tokenKind ? `${resourceType} ${tokenKind} token` : ''
-			if (emptyString(description)) {
-				description = generatedDescription
-			}
+			fillGeneratedDescription()
 			step = 4
 			// `fillPath` decides the path as surely as express does, so neither stops here.
 			if (fillPath || express) {
@@ -777,6 +781,7 @@
 						...tokenResponse,
 						grant_type: 'client_credentials' // Mark this token as client_credentials
 					}
+					fillGeneratedDescription()
 					step = 4
 					if (fillPath || express) {
 						path = fillPath ?? `u/${$userStore?.username}/${defaultName}_${new Date().getTime()}`
