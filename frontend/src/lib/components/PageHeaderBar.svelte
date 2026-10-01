@@ -92,6 +92,36 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			'shadow-[inset_0_-1px_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_0_-1px_0_0_#374151] [html.github-dark_&]:shadow-[inset_0_-1px_0_0_rgb(var(--color-border-light))]'
 	)}
 >
+	<!-- Pin before the sidebar's handle, so it holds the first slot whether or not the handle is
+	     there. Pinning brings the handle back — the band is no longer hidden — and from behind the
+	     handle the unpin button would sit one slot over from where the pin was just clicked, which
+	     for an operator (detached by default) means the second click opens the sidebar instead. -->
+	{#if onPin}
+		<!-- Same box and offsets as the corner handle it comes to rest over, so the pointer that
+		     called the band down is already on this button. -->
+		<button
+			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
+			aria-label="Pin the header on deployed apps"
+			title="Pin the header on deployed apps"
+			onclick={() => onPin?.()}
+		>
+			<PanelTop size={16} class="flex-shrink-0 text-hint" />
+		</button>
+	{/if}
+
+	{#if onUnpin}
+		<button
+			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
+			aria-label="Unpin the header from deployed apps"
+			title="Unpin the header from deployed apps"
+			onclick={() => onUnpin?.()}
+		>
+			<!-- Dashed while the band is shown, solid while it is away: the pair the sidebar's own
+			     toggle uses, so the two controls read as one idea. -->
+			<PanelTopDashed size={16} class="flex-shrink-0 text-hint" />
+		</button>
+	{/if}
+
 	{#if (navDetached.val || panelled) && !navHidden && !hideNavHandle}
 		<!-- Reveals the hidden sidebar, and only that: hovering slides the card in, clicking holds
 		     it there. Attaching it for good belongs to the toggle in the sidebar's own footer, where
@@ -113,33 +143,6 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
 			</button>
 		</div>
-	{/if}
-
-	{#if onPin}
-		<!-- Same box and offsets as the corner handle it comes to rest over, so the pointer that
-		     called the band down is already on this button. -->
-		<button
-			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
-			aria-label="Pin the header on deployed apps"
-			title="Pin the header on deployed apps"
-			onclick={() => onPin?.()}
-		>
-			<PanelTop size={16} class="flex-shrink-0 text-hint" />
-		</button>
-	{/if}
-
-	{#if onUnpin}
-		<!-- After the sidebar's handle: the sidebar is the outer thing, the band sits inside it. -->
-		<button
-			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
-			aria-label="Unpin the header from deployed apps"
-			title="Unpin the header from deployed apps"
-			onclick={() => onUnpin?.()}
-		>
-			<!-- Dashed while the band is shown, solid while it is away: the pair the sidebar's own
-			     toggle uses, so the two controls read as one idea. -->
-			<PanelTopDashed size={16} class="flex-shrink-0 text-hint" />
-		</button>
 	{/if}
 
 	<!-- The breadcrumb yields width grudgingly (shrink-[0.1]): when a page fills the bar with

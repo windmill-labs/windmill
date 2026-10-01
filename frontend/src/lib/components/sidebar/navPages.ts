@@ -14,8 +14,13 @@ import {
 import type { OperatorPageKey } from './operatorRoutes'
 
 /**
- * The workspace pages the sidebar links to, and the names the page header's breadcrumb gives them.
- * One table so a page cannot be called one thing in the nav and another in the header.
+ * The names the page header's breadcrumb gives the workspace's own pages, and the rows the
+ * sidebar's main group is built from.
+ *
+ * Every entry names a page for the breadcrumb. Only the entries `SidebarContent`'s
+ * `MAIN_MENU_EXTRAS` also lists become sidebar links from here — Schedules, HTTP routes, Workers
+ * and Audit logs are grouped differently there and carry their own row, so for those four the
+ * `icon` and `operatorKey` below go unread. Keep the labels in step with those rows by hand.
  */
 export type NavPage = {
 	label: string
@@ -35,7 +40,8 @@ export const NAV_PAGES: NavPage[] = [
 	{ label: 'Folders', path: '/folders', icon: FolderOpen, operatorKey: 'folders' },
 	{ label: 'Groups', path: '/groups', icon: Users, operatorKey: 'groups' },
 	{ label: 'Schedules', path: '/schedules', icon: Calendar, operatorKey: 'schedules' },
-	{ label: 'Triggers', path: '/routes', icon: Unplug, operatorKey: 'triggers' },
+	// "Triggers" is the group the sidebar files this under, not the page: the row there reads HTTP.
+	{ label: 'HTTP routes', path: '/routes', icon: Unplug, operatorKey: 'triggers' },
 	{ label: 'Workers', path: '/workers', icon: HardHat, operatorKey: 'workers' },
 	{ label: 'Audit logs', path: '/audit_logs', icon: Eye, operatorKey: 'audit_logs' }
 ]
