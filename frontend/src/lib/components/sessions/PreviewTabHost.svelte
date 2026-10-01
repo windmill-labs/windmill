@@ -422,6 +422,7 @@
 						path={itemPath}
 						version={pinnedVersion}
 						{workspaceId}
+						tabId={tab.id}
 						active={active && !collapsed && mode === 'view'}
 					/>
 				{/await}

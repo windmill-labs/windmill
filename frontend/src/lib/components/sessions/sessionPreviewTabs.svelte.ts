@@ -520,12 +520,14 @@ export class SessionPreviewTabs {
 
 	// Re-point the active tab at a destination (breadcrumb pick / in-editor link /
 	// iframe-posted editor navigation).
-	navigate(target: PreviewTarget): void {
-		this.#pulsingIfUnchanged(() => this.#navigate(target))
+	// `tabId` names the tab to re-point when the request comes from a tab's own content, which
+	// can finish after the reader has moved to another tab, or run in a tab that is hidden.
+	navigate(target: PreviewTarget, tabId?: string): void {
+		this.#pulsingIfUnchanged(() => this.#navigate(target, tabId))
 	}
 
-	#navigate(target: PreviewTarget): void {
-		const t = this.#tabs.find((x) => x.id === this.#activeId)
+	#navigate(target: PreviewTarget, tabId?: string): void {
+		const t = this.#tabs.find((x) => x.id === (tabId ?? this.#activeId))
 		if (!t) return
 		const editorTarget = editorTargetFor(target)
 		if (editorTarget) {

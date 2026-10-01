@@ -29,9 +29,12 @@
 		path,
 		version,
 		workspaceId,
+		tabId,
 		active = true
 	}: {
 		runtime: SessionRuntime
+		/** The preview tab hosting this view, which its in-place moves re-point. */
+		tabId: string
 		kind: SessionTargetKind
 		path: string
 		/** Deployed version this tab is pinned to, from its URL's `?version=`. */
@@ -130,7 +133,7 @@
 			// Everything else the page links — another version, the head, a rename's new path —
 			// is still this same view of the item, so it re-points in place.
 			if (route.mode === 'edit') runtime.previewTabs.open(target)
-			else runtime.previewTabs.navigate(target)
+			else runtime.previewTabs.navigate(target, tabId)
 			return
 		}
 		runtime.previewTabs.open({

@@ -95,7 +95,8 @@
 	import { interceptNav } from '$lib/components/details/interceptNav'
 	import {
 		setOperatingWorkspace,
-		useOperatingUser
+		useOperatingUser,
+		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 	import {
 		buildForkEditUrl,
@@ -147,6 +148,8 @@
 	// the one the browser is navigated to. Unresolved reads as unknown, which `canWrite`
 	// refuses — the safe answer while a fork's `whoami` is still in flight.
 	const operatingUser = useOperatingUser()
+	// A ⌘-click opens these in a new tab, which only the query names the workspace for.
+	const operatingHref = useOperatingWorkspaceHref()
 	const actingUser = $derived(operatingUser.current)
 
 	let script: Script | undefined = $state()
@@ -508,7 +511,7 @@
 				description: `Start a new script from a copy of this one`,
 				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: `${base}/scripts/add?template=${script.path}`,
+					href: operatingHref(`${base}/scripts/add?template=${script.path}`),
 					onClick: interceptNav(onNavigate, `/scripts/add?template=${script.path}`),
 					unifiedSize: 'md',
 					variant: 'subtle',
@@ -546,7 +549,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: `${base}/runs/${script.path}`,
+				href: operatingHref(`${base}/runs/${script.path}`),
 				onClick: interceptNav(onNavigate, `/runs/${script.path}`),
 				unifiedSize: 'md',
 				variant: 'subtle',
@@ -615,7 +618,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: `${base}${editUrl}`,
+						href: operatingHref(`${base}${editUrl}`),
 						onClick: interceptNav(onNavigate, editUrl),
 						unifiedSize: 'md',
 						startIcon: Pen,

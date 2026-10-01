@@ -531,6 +531,17 @@ describe('SessionPreviewTabs.navigate', () => {
 		expect(o.tabs).toHaveLength(0)
 	})
 
+	it('re-points the named tab, not the one the reader has since moved to', () => {
+		const o = owner()
+		o.open(pageTarget)
+		const origin = o.activeId
+		o.open(artifactTarget)
+		const moved = { ...flowTarget, mode: 'view' } as PreviewTarget
+		o.navigate(moved, origin)
+		expect(o.tabs.find((t) => t.id === origin)!.url).toBe('/flows/get/u/me/bar')
+		expect(o.activeTab!.url).toBe(artifactUrl('art1', 'Plan'))
+	})
+
 	it('retargets to a page', () => {
 		const o = owner()
 		o.open(scriptTarget)

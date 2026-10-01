@@ -75,7 +75,8 @@
 	import { interceptNav } from '$lib/components/details/interceptNav'
 	import {
 		setOperatingWorkspace,
-		useOperatingUser
+		useOperatingUser,
+		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
 	import { slide } from 'svelte/transition'
@@ -126,6 +127,8 @@
 	// the one the browser is navigated to. Unresolved reads as unknown, which `canWrite`
 	// refuses — the safe answer while a fork's `whoami` is still in flight.
 	const operatingUser = useOperatingUser()
+	// A ⌘-click opens these in a new tab, which only the query names the workspace for.
+	const operatingHref = useOperatingWorkspaceHref()
 	const actingUser = $derived(operatingUser.current)
 	const operatorBuilderFlows = useOperatorBuilderFlows()
 
@@ -350,7 +353,7 @@
 				description: `Start a new flow from a copy of this one`,
 				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: `${base}/flows/add?template=${flow.path}`,
+					href: operatingHref(`${base}/flows/add?template=${flow.path}`),
 					onClick: interceptNav(onNavigate, `/flows/add?template=${flow.path}`),
 					variant: 'subtle',
 					unifiedSize: 'md',
@@ -388,7 +391,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: `${base}/runs/${flow.path}`,
+				href: operatingHref(`${base}/runs/${flow.path}`),
 				onClick: interceptNav(onNavigate, `/runs/${flow.path}`),
 				unifiedSize: 'md',
 				variant: 'subtle',
@@ -434,7 +437,7 @@
 		buttons.push({
 			label: 'Edit',
 			buttonProps: {
-				href: `${base}/flows/edit/${path}`,
+				href: operatingHref(`${base}/flows/edit/${path}`),
 				onClick: interceptNav(onNavigate, `/flows/edit/${path}`),
 				variant: 'accent',
 				unifiedSize: 'md',
