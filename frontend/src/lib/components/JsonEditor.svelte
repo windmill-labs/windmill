@@ -70,6 +70,9 @@
 	})
 </script>
 
+<!-- Wraps both branches: the unparseable registry locates this editor by it, and the
+     too-big placeholder must not drop an invalid editor out of its form's run gate. -->
+<div bind:this={rootEl} class="contents">
 {#if tooBig && !loadTooBigAnyway}
 	<div class="flex-1 text-sm">
 		JSON is too big
@@ -78,7 +81,7 @@
 		</Button>
 	</div>
 {:else}
-	<div bind:this={rootEl} class="flex flex-col w-full">
+	<div class="flex flex-col w-full">
 		<div
 			class={twMerge(
 				'w-full rounded-md overflow-auto',
@@ -106,3 +109,4 @@
 		{/if}
 	</div>
 {/if}
+</div>
