@@ -455,6 +455,7 @@
 				folder={path}
 				viewportFitKey={viewportFitFolder}
 				persistDrafts={true}
+				modalPanel
 				prefetchingAssets={assetPrefetch.prefetching}
 				displayGraph={resolvedGraph}
 				mode="edit"

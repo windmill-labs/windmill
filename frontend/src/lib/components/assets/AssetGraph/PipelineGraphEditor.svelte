@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { untrack, type Snippet } from 'svelte'
+	import { MousePointerClick } from 'lucide-svelte'
+	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
+	import { useFlowPanelMode } from '$lib/components/flows/flowPanelMode.svelte'
 	import {
 		PIPELINE_DRAFT_KIND,
 		pipelineBundlePath,
@@ -52,6 +57,7 @@
 		defaultPathSuffix = 'new_pipeline_script',
 		panelHidden = false,
 		onTogglePanelHidden,
+		modalPanel = false,
 		prefetchingAssets = false,
 		hoveredPaths = [],
 		selectedRunPaths = [],
@@ -142,6 +148,9 @@
 		pathPrefix: string
 		defaultPathSuffix?: string
 		panelHidden?: boolean
+		/** Let the details pane open as a modal over a full-width graph when the editor
+		 * is too narrow to dock it — the flow editor's step panel rule. */
+		modalPanel?: boolean
 		onTogglePanelHidden?: () => void
 		prefetchingAssets?: boolean
 		hoveredPaths?: string[]
@@ -276,18 +285,69 @@
 			? (editor.selection != undefined || editor.activeDraftPath != undefined) && !panelHidden
 			: !panelHidden
 	)
+	// Docked beside the graph, or in a modal over it (modal mode). In modal mode the
+	// details only show once asked for: a double-click on a node, a click on the
+	// node already selected, or a script's open button — never on a selection the
+	// editor makes itself (an AI-built node), which would pop a modal unasked.
+	const panelController = useFlowPanelMode({ enabled: () => modalPanel })
+	$effect(() => panelController.measure(containerWidth))
+	const panelMode = $derived(panelController.mode)
+	let panelModalOpen = $state(false)
+	const dockedPaneOpen = $derived(detailsPaneOpen && panelMode === 'docked')
+	$effect(() => {
+		if (untrack(() => panelModalOpen) && (panelMode === 'docked' || !detailsPaneOpen)) {
+			panelModalOpen = false
+		}
+	})
+	let panelDisposable: Disposable | undefined = $state(undefined)
+	// Disposable joins the overlay stack through its methods, not by watching `open`.
+	$effect(() => {
+		panelModalOpen
+		untrack(() => {
+			panelModalOpen ? panelDisposable?.openDrawer() : panelDisposable?.closeDrawer()
+		})
+	})
+	const overlayHost = getOverlayHost()
+	const modalHost = $derived(overlayHost?.el())
+
+	function selectableNodeAt(e: MouseEvent): HTMLElement | null {
+		return (e.target as HTMLElement | null)?.closest('.svelte-flow__node.selectable') ?? null
+	}
+	// Read in the capture phase: once the click bubbles, the canvas has applied
+	// its selection and a first click looks like a click on the selected node.
+	let clickStartedOnSelected = false
+	function noteSelectionBeforeClick(e: MouseEvent) {
+		clickStartedOnSelected = !!selectableNodeAt(e)?.classList.contains('selected')
+	}
+	function openPanelModalIfReselected(e: MouseEvent) {
+		if (clickStartedOnSelected && selectableNodeAt(e)) panelModalOpen = true
+	}
+	function openPanelModalFromGraph(e: MouseEvent) {
+		if (selectableNodeAt(e)) panelModalOpen = true
+	}
+	function handleCanvasSelect(s: AssetGraphSelection | undefined, opts?: { open?: boolean }) {
+		onSelect(s)
+		if (opts?.open && s && panelMode === 'modal') panelModalOpen = true
+	}
+	const showNodeHint = $derived(panelMode === 'modal' && !panelModalOpen)
+	const nodeHintText = $derived(
+		effectiveSelection
+			? 'Click the selected node to open it'
+			: 'Double click a node to open it'
+	)
+
 	let idleView = $derived(
 		mode !== 'edit' && editor.selection == undefined && editor.activeDraftPath == undefined
 	)
 
 	// Wrap the writes (and the rightPaneSize read in the else branch) in untrack so
-	// the effect tracks only `detailsPaneOpen` / `storedRightPaneSize` — without it,
+	// the effect tracks only `dockedPaneOpen` / `storedRightPaneSize` — without it,
 	// the Pane `bind:size` feedback loops the effect and pegs the main thread.
 	$effect(() => {
 		// Stacked (vertical) splits give the details pane more room — the run
 		// form + result need height more than the graph needs it.
 		const fallback = stacked ? 55 : 40
-		if (detailsPaneOpen) {
+		if (dockedPaneOpen) {
 			const restore = storedRightPaneSize
 			untrack(() => {
 				rightPaneSize = restore > 0 ? restore : fallback
@@ -584,10 +644,80 @@
 	})
 </script>
 
-<div class="h-full w-full" bind:clientWidth={containerWidth}>
+{#snippet detailsBody(ws: string)}
+	{#if idleView && idlePane}
+		{@render idlePane()}
+	{:else}
+		<AssetGraphDetailsPane
+			{mode}
+			{onRequestEdit}
+			{canRunByPath}
+			{onRunByPath}
+			{onRunCascadeByPath}
+			{runFormInitialArgs}
+			{onRunFormArgsChange}
+			{resolveLocalScript}
+			{localScriptsVersion}
+			selection={activeDraft ? undefined : editor.selection}
+			selectionProducers={activeDraft ? [] : selectionProducers}
+			{producerScripts}
+			onEditScript={editProducerScript}
+			{producerTriggers}
+			{selectionColumnGraph}
+			{selectionColumnLoading}
+			{selectionColumnTruncated}
+			{selectionColumnFailed}
+			{selectionDbt}
+			{schemaCanEvolve}
+			{selectionForkMaterialization}
+			{schemaContractContext}
+			{runsRefreshKey}
+			{runsPendingJobId}
+			{activeRunnable}
+			{downstreamSubscribers}
+			onStartBoundedRun={canBoundedRunOpenScript &&
+			editor.openScriptPath &&
+			onStartBoundedRunForOpen
+				? () => onStartBoundedRunForOpen?.(editor.openScriptPath!)
+				: undefined}
+			{onRunCompleted}
+			{onTestStateChange}
+			{requestRemoveSignal}
+			{requestRunSignal}
+			{requestRunCascadeSignal}
+			{focusUploadSignal}
+			draftScript={activeDraft?.script}
+			draftOutputAssets={activeDraft?.outputAssets}
+			draftInputAssets={activeDraft?.inputAssets}
+			{onDraftPathChange}
+			onDraftMetaChange={editor.setDraftMeta}
+			{pathPrefix}
+			workspace={ws}
+			onAnnotationsChange={editor.handleAnnotationsChange}
+			onAssetsChange={editor.handleAssetsChange}
+			onContentChange={editor.handleContentChange}
+			onDraftPersist={editor.handleDraftPersist}
+			onclose={onClose}
+			onHide={onTogglePanelHidden}
+			{onDiscard}
+			{onDraftSaved}
+			{onPersistedSaved}
+			{onScriptRenamed}
+			{onScriptRemoved}
+		/>
+	{/if}
+{/snippet}
+
+<div class="relative h-full w-full" bind:clientWidth={containerWidth}>
 	<Splitpanes class="!h-full" horizontal={stacked}>
 		<Pane bind:size={leftPaneSize}>
-			<div class="relative h-full">
+			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+			<div
+				class="relative h-full"
+				ondblclick={panelMode === 'modal' ? openPanelModalFromGraph : undefined}
+				onpointerdowncapture={panelMode === 'modal' ? noteSelectionBeforeClick : undefined}
+				onclick={panelMode === 'modal' ? openPanelModalIfReselected : undefined}
+			>
 				<AssetGraphCanvas
 					graph={displayGraph}
 					selection={effectiveSelection}
@@ -604,7 +734,7 @@
 					{onOpenWebhook}
 					{onOpenDataUpload}
 					{readyDataUploadPaths}
-					onselect={onSelect}
+					onselect={handleCanvasSelect}
 					{onAddScriptForAsset}
 					{onAddPipelineScript}
 					{onRunnableMenuRemove}
@@ -650,70 +780,47 @@
 				{/if}
 			</div></Pane
 		>
-		{#if detailsPaneOpen && workspace}
+		{#if dockedPaneOpen && workspace}
 			<Pane bind:size={rightPaneSize} minSize={25}>
-				{#if idleView && idlePane}
-					{@render idlePane()}
-				{:else}
-					<AssetGraphDetailsPane
-						{mode}
-						{onRequestEdit}
-						{canRunByPath}
-						{onRunByPath}
-						{onRunCascadeByPath}
-						{runFormInitialArgs}
-						{onRunFormArgsChange}
-						{resolveLocalScript}
-						{localScriptsVersion}
-						selection={activeDraft ? undefined : editor.selection}
-						selectionProducers={activeDraft ? [] : selectionProducers}
-						{producerScripts}
-						onEditScript={editProducerScript}
-						{producerTriggers}
-						{selectionColumnGraph}
-						{selectionColumnLoading}
-						{selectionColumnTruncated}
-						{selectionColumnFailed}
-						{selectionDbt}
-						{schemaCanEvolve}
-						{selectionForkMaterialization}
-						{schemaContractContext}
-						{runsRefreshKey}
-						{runsPendingJobId}
-						{activeRunnable}
-						{downstreamSubscribers}
-						onStartBoundedRun={canBoundedRunOpenScript &&
-						editor.openScriptPath &&
-						onStartBoundedRunForOpen
-							? () => onStartBoundedRunForOpen?.(editor.openScriptPath!)
-							: undefined}
-						{onRunCompleted}
-						{onTestStateChange}
-						{requestRemoveSignal}
-						{requestRunSignal}
-						{requestRunCascadeSignal}
-						{focusUploadSignal}
-						draftScript={activeDraft?.script}
-						draftOutputAssets={activeDraft?.outputAssets}
-						draftInputAssets={activeDraft?.inputAssets}
-						{onDraftPathChange}
-						onDraftMetaChange={editor.setDraftMeta}
-						{pathPrefix}
-						{workspace}
-						onAnnotationsChange={editor.handleAnnotationsChange}
-						onAssetsChange={editor.handleAssetsChange}
-						onContentChange={editor.handleContentChange}
-						onDraftPersist={editor.handleDraftPersist}
-						onclose={onClose}
-						onHide={onTogglePanelHidden}
-						{onDiscard}
-						{onDraftSaved}
-						{onPersistedSaved}
-						{onScriptRenamed}
-						{onScriptRemoved}
-					/>
-				{/if}
+				{@render detailsBody(workspace)}
 			</Pane>
 		{/if}
 	</Splitpanes>
+	{#if showNodeHint}
+		<!-- Above the event log's bar, which owns the canvas's bottom edge. -->
+		<div
+			class="pointer-events-none absolute bottom-10 left-3 z-30 flex items-center gap-1.5 text-xs text-hint"
+		>
+			<MousePointerClick size={13} />
+			{nodeHintText}
+		</div>
+	{/if}
 </div>
+
+<!-- Portalled to the host's overlay anchor (a session preview tab) so the modal covers
+     that tab rather than the whole page; Disposable owns its place in the overlay stack
+     and its Escape. -->
+<Disposable bind:open={panelModalOpen} bind:this={panelDisposable}>
+	{#snippet children({ zIndex })}
+		{#if panelMode === 'modal' && panelModalOpen && workspace}
+			<Portal target={modalHost ?? 'body'} class="contents">
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="{modalHost ? 'absolute' : 'fixed'} inset-0 flex justify-center px-2 py-6"
+					style="z-index: {zIndex}"
+					role="dialog"
+				>
+					<div class="absolute inset-0 bg-black/20" onclick={() => (panelModalOpen = false)}></div>
+					<div
+						class="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-md border bg-surface shadow-xl"
+					>
+						<div class="min-h-0 flex-1 overflow-auto">
+							{@render detailsBody(workspace)}
+						</div>
+					</div>
+				</div>
+			</Portal>
+		{/if}
+	{/snippet}
+</Disposable>

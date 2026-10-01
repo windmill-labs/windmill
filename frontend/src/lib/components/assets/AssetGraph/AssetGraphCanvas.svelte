@@ -69,7 +69,12 @@
 	interface Props {
 		graph: AssetGraphResponse
 		selection?: AssetGraphSelection | undefined
-		onselect?: (selection: AssetGraphSelection | undefined) => void
+		/** `open` marks a selection asked to be shown (a script's open button), as
+		 * opposed to a click on a node, which only selects it. */
+		onselect?: (
+			selection: AssetGraphSelection | undefined,
+			opts?: { open?: boolean }
+		) => void
 		// Called when the user clicks the per-asset + button (consumer-script
 		// entry). Kept optional so the canvas stays usable outside the
 		// pipeline editor.
@@ -858,11 +863,14 @@
 									const owner = model.dbtOwnerByAsset.get(assetId)
 									const [kind, ...rest] = owner?.split(':') ?? []
 									if (kind && rest.length) {
-										onselect?.({
-											kind: 'runnable',
-											runnable_kind: kind as 'script' | 'flow',
-											path: rest.join(':')
-										})
+										onselect?.(
+											{
+												kind: 'runnable',
+												runnable_kind: kind as 'script' | 'flow',
+												path: rest.join(':')
+											},
+											{ open: true }
+										)
 									}
 								}
 							}
@@ -1382,7 +1390,10 @@
 									language: d.language,
 									unsaved: d.unsaved as boolean | undefined,
 									onOpen: () =>
-										onselect?.({ kind: 'runnable', runnable_kind: d.runnable_kind, path: d.path })
+										onselect?.(
+											{ kind: 'runnable', runnable_kind: d.runnable_kind, path: d.path },
+											{ open: true }
+										)
 								})),
 							// Every script's own triggers; asset triggers show as edges instead.
 							triggers: (u.multiple ? u.runnableIds : [])
@@ -1412,11 +1423,10 @@
 							runState: r.runState,
 							trigger: triggerChip(u.trigger, r.path),
 							onOpen: () =>
-								onselect?.({
-									kind: 'runnable',
-									runnable_kind: r.runnable_kind,
-									path: r.path
-								})
+								onselect?.(
+									{ kind: 'runnable', runnable_kind: r.runnable_kind, path: r.path },
+									{ open: true }
+								)
 						}
 			const toDelete =
 				onDeleteAssetUpstream && u && !u.multiple && r
