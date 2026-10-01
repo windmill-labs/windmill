@@ -83,6 +83,47 @@ async function migrateDown(opts: GlobalOptions & { datatable?: string }) {
   await rollbackMigrations(workspace.workspaceId, dt);
 }
 
+async function migrateStatus(
+  opts: GlobalOptions & { datatable?: string; json?: boolean },
+) {
+  if (opts.json) log.setSilent(true);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
+  const status = await wmill.getDatatableMigrationsStatus({
+    workspace: workspace.workspaceId,
+    datatableName: dt,
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(status));
+    return;
+  }
+  if (!status.enabled) {
+    log.info(`Migrations are not enabled on datatable '${dt}'`);
+    return;
+  }
+  if (status.error) {
+    log.warn(`Could not read applied migrations on '${dt}': ${status.error}`);
+  }
+  if (status.migrations.length === 0) {
+    log.info(`No migrations on datatable '${dt}'`);
+    return;
+  }
+  new Table()
+    .header(["Timestamp", "Name", "Status"])
+    .padding(2)
+    .border(true)
+    .body(
+      status.migrations.map((m) => [
+        String(m.timestamp),
+        m.name,
+        m.status === "not_run" ? "pending" : m.status,
+      ]),
+    )
+    .render();
+}
+
 const migrateCommand = new Command()
   .description("manage datatable migrations")
   .command("new", "scaffold a new migration (.up.sql / .down.sql files)")
@@ -109,7 +150,17 @@ const migrateCommand = new Command()
     "-d --datatable <datatable:string>",
     "Target datatable (default: main)",
   )
-  .action(migrateDown as any);
+  .action(migrateDown as any)
+  .command(
+    "status",
+    "show applied and pending migrations on the main datatable (or one via --datatable)",
+  )
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target datatable (default: main)",
+  )
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(migrateStatus as any);
 
 type DataTableResourceType = "postgresql" | "instance" | "external_instance";
 

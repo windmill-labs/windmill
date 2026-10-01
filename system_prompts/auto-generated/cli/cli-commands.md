@@ -88,6 +88,9 @@ datatable related commands
     - `-d --datatable <datatable:string>` - Target datatable (default: main)
   - `datatable migrate down` - roll back the most recent migration on the main datatable (or one via --datatable)
     - `-d --datatable <datatable:string>` - Target datatable (default: main)
+  - `datatable migrate status` - show applied and pending migrations on the main datatable (or one via --datatable)
+    - `-d --datatable <datatable:string>` - Target datatable (default: main)
+    - `--json` - Output as JSON (for piping to jq)
 - `datatable create [name:string]` - register a datatable database in the workspace (default: instance-backed 'main') so scripts can use datatable://<name>
   - `--resource <resource:string>` - Back the datatable with an existing postgresql resource path instead of the instance database
   - `--force` - Allow adding to a workspace that already has datatables (fork metadata on existing ones is not preserved)
