@@ -428,7 +428,8 @@ function createRuntime(session: Session): SessionRuntime {
 	// knows the page (and the row whose drawer is open) without spending a
 	// get_preview_status round-trip. Live editors are skipped: they register
 	// themselves as the ACTIVE EDITOR through UserDraft's live-draft registry. A page
-	// item tab is not one of them, and reads as its list page with the item open.
+	// item tab is not one of them, and reads as its list page with the item open; a
+	// deployed item's page is not either, and reads as its `/get/` location.
 	manager.activePreviewResolver = () => {
 		const owner = getRuntime(session.id)?.previewTabs
 		// What is on screen, not merely which tab is selected: the rule tells the model
@@ -437,7 +438,12 @@ function createRuntime(session: Session): SessionRuntime {
 		const tab = owner?.displayedTab
 		if (!tab) return undefined
 		const slotKind = resolvePreviewTab(tab.url).kind
-		if (slotKind !== 'iframe' && slotKind !== 'pageitem' && slotKind !== 'pagelist')
+		if (
+			slotKind !== 'iframe' &&
+			slotKind !== 'pageitem' &&
+			slotKind !== 'pagelist' &&
+			slotKind !== 'viewer'
+		)
 			return undefined
 		return previewLocationContext(whereIs(tab))
 	}
