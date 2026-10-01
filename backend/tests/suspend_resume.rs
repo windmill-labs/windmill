@@ -1005,7 +1005,7 @@ mod suspend_resume {
                 .push(&db)
                 .await;
 
-        let mut completed = listen_for_completed_jobs(&db).await;
+        let completed = listen_for_completed_jobs(&db).await;
         let queue = listen_for_queue(&db).await;
         let db_ = db.clone();
 
