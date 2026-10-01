@@ -582,6 +582,13 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 			this.#takeReturned()
 		})
 
+	/** Whether a composer is mounted and listening for this conversation. Apart from
+	 * `offerMessage`'s own answer because the two mean different things to a caller: not ready
+	 * is worth waiting for, a composer that declined is not. */
+	get composerReady(): boolean {
+		return !!this.#aiChatInput && !this.#disposed
+	}
+
 	/** Put a message in the composer showing this conversation, for the reader to edit and
 	 * send — a chat flow's page has no run form to fill, so this is where a chat tool's
 	 * proposed `user_message` lands. Declines when the composer already holds a draft, so it

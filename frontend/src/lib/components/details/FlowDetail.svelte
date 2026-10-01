@@ -381,16 +381,21 @@
 				seededSeq = seededRun.seq
 				return
 			}
-			// The rest of the proposal goes with it: a chat flow's schema can declare more than
-			// `user_message`, and sending the message alone would run on saved values or schema
-			// defaults — a different run from the one being offered.
+			// The composer mounts a flush or two after the panel does, so until it is there this
+			// effect waits — it reads the host's registration through `composerReady`, and runs
+			// again when that lands. Not latching is what keeps the proposal alive across those
+			// flushes.
+			if (!flowChat?.composerReady()) return
+			// Past that point the answer is final either way. The rest of the proposal goes with
+			// the message: a chat flow's schema can declare more than `user_message`, and sending
+			// the message alone would run on saved values or schema defaults — a different run
+			// from the one being offered. A composer already holding a draft declines, and the
+			// proposal is dropped rather than held: injecting it whenever the reader happens to
+			// clear their draft would put words in the box long after they were proposed. The
+			// card still shows what was asked for.
 			const { user_message: _m, ...inputs } = seededRun.args ?? {}
-			// Only on success. The composer mounts a flush or two after the panel, and a
-			// declined offer here means it is not there yet — this effect tracks the host's
-			// input through `offerMessage` and runs again when it registers. A composer that
-			// already holds a draft also declines, and re-offering on its next change is right:
-			// the reader may clear it, and then the message lands.
-			if (flowChat?.offerMessage(message, inputs)) seededSeq = seededRun.seq
+			seededSeq = seededRun.seq
+			flowChat.offerMessage(message, inputs)
 		} else if (runForm) {
 			seededSeq = seededRun.seq
 			runForm.setArgs(seededRun.args)

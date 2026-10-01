@@ -193,6 +193,14 @@
 		return true
 	}
 
+	/** Whether the conversation on screen has a composer to offer a message to. A caller that
+	 * gets `false` from `offerMessage` reads this to tell "mounting, try again" from "the
+	 * reader is writing, leave them alone". */
+	export function composerReady(): boolean {
+		const panel = shownKey ? pool?.get(shownKey) : undefined
+		return panel?.host.composerReady ?? false
+	}
+
 	// Derive additional inputs schema (excluding user_message) for chat mode
 	const additionalInputsSchema = $derived.by(() => {
 		const props = inputSchema?.properties ?? {}
