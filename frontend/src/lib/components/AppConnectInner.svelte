@@ -629,8 +629,11 @@
 			value = data.res.access_token!
 			valueToken = data.res
 			responseExtra = data.extra ?? {}
-			if (tokenKind && (emptyString(description) || description === generatedDescription)) {
-				generatedDescription = `${resourceType} ${tokenKind} token`
+			if (description === generatedDescription) {
+				description = ''
+			}
+			generatedDescription = tokenKind ? `${resourceType} ${tokenKind} token` : ''
+			if (emptyString(description)) {
 				description = generatedDescription
 			}
 			step = 4
