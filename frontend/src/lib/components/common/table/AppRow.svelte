@@ -161,24 +161,22 @@
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator}
-				{#if showEditButton && app.canWrite}
-					<div>
-						<Button
-							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
-							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							variant="subtle"
-							wrapperClasses="w-20"
-							startIcon={{ icon: Pen }}
-							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
-						>
-							Edit
-						</Button>
-					</div>
-				{/if}
-				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
-					<EditInForkButton itemType={app.raw_app ? 'raw_app' : 'app'} path={app.path} />
-				{/if}
+			{#if showEditButton && app.canWrite && (!$userStore?.operator || ($operatorBuilderApps && app.raw_app))}
+				<div>
+					<Button
+						aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
+						aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
+						variant="subtle"
+						wrapperClasses="w-20"
+						startIcon={{ icon: Pen }}
+						href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
+					>
+						Edit
+					</Button>
+				</div>
+			{/if}
+			{#if !$userStore?.operator && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
+				<EditInForkButton itemType={app.raw_app ? 'raw_app' : 'app'} path={app.path} />
 			{/if}
 		</span>
 		<Dropdown
