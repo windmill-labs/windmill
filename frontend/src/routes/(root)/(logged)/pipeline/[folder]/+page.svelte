@@ -3,6 +3,7 @@
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import { base } from '$lib/base'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -19,7 +20,6 @@
 	import { usePipelineHistory } from '$lib/components/assets/AssetGraph/pipelineHistory.svelte'
 	import PipelineActivityPanel from '$lib/components/assets/AssetGraph/PipelineActivityPanel.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
-	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import type {
 		AssetGraphResponse,
 		AssetGraphSelection,
@@ -2810,7 +2810,11 @@
 	<title>Pipeline · {folder} — Windmill</title>
 </svelte:head>
 
-<PageHeaderContent section={{ label: 'Pipelines', content: pipelineCrumb }} actions={pipelineActions} />
+<PageHeaderContent
+	section={{ label: 'Pipelines', content: pipelineCrumb }}
+	actions={pipelineActions}
+	actionsFlexible
+/>
 
 {#snippet pipelineCrumb()}
 	<a
@@ -2859,7 +2863,12 @@
 {/snippet}
 
 {#snippet pipelineActions()}
-	<div class="flex flex-row items-center gap-2">
+	<!-- This page carries more actions than any other in the band, so the set scrolls rather than
+	     being pushed off the end. `actionsFlexible` on the registration is what lets this box
+	     shrink far enough for that to matter. -->
+	<div
+		class="flex flex-row items-center gap-2 min-w-0 overflow-x-auto scrollbar-hidden whitespace-nowrap"
+	>
 		{#if !isOperator}
 			<!-- Center group: the mode toggle is the page's primary control —
 			     anchored between the two flex-1 side groups so it stays

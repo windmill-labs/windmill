@@ -18,7 +18,7 @@
 //!
 //! This test pins down:
 //!   - an Operator's own token is rejected by the operator guard (the core fix;
-//!     pre-fix this reached the inline executor instead of returning 401),
+//!     pre-fix this reached the inline executor instead of returning 403),
 //!   - a regular non-operator passes the guard (the fix must not over-block the
 //!     legitimate inline preview flow): in the test harness the worker inline
 //!     utils are not registered, so a caller past the guard gets the distinct
@@ -121,10 +121,10 @@ async fn test_inline_preview_authorization(db: Pool<Postgres>) -> anyhow::Result
 
     // 1. CORE REGRESSION: an Operator must be rejected by the operator guard.
     //    Pre-fix this fell through to the inline executor (arbitrary code
-    //    execution); post-fix it returns 401 with the operator guard message.
+    //    execution); post-fix it returns 403 with the operator guard message.
     let (status, body) = post(&url, "OPERATOR_TOKEN", &inline_preview_body()).await;
     assert_eq!(
-        status, 401,
+        status, 403,
         "Operator must be rejected from inline preview (got {status}): {body}"
     );
     assert!(
@@ -139,7 +139,7 @@ async fn test_inline_preview_authorization(db: Pool<Postgres>) -> anyhow::Result
     //    the operator guard did not reject it.
     let (status, body) = post(&url, "SECRET_TOKEN_2", &inline_preview_body()).await;
     assert_ne!(
-        status, 401,
+        status, 403,
         "non-operator must not be blocked by the operator guard (got {status}): {body}"
     );
     assert!(
@@ -155,7 +155,7 @@ async fn test_inline_preview_authorization(db: Pool<Postgres>) -> anyhow::Result
         operator_job_token(uuid::Uuid::parse_str(RUNNING_JOB_ID).unwrap()).await;
     let (status, body) = post(&url, &running_job_token, &datatable_query_body()).await;
     assert_ne!(
-        status, 401,
+        status, 403,
         "operator job token of a running job must pass the guard for a datatable query (got {status}): {body}"
     );
     assert!(
@@ -188,7 +188,7 @@ async fn test_inline_preview_authorization(db: Pool<Postgres>) -> anyhow::Result
     ] {
         let (status, body) = post(&url, &running_job_token, &payload).await;
         assert_eq!(
-            status, 401,
+            status, 403,
             "operator job token must be rejected for a {label} payload (got {status}): {body}"
         );
         assert!(
@@ -208,7 +208,7 @@ async fn test_inline_preview_authorization(db: Pool<Postgres>) -> anyhow::Result
         let token = operator_job_token(job_id).await;
         let (status, body) = post(&url, &token, &datatable_query_body()).await;
         assert_eq!(
-            status, 401,
+            status, 403,
             "operator job token of a {label} job must be rejected (got {status}): {body}"
         );
         assert!(
@@ -229,7 +229,7 @@ async fn test_inline_preview_authorization(db: Pool<Postgres>) -> anyhow::Result
     );
     let (status, body) = post(&fallback_url, "OPERATOR_TOKEN", &datatable_query_body()).await;
     assert_eq!(
-        status, 401,
+        status, 403,
         "Operator must be rejected from the preview fallback (got {status}): {body}"
     );
     assert!(
@@ -246,7 +246,7 @@ async fn test_inline_preview_authorization(db: Pool<Postgres>) -> anyhow::Result
         let deferred_url = format!("{fallback_url}?{deferral}");
         let (status, body) = post(&deferred_url, &running_job_token, &datatable_query_body()).await;
         assert_eq!(
-            status, 401,
+            status, 403,
             "operator job token must not schedule a deferred preview with {deferral} (got {status}): {body}"
         );
         assert!(

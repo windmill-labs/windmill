@@ -61,7 +61,7 @@
 				popover: {
 					title: 'Finally, the sidebar',
 					description:
-						'Explore the pages you can open from here: your history of runs, your scheduled scripts, AI sessions and your workspaces.<p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to see this again?</strong> Pick <strong>Take the tour</strong> from your account menu, under <strong>Settings</strong>.</p>'
+						'Explore the pages you can open from here: your history of runs, your scheduled scripts and your workspaces.<p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to see this again?</strong> Pick <strong>Take the tour</strong> from your account menu, under <strong>Settings</strong>.</p>'
 				},
 				// Whichever the sidebar currently is: the floating handle when detached, the rail when not.
 				element: '[data-nav-handle], #sidebar'

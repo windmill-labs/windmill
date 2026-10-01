@@ -6,9 +6,12 @@ export type PathDir = { name: string; fullPath: string }
  * `u/<user>`), then each subfolder, then the item itself. Each level carries the cumulative path,
  * which is what the picker opens and highlights.
  *
- * Returns undefined for anything shorter than scope + name, such as a path still being typed.
+ * Returns undefined before there is even a scope. The leaf is undefined while the path names a
+ * folder but no item yet (`f/demo/`) — the levels it does name still come back.
  */
-export function splitItemPath(path: string): { dirs: PathDir[]; leaf: PathDir } | undefined {
+export function splitItemPath(
+	path: string
+): { dirs: PathDir[]; leaf: PathDir | undefined } | undefined {
 	const parts = path.split('/')
 	if (parts.length < 3) return undefined
 	const scope = parts.slice(0, 2).join('/')
@@ -19,5 +22,9 @@ export function splitItemPath(path: string): { dirs: PathDir[]; leaf: PathDir } 
 		acc = `${acc}/${slug[i]}`
 		dirs.push({ name: slug[i], fullPath: acc })
 	}
-	return { dirs, leaf: { name: slug[slug.length - 1], fullPath: path } }
+	// A leaf with an empty name draws a blank segment. The editor binds the path live, so the
+	// breadcrumb sees every keystroke: the folders stay put while the name is being typed rather
+	// than the whole trail dropping out and coming back.
+	const name = slug[slug.length - 1]
+	return { dirs, leaf: name ? { name, fullPath: path } : undefined }
 }

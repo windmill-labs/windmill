@@ -8,7 +8,7 @@
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { isMac, type Item, userPathPrefix } from '$lib/utils'
+	import { isMac, type Item, userPathPrefix, emptyString } from '$lib/utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import {
 		AlignHorizontalSpaceAround,
@@ -52,8 +52,8 @@
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
-	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { editPathFor } from '$lib/components/workspacePicker'
@@ -232,6 +232,10 @@
 	// The header's buttons render under the page header, not under this component, so the contexts
 	// they look up have to travel with them. The app's own two carry everything the canvas toggles,
 	// the panel buttons, Debug runs and the preview switch read.
+	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
+
 	const headerContexts = new Map<any, any>([
 		['AppViewerContext', getContext('AppViewerContext')],
 		['AppEditorContext', getContext('AppEditorContext')]
@@ -260,7 +264,12 @@
 	// In the page header the buttons share the row with the breadcrumb, so they shed the canvas
 	// toggles and fold Debug runs into the menu sooner: the whole group is ~840px and the trail
 	// with the summary takes ~430px of the same row.
-	const compactBelow = $derived(ownsPageHeader ? 1350 : 720)
+	// Measured on the band rather than estimated: with the canvas toggles shown the actions alone
+	// are 826-911px and the trail with the summary another ~500, so the row overflows the bar at
+	// every width up to about 1470 — 1350 was not high enough either. Below this the toggles stand
+	// down and the menu carries all three, which is what keeps them reachable rather than merely
+	// out of the way.
+	const compactBelow = $derived(ownsPageHeader ? 1500 : 720)
 	const compactTopbar = $derived.by(() => {
 		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
 		return w > 0 && w < compactBelow
@@ -616,7 +625,33 @@
 								selectedJobId = $jobs[$jobs.length - 1]
 							}
 							$jobsDrawerOpen = true
-						},
+						}
+					},
+					// The canvas toggles stand down with the bar, and the breakpoint among them is the
+					// only way onto the mobile layout — so each one keeps an entry here.
+					{
+						displayName: $breakpoint === 'sm' ? 'Computer view' : 'Mobile view',
+						icon: $breakpoint === 'sm' ? Laptop2 : Smartphone,
+						action: () => ($breakpoint = $breakpoint === 'sm' ? 'lg' : 'sm')
+					},
+					{
+						displayName: $app?.fullscreen ? 'Centered canvas' : 'Full-width canvas',
+						icon: $app?.fullscreen ? AlignHorizontalSpaceAround : Expand,
+						action: () => {
+							if ($app) $app.fullscreen = !$app.fullscreen
+						}
+					},
+					{
+						displayName:
+							$app?.darkMode === undefined
+								? 'Theme: automatic'
+								: $app.darkMode
+									? 'Theme: dark'
+									: 'Theme: light',
+						icon: $app?.darkMode === undefined ? SunMoon : $app.darkMode ? Moon : Sun,
+						// Cycles auto → light → dark, the order the toggle group reads in.
+						action: () =>
+							setTheme($app?.darkMode === undefined ? false : $app.darkMode ? undefined : true),
 						separatorBottom: true
 					}
 				]
@@ -943,7 +978,15 @@
 	<!-- The editor's own top bar is the page header on this route: the app's path and summary are
 	     the breadcrumb's, and everything else the bar carried rides along as the header's actions. -->
 	<PageHeaderContent
-		item={{ kind: 'app', path: $appPath || newPath || undefined, summaryContent: appSummary }}
+		item={{
+			// The path being edited, not the stored one: a brand-new app is parked at a
+			// `draft_<uuid>` placeholder, and the trail would name that instead of the path Deploy
+			// will create. Same fallback chain the rename sites read.
+			// Frozen while the pen's popover is open so the trail holds still as the user types.
+			kind: 'app',
+			path: pathSnapshot ?? (newEditedPath || $appPath || newPath || undefined),
+			summaryContent: appSummary
+		}}
 		actions={appHeaderActions}
 		contexts={headerContexts}
 	/>
@@ -978,29 +1021,42 @@
 {/if}
 
 {#snippet appSummary()}
-	<!-- The summary stays editable where the editor's own bar had it; the path beside it is the
-	     breadcrumb, which this editor renames from its deploy drawer. -->
-	<EditableInput
-		value={$summary ?? ''}
-		placeholder="Add a summary..."
-		commitOnInput
-		size="sm"
-		onSave={(v) => ($summary = v.trim())}
-		textClass="text-xs font-medium text-emphasis leading-tight"
-		class="max-w-full min-w-0"
-	/>
+	<!-- Not edited in place: the pen beside it opens the summary and the path together,
+		     so the band reads as a name rather than a form. `title` for one it truncates. -->
+	<div class="group flex items-center gap-1 min-w-0">
+		<span
+			class="min-w-0 truncate text-xs {emptyString($summary)
+				? 'text-tertiary italic font-normal'
+				: 'font-medium text-emphasis'}"
+			title={$summary}>{emptyString($summary) ? 'Add a summary...' : $summary}</span
+		>
+		<PathEditPopover
+			penVisibility={emptyString($summary) ? 'always' : 'hover'}
+			bind:summary={$summary}
+			bind:path={newEditedPath}
+			bind:snapshotPath={pathSnapshot}
+			savedPath={$appPath || newPath || undefined}
+			kind="app"
+		/>
+	</div>
 {/snippet}
 
 {#snippet appHeaderActions()}
 	<!-- The bar's own order kept: what the canvas looks like, how the draft is doing, which panels
-	     are open, then what to do with the app. -->
-	{@render canvasToggles()}
-	{@render autosaveIndicator()}
-	{#if !phoneTopbar}
-		{@render panelButtons()}
-		{@render awarenessMark()}
-	{/if}
-	{@render appActions()}
+	     are open, then what to do with the app. The set scrolls rather than pushing past the end of
+	     the bar — this editor carries the widest action row of any page, and the row it replaced
+	     scrolled for the same reason. -->
+	<div
+		class="flex flex-row items-center gap-2 min-w-0 overflow-x-auto scrollbar-hidden whitespace-nowrap"
+	>
+		{@render canvasToggles()}
+		{@render autosaveIndicator()}
+		{#if !phoneTopbar}
+			{@render panelButtons()}
+			{@render awarenessMark()}
+		{/if}
+		{@render appActions()}
+	</div>
 {/snippet}
 
 {#snippet canvasToggles()}
@@ -1213,11 +1269,10 @@
 				</div>
 			</Button>
 		</div>
-		<!-- The export is in the menu on a phone; the preview switch keeps its place there, since
+		<!-- Draws nothing in the bar: it is the export drawer, opened from the menu's Export
+		     entries through this instance. The preview switch keeps its place on a phone, since
 		     seeing the app is most of what an app editor is good for on one. -->
-		<div class={phoneTopbar ? 'hidden' : 'contents'}>
-			<AppExportButton bind:this={appExport} />
-		</div>
+		<AppExportButton bind:this={appExport} />
 		<PreviewToggle loading={loading.save} iconOnly={phoneTopbar} />
 		<Button
 			variant="accent"

@@ -161,7 +161,7 @@ needs becomes unreachable.
       },
       "user_message": { "type": "javascript", "expr": "flow_input.user_message" },
       "user_attachments": { "type": "javascript", "expr": "flow_input.files" },
-      "memory": { "type": "static", "value": { "kind": "window", "context_length": 10 } },
+      "memory": { "type": "static", "value": { "kind": "compaction" } },
       "streaming": { "type": "static", "value": true },
       "output_type": { "type": "static", "value": "text" }
     },

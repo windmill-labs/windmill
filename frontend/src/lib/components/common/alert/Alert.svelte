@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { type AlertType, classes, icons } from './model'
+	import { type AlertAction, type AlertType, classes, icons } from './model'
+	import Button from '../button/Button.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
@@ -25,6 +26,9 @@
 		descriptionStyle?: string | undefined
 		class?: string | undefined
 		isCollapsed?: boolean
+		/** Buttons under the body, colored to match the alert's type. They stay visible while a
+		 * collapsible alert is collapsed. */
+		actions?: AlertAction[]
 		children?: import('svelte').Snippet
 	}
 
@@ -47,6 +51,7 @@
 		descriptionStyle = undefined,
 		class: classNames = undefined,
 		isCollapsed = $bindable(true),
+		actions = [],
 		children
 	}: Props = $props()
 
@@ -66,7 +71,7 @@
 <div
 	class={twMerge(
 		notRounded ? '' : 'rounded-md',
-		size === 'sm' ? 'p-4' : 'p-3',
+		size === 'sm' ? 'px-3 py-2' : 'px-2.5 py-1.5',
 		classes[type].bgClass,
 		bgClass,
 		classNames
@@ -121,6 +126,24 @@
 					style={descriptionStyle}
 				>
 					{@render children?.()}
+				</div>
+			{/if}
+
+			{#if actions.length > 0}
+				<div class={twMerge('flex flex-wrap gap-2', hasTitleRow || children ? 'mt-2' : '')}>
+					{#each actions as action}
+						<Button
+							unifiedSize={size === 'sm' ? 'sm' : 'xs'}
+							variant={action.variant ?? 'default'}
+							tone={type}
+							startIcon={action.startIcon}
+							disabled={action.disabled}
+							loading={action.loading}
+							onClick={action.onClick}
+						>
+							{action.label}
+						</Button>
+					{/each}
 				</div>
 			{/if}
 		</div>
