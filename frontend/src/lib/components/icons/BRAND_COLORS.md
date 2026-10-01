@@ -136,8 +136,8 @@ repeatedly — check the brand's own page.
 | `FrontAppIcon` | `frontapp` | fixed | #A857F1 | #A857F1 | 3.83 | 3.15 | the logo mark front.com ships inline on its own pages; the mark keeps this purple on both light and dark backgrounds |
 | `FunkwhaleIcon` | `funkwhale` | mixed | #009FE3 | #009FE3 | 10.69 | 5.71 | www.funkwhale.audio/logos (theme/images/icon.svg) |
 | `GSheetsIcon` | `gsheets` | fixed | #009954 | #009954 | 3.57 | 12.47 | Google product logo sheets_2026q3 (gstatic productlogos, used on workspace.google.com/products/sheets) |
-| `GchatIcon` | `gchat` | fixed | #0EBC5F | #0EBC5F | 2.80 | 4.98 | Google's own Chat 2026 product icon, https://www.gstatic.com/images/branding/productlogos/chat_2026/v2/web/192px.svg (paths verbatim, ids namespaced) |
 | `GcalIcon` | `gcal` | fixed | #BBE2FF | #BBE2FF | 3.40 | 12.47 | Google's own Calendar 2026 product logo, https://www.gstatic.com/images/branding/productlogos/calendar_2026/v2/web/192px.svg (paths verbatim) |
+| `GchatIcon` | `gchat` | fixed | #0EBC5F | #0EBC5F | 2.80 | 4.98 | Google's own Chat 2026 product icon, https://www.gstatic.com/images/branding/productlogos/chat_2026/v2/web/192px.svg (paths verbatim, ids namespaced) |
 | `GdocsIcon` | `gdocs` | inherits | #718096 | #A9B0BA | 3.88 | 5.71 | Google's own Docs product icon (gstatic.com/images/branding/productlogos/docs_2026/v2/web/192px.svg, served on workspace.google.com/products/docs) |
 | `GdriveIcon` | `gdrive` | fixed | #B43333 | #B43333 | 5.87 | 10.05 | https://www.gstatic.com/images/branding/productlogos/drive_2026/v2/web/192px.svg, Google's own product-logo CDN; paths and gradient stops are verbatim |
 | `GhostCmsIcon` | `ghostcms` | pair | #15171A | #FFFFFF | 17.38 | 12.47 | docs.ghost.org |

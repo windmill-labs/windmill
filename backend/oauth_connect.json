@@ -117,7 +117,7 @@
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": [
       "https://www.googleapis.com/auth/chat.spaces.readonly",
-      "https://www.googleapis.com/auth/chat.messages"
+      "https://www.googleapis.com/auth/chat.messages.create"
     ],
     "scope_options": [
       "https://www.googleapis.com/auth/chat.spaces.readonly",
