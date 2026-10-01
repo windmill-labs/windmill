@@ -11,6 +11,7 @@ import { psql as psqlDatatable } from "./psql.ts";
 import { serve as serveDatatable } from "./serve.ts";
 import {
   createMigration,
+  listLocalMigrations,
   pushLocalMigrations,
   rollbackMigrations,
   runMigrations,
@@ -94,9 +95,17 @@ async function migrateStatus(
     workspace: workspace.workspaceId,
     datatableName: dt,
   });
+  // `migrate up` pushes local files before running, so they count as pending too.
+  const remote = new Set(status.migrations.map((m) => m.timestamp));
+  const migrations: { timestamp: number; name: string; status: string }[] = [
+    ...status.migrations,
+    ...listLocalMigrations(dt)
+      .filter((m) => !remote.has(m.timestamp))
+      .map((m) => ({ ...m, status: "local" })),
+  ].sort((a, b) => a.timestamp - b.timestamp);
 
   if (opts.json) {
-    console.log(JSON.stringify(status));
+    console.log(JSON.stringify({ ...status, migrations }));
     return;
   }
   if (!status.enabled) {
@@ -106,19 +115,23 @@ async function migrateStatus(
   if (status.error) {
     log.warn(`Could not read applied migrations on '${dt}': ${status.error}`);
   }
-  if (status.migrations.length === 0) {
+  if (migrations.length === 0) {
     log.info(`No migrations on datatable '${dt}'`);
     return;
   }
+  const label: Record<string, string> = {
+    not_run: "pending",
+    local: "pending (not pushed)",
+  };
   new Table()
     .header(["Timestamp", "Name", "Status"])
     .padding(2)
     .border(true)
     .body(
-      status.migrations.map((m) => [
+      migrations.map((m) => [
         String(m.timestamp),
         m.name,
-        m.status === "not_run" ? "pending" : m.status,
+        label[m.status] ?? m.status,
       ]),
     )
     .render();
