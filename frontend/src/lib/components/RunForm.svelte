@@ -122,9 +122,9 @@
 		loading?: boolean
 		noVariablePicker?: boolean
 		viewKeybinding?: boolean
-		scheduledForStr: string | undefined
-		invisible_to_owner: boolean | undefined
-		overrideTag: string | undefined
+		scheduledForStr?: string | undefined
+		invisible_to_owner?: boolean | undefined
+		overrideTag?: string | undefined
 		overrideTagNote?: string
 		args?: Record<string, any>
 		jsonView?: boolean
@@ -134,6 +134,9 @@
 		 * form is embedded in a page that is not the runnable's own — an AI session preview
 		 * tab — since there the fragment would land on an unrelated URL. */
 		syncArgsToUrl?: boolean
+		/** Controls beside the Run button of a form that cannot schedule, in the row a
+		 *  schedulable one gives its Advanced options. */
+		actions?: import('svelte').Snippet
 	}
 
 	let {
@@ -153,7 +156,8 @@
 		args = $bindable(),
 		jsonView = false,
 		isValid = $bindable(true),
-		syncArgsToUrl = true
+		syncArgsToUrl = true,
+		actions = undefined
 	}: Props = $props()
 
 	let showPsCommonParams = $derived(
@@ -397,6 +401,22 @@
 					Job will be invisible to owner
 				</div>
 			{/if}
+		</div>
+	{:else if actions}
+		<!-- The schedulable row's layout, with the caller's controls where Advanced sits. -->
+		<div class="flex-row-reverse flex-wrap flex w-full gap-4 mt-2 md:mt-6">
+			<Button
+				{loading}
+				variant="accent"
+				unifiedSize="md"
+				btnClasses="!inline-flex"
+				disabled={!isValid && !jsonView}
+				on:click={() => run(null)}
+				shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
+			>
+				{buttonText}
+			</Button>
+			<div>{@render actions()}</div>
 		</div>
 	{:else}
 		<Button

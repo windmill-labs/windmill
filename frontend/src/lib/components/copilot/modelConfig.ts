@@ -58,7 +58,7 @@ export function usesOpenRouterPromptCaching(provider: AIProvider, model: string)
 // so it does not catch unrelated ids like Mistral's "open-mistral-*" or "optimus-*".
 export function requiresMaxCompletionTokens(model: string) {
 	const baseModel = parseModelId(model).base
-	return baseModel.startsWith('gpt-5') || /^o\d/.test(baseModel)
+	return Number(/^gpt-(\d)(?:[.-]|$)/.exec(baseModel)?.[1] ?? 0) >= 5 || /^o\d/.test(baseModel)
 }
 
 // Context windows of the models we know, most specific entry first — the first
@@ -87,6 +87,7 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['claude', 200_000],
 	// OpenAI — gpt-5 covers the base family (-mini / -nano) and the 5.1/5.2
 	// revisions, all 400K; 5.4/5.5 moved to 1M and 5.6 to 1.05M
+	['gpt-6', 1_050_000],
 	['gpt-5.6', 1_050_000],
 	['gpt-5.5', 1_000_000],
 	['gpt-5.4', 1_000_000],
@@ -140,6 +141,7 @@ const MODEL_MAX_OUTPUT_TOKENS: [name: string, maxOutputTokens: number][] = [
 	['claude-fable', 64_000],
 	['claude-mythos', 64_000],
 	// OpenAI
+	['gpt-6', 128_000],
 	['gpt-5', 128_000],
 	['gpt-4.1', 32_768],
 	['gpt-4o', 16_384],

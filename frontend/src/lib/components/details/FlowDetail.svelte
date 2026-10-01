@@ -29,6 +29,7 @@
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces } from '$lib/stores'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -126,6 +127,7 @@
 	// refuses — the safe answer while a fork's `whoami` is still in flight.
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	let flow: Flow | undefined = $state()
 	// Derived, not assigned during the load: in a fork the acting user is looked up
@@ -331,6 +333,10 @@
 		}
 	}
 
+	// Operators with the builder right author flows out of deployed runnables; every other
+	// operator is read-only here.
+	let canAuthorFlow = $derived(!actingUser?.operator || $operatorBuilderFlows)
+
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let runForm: RunForm | undefined = $state()
@@ -338,7 +344,7 @@
 	function getMainButtons(flow: Flow | undefined, args: object | undefined) {
 		const buttons: any = []
 
-		if (flow && !actingUser?.operator) {
+		if (flow && canAuthorFlow) {
 			buttons.push({
 				label: 'Fork',
 				description: `Start a new flow from a copy of this one`,
@@ -401,10 +407,11 @@
 			}
 		})
 
-		if (!flow || actingUser?.operator || !can_write) {
+		if (!flow || !canAuthorFlow || !can_write) {
 			return buttons
 		}
 
+		// The builder right covers flows only; building an app is still refused to operators.
 		if (!actingUser?.operator) {
 			buttons.push({
 				label: 'Build app',
@@ -422,19 +429,19 @@
 					startIcon: LayoutDashboard
 				}
 			})
-
-			buttons.push({
-				label: 'Edit',
-				buttonProps: {
-					href: `${base}/flows/edit/${path}`,
-					onClick: interceptNav(onNavigate, `/flows/edit/${path}`),
-					variant: 'accent',
-					unifiedSize: 'md',
-					disabled: !can_write || !showEditButtons,
-					startIcon: Pen
-				}
-			})
 		}
+
+		buttons.push({
+			label: 'Edit',
+			buttonProps: {
+				href: `${base}/flows/edit/${path}`,
+				onClick: interceptNav(onNavigate, `/flows/edit/${path}`),
+				variant: 'accent',
+				unifiedSize: 'md',
+				disabled: !can_write || !showEditButtons,
+				startIcon: Pen
+			}
+		})
 		return buttons
 	}
 
@@ -454,7 +461,7 @@
 		flow: Flow | undefined,
 		deployUiSettings: WorkspaceDeployUISettings | undefined
 	) {
-		if (!flow || actingUser?.operator) return []
+		if (!flow || !canAuthorFlow) return []
 
 		const menuItems: any = []
 
@@ -473,15 +480,21 @@
 			})
 		}
 
-		menuItems.push({
-			label: 'Audit logs',
-			Icon: Eye,
-			onclick: () => {
-				onNavigate(`/audit_logs?resource=${flow?.path}`)
-			}
-		})
+		// The builder right opens this menu to operators; audit logs stay behind their own setting.
+		if (
+			!actingUser?.operator ||
+			$userWorkspaces.find((w) => w.id === workspace)?.operator_settings?.audit_logs
+		) {
+			menuItems.push({
+				label: 'Audit logs',
+				Icon: Eye,
+				onclick: () => {
+					onNavigate(`/audit_logs?resource=${flow?.path}`)
+				}
+			})
+		}
 
-		if (isDeployable('flow', flow?.path ?? '', deployUiSettings)) {
+		if (isDeployable('flow', flow?.path ?? '', deployUiSettings) && !actingUser?.operator) {
 			menuItems.push({
 				label: 'Deploy to staging/prod',
 				onclick: () => deploymentDrawer?.openDrawer(flow?.path ?? '', 'flow'),

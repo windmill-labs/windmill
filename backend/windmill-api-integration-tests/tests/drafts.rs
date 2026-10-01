@@ -165,7 +165,7 @@ async fn test_update_draft_write_authorization(db: Pool<Postgres>) -> anyhow::Re
         .json(&json!({ "value": { "a": 1 } }))
         .send()
         .await?;
-    assert_eq!(r.status(), 401, "operator rejected");
+    assert_eq!(r.status(), 403, "operator rejected");
 
     Ok(())
 }

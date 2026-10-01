@@ -31,21 +31,26 @@
 	type MenuItemButton = {
 		label: string
 		Icon: any
-		onclick: () => void
+		onclick: (e: MouseEvent) => void
 		color?: 'red'
+		disabled?: boolean
 	}
 
-	const { triggersCount, triggersState } = $state(getContext<TriggerContext>('TriggerContext'))
+	// An agent's page has no triggers, and so no context for them.
+	const { triggersCount, triggersState } = $state(
+		getContext<TriggerContext | undefined>('TriggerContext') ?? ({} as Partial<TriggerContext>)
+	)
 
 	interface Props {
 		mainButtons?: MainButton[]
 		menuItems?: MenuItemButton[]
 		summary?: string
 		path?: string
-		tag: string | undefined
-		errorHandlerKind: 'flow' | 'script'
-		scriptOrFlowPath: string
-		errorHandlerMuted: boolean | undefined
+		tag?: string | undefined
+		/** Unset for what has no workspace error handler to mute, such as an agent. */
+		errorHandlerKind?: 'flow' | 'script'
+		scriptOrFlowPath?: string
+		errorHandlerMuted?: boolean | undefined
 		labels?: string[] | undefined
 		inheritedLabels?: string[] | undefined
 		onSaved?: (newPath: string) => void
@@ -55,6 +60,8 @@
 		 * the layout from its own width. Not a viewport media query: the same page also renders
 		 * inside an AI session's preview panel, where the window is wide and the pane is not. */
 		wide?: boolean
+		/** Controls ahead of the menu, such as the way an agent's page runs it. */
+		leading_actions?: import('svelte').Snippet
 	}
 
 	let {
@@ -71,7 +78,8 @@
 		onSaved,
 		children,
 		trigger_badges,
-		wide = true
+		wide = true,
+		leading_actions
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -85,6 +93,7 @@
 	}
 
 	async function toggleErrorHandler() {
+		if (!errorHandlerKind || !scriptOrFlowPath) return
 		const next = await toggleWorkspaceErrorHandler(
 			$operatingWorkspace,
 			errorHandlerKind,
@@ -104,7 +113,7 @@
 			disabled: b.buttonProps.disabled,
 			type: 'action' as const
 		})),
-		...(wide
+		...(wide || !errorHandlerKind
 			? []
 			: [
 					{
@@ -118,6 +127,7 @@
 			displayName: item.label,
 			icon: item.Icon,
 			action: item.onclick,
+			disabled: item.disabled,
 			type: item.color === 'red' ? ('delete' as const) : ('action' as const),
 			separatorTop: i === 0 && !wide
 		}))
@@ -181,12 +191,13 @@
 				{@render trigger_badges?.()}
 			</div>
 			<div class="flex gap-1 items-center pr-4">
+				{@render leading_actions?.()}
 				{#if allMenuItems.length > 0}
 					{#key allMenuItems}
 						<DropdownV2 items={allMenuItems} placement="bottom-end" size="md" />
 					{/key}
 				{/if}
-				{#if wide}
+				{#if wide && errorHandlerKind && scriptOrFlowPath}
 					<ErrorHandlerToggleButton
 						kind={errorHandlerKind}
 						{scriptOrFlowPath}

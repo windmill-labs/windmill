@@ -26,6 +26,7 @@ use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
 use url::Url;
+use windmill_api_flows::flows::validate_operator_composed_flow;
 use windmill_common::assets::AssetUsageAccessType;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
 #[cfg(feature = "run_inline")]
@@ -53,7 +54,9 @@ use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
-use windmill_common::workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult};
+use windmill_common::workspaces::{
+    check_operator_can_build_flows, check_user_against_rule, ProtectionRuleKind, RuleCheckResult,
+};
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
@@ -282,6 +285,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/add_batch_jobs/{n}", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
+        .route("/run/agent/{*path}", post(crate::agent_runs::run_agent))
         .route(
             "/run_wait_result/preview_flow",
             post(run_wait_result_preview_flow),
@@ -1894,7 +1898,10 @@ async fn require_job_within_run_scope(
     // NULL for a job no such scope reaches directly (previews, dependency jobs,
     // flow-inlined scripts) — those are still readable as a step of a matching flow,
     // through their ancestors. A `singlestepflow` wraps either a script or a flow, so it
-    // projects onto the wrapped runnable the same way the batch-rerun query does.
+    // projects onto the wrapped runnable the same way the batch-rerun query does. An agent
+    // run is a preview of the one-step flow `agent_runs::agent_step_flow` builds, filed under the
+    // agent's path (`<path>.chat` for a chat turn); the editor's own runs of it look the same,
+    // and are runs of that agent too.
     let chain = sqlx::query!(
         r#"WITH RECURSIVE chain(id, parent_job) AS (
                 SELECT id, parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2
@@ -1902,8 +1909,11 @@ async fn require_job_within_run_scope(
                 SELECT j.id, j.parent_job FROM v2_job j
                     JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
             )
-            SELECT j.runnable_path,
+            SELECT
+                CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\.chat$', '')
+                    ELSE j.runnable_path END AS runnable_path,
                 CASE
+                    WHEN a.agent THEN 'agents'
                     WHEN j.kind IN ('script', 'script_hub', 'unassigned_script') THEN 'scripts'
                     WHEN j.kind IN ('flow', 'unassigned_flow') THEN 'flows'
                     WHEN j.kind IN ('singlestepflow', 'unassigned_singlestepflow') THEN
@@ -1916,7 +1926,10 @@ async fn require_job_within_run_scope(
                             ) = 'flow' THEN 'flows' ELSE 'scripts' END
                 END AS scope_kind,
                 CASE WHEN j.trigger_kind = 'app' THEN j.trigger END AS launched_by_app
-            FROM v2_job j JOIN chain c ON c.id = j.id
+            FROM v2_job j JOIN chain c ON c.id = j.id,
+            LATERAL (SELECT j.kind = 'flowpreview'
+                AND j.raw_flow->'modules'->1 IS NULL
+                AND j.raw_flow->'modules'->0->>'id' = '__wm_agent_root' AS agent) a
             WHERE j.workspace_id = $2"#,
         job_id,
         w_id,
@@ -8600,7 +8613,9 @@ fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
     } else {
         "Operators cannot run preview jobs for security reasons"
     };
-    error::Error::NotAuthorized(reason.to_string())
+    // 403, not 401: the frontend reads a 401 as a dead session and logs the user out, and the
+    // flow editor builders open reaches this route.
+    error::Error::PermissionDenied(reason.to_string())
 }
 
 async fn run_preview_script(
@@ -9282,14 +9297,32 @@ pub struct RunFlowDependenciesResponse {
 async fn push_flow_dependencies_job(
     authed: &ApiAuthed,
     db: &DB,
+    user_db: &UserDB,
     w_id: &str,
     req: RunFlowDependenciesRequest,
 ) -> error::Result<Uuid> {
     check_scopes(authed, || format!("jobs:run"))?;
+    check_operator_can_build_flows(db, w_id, authed.is_operator, "run dependencies jobs").await?;
+    // The dependency job locks whatever inline code this request carries, on a worker. A
+    // composition-only flow has none, so validating here costs a builder nothing and keeps the
+    // lock step from becoming the way to run code the write path refuses.
     if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run dependencies jobs for security reasons".to_string(),
-        ));
+        validate_operator_composed_flow(&req.flow_value, &None, authed, db, user_db, w_id).await?;
+        // The job rewrites bookkeeping stored under `req.path` (dependency map, asset usages,
+        // lock error) even with `skip_flow_update`, so a builder must be able to write there.
+        crate::drafts::require_can_write_path(
+            authed,
+            db,
+            user_db,
+            w_id,
+            windmill_common::user_drafts::UserDraftItemKind::Flow,
+            &req.path,
+        )
+        .await
+        .map_err(|e| match e {
+            error::Error::NotAuthorized(msg) => error::Error::PermissionDenied(msg),
+            e => e,
+        })?;
     }
 
     if req.raw_deps.is_some() {
@@ -9355,20 +9388,22 @@ async fn push_flow_dependencies_job(
 async fn run_flow_dependencies_job(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(req): Json<RunFlowDependenciesRequest>,
 ) -> error::Result<Response> {
-    let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
+    let uuid = push_flow_dependencies_job(&authed, &db, &user_db, &w_id, req).await?;
     run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await
 }
 
 async fn run_flow_dependencies_job_async(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(req): Json<RunFlowDependenciesRequest>,
 ) -> error::Result<(StatusCode, String)> {
-    let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
+    let uuid = push_flow_dependencies_job(&authed, &db, &user_db, &w_id, req).await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
@@ -9669,15 +9704,24 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "run preview jobs").await?;
     // Flow preview runs an arbitrary, request-supplied flow definition; require the broad
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
+    // A builder must be able to test what it composes, but the submitted value is not the stored
+    // one: without this the preview is a way to run inline code the write path refuses.
+    if authed.is_operator {
+        validate_operator_composed_flow(
+            &raw_flow.value,
+            &raw_flow.tag,
+            &authed,
+            &db,
+            &user_db,
+            &w_id,
+        )
+        .await?;
+    }
     // Restarting copies the source runs' step results into the new run, and the queue resolves
     // them with the service pool, so every run the request names must be readable as the caller.
     let mut level = raw_flow.restarted_from.as_ref();
@@ -9811,9 +9855,7 @@ async fn run_dynamic_select(
         DynamicSelectRunnableRef::Inline { .. }
     ) && authed.is_operator
     {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
+        return Err(operator_preview_refusal(None));
     }
 
     if !is_valid_entrypoint_name(&request.entrypoint_function) {
