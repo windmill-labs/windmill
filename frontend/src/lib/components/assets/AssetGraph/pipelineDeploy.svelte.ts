@@ -141,7 +141,12 @@ export async function deployPipelineDrafts(
 	editor: PipelineEditorState,
 	workspace: string
 ): Promise<PipelineDeployOutcome> {
-	editor.promoteLiveEdit()
+	// An open deployed script's edits become its draft when its pane closes: close
+	// it first, and keep the user on that script, now as its draft.
+	if (editor.liveEditPath != undefined) {
+		const path = await editor.closePane()
+		if (path && editor.drafts.has(path)) editor.activeDraftPath = path
+	}
 	const live = editor.liveContent
 	const liveContentPath =
 		live.scriptPath != undefined && editor.drafts.has(live.scriptPath) ? live.scriptPath : undefined
@@ -196,11 +201,6 @@ export async function deployPipelineDrafts(
 
 	if (savedPaths.length > 0) {
 		editor.drafts = new Map([...editor.drafts].filter(([k]) => !savedPaths.includes(k)))
-		// The open pane's buffer is now what is deployed: it no longer counts as an edit.
-		const open = editor.liveContent
-		if (open.scriptPath && open.base && savedPaths.includes(open.scriptPath)) {
-			editor.liveContent = { ...open, base: { ...open.base, content: open.content } }
-		}
 		// Keep the pane on the script the user was editing, now deployed.
 		if (editor.activeDraftPath && savedPaths.includes(editor.activeDraftPath)) {
 			editor.selection = { kind: 'runnable', runnable_kind: 'script', path: editor.activeDraftPath }

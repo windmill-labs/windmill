@@ -1,3 +1,4 @@
+import { tick } from 'svelte'
 import type { AssetKind, Script } from '$lib/gen'
 import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
 import type { AssetGraphSelection, PipelineTriggerDraft } from './types'
@@ -125,25 +126,19 @@ export class PipelineEditorState {
 		return content !== (base.content ?? '') ? scriptPath : undefined
 	}
 
-	/** Turn the open deployed script's unsaved edits into its draft now, rather
-	 * than when its pane closes, so a deploy includes them. */
-	promoteLiveEdit = () => {
-		const path = this.liveEditPath
-		const base = this.liveContent.base
-		if (!path || !base) return
-		this.drafts = new Map(this.drafts).set(path, {
-			localId: this.promotedDraftLocalId(path),
-			script: { ...base, content: this.liveContent.content }
-		})
-	}
-
-	// Paths whose open edits were discarded: the pane's save-back on close must
-	// not bring them back as a draft.
-	#discardedOpenEdits = new Set<string>()
-	/** Discard the open pane's unsaved edits along with the drafts. */
-	discardOpenEdits = () => {
-		const path = this.liveContent.scriptPath
-		if (path != undefined) this.#discardedOpenEdits.add(path)
+	/** Closes the open pane and waits for its edits to land as a draft, as closing
+	 * it by hand does: what is deployed or discarded next then includes them, and
+	 * no pane is left holding a stale copy. Returns the path the pane was on. */
+	closePane = async (): Promise<string | undefined> => {
+		const path =
+			this.activeDraftPath ?? (this.selection?.kind === 'runnable' ? this.selection.path : undefined)
+		if (this.activeDraftPath === undefined && this.selection === undefined) return undefined
+		this.activeDraftPath = undefined
+		this.selection = undefined
+		// The pane unmounts on the next flush; its save-back commits a microtask later.
+		await tick()
+		await new Promise<void>((resolve) => queueMicrotask(resolve))
+		return path
 	}
 
 	clearLiveOverlays = () => {
@@ -258,7 +253,6 @@ export class PipelineEditorState {
 		queueMicrotask(() => {
 			const d = this.drafts.get(p)
 			if (!d) {
-				if (this.#discardedOpenEdits.delete(p)) return
 				if (!snapshot.script) return
 				const next = new Map(this.drafts)
 				next.set(p, {

@@ -147,29 +147,16 @@ describe('PipelineEditorState trigger drafts', () => {
 	})
 })
 
-describe('PipelineEditorState open edits of a deployed script', () => {
+describe('PipelineEditorState.liveEditPath', () => {
 	const base = { path: 'f/x/n', language: 'duckdb', content: 'SELECT 1' } as PipelineDraft['script']
 
-	it('promotes them to a draft, so a deploy includes them', () => {
+	it('counts an open deployed script with unsaved edits, until it has a draft', () => {
 		const pe = new PipelineEditorState()
+		pe.liveContent = { scriptPath: 'f/x/n', content: 'SELECT 1', base }
+		expect(pe.liveEditPath).toBeUndefined()
 		pe.liveContent = { scriptPath: 'f/x/n', content: 'SELECT 2', base }
 		expect(pe.liveEditPath).toBe('f/x/n')
-		pe.promoteLiveEdit()
-		expect(pe.drafts.get('f/x/n')?.script.content).toBe('SELECT 2')
+		pe.drafts = new Map([['f/x/n', draft('SELECT 2')]])
 		expect(pe.liveEditPath).toBeUndefined()
-	})
-
-	it('does not bring them back as a draft once discarded', async () => {
-		const pe = new PipelineEditorState()
-		pe.liveContent = { scriptPath: 'f/x/n', content: 'SELECT 2', base }
-		pe.discardOpenEdits()
-		pe.clearLiveOverlays()
-		pe.handleDraftPersist('f/x/n', {
-			content: 'SELECT 2',
-			writes: [],
-			script: { ...base, content: 'SELECT 2' }
-		})
-		await flushMicrotasks()
-		expect(pe.drafts.has('f/x/n')).toBe(false)
 	})
 })

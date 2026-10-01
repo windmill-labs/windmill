@@ -379,7 +379,7 @@
 		onItemDiscarded={(item) => {
 			void runtime?.manager.removeModifiedItem(item.draftKind, item.path)
 			const folder = pipelineFolderFromBundlePath(item.path)
-			if (item.draftKind === PIPELINE_DRAFT_KIND && folder) runtime?.forgetPipelineDrafts(folder)
+			if (item.draftKind === PIPELINE_DRAFT_KIND && folder) void runtime?.forgetPipelineDrafts(folder)
 		}}
 		deployPipeline={runtime?.deployPipeline}
 	/>

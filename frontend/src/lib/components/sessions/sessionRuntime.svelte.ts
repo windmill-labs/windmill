@@ -209,7 +209,7 @@ export interface SessionRuntime {
 	deployPipeline(folder: string): Promise<DeployResult>
 	// Drop a folder's in-memory drafts once its draft bundle is discarded, so an
 	// open or later-mounted editor does not save them back.
-	forgetPipelineDrafts(folder: string): void
+	forgetPipelineDrafts(folder: string): Promise<void>
 	// Per-(kind, path) editor cells (content/baseline stores + load slot), created
 	// on demand. Each editable preview tab resolves its own cell, so several items
 	// stay live at once.
@@ -646,14 +646,15 @@ function createRuntime(session: Session): SessionRuntime {
 		if (!view) return { success: false, error: `The pipeline editor for f/${key} did not open.` }
 		return view.deployAll()
 	}
-	function forgetPipelineDrafts(folder: string): void {
+	async function forgetPipelineDrafts(folder: string): Promise<void> {
 		const key = normalizePipelineFolder(folder)
 		const editor = pipelineEditors.get(key)
 		if (editor) {
+			// The open pane saves its edits back as a draft when it closes: let it, then
+			// drop that draft with the rest, or it would come back afterwards.
+			await editor.closePane()
 			editor.drafts = new Map()
 			editor.triggerDrafts = new Map()
-			editor.activeDraftPath = undefined
-			editor.discardOpenEdits()
 			editor.clearLiveOverlays()
 		}
 		// The editor's crash mirror, which its load falls back to when the DB has
@@ -1170,7 +1171,7 @@ export function forgetDeletedPipeline(workspace: string, folder: string): void {
 	const key = normalizePipelineFolder(folder)
 	for (const runtime of runtimes.values()) {
 		if (runtime.manager.operatingWorkspace !== workspace) continue
-		runtime.forgetPipelineDrafts(key)
+		void runtime.forgetPipelineDrafts(key)
 		void runtime.manager.removeModifiedItem(PIPELINE_DRAFT_KIND, pipelineBundlePath(key))
 	}
 }
