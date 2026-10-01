@@ -81,17 +81,23 @@ function editPathFor(itemType: ItemType, itemPath: string): string {
 	}
 }
 
-export function buildForkEditUrl(itemType: ItemType, itemPath: string): string {
+export function buildForkEditUrl(
+	itemType: ItemType,
+	itemPath: string,
+	prodWorkspace?: string
+): string {
 	// When the current ("prod") workspace has a canonical dev workspace, edits are funneled there.
-	const dev = findCanonicalDevWorkspace(get(workspaceStore), get(userWorkspaces))
+	const dev = findCanonicalDevWorkspace(prodWorkspace ?? get(workspaceStore), get(userWorkspaces))
 	return dev
 		? devWorkspaceEditUrl(itemType, itemPath, dev.id)
-		: forkWorkspaceUrl(itemType, itemPath)
+		: forkWorkspaceUrl(itemType, itemPath, prodWorkspace)
 }
 
-/** Fork-creation flow, coming back to the item's editor once the fork exists. */
-export function forkWorkspaceUrl(itemType: ItemType, itemPath: string): string {
-	return `${base}/user/fork_workspace?rd=${encodeURIComponent(editPathFor(itemType, itemPath))}`
+/** Fork-creation flow, coming back to the item's editor once the fork exists. It forks the
+ * workspace the page loads in, so a caller acting on another one names it. */
+export function forkWorkspaceUrl(itemType: ItemType, itemPath: string, workspace?: string): string {
+	const from = workspace ? `&workspace=${encodeURIComponent(workspace)}` : ''
+	return `${base}/user/fork_workspace?rd=${encodeURIComponent(editPathFor(itemType, itemPath))}${from}`
 }
 
 /** The item's editor in the dev workspace — the target `buildForkEditUrl` produces when a dev exists. */
@@ -167,7 +173,7 @@ export async function onEditInForkClick(
 	e: Event | undefined,
 	itemType: ItemType,
 	itemPath: string,
-	{ hasHref = false }: { hasHref?: boolean } = {}
+	{ hasHref = false, prodWorkspace }: { hasHref?: boolean; prodWorkspace?: string } = {}
 ): Promise<void> {
 	const click = e as MouseEvent | undefined
 	if (
@@ -175,10 +181,10 @@ export async function onEditInForkClick(
 		(click?.ctrlKey || click?.metaKey || click?.shiftKey || click?.altKey || click?.button)
 	)
 		return
-	const target = currentDevWorkspace()
+	const target = currentDevWorkspace(prodWorkspace)
 	if (!target) {
 		// Nothing to probe: the destination is the fork-creation flow, which the anchor already points at.
-		if (!hasHref) await goto(forkWorkspaceUrl(itemType, itemPath))
+		if (!hasHref) await goto(forkWorkspaceUrl(itemType, itemPath, prodWorkspace))
 		return
 	}
 	e?.preventDefault()
@@ -221,7 +227,7 @@ export async function openEditInFork(
 	const target = currentDevWorkspace(prodWorkspace)
 	if (!target) {
 		// No dev workspace to probe for: the destination is the fork-creation flow.
-		if (!window.open(forkWorkspaceUrl(itemType, itemPath))) {
+		if (!window.open(forkWorkspaceUrl(itemType, itemPath, prodWorkspace))) {
 			sendUserToast('Allow popups to fork this workspace', true)
 		}
 		return

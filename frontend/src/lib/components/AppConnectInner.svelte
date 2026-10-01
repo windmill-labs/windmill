@@ -279,7 +279,7 @@
 		useClientCredentials
 			? defaultCcScopes()
 			: useUserToken
-				? (registryEntry()?.user_scopes ?? [])
+				? [...(registryEntry()?.user_scope_options ?? []), ...(registryEntry()?.user_scopes ?? [])]
 				: [...(registryEntry()?.scope_options ?? []), ...instanceScopes]
 	)
 

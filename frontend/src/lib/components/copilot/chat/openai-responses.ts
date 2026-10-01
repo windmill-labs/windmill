@@ -10,6 +10,8 @@ import {
 	getAiProxyBaseURL,
 	getProviderAndCompletionConfig,
 	providerSupportsWebSearch,
+	testedCredentialHeaders,
+	usesGlobalAiProxy,
 	workspaceAIClients
 } from '../lib'
 import { applyReasoningToConfig } from '../reasoningRegistry'
@@ -624,6 +626,7 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 		apiKey?: string
 		workspace?: string
 		resourcePath?: string
+		resourceValue?: Record<string, any>
 		forceModelProvider?: AIProviderModel
 		maxTokensCap?: number
 	}
@@ -645,23 +648,12 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 	} = {
 		signal: abortController.signal,
 		headers: {
-			'X-Provider': provider
+			'X-Provider': provider,
+			...testedCredentialHeaders(options ?? {})
 		}
 	}
 
-	if (options?.resourcePath) {
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-Resource-Path': options.resourcePath
-		}
-	} else if (options?.apiKey) {
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-API-Key': options.apiKey
-		}
-	}
-
-	const openaiClient = options?.apiKey
+	const openaiClient = usesGlobalAiProxy(options ?? {})
 		? createOpenAIProxyClient(getAiProxyBaseURL())
 		: options?.workspace
 			? workspaceAIClients.createOpenaiClient(options.workspace)

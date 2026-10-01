@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace, useOperatingUser } from './operatingWorkspace.svelte'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Path from './Path.svelte'
@@ -11,6 +11,12 @@
 	import { DraftService, FlowService, ScriptService, type TriggersCount } from '$lib/gen'
 
 	const dispatch = createEventDispatcher()
+
+	// A move is a write, so it has to land in the workspace the host acts on: inside an AI
+	// session's editor or deployed view that is the session's (possibly forked) workspace,
+	// while the navigation store still names the parent.
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 
 	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app'
 
@@ -30,7 +36,13 @@
 
 	let drawer = $state<Drawer>() as Drawer
 
-	let own = $state(false)
+	// Derived rather than read when the drawer opens: the acting user in another workspace is
+	// looked up asynchronously, so a snapshot taken at open time says "not owner" for a fork.
+	const ownerKnown = $derived(operatingUser.resolved($operatingWorkspace))
+	const own = $derived(
+		!!operatingUser.current &&
+			isOwner(draftOnly ? storagePath : initialPath, operatingUser.current, $operatingWorkspace!)
+	)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	// Counts of triggers/schedules/etc. that reference this script or flow.
 	// The backend cascades `script_path` on rename across all trigger tables
@@ -93,13 +105,12 @@
 		initialPath = initialPath_l
 		initialSummary = summary_l ?? ''
 		summary = summary_l
-		loadOwner()
 		drawer.openDrawer()
 		if (draftOnly) {
 			return
 		}
 		if (kind === 'flow') {
-			onBehalfOfEmail = await checkFlowOnBehalfOf($workspaceStore!, initialPath_l)
+			onBehalfOfEmail = await checkFlowOnBehalfOf($operatingWorkspace!, initialPath_l)
 		}
 		if (kind === 'script' || kind === 'flow') {
 			void loadAttachedTriggers()
@@ -108,7 +119,7 @@
 
 	async function loadAttachedTriggers() {
 		try {
-			const workspace = $workspaceStore!
+			const workspace = $operatingWorkspace!
 			attachedTriggers =
 				kind === 'flow'
 					? await FlowService.getTriggersCountOfFlow({ workspace, path: initialPath })
@@ -119,21 +130,17 @@
 		}
 	}
 
-	function loadOwner() {
-		own = isOwner(draftOnly ? storagePath : initialPath, $userStore!, $workspaceStore!)
-	}
-
 	async function updatePath() {
 		if (draftOnly && (kind === 'flow' || kind === 'script' || kind === 'app')) {
 			await DraftService.moveDraft({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				kind: kind === 'app' && rawApp ? 'raw_app' : kind,
 				path: storagePath,
 				requestBody: { new_path: path ?? '', summary: summary ?? '' }
 			})
 		} else if (kind === 'flow' || kind === 'script' || kind === 'app') {
 			await updateItemPathAndSummary({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				kind,
 				initialPath,
 				newPath: path ?? '',
@@ -147,14 +154,16 @@
 
 <Drawer bind:this={drawer}>
 	<DrawerContent title="Move/Rename {initialPath}" on:close={drawer.closeDrawer}>
-		{#if !own}
+		<!-- Only once the acting user is known: while the lookup is in flight `own` is false,
+		     and stating "you do not own this" then would be a guess. -->
+		{#if ownerKnown && !own}
 			<Alert type="warning" title="Not owner" class="mb-4">
 				Since you do not own this item, you cannot move this item (you can however fork it)
 			</Alert>
 		{/if}
 		{#if own && onBehalfOfEmail}
 			<Alert type="info" title="Run on behalf of" class="mb-4">
-				This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
+				This flow will be redeployed on behalf of you ({operatingUser.current?.email}) instead of {onBehalfOfEmail}
 			</Alert>
 		{/if}
 		{#if (kind === 'script' || kind === 'flow') && attachedTotal > 0}
