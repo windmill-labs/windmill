@@ -2206,11 +2206,24 @@ mod tests {
     }
 }
 
-/// Parse .npmrc content to extract the default registry URL and its auth token.
-/// Returns `Some((registry_url, Option<auth_token>))` if a default registry is found.
-pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<String>)> {
+/// Credentials for a registry, as an `Authorization` header expects them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegistryAuth {
+    Bearer(String),
+    /// Already base64 encoded `user:password`.
+    Basic(String),
+}
+
+/// Parse .npmrc content to extract the default registry URL and its credentials.
+/// Returns `Some((registry_url, Option<auth>))` if a default registry is found.
+///
+/// Credentials follow npm's precedence for a registry: `_authToken`, then `_auth`, then
+/// `username` with a base64 encoded `_password`.
+pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<RegistryAuth>)> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
     let mut registry_url: Option<String> = None;
-    let mut auth_tokens: Vec<(String, String)> = Vec::new();
+    let mut scoped_keys: Vec<(String, String, String)> = Vec::new();
 
     for line in npmrc_content.lines() {
         let line = line.trim();
@@ -2223,8 +2236,15 @@ pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<Strin
         }
 
         if line.starts_with("//") {
-            if let Some((prefix, token)) = line.split_once(":_authToken=") {
-                auth_tokens.push((prefix.to_string(), token.to_string()));
+            if let Some((prefix, key, value)) = line
+                .split_once('=')
+                .and_then(|(lhs, value)| lhs.rsplit_once(':').map(|(p, k)| (p, k, value)))
+            {
+                scoped_keys.push((
+                    prefix.trim_end_matches('/').to_string(),
+                    key.trim().to_string(),
+                    value.trim().to_string(),
+                ));
             }
         }
     }
@@ -2233,20 +2253,36 @@ pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<Strin
     let url_without_protocol = url.trim_start_matches("https:").trim_start_matches("http:");
     let url_prefix = url_without_protocol.trim_end_matches('/');
 
-    let token = auth_tokens
-        .iter()
-        .find(|(prefix, _)| {
-            let p = prefix.trim_end_matches('/');
-            p == url_prefix
-        })
-        .map(|(_, token)| token.clone());
+    let get = |key: &str| {
+        scoped_keys
+            .iter()
+            .find(|(prefix, k, _)| prefix == url_prefix && k == key)
+            .map(|(_, _, value)| value.clone())
+    };
 
-    Some((url, token))
+    let auth = if let Some(token) = get("_authToken") {
+        Some(RegistryAuth::Bearer(token))
+    } else if let Some(auth) = get("_auth") {
+        Some(RegistryAuth::Basic(auth))
+    } else if let (Some(username), Some(password)) = (get("username"), get("_password")) {
+        let password = STANDARD
+            .decode(&password)
+            .ok()
+            .and_then(|p| String::from_utf8(p).ok())
+            .unwrap_or(password);
+        Some(RegistryAuth::Basic(
+            STANDARD.encode(format!("{username}:{password}")),
+        ))
+    } else {
+        None
+    };
+
+    Some((url, auth))
 }
 
 #[cfg(test)]
 mod npmrc_tests {
-    use super::parse_npmrc_registry;
+    use super::{parse_npmrc_registry, RegistryAuth};
 
     #[test]
     fn test_parse_simple_registry() {
@@ -2256,7 +2292,7 @@ mod npmrc_tests {
             result,
             Some((
                 "https://registry.mycompany.com/".to_string(),
-                Some("secret123".to_string())
+                Some(RegistryAuth::Bearer("secret123".to_string()))
             ))
         );
     }
@@ -2287,9 +2323,44 @@ mod npmrc_tests {
             result,
             Some((
                 "https://r.example.com/".to_string(),
-                Some("tok".to_string())
+                Some(RegistryAuth::Bearer("tok".to_string()))
             ))
         );
+    }
+
+    #[test]
+    fn test_parse_username_password() {
+        // "cGFzcw==" is base64("pass"); the header value is base64("user:pass")
+        let npmrc = "registry=https://pkgs.dev.azure.com/org/_packaging/feed/npm/registry/\n\
+            //pkgs.dev.azure.com/org/_packaging/feed/npm/registry/:username=user\n\
+            //pkgs.dev.azure.com/org/_packaging/feed/npm/registry/:_password=cGFzcw==\n\
+            //pkgs.dev.azure.com/org/_packaging/feed/npm/registry/:email=npm requires email\n";
+        let (_, auth) = parse_npmrc_registry(npmrc).unwrap();
+        assert_eq!(auth, Some(RegistryAuth::Basic("dXNlcjpwYXNz".to_string())));
+    }
+
+    #[test]
+    fn test_parse_auth_and_precedence() {
+        let base = "registry=https://r.example.com/\n";
+        let auth = "//r.example.com/:_auth=dXNlcjpwYXNz\n";
+        let user_pass = "//r.example.com/:username=other\n//r.example.com/:_password=eA==\n";
+        let token = "//r.example.com:_authToken=tok\n";
+
+        let parse = |s: String| parse_npmrc_registry(&s).unwrap().1;
+        assert_eq!(
+            parse(format!("{base}{auth}")),
+            Some(RegistryAuth::Basic("dXNlcjpwYXNz".to_string()))
+        );
+        assert_eq!(
+            parse(format!("{base}{user_pass}{auth}")),
+            Some(RegistryAuth::Basic("dXNlcjpwYXNz".to_string()))
+        );
+        assert_eq!(
+            parse(format!("{base}{auth}{user_pass}{token}")),
+            Some(RegistryAuth::Bearer("tok".to_string()))
+        );
+        // Credentials for another registry are not sent to the default one
+        assert_eq!(parse(format!("{base}//other.example.com/:_auth=x\n")), None);
     }
 
     #[test]
