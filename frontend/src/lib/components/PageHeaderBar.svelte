@@ -162,13 +162,20 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	     navigate the host's workspace. -->
 	{#if !navHidden}
 		<div class={twMerge('flex min-w-0', phone ? 'shrink min-w-[10rem]' : 'shrink-[0.1]')}>
-			<NavBreadcrumb
-				{item}
-				{section}
-				{narrow}
-				afterName={content?.afterName}
-				actingWorkspaceId={content?.actingWorkspaceId}
-			/>
+			<!-- Bridged like the actions below: what a page hangs off its own name renders here, out
+			     of the tree that named it, and the pen in there asks that tree who the acting user is
+			     before it offers to rename anything. -->
+			{#key content?.contexts}
+				<ContextBridge contexts={content?.contexts}>
+					<NavBreadcrumb
+						{item}
+						{section}
+						{narrow}
+						afterName={content?.afterName}
+						actingWorkspaceId={content?.actingWorkspaceId}
+					/>
+				</ContextBridge>
+			{/key}
 		</div>
 	{/if}
 
@@ -181,7 +188,11 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			     carries it down with the summary instead of stranding it on the line above. -->
 			<span class="shrink-0 text-hint/40 text-xs px-0.5" aria-hidden="true">·</span>
 			{#if item.summaryContent}
-				{@render item.summaryContent()}
+				{#key content?.contexts}
+					<ContextBridge contexts={content?.contexts}>
+						{@render item.summaryContent()}
+					</ContextBridge>
+				{/key}
 			{:else}
 				<span class="min-w-0 truncate text-xs font-medium text-emphasis">{item.summary}</span>
 			{/if}

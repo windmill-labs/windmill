@@ -2392,7 +2392,6 @@
 	section={{ label: mode === 'edit' ? 'Pipeline editor' : 'Pipeline' }}
 	afterName={pipelineFolder}
 	actions={pipelineActions}
-	actionsFlexible
 />
 
 {#snippet pipelineFolder()}

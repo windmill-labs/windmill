@@ -8,7 +8,7 @@
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { isMac, type Item, userPathPrefix } from '$lib/utils'
+	import { isMac, type Item, userPathPrefix, emptyString } from '$lib/utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import {
 		AlignHorizontalSpaceAround,
@@ -264,7 +264,11 @@
 	// In the page header the buttons share the row with the breadcrumb, so they shed the canvas
 	// toggles and fold Debug runs into the menu sooner: the whole group is ~840px and the trail
 	// with the summary takes ~430px of the same row.
-	const compactBelow = $derived(ownsPageHeader ? 1350 : 720)
+	// Measured on the band: the canvas toggles are 240px, the rest of the actions 334, and the trail
+	// with the summary about 430 — so the whole row fits down to ~1050. 1350 hid the toggles on an
+	// ordinary laptop (a 1440 window with the rail out leaves 1232), and the menu below is what
+	// keeps them reachable under this.
+	const compactBelow = $derived(ownsPageHeader ? 1100 : 720)
 	const compactTopbar = $derived.by(() => {
 		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
 		return w > 0 && w < compactBelow
@@ -620,7 +624,33 @@
 								selectedJobId = $jobs[$jobs.length - 1]
 							}
 							$jobsDrawerOpen = true
-						},
+						}
+					},
+					// The canvas toggles stand down with the bar, and the breakpoint among them is the
+					// only way onto the mobile layout — so each one keeps an entry here.
+					{
+						displayName: $breakpoint === 'sm' ? 'Computer view' : 'Mobile view',
+						icon: $breakpoint === 'sm' ? Laptop2 : Smartphone,
+						action: () => ($breakpoint = $breakpoint === 'sm' ? 'lg' : 'sm')
+					},
+					{
+						displayName: $app?.fullscreen ? 'Centered canvas' : 'Full-width canvas',
+						icon: $app?.fullscreen ? AlignHorizontalSpaceAround : Expand,
+						action: () => {
+							if ($app) $app.fullscreen = !$app.fullscreen
+						}
+					},
+					{
+						displayName:
+							$app?.darkMode === undefined
+								? 'Theme: automatic'
+								: $app.darkMode
+									? 'Theme: dark'
+									: 'Theme: light',
+						icon: $app?.darkMode === undefined ? SunMoon : $app.darkMode ? Moon : Sun,
+						// Cycles auto → light → dark, the order the toggle group reads in.
+						action: () =>
+							setTheme($app?.darkMode === undefined ? false : $app.darkMode ? undefined : true),
 						separatorBottom: true
 					}
 				]
@@ -953,7 +983,7 @@
 			// will create. Same fallback chain the rename sites read.
 			// Frozen while the pen's popover is open so the trail holds still as the user types.
 			kind: 'app',
-			path: pathSnapshot ?? newEditedPath ?? $appPath ?? newPath ?? undefined,
+			path: pathSnapshot ?? (newEditedPath || $appPath || newPath || undefined),
 			summaryContent: appSummary
 		}}
 		actions={appHeaderActions}
@@ -994,10 +1024,14 @@
 	     named rather than where it is edited. `title` so one the band truncates can still be read.
 	     The pen sits after it, at the end of what it renames. -->
 	<div class="group flex items-center gap-1 min-w-0">
-		<span class="min-w-0 truncate text-xs font-medium text-emphasis" title={$summary}
-			>{$summary}</span
+		<span
+			class="min-w-0 truncate text-xs {emptyString($summary)
+				? 'text-tertiary italic font-normal'
+				: 'font-medium text-emphasis'}"
+			title={$summary}>{emptyString($summary) ? 'Add a summary...' : $summary}</span
 		>
 		<PathEditPopover
+			penVisibility={emptyString($summary) ? 'always' : 'hover'}
 			bind:summary={$summary}
 			bind:path={newEditedPath}
 			bind:snapshotPath={pathSnapshot}

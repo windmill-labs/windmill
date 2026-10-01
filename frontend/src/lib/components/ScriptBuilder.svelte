@@ -2342,11 +2342,16 @@
 			     named rather than where it is edited. The pen sits after it, at the end of what it
 			     renames. -->
 			<div class="group flex items-center gap-1 min-w-0">
-				<span class="min-w-0 truncate text-xs font-medium text-emphasis" title={script.summary}
-					>{script.summary}</span
+				<span
+					class="min-w-0 truncate text-xs {emptyString(script.summary)
+						? 'text-tertiary italic font-normal'
+						: 'font-medium text-emphasis'}"
+					title={script.summary}
+					>{emptyString(script.summary) ? 'Add a summary...' : script.summary}</span
 				>
 				{#if customUi?.topBar?.editablePath != false}
 					<PathEditPopover
+						penVisibility={emptyString(script.summary) ? 'always' : 'hover'}
 						bind:summary={script.summary}
 						summaryEditable={customUi?.topBar?.editableSummary != false}
 						bind:path={script.path}

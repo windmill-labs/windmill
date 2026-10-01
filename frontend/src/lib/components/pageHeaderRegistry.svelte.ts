@@ -50,8 +50,9 @@ export type PageHeaderContent = {
 	 *  session's side panel. The band stops there instead of running over it, and the band floats
 	 *  above the page rather than pushing it down, so that column starts at the top. */
 	barRightInset?: number
-	/** Contexts those buttons look up. They render under the header, not under the page that
-	 *  wrote them, so anything the page's tree provides has to travel with them. */
+	/** Contexts this registration's snippets look up — its actions, what it hangs after the name,
+	 *  and its summary. They all render under the header rather than under the page that wrote
+	 *  them, so anything the page's tree provides has to travel with them. */
 	contexts?: Map<any, any>
 }
 

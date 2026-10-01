@@ -28,7 +28,8 @@
 		userPathPrefix,
 		type Item,
 		type StateStore,
-		type Value
+		type Value,
+		emptyString
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -1658,11 +1659,15 @@
 				     it renames. -->
 				<div class="group flex items-center gap-1 min-w-0">
 					<span
-						class="min-w-0 truncate text-xs font-medium text-emphasis"
-						title={flowStore.val.summary}>{flowStore.val.summary}</span
+						class="min-w-0 truncate text-xs {emptyString(flowStore.val.summary)
+							? 'text-tertiary italic font-normal'
+							: 'font-medium text-emphasis'}"
+						title={flowStore.val.summary}
+						>{emptyString(flowStore.val.summary) ? 'Add a summary...' : flowStore.val.summary}</span
 					>
 					{#if customUi?.topBar?.editablePath != false}
 						<PathEditPopover
+							penVisibility={emptyString(flowStore.val.summary) ? 'always' : 'hover'}
 							bind:summary={flowStore.val.summary}
 							summaryEditable={customUi?.topBar?.editableSummary != false}
 							bind:path={$pathStore}

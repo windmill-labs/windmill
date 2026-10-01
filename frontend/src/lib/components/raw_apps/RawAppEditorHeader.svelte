@@ -3,7 +3,7 @@
 	import { base } from '$lib/base'
 	import RawAppRecordSession from '$lib/components/workspaceSettings/RawAppRecordSession.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { isMac, userPathPrefix } from '$lib/utils'
+	import { isMac, userPathPrefix, emptyString } from '$lib/utils'
 	import { editPathFor } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 
@@ -943,7 +943,7 @@
 			// will create — which is why `newEditedPath` refuses the placeholder. Frozen while the
 			// pen's popover is open so the trail holds still as the user types.
 			kind: 'app',
-			path: pathSnapshot ?? newEditedPath ?? appPath ?? newPath ?? undefined,
+			path: pathSnapshot ?? (newEditedPath || appPath || newPath || undefined),
 			summaryContent: appSummary
 		}}
 		actions={rawAppHeaderActions}
@@ -1025,9 +1025,14 @@
 	     named rather than where it is edited. `title` so one the band truncates can still be read.
 	     The pen sits after it, at the end of what it renames. -->
 	<div class="group flex items-center gap-1 min-w-0">
-		<span class="min-w-0 truncate text-xs font-medium text-emphasis" title={summary}>{summary}</span
+		<span
+			class="min-w-0 truncate text-xs {emptyString(summary)
+				? 'text-tertiary italic font-normal'
+				: 'font-medium text-emphasis'}"
+			title={summary}>{emptyString(summary) ? 'Add a summary...' : summary}</span
 		>
 		<PathEditPopover
+			penVisibility={emptyString(summary) ? 'always' : 'hover'}
 			bind:summary
 			bind:path={newEditedPath}
 			bind:snapshotPath={pathSnapshot}
