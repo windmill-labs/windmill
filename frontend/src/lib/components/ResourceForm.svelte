@@ -14,6 +14,9 @@
 	import FilesetEditor from './FilesetEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
+	import TestAiKey from './copilot/TestAIKey.svelte'
+	import { aiResourceProvider } from './copilot/aiResourceProvider'
+	import { copilotInfo } from '$lib/aiStore'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
@@ -85,6 +88,7 @@
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
+	let aiProvider = $derived(aiResourceProvider(resource_type))
 
 	let rawCode: string | undefined = $state(undefined)
 	let textFileContent: string = $state('')
@@ -223,6 +227,14 @@
 				resourceType={resourceToEdit?.resource_type}
 				{args}
 				workspaceOverride={workspace}
+			/>
+		{/if}
+		{#if aiProvider}
+			<TestAiKey
+				{aiProvider}
+				workspace={ws}
+				resourceValue={args}
+				model={$copilotInfo.aiModels.find((m) => m.provider === aiProvider)?.model}
 			/>
 		{/if}
 		{#if resource_type === 'git_repository' && ws && (actingUser?.is_admin || actingUser?.is_super_admin)}
