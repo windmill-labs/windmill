@@ -3,7 +3,6 @@
 	import { type FlowModule } from '$lib/gen'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pen, RefreshCcw, Save } from 'lucide-svelte'
-	import DropdownV2 from '../../DropdownV2.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { sendUserToast } from '$lib/utils'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -83,16 +82,14 @@
 			tag={module.value.tag}
 			on:change={(e) => dispatch('tagChange', e.detail)}
 		/>
-		<DropdownV2
-			size="sm"
-			placement="bottom-end"
-			items={[
-				{
-					displayName: 'Save to workspace',
-					icon: Save,
-					action: () => dispatch('createScriptFromInlineScript')
-				}
-			]}
-		/>
+		<Button
+			unifiedSize="sm"
+			variant="subtle"
+			startIcon={{ icon: Save }}
+			on:click={() => dispatch('createScriptFromInlineScript')}
+			iconOnly={false}
+		>
+			Save to workspace
+		</Button>
 	{/if}
 </div>
