@@ -2511,8 +2511,20 @@ pub fn parse_script_version_deleted(payload: &str) -> Option<(&str, i64)> {
 /// that ran a version before its deletion keeps running that version's code. Needs no
 /// authorization: it only drops cache entries, and the next fetch reads the database again.
 pub fn evict_deleted_script_version(w_id: &str, hash: i64) {
-    cache::script::invalidate(ScriptHash(hash));
-    DEPLOYED_SCRIPT_INFO_CACHE.remove(&(w_id.to_string(), hash));
+    let evict = {
+        let key = (w_id.to_string(), hash);
+        move || {
+            cache::script::invalidate(ScriptHash(hash));
+            DEPLOYED_SCRIPT_INFO_CACHE.remove(&key);
+        }
+    };
+    evict();
+    // A fill that read the row before the deletion committed can still be writing it to
+    // the cache: a second pass, once such a fill has had time to finish, removes it.
+    spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        evict();
+    });
 }
 
 /// Same, for a new version row, which also moves the import-side answer (that one has no lock

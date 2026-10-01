@@ -1232,6 +1232,11 @@ Windmill Community Edition {GIT_VERSION}
             default_base_internal_url.clone()
         };
 
+        // Deletions are delivered by `notify_event` to running processes only, so one that
+        // was down when a version was deleted would keep its code on disk: start from an
+        // empty script cache, refilled from the database.
+        windmill_common::cache::script::clear();
+
         initial_load(
             &conn,
             killpill_tx.clone(),
