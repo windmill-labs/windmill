@@ -3,7 +3,7 @@ import { get } from 'svelte/store'
 import { base } from '$lib/base'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
-import { pipelineLocalMirrorKey } from '$lib/pipelinePaths'
+import { PIPELINE_DRAFT_KIND, pipelineBundlePath, pipelineLocalMirrorKey } from '$lib/pipelinePaths'
 import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
@@ -1160,6 +1160,18 @@ export function disposeRuntime(sessionId: string) {
 
 export function listRuntimes(): SessionRuntime[] {
 	return Array.from(runtimes.values())
+}
+
+/** A pipeline deleted outside the session: every live session on its workspace
+ * drops what it holds of it. Its in-memory drafts would otherwise keep showing the
+ * pipeline in the preview, and autosave would write the deleted draft back. */
+export function forgetDeletedPipeline(workspace: string, folder: string): void {
+	const key = normalizePipelineFolder(folder)
+	for (const runtime of runtimes.values()) {
+		if (runtime.manager.operatingWorkspace !== workspace) continue
+		runtime.forgetPipelineDrafts(key)
+		void runtime.manager.removeModifiedItem(PIPELINE_DRAFT_KIND, pipelineBundlePath(key))
+	}
 }
 
 export function getRuntime(sessionId: string): SessionRuntime | undefined {

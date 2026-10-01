@@ -48,6 +48,11 @@
 		deleting = true
 		try {
 			const { removed, failures } = await deletePipeline(ws, folder, plan, hardDelete)
+			// Loaded on demand: the home list should not pull in the session runtime.
+			const { forgetDeletedPipeline } = await import(
+				'$lib/components/sessions/sessionRuntime.svelte'
+			)
+			forgetDeletedPipeline(ws, folder)
 			if (failures.length) {
 				sendUserToast(`Pipeline f/${folder} was only partly removed`, true, [], failures.join('\n'))
 			} else {
