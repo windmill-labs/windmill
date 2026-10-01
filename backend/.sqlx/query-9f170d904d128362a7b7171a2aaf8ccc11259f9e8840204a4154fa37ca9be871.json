@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT content AS \"content!: String\",\n                lock AS \"lock: String\", language AS \"language: Option<ScriptLang>\", envs AS \"envs: Vec<String>\", schema AS \"schema: String\", schema_validation AS \"schema_validation: bool\", codebase LIKE '%.tar' as use_tar, codebase LIKE '%.esm%' as is_esm, modules AS \"modules: serde_json::Value\" FROM script WHERE hash = $1 LIMIT 1",
+  "query": "SELECT content AS \"content!: String\",\n                lock AS \"lock: String\", language AS \"language: Option<ScriptLang>\", envs AS \"envs: Vec<String>\", schema AS \"schema: String\", schema_validation AS \"schema_validation: bool\", codebase LIKE '%.tar' as use_tar, codebase LIKE '%.esm%' as is_esm, modules AS \"modules: serde_json::Value\", deleted FROM script WHERE hash = $1 LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -80,6 +80,11 @@
         "ordinal": 8,
         "name": "modules: serde_json::Value",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "deleted",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -96,8 +101,9 @@
       false,
       null,
       null,
-      true
+      true,
+      false
     ]
   },
-  "hash": "b44afcf1b9c047ac525638f0952c2cb01d65b1b46693331ac157dfca0dab6824"
+  "hash": "9f170d904d128362a7b7171a2aaf8ccc11259f9e8840204a4154fa37ca9be871"
 }

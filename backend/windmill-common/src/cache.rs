@@ -644,6 +644,12 @@ pub mod script {
         CACHE.clear();
     }
 
+    /// Drop a deleted version from this process's memory and disk cache: entries are keyed
+    /// by hash and otherwise never expire, so a warm cache would keep running its code.
+    pub fn remove(hash: ScriptHash) {
+        CACHE.remove(&hash);
+    }
+
     /// Fetch the script referenced by `hash` from the cache.
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
@@ -687,7 +693,8 @@ pub mod script {
                 schema_validation AS \"schema_validation: bool\", \
                 codebase LIKE '%.tar' as use_tar, \
                 codebase LIKE '%.esm%' as is_esm, \
-                modules AS \"modules: serde_json::Value\" \
+                modules AS \"modules: serde_json::Value\", \
+                deleted \
             FROM script WHERE hash = $1 LIMIT 1",
             hash.0
         )
@@ -696,6 +703,13 @@ pub mod script {
         .map_err(Into::into)
         .and_then(unwrap_or_error(&loc, "Script", hash))
         .and_then(|r| {
+            // A deleted version keeps its row with its content wiped: running it would run
+            // nothing and report success.
+            if r.deleted {
+                return Err(error::Error::NotFound(format!(
+                    "Script version {hash} was deleted"
+                )));
+            }
             Ok(RawScript {
                 content: r.content,
                 lock: r.lock,

@@ -2479,6 +2479,34 @@ pub fn invalidate_deployed_script_hash_cache(w_id: &str, script_path: &str) {
     DEPLOYED_SCRIPT_HASH_CACHE.remove(&(w_id.to_string(), script_path.to_string()));
 }
 
+pub const SCRIPT_VERSION_DELETED_CHANNEL: &str = "notify_script_version_deleted";
+
+/// Tell every replica to drop these deleted versions from its caches, in the transaction
+/// that deletes them. Each process then calls [`evict_deleted_script_version`].
+pub async fn notify_script_versions_deleted<'e, E: sqlx::PgExecutor<'e>>(
+    db: E,
+    w_id: &str,
+    hashes: &[i64],
+) -> error::Result<()> {
+    sqlx::query!(
+        "INSERT INTO notify_event (channel, payload)
+        SELECT $1, $2 || ':' || h FROM unnest($3::bigint[]) AS h",
+        SCRIPT_VERSION_DELETED_CHANNEL,
+        w_id,
+        hashes
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Script data is cached by hash, memory and disk, with no expiry: without this, a process
+/// that ran a version before its deletion keeps running that version's code.
+pub fn evict_deleted_script_version(w_id: &str, hash: i64) {
+    cache::script::remove(ScriptHash(hash));
+    DEPLOYED_SCRIPT_INFO_CACHE.remove(&(w_id.to_string(), hash));
+}
+
 /// Same, for a new version row, which also moves the import-side answer (that one has no lock
 /// predicate, so only a new row moves it).
 pub fn invalidate_latest_script_hash_caches(w_id: &str, script_path: &str) {

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notify_event (channel, payload)\n        SELECT $1, $2 || ':' || h FROM unnest($3::bigint[]) AS h",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "11401869bd4aa8eebcd7cc7b7e25a761ad9a581cf25fe9637eb0bc027534ed03"
+}
