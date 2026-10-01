@@ -14,7 +14,11 @@
 
 	let { scopes = $bindable(), options = [] }: Props = $props()
 
-	let choices = $derived(options.map((o) => (typeof o == 'string' ? { value: o, label: o } : o)))
+	let choices = $derived(
+		options.map((o) =>
+			typeof o == 'string' ? { value: o, label: o } : { value: o.value, label: o.label || o.value }
+		)
+	)
 	let values = $derived(choices.map((c) => c.value))
 
 	// Ticked options and free-text rows are kept apart from `scopes` (the only

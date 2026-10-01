@@ -103,9 +103,9 @@
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/documents"],
     "scope_options": [
-      "https://www.googleapis.com/auth/documents",
-      "https://www.googleapis.com/auth/documents.readonly",
-      "https://www.googleapis.com/auth/drive.file"
+      { "value": "https://www.googleapis.com/auth/documents", "label": "Read, edit, create and delete documents" },
+      { "value": "https://www.googleapis.com/auth/documents.readonly", "label": "Read documents" },
+      { "value": "https://www.googleapis.com/auth/drive.file", "label": "Only files created or opened with this connection" }
     ],
     "extra_params": {
       "access_type": "offline",
@@ -120,11 +120,11 @@
       "https://www.googleapis.com/auth/chat.messages.create"
     ],
     "scope_options": [
-      "https://www.googleapis.com/auth/chat.spaces.readonly",
-      "https://www.googleapis.com/auth/chat.messages",
-      "https://www.googleapis.com/auth/chat.messages.readonly",
-      "https://www.googleapis.com/auth/chat.messages.create",
-      "https://www.googleapis.com/auth/chat.memberships.readonly"
+      { "value": "https://www.googleapis.com/auth/chat.spaces.readonly", "label": "Read spaces" },
+      { "value": "https://www.googleapis.com/auth/chat.messages", "label": "Read, send, edit and delete messages" },
+      { "value": "https://www.googleapis.com/auth/chat.messages.readonly", "label": "Read messages" },
+      { "value": "https://www.googleapis.com/auth/chat.messages.create", "label": "Send messages only" },
+      { "value": "https://www.googleapis.com/auth/chat.memberships.readonly", "label": "Read space members" }
     ],
     "extra_params": {
       "access_type": "offline",

@@ -241,6 +241,7 @@
 	 * list rather than "every other field" because most OAuth types also hold the fields of
 	 * another way in: ServiceNow's basic-auth password, Bitbucket's app password. */
 	let resourceFields = $derived((registryEntry()?.resource_fields as string[] | undefined) ?? [])
+	let scopeOptions = $derived(registryEntry()?.scope_options)
 
 	/** Their slice of the resource type's schema, so they render with the type's own
 	 * descriptions; plain text inputs while the type is not synced from the hub. */
@@ -1558,15 +1559,15 @@
 
 				<div class="flex flex-col gap-1">
 					<h3 class="text-xs font-semibold text-emphasis flex gap-4"
-						>Scopes <button
-							onclick={() => {
-								editScopes = !editScopes
-							}}><Pen size={14} /></button
-						></h3
+						>Scopes {#if !scopeOptions?.length}<button
+								onclick={() => {
+									editScopes = !editScopes
+								}}><Pen size={14} /></button
+							>{/if}</h3
 					>
 
-					{#if editScopes}
-						<OauthScopes bind:scopes options={registryEntry()?.scope_options} />
+					{#if editScopes || scopeOptions?.length}
+						<OauthScopes bind:scopes options={scopeOptions} />
 					{:else}
 						<div class="flex flex-col gap-1">
 							{#each scopes as scope}
