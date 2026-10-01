@@ -53,3 +53,29 @@ async fn deleted_version_stops_running_from_a_warm_cache(db: Pool<Postgres>) {
         .expect_err("a deleted version must not be served");
     assert!(err.to_string().contains("was deleted"), "{err}");
 }
+
+/// The hash leaves out the workspace, so a fork shares it: deleting the fork's copy must
+/// not stop the parent's.
+#[sqlx::test(fixtures("base"))]
+async fn a_deleted_copy_does_not_shadow_a_live_one(db: Pool<Postgres>) {
+    const SHARED: i64 = 0x5de1_e7ed_0002;
+    sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('fork', 'fork', 'test-user')")
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, summary, description, content,
+                             created_by, language, lock, archived, deleted)
+         VALUES ('fork', $1, 'f/infra/tool', '', '', '', 'test-user', 'bash', '', true, true),
+                ('test-workspace', $1, 'f/infra/tool', '', '', 'echo shared', 'test-user',
+                 'bash', '', false, false)",
+    )
+    .bind(SHARED)
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let conn = Connection::Sql(db.clone());
+    let (data, _) = cache::script::fetch(&conn, ScriptHash(SHARED)).await.unwrap();
+    assert_eq!(data.code, "echo shared");
+}

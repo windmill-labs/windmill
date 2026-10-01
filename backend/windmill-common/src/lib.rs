@@ -2483,6 +2483,7 @@ pub const SCRIPT_VERSION_DELETED_CHANNEL: &str = "notify_script_version_deleted"
 
 /// Tell every replica to drop these deleted versions from its caches, in the transaction
 /// that deletes them. Each process then calls [`evict_deleted_script_version`].
+/// Authorization is the caller's: only call it for versions the caller was allowed to delete.
 pub async fn notify_script_versions_deleted<'e, E: sqlx::PgExecutor<'e>>(
     db: E,
     w_id: &str,
@@ -2507,7 +2508,8 @@ pub fn parse_script_version_deleted(payload: &str) -> Option<(&str, i64)> {
 }
 
 /// Script data is cached by hash, memory and disk, with no expiry: without this, a process
-/// that ran a version before its deletion keeps running that version's code.
+/// that ran a version before its deletion keeps running that version's code. Needs no
+/// authorization: it only drops cache entries, and the next fetch reads the database again.
 pub fn evict_deleted_script_version(w_id: &str, hash: i64) {
     cache::script::invalidate(ScriptHash(hash));
     DEPLOYED_SCRIPT_INFO_CACHE.remove(&(w_id.to_string(), hash));

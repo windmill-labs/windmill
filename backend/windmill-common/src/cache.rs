@@ -689,7 +689,7 @@ pub mod script {
                 codebase LIKE '%.esm%' as is_esm, \
                 modules AS \"modules: serde_json::Value\", \
                 deleted \
-            FROM script WHERE hash = $1 LIMIT 1",
+            FROM script WHERE hash = $1 ORDER BY deleted LIMIT 1",
             hash.0
         )
         .fetch_optional(db)
@@ -697,8 +697,9 @@ pub mod script {
         .map_err(Into::into)
         .and_then(unwrap_or_error(&loc, "Script", hash))
         .and_then(|r| {
-            // A deleted version keeps its row with its content wiped: running it would run
-            // nothing and report success.
+            // The hash leaves out the workspace, so forks and clones share it, and a deleted
+            // copy keeps its row with the content wiped. Any live copy holds the same code;
+            // only when every copy is deleted is there nothing left to run.
             if r.deleted {
                 return Err(error::Error::NotFound(format!(
                     "Script version {hash} was deleted"
