@@ -122,3 +122,14 @@ async fn only_current_versions_are_latest(db: Pool<Postgres>) {
 
     assert!(!deployed(&db, "3bb0c0de-0000-4000-8000-000000000104").await);
 }
+
+/// A restart rebuilds a flow node from its old id, under the current flow version or
+/// with no flow above it at all.
+#[sqlx::test(fixtures("base", "job_provenance", "job_provenance_versions"))]
+async fn only_flow_nodes_of_the_current_version_are_latest(db: Pool<Postgres>) {
+    for (job, latest) in [("105", true), ("106", false), ("107", true), ("108", false)] {
+        let p = provenance(&db, &format!("3bb0c0de-0000-4000-8000-000000000{job}")).await;
+        assert!(p.deployed, "job {job}");
+        assert_eq!(p.latest, latest, "job {job}");
+    }
+}

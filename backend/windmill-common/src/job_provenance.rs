@@ -100,6 +100,23 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
                     WHERE s.path = runnable_path AND s.workspace_id = $2 AND NOT s.deleted
                         AND s.lock IS NOT NULL AND s.lock_error_logs IS NULL
                     ORDER BY s.created_at DESC LIMIT 1)
+                -- Flow nodes are shared by every version that has the same content, and a
+                -- restarted node keeps its id with or without a flow above it: it is current
+                -- only if the flow's current version still references it.
+                WHEN 'flowscript' THEN EXISTS (SELECT 1 FROM flow_node n
+                    JOIN flow f ON f.path = n.path AND f.workspace_id = n.workspace_id
+                    JOIN flow_version_lite l ON l.id = f.versions[array_upper(f.versions, 1)]
+                    WHERE n.id = runnable_id AND n.workspace_id = $2
+                        AND jsonb_path_exists(l.value,
+                            '$.** ? (@.type == "flowscript" && @.id == $node)',
+                            jsonb_build_object('node', runnable_id)))
+                WHEN 'flownode' THEN EXISTS (SELECT 1 FROM flow_node n
+                    JOIN flow f ON f.path = n.path AND f.workspace_id = n.workspace_id
+                    JOIN flow_version_lite l ON l.id = f.versions[array_upper(f.versions, 1)]
+                    WHERE n.id = runnable_id AND n.workspace_id = $2
+                        AND jsonb_path_exists(l.value,
+                            '$.** ? (@.modules_node == $node || @.default_node == $node)',
+                            jsonb_build_object('node', runnable_id)))
             END, false) AS "current_version!",
             -- Only deployed-app runs are stamped with their app; an app editor preview
             -- runs app code at an app path it does not have to own.
@@ -169,17 +186,17 @@ fn version(job: &LineageJob) -> Option<String> {
 /// request-supplied code.
 fn runs_current_version(job: &LineageJob) -> bool {
     match job.kind {
-        JobKind::Script | JobKind::Flow => job.current_version,
+        JobKind::Script | JobKind::Flow | JobKind::FlowScript | JobKind::FlowNode => {
+            job.current_version
+        }
         // An app script is keyed by its content, not by an app version, so a past
         // deployment's script cannot be told apart from the current one's.
         JobKind::AppScript => false,
         JobKind::Preview if job.app_stamped => false,
-        // Their code comes from the flow above them, which is checked itself, or (hub)
-        // the path names the version.
+        // They run no code of their own beyond what checked jobs around them define, or
+        // (hub) the path names the version.
         JobKind::Script_Hub
         | JobKind::SingleStepFlow
-        | JobKind::FlowScript
-        | JobKind::FlowNode
         | JobKind::AIAgent
         | JobKind::Preview
         | JobKind::FlowPreview

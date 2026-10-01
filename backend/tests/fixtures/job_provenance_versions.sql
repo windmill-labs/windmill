@@ -13,6 +13,31 @@ VALUES (2222222221, 'test-workspace', 'f/t/agent', '{"modules":[]}', '{}', 'test
 UPDATE flow SET versions = ARRAY[2222222221::bigint, 2222222222::bigint]
 WHERE workspace_id = 'test-workspace' AND path = 'f/t/agent';
 
+-- Flow nodes of f/t/agent: the current version references 4444444442 (an inline step)
+-- and 4444444444 (a loop body); 4444444441 and 4444444443 are from a past version.
+INSERT INTO flow_node (id, workspace_id, hash, path, code)
+VALUES
+    (4444444441, 'test-workspace', 1, 'f/t/agent', 'echo old step'),
+    (4444444442, 'test-workspace', 2, 'f/t/agent', 'echo step'),
+    (4444444443, 'test-workspace', 3, 'f/t/agent', NULL),
+    (4444444444, 'test-workspace', 4, 'f/t/agent', NULL);
+
+INSERT INTO flow_version_lite (id, value)
+VALUES (2222222222, '{"modules": [
+    {"id": "a", "value": {"type": "flowscript", "id": 4444444442, "language": "bash"}},
+    {"id": "l", "value": {"type": "forloopflow", "modules": [], "modules_node": 4444444444}}
+]}');
+
+INSERT INTO v2_job (id, workspace_id, kind, runnable_path, runnable_id, parent_job, created_by, permissioned_as, permissioned_as_email)
+VALUES
+    -- inline steps under the current flow version: the current node, and a past one
+    -- kept by a nested restart
+    ('3bb0c0de-0000-4000-8000-000000000105', 'test-workspace', 'flowscript', 'f/t/agent/a', 4444444442, '3bb0c0de-0000-4000-8000-000000000001', 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000106', 'test-workspace', 'flowscript', 'f/t/agent/a', 4444444441, '3bb0c0de-0000-4000-8000-000000000001', 'test-user', 'u/test-user', 'test@windmill.dev'),
+    -- loop bodies restarted on their own: the current node, and a past one
+    ('3bb0c0de-0000-4000-8000-000000000107', 'test-workspace', 'flownode', 'f/t/agent/l', 4444444444, NULL, 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000108', 'test-workspace', 'flownode', 'f/t/agent/l', 4444444443, NULL, 'test-user', 'u/test-user', 'test@windmill.dev');
+
 INSERT INTO v2_job (id, workspace_id, kind, runnable_path, runnable_id, parent_job, created_by, permissioned_as, permissioned_as_email)
 VALUES
     -- the past tool version, run under the current flow version
