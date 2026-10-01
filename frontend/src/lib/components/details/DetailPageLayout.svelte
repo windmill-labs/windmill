@@ -67,7 +67,7 @@
 	}
 </script>
 
-<main class="h-screen w-full" bind:clientWidth>
+<main class="h-full w-full" bind:clientWidth>
 	{#if useDesktopLayout}
 		<div class="h-full w-full flex flex-col">
 			{@render header?.()}

@@ -73,7 +73,7 @@
 	}
 </script>
 
-<CenteredModal title="Authorize a deploy connection">
+<CenteredModal title="Authorize a deploy connection" inPage>
 	{#if framed}
 		<Alert type="error" title="Refused">
 			This page cannot be used inside another page. Open it in its own tab.

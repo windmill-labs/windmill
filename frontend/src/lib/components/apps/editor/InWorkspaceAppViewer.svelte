@@ -12,6 +12,7 @@
 	import { base } from '$lib/base'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { Button } from '$lib/components/common'
 	import { AppService, OpenAPI } from '$lib/gen'
 	import { userStore } from '$lib/stores'
@@ -19,6 +20,7 @@
 	import { getUserExt } from '$lib/user'
 	import { Pen } from 'lucide-svelte'
 	import { page } from '$app/state'
+	import { isMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
 
 	let {
 		workspace,
@@ -51,6 +53,11 @@
 
 	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
 	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
+
+	const showEdit = $derived(canWriteApp && !hideEditBtn)
+	// Decides where Edit goes, not whether it appears: without the workspace navigation there is
+	// no band to put it in. Same rule the layout hides the sidebar by.
+	const menuHidden = $derived(isMenuHidden(page.url))
 
 	// Embedder side: mint a scoped embed token (by path) from the member's session.
 	async function fetchEmbedToken(opts?: { sdkConsent?: boolean }): Promise<{ token?: string }> {
@@ -124,30 +131,54 @@
 	})
 </script>
 
-<PublicAppFrame
-	{fetchEmbedToken}
-	{viewerUrl}
-	onViewerReady={(_token, requestTokenRefresh) => {
-		refresh = requestTokenRefresh
-		loadApp()
-	}}
->
-	{#snippet viewer()}
-		<PublicApp
-			{app}
-			{workspace}
-			{notExists}
-			{noPermission}
-			jwtError={false}
-			inWorkspace
-			{hideRefreshBar}
-			onLoginSuccess={() => loadApp()}
-		></PublicApp>
-	{/snippet}
-</PublicAppFrame>
+<div class="h-full">
+	<PublicAppFrame
+		{fetchEmbedToken}
+		{viewerUrl}
+		onViewerReady={(_token, requestTokenRefresh) => {
+			refresh = requestTokenRefresh
+			loadApp()
+		}}
+	>
+		{#snippet viewer()}
+			<PublicApp
+				{app}
+				{workspace}
+				{notExists}
+				{noPermission}
+				jwtError={false}
+				inWorkspace
+				{hideRefreshBar}
+				onLoginSuccess={() => loadApp()}
+			></PublicApp>
+		{/snippet}
+	</PublicAppFrame>
+</div>
 
-{#if canWriteApp && !hideEditBtn}
-	<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
-		<Button size="sm" startIcon={{ icon: Pen }} variant="subtle" href={editHref}>Edit</Button>
+<!-- The band names the app for whoever opened it, write access or not: the route alone registers
+     no item, and the breadcrumb would fall back to the section name "Apps". -->
+<PageHeaderContent
+	item={{ kind: 'app', path }}
+	afterName={showEdit && !menuHidden ? editAction : undefined}
+	fullBleed
+/>
+
+<!-- With a band, Edit sits with the app's name rather than at the far end of the bar: on a page
+     whose header is only there while hovered, the far end is a journey across the window. An
+     embed has no band — it would cost the app 44px of the iframe to carry one button — so Edit
+     floats over the canvas there instead. -->
+{#if showEdit && menuHidden}
+	<div class="absolute bottom-4 right-4 z-50">
+		{@render editAction()}
 	</div>
 {/if}
+
+{#snippet editAction()}
+	<Button
+		unifiedSize="sm"
+		startIcon={{ icon: Pen }}
+		variant="subtle"
+		href={editHref}
+		id="app-edit-btn">Edit</Button
+	>
+{/snippet}

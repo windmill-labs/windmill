@@ -20,15 +20,7 @@
 
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import {
-		ArrowUp,
-		ExternalLink,
-		Globe2,
-		KeyRound,
-		PlugZap,
-		Settings,
-		WandSparkles
-	} from 'lucide-svelte'
+	import { ArrowUp, Globe2, KeyRound, PlugZap, Settings, WandSparkles, X } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { Badge } from '../common'
 	import CloseButton from '../common/CloseButton.svelte'
@@ -46,6 +38,8 @@
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
 	import { USER_SETTINGS_HASH } from '../sidebar/settings'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { onboardingProfile } from '$lib/onboardingProfile'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
@@ -71,6 +65,52 @@
 	function setCollapsed(next: boolean) {
 		collapsed = next
 		storeLocalSetting(COLLAPSED_SETTING, next ? 'true' : undefined)
+	}
+
+	// Removing puts the composer away rather than throwing it out, and the way back is one item in
+	// the band's menu — easy to miss on a page the composer has just vacated. A mark flies from the
+	// control that removed it to that menu, so where it went is witnessed rather than explained.
+	const FLIGHT_MS = 450
+	// The mark's last stretch, where it fades into the menu.
+	const FLIGHT_FADE_MS = 160
+	// Two refs for the two controls that remove it — the cross on a working composer and the
+	// button on the overlay that replaces it without a provider. Only one is ever mounted, and one
+	// ref for both would depend on which block Svelte tears down first.
+	let crossEl: HTMLElement | undefined = $state(undefined)
+	let overlayRemoveEl: HTMLElement | undefined = $state(undefined)
+	let flight = $state<{ from: DOMRect; to: DOMRect } | undefined>(undefined)
+	let flightArrived = $state(false)
+	let flightTimer: ReturnType<typeof setTimeout> | undefined
+	// The menu answers the arriving mark with one ring, so the eye that followed the flight has
+	// something to land on. It blooms as the mark dissolves, not after it: the two read as one
+	// gesture.
+	const PULSE_MS = 500
+	let pulsing = $state(false)
+	let pulseOut = $state(false)
+	let pulseStartTimer: ReturnType<typeof setTimeout> | undefined
+	let pulseEndTimer: ReturnType<typeof setTimeout> | undefined
+
+	function removeComposer() {
+		const from = (crossEl ?? overlayRemoveEl)?.getBoundingClientRect()
+		const to = document.querySelector('[data-home-ai-menu]')?.getBoundingClientRect()
+		setCollapsed(true)
+		if (reducedMotion.val || !from || !to) return
+		clearTimeout(flightTimer)
+		clearTimeout(pulseStartTimer)
+		clearTimeout(pulseEndTimer)
+		flightArrived = false
+		pulsing = false
+		pulseOut = false
+		flight = { from, to }
+		// A frame at the origin before the transition starts, or the element mounts already there.
+		requestAnimationFrame(() => (flightArrived = true))
+		flightTimer = setTimeout(() => (flight = undefined), FLIGHT_MS)
+		pulseStartTimer = setTimeout(() => {
+			pulsing = true
+			// Same reason as the mark's: one frame at rest, or it mounts already expanded.
+			requestAnimationFrame(() => (pulseOut = true))
+			pulseEndTimer = setTimeout(() => (pulsing = false), PULSE_MS)
+		}, FLIGHT_MS - FLIGHT_FADE_MS)
 	}
 
 	// In global-AI mode the layout's chat panel is disabled and never loads the copilot
@@ -107,8 +147,9 @@
 	// unlocked, so the far commoner unlocked workspace never pops the composer in mid-load.
 	let runOnlyWorkspace = $derived(isRuleActive('DisableDirectDeployment'))
 
-	// The composer hands off to /sessions, which refuses operators — so hide it from them (the
-	// prompt would be silently dropped) while the AI-independent CLI/MCP row below stays.
+	// The composer hands off to /sessions, which refuses operators and users opted out of the
+	// sessions beta — so hide it from them (the prompt would be silently dropped) while the
+	// AI-independent CLI/MCP row below stays.
 	let showComposer = $derived(
 		prefersSessionHandoff($userStore?.operator) &&
 			!runOnlyWorkspace &&
@@ -116,7 +157,7 @@
 	)
 
 	// The hero's margins and centered column are for the full block. The lone button row left
-	// by a collapsed, operator, run-only or hidden-assistant view is a hint line and should
+	// by a collapsed, opted-out, run-only or hidden-assistant view is a hint line and should
 	// cost the page almost nothing: no top margin, and the content column's full width so it
 	// hugs the right edge instead of floating centered in empty space.
 	let hero = $derived(showComposer && !collapsed)
@@ -149,7 +190,7 @@
 	const FADE_MS = 600
 
 	// Rotate the example prompt every CYCLE_MS: fade the placeholder out, swap it, fade it back in.
-	// Only while the composer is shown — otherwise (operators) it would loop forever driving an
+	// Only while the composer is shown — otherwise it would loop forever driving an
 	// unrendered input — and not under reduced motion, where the first prompt simply stays put.
 	// The index lives outside the effect so re-showing the composer resumes the rotation from the
 	// prompt currently displayed rather than restarting it.
@@ -184,8 +225,8 @@
 			{#if !disabled}
 				<!-- The one dismiss control while the composer is usable; the overlay below carries its
 				     own once it takes over, so the two never show at the same time. -->
-				<div class="absolute right-0 top-0 z-20">
-					<CloseButton small noBg title="Hide Build with AI" onClick={() => setCollapsed(true)} />
+				<div class="absolute right-0 top-0 z-20" bind:this={crossEl}>
+					<CloseButton small noBg title="Remove session chat" onClick={removeComposer} />
 				</div>
 			{/if}
 			<div class="flex items-center justify-center gap-2 mb-4">
@@ -272,9 +313,9 @@
 									{freeTierExhausted ? 'Add your own API key' : 'Configure AI'}
 								</Button>
 							{/if}
-							<Button unifiedSize="sm" variant="default" onClick={() => setCollapsed(true)}>
-								Hide
-							</Button>
+							<div bind:this={overlayRemoveEl}>
+								<Button unifiedSize="sm" variant="default" onClick={removeComposer}>Remove</Button>
+							</div>
 						</div>
 					</div>
 				{/if}
@@ -295,49 +336,92 @@
 						</Button>
 					{/each}
 				</div>
-			{:else if showComposer}
-				<!-- All that is left of the composer once dismissed: sits with the CLI/MCP row so the
-				     collapsed home page is one quiet line. -->
-				<Button
-					variant="subtle"
-					unifiedSize="xs"
-					btnClasses="!text-2xs !text-hint"
-					startIcon={{ icon: WandSparkles }}
-					onClick={() => setCollapsed(false)}
-				>
-					Build with AI
-				</Button>
-			{:else}
-				<div></div>
 			{/if}
-
-			<!-- Not AI-related, so shown even to operators / when the composer is hidden. -->
-			<div class="flex flex-row items-center gap-1">
-				<Button
-					variant="subtle"
-					unifiedSize="xs"
-					btnClasses="!text-2xs !text-hint"
-					startIcon={{ icon: PlugZap }}
-					onClick={() => homeConnectDrawer?.openDrawer?.()}
-				>
-					CLI / MCP
-				</Button>
-				{#if !$userStore?.operator && HOME_SHOW_HUB}
-					<Button
-						variant="subtle"
-						unifiedSize="xs"
-						btnClasses="!text-2xs !text-hint"
-						startIcon={{ icon: Globe2 }}
-						endIcon={{ icon: ExternalLink }}
-						href={$hubBaseUrlStore}
-						target="_blank"
-					>
-						Hub
-					</Button>
-				{/if}
-			</div>
 		</div>
 	</div>
 </div>
 
 <HomeConnectDrawer bind:this={homeConnectDrawer} />
+
+<!-- Everything the hero offered beside the composer lives in the band's menu: the connect helper,
+     the hub, and the way back to the composer once it has been put away. -->
+<!-- Last in the bar whatever else the page registers: a menu of side trips belongs after the
+     buttons that act on what is on screen. -->
+<PageHeaderContent actions={homeMenu} actionsOrder={100} />
+
+{#snippet homeMenu()}
+	<!-- The band's own menu: the connect helper, the hub, and whether the composer is on this page
+	     — all of them preferences or side trips, none of them the page's work. -->
+	<!-- data-home-ai-menu: where the mark flies to when the composer is removed. -->
+	<span data-home-ai-menu class="relative flex">
+		{#if pulsing}
+			<!-- One ring out of the menu as the mark lands. Not `animate-ping`: that curve spends its
+			     opacity in the first three quarters, so the ring is already invisible by the time it
+			     has grown clear of the button. -->
+			<span
+				aria-hidden="true"
+				class="pointer-events-none absolute -inset-1 rounded-lg border-2 border-ai/60"
+				style:transition="transform {PULSE_MS}ms ease-out, opacity {PULSE_MS}ms ease-out"
+				style:transform="scale({pulseOut ? 1.7 : 1})"
+				style:opacity={pulseOut ? 0 : 1}
+			></span>
+		{/if}
+		<DropdownV2
+			placement="bottom-end"
+			size="sm"
+			items={[
+				...(showComposer
+					? [
+							collapsed
+								? {
+										displayName: 'Restore session chat',
+										icon: WandSparkles,
+										action: () => setCollapsed(false)
+									}
+								: {
+										// The same words as the cross on the composer itself: one thing, one name,
+										// whichever of the two a reader reaches for.
+										displayName: 'Remove session chat',
+										icon: X,
+										action: () => setCollapsed(true)
+									}
+						]
+					: []),
+				{
+					displayName: 'CLI / MCP',
+					icon: PlugZap,
+					action: () => homeConnectDrawer?.openDrawer?.()
+				},
+				...(!$userStore?.operator && HOME_SHOW_HUB
+					? [
+							{
+								displayName: 'Hub',
+								icon: Globe2,
+								href: $hubBaseUrlStore,
+								hrefTarget: '_blank' as const
+							}
+						]
+					: [])
+			]}
+		/>
+	</span>
+{/snippet}
+
+{#if flight}
+	<!-- The mark on its way to the menu. Transform and opacity only, so the trip costs no layout,
+	     and `aria-hidden` because it says nothing a reader of the menu item does not already read. -->
+	<div
+		aria-hidden="true"
+		class="fixed z-[6000] pointer-events-none flex items-center justify-center h-6 w-6 rounded-full border bg-surface shadow-sm"
+		style:left="{flight.from.left}px"
+		style:top="{flight.from.top}px"
+		style:transition="transform {FLIGHT_MS}ms cubic-bezier(0.4, 0, 0.2, 1), opacity {FLIGHT_FADE_MS}ms
+		ease-in {FLIGHT_MS - FLIGHT_FADE_MS}ms"
+		style:opacity={flightArrived ? 0 : 1}
+		style:transform="translate({flightArrived ? flight.to.left - flight.from.left : 0}px, {flightArrived
+			? flight.to.top - flight.from.top
+			: 0}px) scale({flightArrived ? 0.5 : 1})"
+	>
+		<WandSparkles size={12} class="text-hint" />
+	</div>
+{/if}

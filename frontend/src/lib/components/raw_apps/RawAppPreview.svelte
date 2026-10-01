@@ -286,6 +286,6 @@
 		src={iframeSrc}
 		sandbox={sandboxAttr}
 		referrerpolicy={unsandboxed ? undefined : 'no-referrer'}
-		class="w-full h-full min-h-screen bg-white border-none"
+		class="w-full h-full bg-white border-none"
 	></iframe>
 {/if}

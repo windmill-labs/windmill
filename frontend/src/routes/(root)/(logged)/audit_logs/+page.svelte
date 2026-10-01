@@ -7,6 +7,7 @@
 	import AuditLogsTable from '$lib/components/auditLogs/AuditLogsTable.svelte'
 	import AuditLogMobileFilters from '$lib/components/auditLogs/AuditLogMobileFilters.svelte'
 	import { Alert, DrawerContent, Skeleton } from '$lib/components/common'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
@@ -108,52 +109,55 @@
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<div class="flex flex-col w-full h-screen">
-		<div class="flex items-center space-x-2 flex-row justify-between">
-			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
-				<h1 class="text-2xl font-semibold text-emphasis">Audit logs</h1>
-				<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs">
-					You can only see your own audit logs unless you are an admin.
-				</Tooltip>
+	<div class="flex flex-col w-full h-full">
+		<!-- `afterName`, not an action: the hint explains what audit logs are, so it belongs beside
+		     the page's name rather than at the far end of the bar with the filters. -->
+		<PageHeaderContent afterName={auditHint} actions={auditActions} />
+
+		{#snippet auditHint()}
+			<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs">
+				You can only see your own audit logs unless you are an admin.
+			</Tooltip>
+		{/snippet}
+
+		{#snippet auditActions()}
+			<div class="hidden 2xl:block">
+				<AuditLogsFilters
+					{logs}
+					bind:username
+					bind:before
+					bind:after
+					bind:actionKind
+					bind:operation
+					bind:resource
+					bind:pageIndex
+					bind:perPage
+					bind:scope
+					loading={auditLogsLoader.loading}
+					onRefresh={() => auditLogsLoader.reload()}
+				/>
 			</div>
-			<div class="flex flex-row flex-wrap justify-between py-2 my-2 px-4 gap-1 items-center">
-				<div class="hidden 2xl:block">
-					<AuditLogsFilters
-						{logs}
-						bind:username
-						bind:before
-						bind:after
-						bind:actionKind
-						bind:operation
-						bind:resource
-						bind:pageIndex
-						bind:perPage
-						bind:scope
-						loading={auditLogsLoader.loading}
-						onRefresh={() => auditLogsLoader.reload()}
-					/>
-				</div>
-				<div class="2xl:hidden">
-					<AuditLogMobileFilters>
-						{#snippet filters()}
-							<AuditLogsFilters
-								{logs}
-								bind:username
-								bind:before
-								bind:after
-								bind:actionKind
-								bind:operation
-								bind:resource
-								bind:scope
-								loading={auditLogsLoader.loading}
-								onRefresh={() => auditLogsLoader.reload()}
-							/>
-						{/snippet}
-					</AuditLogMobileFilters>
-				</div>
+			<div class="2xl:hidden">
+				<AuditLogMobileFilters>
+					{#snippet filters()}
+						<AuditLogsFilters
+							{logs}
+							bind:username
+							bind:before
+							bind:after
+							bind:actionKind
+							bind:operation
+							bind:resource
+							bind:scope
+							loading={auditLogsLoader.loading}
+							onRefresh={() => auditLogsLoader.reload()}
+						/>
+					{/snippet}
+				</AuditLogMobileFilters>
 			</div>
-		</div>
-		<div class="h-2/6">
+		{/snippet}
+		<!-- The band draws no edge of its own, so the timeline keeps a little air under it. -->
+		<div class="h-2/6 pt-2">
 			{#if timelineLogs}
 				<AuditLogsTimeline
 					logs={timelineLogs}

@@ -86,7 +86,7 @@
 	<span>Every flow that links {path} will fail at its agent step once it is deleted.</span>
 </ConfirmationModal>
 
-<main class="h-screen w-full flex flex-col">
+<main class="h-full w-full flex flex-col">
 	<DetailPageHeader
 		summary={config ? agent?.state?.description : undefined}
 		{path}

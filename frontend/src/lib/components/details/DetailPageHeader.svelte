@@ -3,11 +3,10 @@
 
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ErrorHandlerToggleButton from './ErrorHandlerToggleButton.svelte'
-	import { twMerge } from 'tailwind-merge'
-	import { userStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
-	import { MediaQuery } from 'svelte/reactivity'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import type { TriggerContext } from '../triggers'
 	import type { Item } from '$lib/utils'
 	import { Bell, BellOff, Calendar } from 'lucide-svelte'
@@ -35,9 +34,10 @@
 	}
 
 	// An agent's page has no triggers, and so no context for them.
-	const { triggersCount, triggersState } = $state(
-		getContext<TriggerContext | undefined>('TriggerContext') ?? ({} as Partial<TriggerContext>)
-	)
+	const triggerContext = getContext<TriggerContext | undefined>('TriggerContext')
+	const { triggersCount, triggersState } = $state(triggerContext ?? ({} as Partial<TriggerContext>))
+	// The buttons below render in the page header, away from this page's tree.
+	const headerContexts = new Map<any, any>([['TriggerContext', triggerContext]])
 
 	interface Props {
 		mainButtons?: MainButton[]
@@ -77,10 +77,15 @@
 
 	const dispatch = createEventDispatcher()
 
-	// Tailwind's `lg`, matched in JS so the one ellipsis menu can carry the collapsed buttons.
-	const wide = new MediaQuery('(min-width: 1024px)')
+	// These buttons share the page header's row with the breadcrumb, so what decides whether they
+	// all fit is that row's width, not the window's — the sidebar and a page's side panel both take
+	// from it. The trail and the summary want ~560px and the full set is ~530px wide. Unmeasured (0)
+	// counts as wide: the bar measures itself on mount, and starting narrow would pop the buttons
+	// out of the menu a frame later.
+	const COLLAPSE_BELOW = 1150
+	const wide = $derived(pageHeader.barWidth === 0 || pageHeader.barWidth >= COLLAPSE_BELOW)
 
-	const barButtons = $derived(wide.current ? mainButtons : mainButtons.filter((b) => !b.narrow))
+	const barButtons = $derived(wide ? mainButtons : mainButtons.filter((b) => !b.narrow))
 
 	function dropdownHost(btn: MainButton): MainButton | undefined {
 		if (typeof btn.narrow !== 'object') return undefined
@@ -99,7 +104,7 @@
 	}
 
 	const allMenuItems: Item[] = $derived([
-		...(wide.current ? [] : mainButtons.filter((b) => b.narrow && !dropdownHost(b))).map((b) => ({
+		...(wide ? [] : mainButtons.filter((b) => b.narrow && !dropdownHost(b))).map((b) => ({
 			displayName: b.label,
 			description: b.description,
 			icon: b.buttonProps.startIcon,
@@ -108,7 +113,7 @@
 			disabled: b.buttonProps.disabled,
 			type: 'action' as const
 		})),
-		...(wide.current || !errorHandlerKind
+		...(wide || !errorHandlerKind
 			? []
 			: [
 					{
@@ -124,12 +129,12 @@
 			action: item.onclick,
 			disabled: item.disabled,
 			type: item.color === 'red' ? ('delete' as const) : ('action' as const),
-			separatorTop: i === 0 && !wide.current
+			separatorTop: i === 0 && !wide
 		}))
 	])
 
 	function dropdownItemsOf(host: MainButton) {
-		if (wide.current) return undefined
+		if (wide) return undefined
 		const items = mainButtons
 			.filter((b) => dropdownHost(b) === host)
 			.map((b) => ({
@@ -144,74 +149,73 @@
 	}
 </script>
 
-<div class="border-b">
-	<div class="mx-auto">
-		<div
-			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-12 py-2 md:py-0"
+{#snippet summaryContent()}
+	<SummaryPathDisplay
+		{summary}
+		{path}
+		bind:labels
+		{inheritedLabels}
+		{onSaved}
+		kind={errorHandlerKind}
+		compact
+	/>
+{/snippet}
+
+{#snippet actions()}
+	{#if tag}
+		<Badge>tag: {tag}</Badge>
+	{/if}
+	{@render children?.()}
+	{#if triggersState?.triggers?.some((t) => t.isPrimary && !t.isDraft)}
+		{@const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary && !t.isDraft)}
+		<Button
+			btnClasses="inline-flex"
+			startIcon={{ icon: Calendar }}
+			variant="default"
+			unifiedSize="sm"
+			on:click={async () => {
+				dispatch('seeTriggers')
+				await tick()
+				triggersState.selectedTriggerIndex = primarySchedule
+			}}
 		>
-			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
-				<div class={twMerge('min-w-0', $userStore?.operator ? 'pl-10' : '')}>
-					<SummaryPathDisplay
-						{summary}
-						{path}
-						bind:labels
-						{inheritedLabels}
-						{onSaved}
-						kind={errorHandlerKind}
-					/>
-				</div>
-				{#if tag}
-					<Badge>tag: {tag}</Badge>
-				{/if}
-				{@render children?.()}
-				{#if triggersState?.triggers?.some((t) => t.isPrimary && !t.isDraft)}
-					{@const primarySchedule = triggersState.triggers.findIndex(
-						(t) => t.isPrimary && !t.isDraft
-					)}
-					<Button
-						btnClasses="inline-flex"
-						startIcon={{ icon: Calendar }}
-						variant="contained"
-						color="light"
-						size="xs"
-						on:click={async () => {
-							dispatch('seeTriggers')
-							await tick()
-							triggersState.selectedTriggerIndex = primarySchedule
-						}}
-					>
-						{$triggersCount?.primary_schedule?.schedule ?? ''}
-					</Button>
-				{/if}
-				{@render trigger_badges?.()}
-			</div>
-			<div class="flex gap-1 items-center pr-4">
-				{@render leading_actions?.()}
-				{#if allMenuItems.length > 0}
-					{#key allMenuItems}
-						<DropdownV2 items={allMenuItems} placement="bottom-end" size="md" />
-					{/key}
-				{/if}
-				{#if wide.current && errorHandlerKind && scriptOrFlowPath}
-					<ErrorHandlerToggleButton
-						kind={errorHandlerKind}
-						{scriptOrFlowPath}
-						bind:errorHandlerMuted
-					/>
-				{/if}
-				{#each barButtons as btn (btn.label)}
-					{@const dropdownItems = dropdownItemsOf(btn)}
-					<Button
-						{...btn.buttonProps}
-						startIcon={{ icon: btn.buttonProps.startIcon }}
-						{dropdownItems}
-						dropdownWidth={dropdownItems?.some((i) => i.description) ? 288 : undefined}
-						btnClasses="flex items-center gap-1 whitespace-nowrap"
-					>
-						{btn.label}
-					</Button>
-				{/each}
-			</div>
-		</div>
-	</div>
-</div>
+			{$triggersCount?.primary_schedule?.schedule ?? ''}
+		</Button>
+	{/if}
+	{@render trigger_badges?.()}
+	{@render leading_actions?.()}
+	{#if allMenuItems.length > 0}
+		{#key allMenuItems}
+			<DropdownV2 items={allMenuItems} placement="bottom-end" size="sm" />
+		{/key}
+	{/if}
+	{#if wide && errorHandlerKind && scriptOrFlowPath}
+		<ErrorHandlerToggleButton
+			kind={errorHandlerKind}
+			{scriptOrFlowPath}
+			bind:errorHandlerMuted
+			unifiedSize="sm"
+		/>
+	{/if}
+	{#each barButtons as btn (btn.label)}
+		{@const dropdownItems = dropdownItemsOf(btn)}
+		<Button
+			{...btn.buttonProps}
+			startIcon={{ icon: btn.buttonProps.startIcon }}
+			unifiedSize="sm"
+			{dropdownItems}
+			dropdownWidth={dropdownItems?.some((i) => i.description) ? 288 : undefined}
+			btnClasses="flex items-center gap-1 whitespace-nowrap"
+		>
+			{btn.label}
+		</Button>
+	{/each}
+{/snippet}
+
+<!-- The summary keeps its rename-and-labels popover here rather than becoming plain text in
+     the breadcrumb: renaming a script or flow is done from this page, not from the trail. -->
+<PageHeaderContent
+	item={{ kind: errorHandlerKind, path, summaryContent }}
+	{actions}
+	contexts={headerContexts}
+/>
