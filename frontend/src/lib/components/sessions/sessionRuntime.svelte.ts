@@ -3,6 +3,8 @@ import { get } from 'svelte/store'
 import { base } from '$lib/base'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+import { PIPELINE_DRAFT_KIND, pipelineBundlePath, pipelineLocalMirrorKey } from '$lib/pipelinePaths'
+import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
 	AppService,
@@ -129,6 +131,12 @@ export interface LoadSlot {
 
 export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 
+/** What a mounted pipeline editor view offers the rest of the session. */
+export interface PipelineView {
+	/** Deploy all of the folder's drafts; failures stay drafts and are shown in the view. */
+	deployAll(): Promise<DeployResult>
+}
+
 // The live runtime value a raw-app editor cell binds. Legacy drag-and-drop apps
 // are intentionally NOT hosted in the session preview (only code-based raw apps).
 export interface RawAppRuntimeValue {
@@ -191,9 +199,17 @@ export interface SessionRuntime {
 	// (renderer) and the open_preview/get_preview_status tools cross it, so the
 	// tab model has exactly one live copy.
 	readonly previewTabs: SessionPreviewTabs
-	// Pipeline target state — persists across editor hide/show (the pane unmounts
-	// on hide, so this can't be component-local) and across session switches.
-	readonly pipelineEditorState: PipelineEditorState
+	// Pipeline editor state per folder — persists across editor remounts and
+	// session switches, so it can't be component-local. Created on first use.
+	pipelineEditor(folder: string): PipelineEditorState
+	// A mounted pipeline editor view offers its deploy here; returns the unregister.
+	registerPipelineView(folder: string, view: PipelineView): () => void
+	// Deploy a folder's pipeline drafts through its editor tab, opening the tab if
+	// needed: the tab hydrates the drafts and shows what deployed and what failed.
+	deployPipeline(folder: string): Promise<DeployResult>
+	// Drop a folder's in-memory drafts once its draft bundle is discarded, so an
+	// open or later-mounted editor does not save them back.
+	forgetPipelineDrafts(folder: string): Promise<void>
 	// Per-(kind, path) editor cells (content/baseline stores + load slot), created
 	// on demand. Each editable preview tab resolves its own cell, so several items
 	// stay live at once.
@@ -577,10 +593,78 @@ function createRuntime(session: Session): SessionRuntime {
 	// picker lists, so changeMode's network refreshes would fire once per listing.
 	manager.configureGlobalMode()
 
-	// Pipeline target state lives on the runtime (not the PipelineEditorView
-	// component) so the in-session drafts survive hide/show of the editor pane —
-	// the pane unmounts on hide, and a component-local store would be discarded.
-	const pipelineEditorState = new PipelineEditorState()
+	const pipelineEditors = new Map<string, PipelineEditorState>()
+	function pipelineEditor(folder: string): PipelineEditorState {
+		const key = normalizePipelineFolder(folder)
+		let editor = pipelineEditors.get(key)
+		if (!editor) {
+			editor = new PipelineEditorState()
+			editor.folder = key
+			pipelineEditors.set(key, editor)
+		}
+		return editor
+	}
+
+	const pipelineViews = new Map<string, PipelineView>()
+	const pipelineViewWaiters = new Map<string, Set<(view: PipelineView) => void>>()
+	function registerPipelineView(folder: string, view: PipelineView): () => void {
+		const key = normalizePipelineFolder(folder)
+		pipelineViews.set(key, view)
+		const waiters = pipelineViewWaiters.get(key)
+		pipelineViewWaiters.delete(key)
+		waiters?.forEach((notify) => notify(view))
+		return () => {
+			if (pipelineViews.get(key) === view) pipelineViews.delete(key)
+		}
+	}
+	function pipelineViewFor(folder: string, timeoutMs = 15000): Promise<PipelineView | undefined> {
+		const mounted = pipelineViews.get(folder)
+		if (mounted) return Promise.resolve(mounted)
+		return new Promise((resolve) => {
+			const waiters = pipelineViewWaiters.get(folder) ?? new Set()
+			pipelineViewWaiters.set(folder, waiters)
+			const notify = (view: PipelineView) => {
+				clearTimeout(timer)
+				resolve(view)
+			}
+			const timer = setTimeout(() => {
+				waiters.delete(notify)
+				resolve(undefined)
+			}, timeoutMs)
+			waiters.add(notify)
+		})
+	}
+	manager.setPipelineReopener((folder) => {
+		const target = previewTargetForSessionTarget('pipeline', folder)
+		if (target) previewTabs.open(target)
+	})
+	async function deployPipeline(folder: string): Promise<DeployResult> {
+		const key = normalizePipelineFolder(folder)
+		const target = previewTargetForSessionTarget('pipeline', key)
+		if (target) previewTabs.open(target)
+		const view = await pipelineViewFor(key)
+		if (!view) return { success: false, error: `The pipeline editor for f/${key} did not open.` }
+		return view.deployAll()
+	}
+	async function forgetPipelineDrafts(folder: string): Promise<void> {
+		const key = normalizePipelineFolder(folder)
+		const editor = pipelineEditors.get(key)
+		if (editor) {
+			// The open pane saves its edits back as a draft when it closes: let it, then
+			// drop that draft with the rest, or it would come back afterwards.
+			await editor.closePane()
+			editor.drafts = new Map()
+			editor.triggerDrafts = new Map()
+			editor.clearLiveOverlays()
+		}
+		// The editor's crash mirror, which its load falls back to when the DB has
+		// no draft: left behind, it would restore what was just discarded.
+		try {
+			localStorage.removeItem(pipelineLocalMirrorKey(key))
+		} catch {
+			// Storage unavailable: nothing was mirrored either.
+		}
+	}
 
 	const runtimeLogRequesters = new Map<string, RawAppRuntimeLogRequester>()
 	// appPath → requester, one entry per mounted raw-app preview tab.
@@ -594,7 +678,10 @@ function createRuntime(session: Session): SessionRuntime {
 		sessionId: session.id,
 		manager,
 		previewTabs,
-		pipelineEditorState,
+		pipelineEditor,
+		registerPipelineView,
+		deployPipeline,
+		forgetPipelineDrafts,
 		flowCell,
 		loadedEditorPath,
 
@@ -1077,6 +1164,18 @@ export function listRuntimes(): SessionRuntime[] {
 	return Array.from(runtimes.values())
 }
 
+/** A pipeline deleted outside the session: every live session on its workspace
+ * drops what it holds of it. Its in-memory drafts would otherwise keep showing the
+ * pipeline in the preview, and autosave would write the deleted draft back. */
+export function forgetDeletedPipeline(workspace: string, folder: string): void {
+	const key = normalizePipelineFolder(folder)
+	for (const runtime of runtimes.values()) {
+		if (runtime.manager.operatingWorkspace !== workspace) continue
+		void runtime.forgetPipelineDrafts(key)
+		void runtime.manager.removeModifiedItem(PIPELINE_DRAFT_KIND, pipelineBundlePath(key))
+	}
+}
+
 export function getRuntime(sessionId: string): SessionRuntime | undefined {
 	return runtimes.get(sessionId)
 }
@@ -1211,8 +1310,8 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 	// "Unknown tool call" error on the first node it tries to build.
 	if (kind === 'pipeline') {
 		const folder = normalizePipelineFolder(path)
-		const ready = await runtime.manager.waitForPipelineHelpers()
-		// A backgrounded session's preview tab does not mount, so its editor never
+		const ready = await runtime.manager.waitForPipelineHelpers(folder)
+		// A session whose page is not mounted never mounts the editor, so it never
 		// registers — don't claim success, or the model calls build_pipeline_node
 		// into the void. Tell it the tools aren't available and how to recover.
 		if (!ready) {
@@ -1222,7 +1321,7 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 		// off the owner path twice over) is rejected by build_pipeline_node.
 		return `${
 			result.status === 'focused' ? 'Focused the' : 'Opened the'
-		} pipeline editor for folder "${folder}" in the side panel. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
+		} pipeline editor for folder "${folder}" in the side panel. build_pipeline_node, edit_pipeline_node and the other pipeline tools are now in your tool list: call them in your next step. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
 	}
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`

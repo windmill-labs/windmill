@@ -28,6 +28,13 @@
 		editable?: boolean
 		onSaved?: (newPath: string) => void
 		kind?: 'flow' | 'script'
+		/** Saves instead of the API, for an item that exists only locally (a draft).
+		 * Returns an error message to keep the popover open. */
+		saveOverride?: (next: {
+			path: string
+			summary: string
+			labels: string[] | undefined
+		}) => string | undefined
 		/** Header variant: no path line (the host shows it) and a lighter summary. */
 		compact?: boolean
 	}
@@ -40,6 +47,7 @@
 		editable = false,
 		onSaved,
 		kind = 'flow',
+		saveOverride = undefined,
 		compact = false
 	}: Props = $props()
 
@@ -50,7 +58,8 @@
 	let ownPath = $state<string | undefined>(undefined)
 	// Derived: ownership answers about the operating workspace, whose user resolves asynchronously.
 	const own = $derived(
-		ownPath === undefined ? false : isOwner(ownPath, actingUser, $operatingWorkspace)
+		saveOverride !== undefined ||
+			(ownPath === undefined ? false : isOwner(ownPath, actingUser, $operatingWorkspace))
 	)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let summaryInput: ReturnType<typeof TextInput> | undefined = $state()
@@ -75,6 +84,17 @@
 	async function save(close: () => void) {
 		const initialPath = path ?? ''
 		const newPath = own ? editPath : initialPath
+		if (saveOverride) {
+			const error = saveOverride({ path: newPath, summary: editSummary, labels })
+			if (error) {
+				sendUserToast(error, true)
+				return
+			}
+			labelsDirty = false
+			close()
+			onSaved?.(newPath)
+			return
+		}
 
 		try {
 			await updateItemPathAndSummary({

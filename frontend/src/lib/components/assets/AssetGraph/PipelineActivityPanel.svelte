@@ -416,7 +416,7 @@
 					onmouseenter={() => onHoverRun?.([e.path])}
 					onmouseleave={() => onHoverRun?.(undefined)}
 					class={twMerge(
-						'w-full flex items-center gap-2 px-2 py-1 rounded-sm hover:bg-surface-hover text-xs text-left',
+						'w-full flex items-center gap-2 px-2 py-1.5 rounded-sm font-normal hover:bg-surface-hover text-xs text-left',
 						isMember && 'pl-7',
 						expanded && 'bg-surface-selected'
 					)}
@@ -445,7 +445,7 @@
 					{:else}
 						<Code2 size={12} class="shrink-0 text-tertiary" />
 					{/if}
-					<span class="flex-1 min-w-0 truncate font-mono text-2xs" title={e.path}>
+					<span class="flex-1 min-w-0 truncate text-xs" title={e.path}>
 						{e.path}
 					</span>
 					{#if showSource}
@@ -533,7 +533,7 @@
 						onclick={() => toggleGroup(g.key)}
 						onmouseenter={() => onHoverRun?.(g.members.map((m) => m.path))}
 						onmouseleave={() => onHoverRun?.(undefined)}
-						class="w-full flex items-center gap-2 px-2 py-1 rounded-sm hover:bg-surface-hover text-xs text-left"
+						class="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm font-normal hover:bg-surface-hover text-xs text-left"
 						title={collapsed ? 'Expand cascade runs' : 'Collapse cascade runs'}
 					>
 						<span class="shrink-0 text-tertiary">
@@ -549,7 +549,7 @@
 							{/if}
 						</span>
 						<Workflow size={12} class="shrink-0 text-indigo-500" />
-						<span class="flex-1 min-w-0 truncate font-mono text-2xs" title={groupTitle(g)}>
+						<span class="flex-1 min-w-0 truncate text-xs" title={groupTitle(g)}>
 							{groupTitle(g)}
 						</span>
 						<span

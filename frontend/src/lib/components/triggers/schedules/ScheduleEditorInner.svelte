@@ -1,11 +1,17 @@
 <script lang="ts">
-	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Badge, Button, ButtonType } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
+	import ScheduleAdvancedOptions, {
+		emptyScheduleAdvanced,
+		getHandlerType,
+		loadDefaultScheduleAdvanced,
+		scheduleAdvancedCfg
+	} from './ScheduleAdvancedOptions.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
@@ -15,36 +21,27 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { loadSchema } from '$lib/infer'
 	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
-	import ErrorOrRecoveryHandler, {
-		handlerFullPath
-	} from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import {
 		FlowService,
 		ScheduleService,
 		type Script,
 		ScriptService,
 		type Flow,
-		SettingService,
 		type Retry,
 		type Schedule,
 		type ErrorHandler
 	} from '$lib/gen'
-	import { enterpriseLicense } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
 	import { useScheduleLock } from '$lib/operatorWriteRights'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
-	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
+	import { List, Loader2, AlertTriangle } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 	import TriggerEditorToolbar from '$lib/components/triggers/TriggerEditorToolbar.svelte'
 	import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
-	import FlowRetries from '$lib/components/flows/content/FlowRetries.svelte'
-	import Label from '$lib/components/Label.svelte'
-	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
@@ -74,12 +71,6 @@
 		trigger = undefined
 	} = $props()
 
-	let optionTabSelected:
-		| 'error_handler'
-		| 'recovery_handler'
-		| 'success_handler'
-		| 'retries'
-		| 'dynamic_skip' = $state('error_handler')
 	let initialPath = $state('')
 	let edit = $state(true)
 	let schedule: string = $state('0 0 12 * *')
@@ -139,6 +130,10 @@
 	let isValid = $state(true)
 	let allowSchedule = $derived(isValid && validCRON && script_path != '')
 	let deploymentLoading = $state(false)
+	// Set by `openNew({ onSaveDraft })`: the caller keeps the schedule as its own
+	// draft, so Save hands it the config instead of writing it, and nothing may
+	// autosave a workspace trigger draft for a path that is not deployed.
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
@@ -164,14 +159,11 @@
 				emptyString(errorHandlerExtraArgs['channel'])) ||
 			!can_write
 	)
-	// Carry the acting workspace onto "create from template" routes, so the script is created
-	// in the workspace this schedule lives in.
-	const wsParam = $derived(wsId ? `&workspace=${encodeURIComponent(wsId)}` : '')
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_schedule',
-		path: () => initialPath,
+		path: () => (saveDraftHandler ? '' : initialPath),
 		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => scheduleCfg,
@@ -190,6 +182,7 @@
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		acting.forgetFailures()
+		saveDraftHandler = undefined
 		try {
 			drawer?.openDrawer()
 			setPageDrawerAnchor(SCHEDULES_PATH, ePath)
@@ -259,66 +252,23 @@
 				successHandlerExtraArgs = {}
 			}
 		} else {
-			let defaultErrorHandlerMaybe = undefined
-			let defaultRecoveryHandlerMaybe = undefined
-			let defaultSuccessHandlerMaybe = undefined
-			if (wsId) {
-				defaultErrorHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_error_handler_' + wsId!
-				})) as any
-				defaultRecoveryHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_recovery_handler_' + wsId!
-				})) as any
-				defaultSuccessHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_success_handler_' + wsId!
-				})) as any
-			}
-
-			if (defaultErrorHandlerMaybe !== undefined && defaultErrorHandlerMaybe !== null) {
-				wsErrorHandlerMuted = defaultErrorHandlerMaybe['wsErrorHandlerMuted']
-				let splitted = (defaultErrorHandlerMaybe['errorHandlerPath'] as string).split('/')
-				errorHandleritemKind = splitted[0] as 'flow' | 'script'
-				errorHandlerPath = splitted.slice(1)?.join('/')
-				errorHandlerExtraArgs = defaultErrorHandlerMaybe['errorHandlerExtraArgs']
-				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
-				failedTimes = defaultErrorHandlerMaybe['failedTimes']
-				failedExact = defaultErrorHandlerMaybe['failedExact']
-			} else {
-				wsErrorHandlerMuted = false
-				errorHandlerPath = undefined
-				errorHandleritemKind = 'script'
-				errorHandlerExtraArgs = {}
-				errorHandlerSelected = 'slack'
-				failedTimes = 1
-				failedExact = false
-			}
-			if (defaultRecoveryHandlerMaybe !== undefined && defaultRecoveryHandlerMaybe !== null) {
-				let splitted = (defaultRecoveryHandlerMaybe['recoveryHandlerPath'] as string).split('/')
-				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
-				recoveryHandlerPath = splitted.slice(1)?.join('/')
-				recoveryHandlerExtraArgs = defaultRecoveryHandlerMaybe['recoveryHandlerExtraArgs']
-				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
-				recoveredTimes = defaultRecoveryHandlerMaybe['recoveredTimes']
-			} else {
-				recoveryHandlerPath = undefined
-				recoveryHandlerItemKind = 'script'
-				recoveryHandlerExtraArgs = {}
-				recoveryHandlerSelected = 'slack'
-				recoveredTimes = 1
-			}
-			if (defaultSuccessHandlerMaybe !== undefined && defaultSuccessHandlerMaybe !== null) {
-				let splitted = (defaultSuccessHandlerMaybe['successHandlerPath'] as string).split('/')
-				successHandlerItemKind = splitted[0] as 'flow' | 'script'
-				successHandlerPath = splitted.slice(1)?.join('/')
-				successHandlerExtraArgs = defaultSuccessHandlerMaybe['successHandlerExtraArgs']
-				successHandlerSelected = getHandlerType('success', successHandlerPath)
-				recoveredTimes = defaultSuccessHandlerMaybe['recoveredTimes']
-			} else {
-				successHandlerPath = undefined
-				successHandlerItemKind = 'script'
-				successHandlerExtraArgs = {}
-				successHandlerSelected = 'slack'
-			}
+			const d = wsId ? await loadDefaultScheduleAdvanced(wsId) : emptyScheduleAdvanced()
+			wsErrorHandlerMuted = d.wsErrorHandlerMuted
+			errorHandlerPath = d.errorHandlerPath
+			errorHandleritemKind = d.errorHandleritemKind
+			errorHandlerExtraArgs = d.errorHandlerExtraArgs
+			errorHandlerSelected = d.errorHandlerSelected
+			failedTimes = d.failedTimes
+			failedExact = d.failedExact
+			recoveryHandlerPath = d.recoveryHandlerPath
+			recoveryHandlerItemKind = d.recoveryHandlerItemKind
+			recoveryHandlerExtraArgs = d.recoveryHandlerExtraArgs
+			recoveryHandlerSelected = d.recoveryHandlerSelected
+			recoveredTimes = d.recoveredTimes
+			successHandlerPath = d.successHandlerPath
+			successHandlerItemKind = d.successHandlerItemKind
+			successHandlerExtraArgs = d.successHandlerExtraArgs
+			successHandlerSelected = d.successHandlerSelected
 		}
 	}
 
@@ -328,9 +278,10 @@
 		defaultValues?: Schedule,
 		schedule_path?: string,
 		fixedScriptPath_?: string,
-		opts: { getDraft?: boolean } = {}
+		opts: { getDraft?: boolean; onSaveDraft?: (cfg: Record<string, any>) => boolean } = {}
 	) {
 		const getDraft = opts.getDraft ?? true
+		saveDraftHandler = opts.onSaveDraft
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -389,6 +340,7 @@
 			no_flow_overlap = s?.no_flow_overlap ?? false
 			wsErrorHandlerMuted = s?.ws_error_handler_muted ?? false
 			retry = s?.retry ?? undefined
+			dynamicSkipPath = s?.dynamic_skip ?? undefined
 
 			await setScheduleHandler(s)
 			permissionedAs = undefined
@@ -429,93 +381,6 @@
 			} catch (err) {}
 		} else {
 			runnable = undefined
-		}
-	}
-
-	async function saveAsDefaultErrorHandler(overrideExisting: boolean) {
-		if (!$enterpriseLicense) {
-			sendUserToast(`Setting default error handler is an enterprise edition feature`, true)
-			return
-		}
-		if (wsId) {
-			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: wsId!,
-				requestBody: {
-					handler_type: 'error',
-					override_existing: overrideExisting,
-					path:
-						errorHandlerPath == undefined
-							? undefined
-							: handlerFullPath(errorHandlerSelected, errorHandleritemKind, errorHandlerPath),
-					extra_args: errorHandlerExtraArgs,
-					number_of_occurence: failedTimes,
-					number_of_occurence_exact: failedExact,
-					workspace_handler_muted: wsErrorHandlerMuted
-				}
-			})
-			if (errorHandlerPath !== undefined) {
-				sendUserToast(`Default error handler saved to ${errorHandlerPath}`, false)
-			} else {
-				sendUserToast(`Default error handler reset`, false)
-			}
-		}
-	}
-
-	async function saveAsDefaultRecoveryHandler(overrideExisting: boolean) {
-		if (!$enterpriseLicense) {
-			sendUserToast(`Setting default recovery handler is an enterprise edition feature`, true)
-			return
-		}
-		if (wsId) {
-			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: wsId!,
-				requestBody: {
-					handler_type: 'recovery',
-					override_existing: overrideExisting,
-					path:
-						recoveryHandlerPath === undefined
-							? undefined
-							: handlerFullPath(
-									recoveryHandlerSelected,
-									recoveryHandlerItemKind,
-									recoveryHandlerPath
-								),
-					extra_args: recoveryHandlerExtraArgs,
-					number_of_occurence: recoveredTimes
-				}
-			})
-			if (recoveryHandlerPath !== undefined) {
-				sendUserToast(`Default recovery handler saved to ${recoveryHandlerPath}`, false)
-			} else {
-				sendUserToast(`Default recovery handler reset`, false)
-			}
-		}
-	}
-
-	async function saveAsDefaultSuccessHandler(overrideExisting: boolean) {
-		if (!$enterpriseLicense) {
-			sendUserToast(`Setting default success handler is an enterprise edition feature`, true)
-			return
-		}
-		if (wsId) {
-			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: wsId!,
-				requestBody: {
-					handler_type: 'success',
-					override_existing: overrideExisting,
-					path:
-						successHandlerPath === undefined
-							? undefined
-							: handlerFullPath(successHandlerSelected, successHandlerItemKind, successHandlerPath),
-					extra_args: successHandlerExtraArgs,
-					number_of_occurence: recoveredTimes
-				}
-			})
-			if (successHandlerPath !== undefined) {
-				sendUserToast(`Default success handler saved to ${successHandlerPath}`, false)
-			} else {
-				sendUserToast(`Default success handler reset`, false)
-			}
 		}
 	}
 
@@ -631,6 +496,11 @@
 	async function scheduleScript(): Promise<void> {
 		const previousPath = initialPath
 		const scheduleCfg = getScheduleCfg()
+		if (saveDraftHandler) {
+			if (!saveDraftHandler($state.snapshot(scheduleCfg))) return
+			drawer?.closeDrawer()
+			return
+		}
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
@@ -641,35 +511,6 @@
 		deploymentLoading = false
 	}
 
-	function getHandlerType(
-		isHandler: 'error' | 'recovery' | 'success',
-		scriptPath: string
-	): ErrorHandler {
-		const handlerMap = {
-			error: {
-				teams: '/workspace-or-schedule-error-handler-teams',
-				slack: '/workspace-or-schedule-error-handler-slack',
-				email: '/workspace-or-error-handler-email'
-			},
-			recovery: {
-				teams: '/schedule-recovery-handler-teams',
-				slack: '/schedule-recovery-handler-slack',
-				email: '/workspace-or-error-handler-email'
-			},
-			success: {
-				teams: '/schedule-success-handler-teams',
-				slack: '/schedule-success-handler-slack',
-				email: '/workspace-or-error-handler-email'
-			}
-		}
-
-		for (const [type, suffix] of Object.entries(handlerMap[isHandler])) {
-			if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
-				return type as ErrorHandler
-			}
-		}
-		return 'custom'
-	}
 
 	let drawer: Drawer | undefined = $state()
 
@@ -705,32 +546,34 @@
 			is_flow: is_flow,
 			args: args,
 			enabled: enabled,
-			on_failure: errorHandlerPath
-				? handlerFullPath(errorHandlerSelected, errorHandleritemKind, errorHandlerPath)
-				: undefined,
-			on_failure_times: failedTimes,
-			on_failure_exact: failedExact,
-			on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
-			on_recovery: recoveryHandlerPath
-				? handlerFullPath(recoveryHandlerSelected, recoveryHandlerItemKind, recoveryHandlerPath)
-				: undefined,
-			on_recovery_times: recoveredTimes,
-			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
-			on_success: successHandlerPath
-				? handlerFullPath(successHandlerSelected, successHandlerItemKind, successHandlerPath)
-				: undefined,
-			on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
-			ws_error_handler_muted: wsErrorHandlerMuted,
-			retry: retry,
+			...scheduleAdvancedCfg({
+				errorHandlerSelected,
+				errorHandlerPath,
+				errorHandleritemKind,
+				errorHandlerExtraArgs,
+				wsErrorHandlerMuted,
+				failedTimes,
+				failedExact,
+				recoveryHandlerSelected,
+				recoveryHandlerPath,
+				recoveryHandlerItemKind,
+				recoveryHandlerExtraArgs,
+				recoveredTimes,
+				successHandlerSelected,
+				successHandlerPath,
+				successHandlerItemKind,
+				successHandlerExtraArgs,
+				retry,
+				dynamicSkipPath,
+				tag
+			}),
 			summary: summary != '' ? summary : undefined,
 			labels: labels,
 			description: description,
 			no_flow_overlap: no_flow_overlap,
-			tag: tag,
 			paused_until: paused_until,
 			cron_version: cronVersion,
 			extra_perms: extraPerms,
-			dynamic_skip: dynamicSkipPath,
 			permissioned_as: selectedPermissionedAs,
 			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
@@ -799,6 +642,7 @@
 			onToggleMode={(mode) => handleToggleEnabled(mode === 'enabled')}
 			{isDeployed}
 			disableSuspendedMode
+			saveLabel={saveDraftHandler ? 'Save draft' : undefined}
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}
@@ -1093,365 +937,35 @@
 						]}
 					/>
 				{/snippet}
-				{@render errorHandler()}
+				<ScheduleAdvancedOptions
+					{wsId}
+					{itemKind}
+					canWrite={can_write}
+					{loading}
+					bind:errorHandlerSelected
+					bind:errorHandlerPath
+					bind:errorHandleritemKind
+					bind:errorHandlerExtraArgs
+					bind:wsErrorHandlerMuted
+					bind:failedTimes
+					bind:failedExact
+					bind:recoveryHandlerSelected
+					bind:recoveryHandlerPath
+					bind:recoveryHandlerItemKind
+					bind:recoveryHandlerExtraArgs
+					bind:recoveredTimes
+					bind:successHandlerSelected
+					bind:successHandlerPath
+					bind:successHandlerItemKind
+					bind:successHandlerExtraArgs
+					bind:retry
+					bind:dynamicSkipPath
+					bind:tag
+				/>
 			</Section>
 			<div class="pb-8" />
 		</div>
 	{/if}
-{/snippet}
-
-{#snippet errorHandler()}
-	<div class="flex flex-col gap-2 min-h-96">
-		{#if !loading}
-			<Tabs bind:selected={optionTabSelected}>
-				<Tab value="error_handler" label="Error Handler" />
-				<Tab value="recovery_handler" label="Recovery Handler" />
-				<Tab value="success_handler" label="Success Handler" />
-				<Tab value="retries" label="Retries" />
-				<Tab value="dynamic_skip" label="Dynamic skip" />
-				{#if itemKind === 'script'}
-					<Tab value="tag" label="Custom tag" />
-				{/if}
-			</Tabs>
-			{#if optionTabSelected === 'error_handler'}
-				<Section label="Error handler">
-					{#snippet header()}
-						<div class="flex flex-row gap-2">
-							{#if !$enterpriseLicense}<span class="text-xs text-secondary">(ee only)</span>{/if}
-						</div>
-					{/snippet}
-					{#snippet action()}
-						<div class="flex flex-row items-center gap-1 text-xs text-secondary">
-							<Dropdown
-								disabled={!can_write}
-								items={[
-									{
-										displayName: `Override future schedules only`,
-										action: () => saveAsDefaultErrorHandler(false)
-									},
-									{
-										displayName: 'Override all existing',
-										type: 'delete',
-										action: () => saveAsDefaultErrorHandler(true)
-									}
-								]}
-							>
-								{#snippet buttonReplacement()}
-									<Save size={12} class="mr-1" />
-									Set as default
-								{/snippet}
-							</Dropdown>
-						</div>
-					{/snippet}
-					<div class="flex flex-row py-2">
-						<Toggle
-							size="xs"
-							disabled={!can_write || !$enterpriseLicense}
-							bind:checked={wsErrorHandlerMuted}
-							options={{ right: 'Mute workspace error handler for this schedule' }}
-						/>
-					</div>
-
-					<ErrorOrRecoveryHandler
-						workspace={wsId}
-						isEditable={can_write}
-						errorOrRecovery="error"
-						showScriptHelpText={true}
-						bind:handlerSelected={errorHandlerSelected}
-						bind:handlerPath={errorHandlerPath}
-						toggleText="Alert channel on error"
-						customScriptTemplate="/scripts/add?hub=hub%2F19743%2Fwindmill%2Fschedule_error_handler_template"
-						bind:customHandlerKind={errorHandleritemKind}
-						bind:handlerExtraArgs={errorHandlerExtraArgs}
-					>
-						{#snippet customTabTooltip()}
-							<Tooltip>
-								<div class="flex gap-20 items-start mt-3">
-									<div class="text-xs"
-										>The following args will be passed to the error handler:
-										<ul class="mt-1 ml-2">
-											<li
-												><b>workspace_id</b>: The ID of the workspace that the schedule belongs to.</li
-											>
-											<li><b>job_id</b>: The UUID of the job that errored.</li>
-											<li><b>path</b>: The path of the script or flow that failed.</li>
-											<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-											<li><b>schedule_path</b>: The path of the schedule.</li>
-											<li><b>error</b>: The error details.</li>
-											<li
-												><b>failed_times</b>: Minimum number of times the schedule failed before
-												calling the error handler.</li
-											>
-											<li><b>started_at</b>: The start datetime of the latest job that failed.</li>
-										</ul>
-									</div>
-								</div>
-							</Tooltip>
-						{/snippet}
-					</ErrorOrRecoveryHandler>
-					<div class="flex flex-row items-center justify-between">
-						<div class="flex flex-row items-center mt-4 font-semibold text-xs gap-2">
-							<p class={emptyString(errorHandlerPath) ? 'text-primary' : ''}>
-								Triggered when schedule failed</p
-							>
-							<select
-								class="!w-14"
-								bind:value={failedExact}
-								disabled={!$enterpriseLicense || emptyString(errorHandlerPath)}
-							>
-								<option value={false}>&gt;=</option>
-								<option value={true}>==</option>
-							</select>
-							<input
-								type="number"
-								class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-primary' : ''}"
-								bind:value={failedTimes}
-								disabled={!$enterpriseLicense}
-								min="1"
-							/>
-							<p class={emptyString(errorHandlerPath) ? 'text-primary' : ''}
-								>time{failedTimes > 1 ? 's in a row' : ''}</p
-							>
-						</div>
-					</div>
-				</Section>
-			{:else if optionTabSelected === 'recovery_handler'}
-				{@const disabled = !can_write || emptyString($enterpriseLicense)}
-				<Section label="Recovery handler">
-					{#snippet header()}
-						<div class="flex flex-row gap-2">
-							{#if !$enterpriseLicense}<span class="text-xs text-secondary">(ee only)</span>{/if}
-						</div>
-					{/snippet}
-					{#snippet action()}
-						<div class="flex flex-row items-center text-secondary text-xs gap-2">
-							defaults
-							<Dropdown
-								{disabled}
-								items={[
-									{
-										displayName: `Override future schedules only`,
-										action: () => saveAsDefaultRecoveryHandler(false)
-									},
-									{
-										displayName: 'Override all existing',
-										type: 'delete',
-										action: () => saveAsDefaultRecoveryHandler(true)
-									}
-								]}
-							>
-								{#snippet buttonReplacement()}
-									<Save size={12} class="mr-1" />
-									Set as default
-								{/snippet}
-							</Dropdown>
-						</div>
-					{/snippet}
-					<ErrorOrRecoveryHandler
-						workspace={wsId}
-						isEditable={!disabled}
-						errorOrRecovery="recovery"
-						bind:handlerSelected={recoveryHandlerSelected}
-						bind:handlerPath={recoveryHandlerPath}
-						toggleText="Alert channel when error recovered"
-						customScriptTemplate="/scripts/add?hub=hub%2F9082%2Fwindmill%2Fschedule_recovery_handler_template"
-						bind:customHandlerKind={recoveryHandlerItemKind}
-						bind:handlerExtraArgs={recoveryHandlerExtraArgs}
-					>
-						{#snippet customTabTooltip()}
-							<Tooltip>
-								<div class="flex gap-20 items-start mt-3">
-									<div class="text-xs"
-										>The following args will be passed to the recovery handler:
-										<ul class="mt-1 ml-2">
-											<li><b>path</b>: The path of the script or flow that recovered.</li>
-											<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-											<li><b>schedule_path</b>: The path of the schedule.</li>
-											<li><b>error</b>: The error of the last job that errored</li>
-											<li
-												><b>error_started_at</b>: The start datetime of the last job that errored</li
-											>
-											<li
-												><b>success_times</b>: The number of times the schedule succeeded before
-												calling the recovery handler.</li
-											>
-											<li><b>success_result</b>: The result of the latest successful job</li>
-											<li
-												><b>success_started_at</b>: The start datetime of the latest successful job</li
-											>
-										</ul>
-									</div>
-								</div>
-							</Tooltip>
-						{/snippet}
-					</ErrorOrRecoveryHandler>
-					<div class="flex flex-row items-center justify-between">
-						<div
-							class="flex flex-row items-center mt-5 font-semibold text-xs {emptyString(
-								recoveryHandlerPath
-							)
-								? 'text-primary'
-								: ''}"
-						>
-							<p>Triggered when schedule recovered</p>
-							<input
-								type="number"
-								class="!w-14 mx-2 text-center"
-								bind:value={recoveredTimes}
-								min="1"
-								{disabled}
-							/>
-							<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
-						</div>
-					</div>
-				</Section>
-			{:else if optionTabSelected === 'success_handler'}
-				{@const disabled = !can_write || emptyString($enterpriseLicense)}
-				<Section label="Success handler">
-					{#snippet header()}
-						<div class="flex flex-row gap-2">
-							{#if !$enterpriseLicense}<span class="text-xs text-secondary">(ee only)</span>{/if}
-						</div>
-					{/snippet}
-					{#snippet action()}
-						<div class="flex flex-row items-center text-secondary text-xs gap-2">
-							defaults
-							<Dropdown
-								{disabled}
-								items={[
-									{
-										displayName: `Override future schedules only`,
-										action: () => saveAsDefaultSuccessHandler(false)
-									},
-									{
-										displayName: 'Override all existing',
-										type: 'delete',
-										action: () => saveAsDefaultSuccessHandler(true)
-									}
-								]}
-							>
-								{#snippet buttonReplacement()}
-									<Save size={12} class="mr-1" />
-									Set as default
-								{/snippet}
-							</Dropdown>
-						</div>
-					{/snippet}
-					<ErrorOrRecoveryHandler
-						workspace={wsId}
-						isEditable={!disabled}
-						errorOrRecovery="success"
-						bind:handlerSelected={successHandlerSelected}
-						bind:handlerPath={successHandlerPath}
-						toggleText="Alert channel when successful"
-						customScriptTemplate="/scripts/add?hub=hub%2F9071%2Fwindmill%2Fschedule_success_handler_template"
-						bind:customHandlerKind={successHandlerItemKind}
-						bind:handlerExtraArgs={successHandlerExtraArgs}
-					>
-						{#snippet customTabTooltip()}
-							<Tooltip>
-								<div class="flex gap-20 items-start mt-3">
-									<div class="text-xs"
-										>The following args will be passed to the success handler:
-										<ul class="mt-1 ml-2">
-											<li><b>path</b>: The path of the script or flow that succeeded.</li>
-											<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-											<li><b>schedule_path</b>: The path of the schedule.</li>
-											<li><b>success_result</b>: The result of the successful job</li>
-											<li><b>success_started_at</b>: The start datetime of the successful job</li>
-										</ul>
-									</div>
-								</div>
-							</Tooltip>
-						{/snippet}
-					</ErrorOrRecoveryHandler>
-				</Section>
-			{:else if optionTabSelected === 'retries'}
-				{@const disabled = !can_write || emptyString($enterpriseLicense)}
-				<Section label="Retries">
-					{#snippet header()}
-						<div class="flex flex-row gap-2">
-							{#if !$enterpriseLicense}<span class="text-xs text-secondary">(ee only)</span>{/if}
-						</div>
-						<Tooltip>
-							If defined, upon error this schedule will be retried with a delay and a maximum number
-							of attempts as defined below.
-							<br />
-							This is only available for individual script. For flows, retries can be set on each flow
-							step in the flow editor.
-						</Tooltip>
-					{/snippet}
-					{#if itemKind !== 'script'}
-						<Alert type="info" title="Only available for scripts" class="mb-2">
-							Error Handler and Retries are only available for scripts. For flows, use the built-in <a
-								href="https://www.windmill.dev/docs/flows/flow_error_handler"
-								target="_blank">error handler</a
-							>
-							and <a href="https://www.windmill.dev/docs/flows/retries" target="_blank">retries</a>.
-						</Alert>
-					{:else}
-						<FlowRetries
-							bind:flowModuleRetry={retry}
-							disabled={itemKind !== 'script' || disabled}
-						/>
-					{/if}
-				</Section>
-			{:else if optionTabSelected === 'dynamic_skip'}
-				<Section label="Dynamic skip">
-					{#snippet header()}
-						<Tooltip>
-							Optional script to filter scheduled dates. Receives the proposed datetime and returns
-							boolean. True = run on this date, False = skip to next occurrence.
-						</Tooltip>
-					{/snippet}
-					<div class="flex flex-col gap-6">
-						<Label label="Dynamic skip script">
-							<div class="flex flex-row">
-								<ScriptPicker
-									workspace={wsId}
-									disabled={!can_write}
-									bind:scriptPath={dynamicSkipPath}
-									kinds={['script']}
-									allowRefresh={can_write}
-									clearable
-								/>
-								{#if !dynamicSkipPath}
-									<Button
-										btnClasses="ml-4 whitespace-nowrap"
-										variant="default"
-										size="xs"
-										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template{wsParam}"
-										disabled={!can_write}
-										target="_blank"
-									>
-										Create from template
-									</Button>
-								{/if}
-							</div>
-						</Label>
-						<Alert type="info" size="xs" title="Handler requirements">
-							Handler must return a boolean value. Return true to execute the scheduled job, false
-							to skip.
-						</Alert>
-					</div>
-				</Section>
-			{:else if optionTabSelected === 'tag'}
-				<Section
-					label="Custom script tag"
-					tooltip="When set, the script tag will be overridden by this tag"
-				>
-					<WorkerTagPicker
-						bind:tag
-						workspaceId={wsId}
-						popupPlacement="top-end"
-						disabled={!can_write}
-					/>
-				</Section>
-			{/if}
-		{:else}
-			<Loader2 class="animate-spin" />
-		{/if}
-	</div>
 {/snippet}
 
 {#snippet drawerBody()}
@@ -1463,7 +977,9 @@
 			? can_write
 				? `Edit schedule ${initialPath}`
 				: `View schedule ${initialPath}`
-			: 'New schedule'}
+			: saveDraftHandler
+				? 'Draft schedule'
+				: 'New schedule'}
 		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet actions()}

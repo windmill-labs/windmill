@@ -6,6 +6,7 @@
 	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
 	import { useSessionDeployModel } from './sessionDeployModel.svelte'
 	import type { DeployItem } from './sessionDeployModel'
+	import type { DeployResult } from '$lib/utils_workspace_deploy'
 
 	// Session "Edits" drawer. Builds the deploy model over the session
 	// workspace's drafts and hands it to WorkspaceDiffDrawer, which renders the
@@ -19,7 +20,8 @@
 		keys,
 		onDataChanged,
 		onItemDeployed,
-		onItemDiscarded
+		onItemDiscarded,
+		deployPipeline
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
@@ -36,6 +38,8 @@
 		 *  drops it. */
 		onItemDeployed?: (item: DeployItem) => void
 		onItemDiscarded?: (item: DeployItem) => void
+		/** Forwarded to the deploy model: deploys a pipeline folder's draft bundle. */
+		deployPipeline?: (folder: string) => Promise<DeployResult>
 	} = $props()
 
 	const isFork = $derived(!!parentWorkspaceId)
@@ -51,7 +55,8 @@
 		mask: keys,
 		onDataChanged,
 		onItemDeployed,
-		onItemDiscarded
+		onItemDiscarded,
+		deployPipeline
 	}))
 
 	// Editor URL for a row (every item lives in the session workspace).

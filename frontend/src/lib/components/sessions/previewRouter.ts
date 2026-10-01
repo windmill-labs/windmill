@@ -11,6 +11,7 @@ import {
 	pageKey,
 	pageHref,
 	parsePageItemRoute,
+	parsePipelineRoute,
 	parsePreviewItemRoute,
 	RESOURCES_PATH,
 	RUNS_PATH,
@@ -32,6 +33,7 @@ export {
 	pageKey,
 	pageHref,
 	parsePageItemRoute,
+	parsePipelineRoute,
 	parsePreviewItemRoute,
 	stripBase,
 	TRIGGER_PAGES,
@@ -59,7 +61,6 @@ import { buildVariablesFilterSchema } from '$lib/components/variables/variablesF
 import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 import { buildAssetsFilterSchema } from '$lib/components/assets/assetsFilter'
 import { COMPARE_ITEMS_PARAM } from './modifiedItemsMask'
-import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
@@ -470,13 +471,6 @@ export function parsePreviewSelectedId(url: string): string | undefined {
 	}
 }
 
-// A `/pipeline/<folder>` route is the data-pipeline graph editor for that folder
-// (the folder is a single path segment, not a workspace item path). The bare
-// `/pipeline` list page is not an editor. Returns the folder name, or null.
-export function parsePipelineRoute(fullPath: string): string | null {
-	const m = stripBase(fullPath).match(/^\/pipeline\/([^/?#]+)/)
-	return m ? normalizePipelineFolder(decodeURIComponent(m[1])) : null
-}
 
 // The id (before the query) is the artifact's stable routing identity; the name rides in the
 // hash so the tab strip labels it without a store lookup, and the version in the query so the
@@ -530,8 +524,7 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // How a preview tab should render: as an in-process live editor or an iframe
 // fallback. Any editable item of a wrappable kind (script, flow, raw app) mounts
 // its per-(kind,path) cell editor; a `/pipeline/<folder>` route mounts the
-// data-pipeline graph editor (single, shared runtime.pipelineEditorState — `path`
-// is the folder); the list page of a page item kind mounts that list; everything
+// data-pipeline graph editor of that folder (`path` is the folder); the list page of a page item kind mounts that list; everything
 // else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }

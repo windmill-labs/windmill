@@ -1053,9 +1053,47 @@ A **data pipeline** is NOT a flow. A flow is one runnable that orchestrates step
 A pipeline node that produces a table should almost always be a **\`duckdb\`** node that materializes its output into a **DuckLake** table with \`-- materialize ducklake://<name>/<table>\` (in a DuckDB node the annotation uses SQL \`--\` comment syntax; write the body as a bare \`SELECT\` and let the runtime do the write). DuckLake is the default lakehouse store for pipelines and is the shape the pipeline editor is built around, so prefer it unless the work specifically calls for something else:
 
 - \`postgresql\` / data tables — only for row-level, OLTP-style mutations against an existing Postgres data table (frequent single-row upserts/updates, transactional reads that an app queries live).
-- \`bun\` / \`python3\` — only for non-tabular work that doesn't map to SQL: calling an external API, wrangling files, arbitrary glue. When such a node still produces tabular data for downstream steps, land it in DuckLake (write it with the wmill SDK / ducklake helpers) rather than inventing a parallel store.
+- \`bun\` / \`python3\` — only for work that doesn't map to SQL: calling an external API, wrangling files, arbitrary glue. When such a node produces tabular data for downstream steps, write it **straight into DuckLake** (or a data table) from the same script — see "Ingesting from Python / TypeScript" below — rather than inventing a parallel store.
 
 Do not spread a pipeline across postgres, S3, and DuckLake when one DuckLake lake would do; a consistent DuckLake lakehouse is the goal.
+
+## Ingesting from Python / TypeScript
+
+A node that fetches data in code (an API, a SaaS export, a scraper) writes the rows **directly** into their DuckLake table with \`wmill.ducklake()\`, or into a data table with \`wmill.datatable()\`. DuckLake already stores every table as parquet files in the workspace object storage, so **never stage the raw payload first** — no intermediate JSON / CSV / parquet file in S3 and no second "load the raw file" node. One ingestion node, one table.
+
+Pass the rows as a query argument (a list of dicts / array of objects is sent as JSON) and let SQL unnest them; declare the column types so the table gets a real schema:
+
+\`\`\`python
+# pipeline
+# on schedule
+import wmill
+
+def main():
+    rows = fetch_charges()  # list[dict]
+    lake = wmill.ducklake()
+    lake.query("""
+        CREATE OR REPLACE TABLE stripe_charges AS
+        SELECT unnest(from_json($rows, '[{"id":"VARCHAR","amount":"BIGINT","created":"BIGINT"}]'), recursive := true)
+    """, rows=rows).fetch()
+\`\`\`
+
+\`\`\`ts
+// pipeline
+// on schedule
+import * as wmill from "windmill-client"
+
+export async function main() {
+  const rows = await fetchCharges()
+  const lake = wmill.ducklake()
+  await lake\`CREATE OR REPLACE TABLE stripe_charges AS
+    SELECT unnest(from_json(\${rows}, '[{"id":"VARCHAR","amount":"BIGINT","created":"BIGINT"}]'), recursive := true)\`.fetch()
+}
+\`\`\`
+
+- Use \`INSERT INTO <table> SELECT ...\` instead of \`CREATE OR REPLACE\` to append (an incremental pull), with a one-time \`CREATE TABLE IF NOT EXISTS\` first.
+- Assign the client to a variable (\`lake = wmill.ducklake()\`) and keep the SQL a **string literal** (Python) or a template without \`sql.raw\` (TS): that is what lets the graph record the node's write to \`ducklake://main/<table>\`. A chained \`wmill.ducklake().query(...)\` or SQL built in a variable records no output, so the downstream edge never forms.
+- \`wmill.ducklake("<name>")\` targets a non-default catalog; \`wmill.datatable("<name>")\` writes a Postgres data table the same way (Python \`db.query(sql, *args)\` with \`$1\` placeholders, TS the same template form) — use it only when the data belongs in Postgres (see above).
+- The downstream node triggers on the table itself: \`-- on ducklake://main/stripe_charges\`.
 
 ## Storage prerequisites
 
@@ -1099,7 +1137,7 @@ The key must be a **string literal** — the graph parser is static and cannot f
 
 ## Materialize (the managed output)
 
-> **A MANAGED \`// materialize\` is DuckDB-only**, and its target must be a DuckLake table (\`ducklake://<name>/<table>\`). Deploy **rejects** a \`ducklake://\` \`// materialize\` on any other language (\`python3\`, \`bun\`, \`postgresql\`). For a non-DuckDB node writing the lake, do **not** use \`// materialize\` — write the output via the SDK (\`wmill.writeS3File(...)\`, ducklake helpers, …) and let it be inferred. Use \`duckdb\` when a node should materialize a DuckLake table.
+> **A MANAGED \`// materialize\` is DuckDB-only**, and its target must be a DuckLake table (\`ducklake://<name>/<table>\`). Deploy **rejects** a \`ducklake://\` \`// materialize\` on any other language (\`python3\`, \`bun\`, \`postgresql\`). For a non-DuckDB node writing the lake, do **not** use \`// materialize\` — write the table itself with \`wmill.ducklake()\` (see "Ingesting from Python / TypeScript") and let the output be inferred. Use \`duckdb\` when a node should materialize a DuckLake table.
 >
 > The one target ANY language may declare (except a dbt script, whose writes come from its manifest) is a **warehouse relation**: \`// materialize manual dbt://<warehouse>/<schema>/<name>\`, where \`<warehouse>\` is a warehouse the workspace configures under Settings → dbt. \`manual\` is the only mode it has — nothing generates warehouse DDL, so the node issues its own write (a postgresql \`CREATE TABLE\` / \`INSERT\`, an SDK load, …) and the annotation records the outcome. Use it on an ingestion node whose output a dbt project reads as a \`source\`: the declared relation and the dbt model land on ONE graph node, and a downstream \`// on dbt://<warehouse>/<schema>/<name>\` fires when the ingestion node completes.
 
