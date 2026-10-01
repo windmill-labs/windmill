@@ -15,6 +15,17 @@ fn authed(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     builder.header("Authorization", "Bearer SECRET_TOKEN")
 }
 
+async fn last_script_deletion(db: &Pool<Postgres>) -> windmill_common::DeletedScriptVersions {
+    let payload: String = sqlx::query_scalar(
+        "SELECT payload FROM notify_event WHERE channel = $1 ORDER BY id DESC LIMIT 1",
+    )
+    .bind(windmill_common::SCRIPT_VERSION_DELETED_CHANNEL)
+    .fetch_one(db)
+    .await
+    .unwrap();
+    serde_json::from_str(&payload).unwrap()
+}
+
 async fn authed_get(port: u16, endpoint: &str, path: &str) -> reqwest::Response {
     authed(client().get(script_url(port, endpoint, path)))
         .send()
@@ -366,6 +377,12 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
+    // Every process evicts deleted versions from its script caches on this event.
+    let deleted = last_script_deletion(&db).await;
+    let another: windmill_common::scripts::ScriptHash =
+        serde_json::from_value(json!(another_hash))?;
+    assert_eq!(deleted.paths, ["u/test-user/another_script"]);
+    assert_eq!(deleted.hashes, [another.0]);
 
     // --- delete_bulk ---
     let resp = authed(client().delete(format!("{base}/delete_bulk")))
@@ -374,6 +391,9 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200, "delete_bulk: {}", resp.text().await?);
+    let deleted = last_script_deletion(&db).await;
+    assert_eq!(deleted.paths, ["u/test-user/test_script"]);
+    assert!(!deleted.hashes.is_empty(), "{deleted:?}");
 
     let resp = authed_get(port, "exists/p", "u/test-user/test_script").await;
     assert_eq!(resp.json::<bool>().await?, false);

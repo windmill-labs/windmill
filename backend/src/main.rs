@@ -1232,6 +1232,11 @@ Windmill Community Edition {GIT_VERSION}
             default_base_internal_url.clone()
         };
 
+        // Deletions are delivered by `notify_event` to running processes only, so one that
+        // was down when a version was deleted would keep its code on disk: start from an
+        // empty script cache, refilled from the database.
+        windmill_common::cache::script::clear();
+
         initial_load(
             &conn,
             killpill_tx.clone(),
@@ -1883,6 +1888,12 @@ async fn process_notify_event(
                 payload
             );
             windmill_common::workspaces::PUBLIC_APP_RATE_LIMIT_CACHE.remove(payload);
+        }
+        windmill_common::SCRIPT_VERSION_DELETED_CHANNEL => {
+            match serde_json::from_str(payload) {
+                Ok(deleted) => windmill_api_scripts::scripts::evict_deleted_script_versions(deleted),
+                Err(e) => tracing::error!("Invalid script version deletion payload {payload}: {e}"),
+            }
         }
         "notify_runnable_version_change" => {
             tracing::info!("Runnable version change detected: {}", payload);

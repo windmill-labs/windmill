@@ -22,10 +22,11 @@
 	import { argsToJsonPayload } from '$lib/schema'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import { processSecretArgs } from './secretArgUtils'
 	import { enforceDisabledDefaults, resetKeysToast } from './job_args'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
+	import { anyEditorUnparseable, flushAllPendingEditorChanges } from './pendingEditorFlush'
 	import { useOperatingWorkspace } from './operatingWorkspace.svelte'
 
 	// The ephemeral secret variable a password argument mints has to be created in the same
@@ -39,6 +40,13 @@
 	let showInputSelectedBadge = $state(false)
 	let savedPreviousArgs: Record<string, any> | undefined = $state(undefined)
 	let psCommonParams: Record<string, any> = $state({})
+	// Reset on a view switch, where the editor that refused the run is gone, and on a form
+	// validity change, where the field's own error and the disabled button take over.
+	let blockedByUnparseable = $derived.by(() => {
+		void jsonView
+		void isValid
+		return false
+	})
 
 	function extractPsCommonParams(allArgs: Record<string, any>): {
 		scriptArgs: Record<string, any>
@@ -66,6 +74,15 @@
 	}
 
 	export async function run(overrideScheduledForStr?: string | undefined | null) {
+		// An editor whose text does not parse never wrote it to `args`, so running now would send
+		// the last value that did parse. Flush first: a keystroke still inside the editor debounce
+		// has not been parsed yet, and per-field editors parse it in an effect, hence the tick.
+		flushAllPendingEditorChanges()
+		await tick()
+		blockedByUnparseable = anyEditorUnparseable()
+		if (blockedByUnparseable) {
+			return
+		}
 		let processedArgs: Record<string, any>
 		const { args: withDefaults, resetKeys } = enforceDisabledDefaults(args ?? {}, runnable?.schema)
 		if (resetKeys.length > 0) {
@@ -316,6 +333,7 @@
 				<JsonInputs
 					bind:this={jsonEditor}
 					on:select={(e) => {
+						blockedByUnparseable = false
 						if (e.detail) {
 							args = enforceDisabledDefaults(e.detail, runnable?.schema).args
 						}
@@ -387,6 +405,7 @@
 					</Popover>
 				</div>
 			</div>
+			{@render unparseableError()}
 			{#if overrideTag}
 				<div class="flex-row-reverse flex w-full text-primary text-sm">
 					tag override: {overrideTag}
@@ -418,6 +437,7 @@
 			</Button>
 			<div>{@render actions()}</div>
 		</div>
+		{@render unparseableError()}
 	{:else}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
@@ -428,5 +448,14 @@
 		>
 			{buttonText}
 		</Button>
+		{@render unparseableError()}
 	{/if}
 </div>
+
+{#snippet unparseableError()}
+	{#if blockedByUnparseable}
+		<div class="flex-row-reverse flex w-full text-red-600 dark:text-red-400 text-xs mt-1">
+			Some input is not valid JSON. Fix it before running.
+		</div>
+	{/if}
+{/snippet}
