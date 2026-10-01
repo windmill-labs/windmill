@@ -85,7 +85,7 @@
 		</span>
 		{#await import('./JsonEditor.svelte') then Module}
 			<Module.default
-				code={jsonCode}
+				bind:code={jsonCode}
 				{disabled}
 				on:changeValue={(e) => {
 					written = JSON.stringify(e.detail ?? {})
