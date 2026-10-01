@@ -69,6 +69,16 @@ const DEPLOYED_FIELDS = [
 	'labels'
 ] as const
 
+/** Whether two versions of a script agree on everything a deploy sends. */
+function sameDeployedFields(a: Partial<Script>, b: Partial<Script>): boolean {
+	const norm = (v: unknown) => JSON.stringify(Array.isArray(v) && v.length === 0 ? null : (v ?? null))
+	return DEPLOYED_FIELDS.every(
+		(f) =>
+			norm(f === 'description' ? (a[f] ?? '') : a[f]) ===
+			norm(f === 'description' ? (b[f] ?? '') : b[f])
+	)
+}
+
 /** Whether a draft equals the live script at its path, i.e. has nothing to deploy. */
 export async function matchesDeployedScript(
 	path: string,
@@ -77,13 +87,7 @@ export async function matchesDeployedScript(
 ): Promise<boolean> {
 	try {
 		const live = await ScriptService.getScriptByPath({ workspace, path })
-		const norm = (v: unknown) =>
-			JSON.stringify(Array.isArray(v) && v.length === 0 ? null : (v ?? null))
-		return DEPLOYED_FIELDS.every(
-			(f) =>
-				norm(f === 'description' ? (live[f] ?? '') : live[f]) ===
-				norm(f === 'description' ? (d.script[f] ?? '') : d.script[f])
-		)
+		return sameDeployedFields(live, d.script)
 	} catch {
 		return false
 	}
@@ -202,7 +206,7 @@ export async function deployPipelineDrafts(
 		// A draft edited again while it deployed (its node reopened from the canvas)
 		// keeps the newer edits, now on top of the version just deployed; only a draft
 		// still holding exactly what was sent is done.
-		const sent = new Map(entries.map(([p, d]) => [p, d.script.content]))
+		const sent = new Map(entries.map(([p, d]) => [p, d.script]))
 		const next = new Map<string, PipelineDraft>()
 		for (const [k, d] of editor.drafts) {
 			if (!savedPaths.includes(k)) {
@@ -210,7 +214,9 @@ export async function deployPipelineDrafts(
 				continue
 			}
 			const open = editor.liveContent.scriptPath === k ? editor.liveContent.content : undefined
-			if ((open ?? d.script.content) === sent.get(k)) continue
+			const now = open === undefined ? d.script : { ...d.script, content: open }
+			const was = sent.get(k)
+			if (was && sameDeployedFields(now, was)) continue
 			const hash = hashes.get(k)
 			next.set(k, hash ? { ...d, script: { ...d.script, hash } } : d)
 		}

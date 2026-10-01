@@ -40,3 +40,17 @@ describe('deployPipelineDrafts', () => {
 		expect(pe.drafts.get('f/x/n')?.script.hash).toBe('bbbb')
 	})
 })
+
+describe('deployPipelineDrafts metadata', () => {
+	it('keeps a summary edited while the deploy was in flight', async () => {
+		const pe = new PipelineEditorState()
+		pe.drafts = new Map([['f/x/n', draft('SELECT 2')]])
+		createScript.mockImplementationOnce(async () => {
+			const d = draft('SELECT 2')
+			pe.drafts = new Map([['f/x/n', { ...d, script: { ...d.script, summary: 'Renamed' } }]])
+			return 'bbbb'
+		})
+		await deployPipelineDrafts(pe, 'ws')
+		expect(pe.drafts.get('f/x/n')?.script.summary).toBe('Renamed')
+	})
+})
