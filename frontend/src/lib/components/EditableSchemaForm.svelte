@@ -19,6 +19,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import Toggle from './Toggle.svelte'
 	import {
 		DynamicInput,
@@ -35,9 +36,14 @@
 	import Section from '$lib/components/Section.svelte'
 	import Editor from './Editor.svelte'
 	import AddPropertyV2 from './schema/AddPropertyV2.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -88,6 +94,8 @@
 		schemaFormClassName?: string
 		onChange?: (args: Record<string, any>) => void
 		workspace?: string | undefined
+		/** The deployed flow an operator's dropdown previews read their options from. */
+		deployedFlowPath?: string
 	}
 
 	let {
@@ -127,7 +135,8 @@
 		extraTab,
 		schemaFormClassName = undefined,
 		onChange = undefined,
-		workspace = undefined
+		workspace = undefined,
+		deployedFlowPath = undefined
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
@@ -469,11 +478,12 @@
 									order: e.detail
 								}
 							}}
-							helperScript={{
-								source: 'inline',
-								code: dynCode!,
-								lang: dynLang!
-							}}
+							helperScript={DynamicInput.flowHelperScript(
+								dynCode,
+								dynLang,
+								deployedFlowPath,
+								operatingUser.current?.operator
+							)}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
 							{diff}
@@ -486,7 +496,7 @@
 
 						{@render runButton?.()}
 
-						{#if dynamicFunctions.length > 0}
+						{#if dynamicFunctions.length > 0 && !$operatorBuilderFlows}
 							<Section
 								label="Dynamic input functions"
 								collapsable={true}
@@ -815,7 +825,7 @@
 																				{#each typeOptions as x}
 																					<ToggleButton value={x[1]} label={x[0]} {item} />
 																				{/each}
-																				{#if showDynOpt}
+																				{#if showDynOpt && !$operatorBuilderFlows}
 																					{#each DYNAMIC_OPTIONS as x}
 																						<ToggleButton value={x[1]} label={x[0]} {item} />
 																					{/each}

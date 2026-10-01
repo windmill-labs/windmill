@@ -12,12 +12,14 @@
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { ResourceService } from '$lib/gen'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import type { FlowEditorContext } from '../types'
 	import { logReusableAgentUsage } from '../agentTelemetry'
 	import { BotIcon, Loader2, Plus } from 'lucide-svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	const dispatch = createEventDispatcher()
 	interface Props {
@@ -52,7 +54,11 @@
 		| 'failure'
 		| 'aisandbox'
 		| 'aiagent' = $state(untrack(() => kind))
-	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
+	// Builders compose what the workspace already deployed: hub scripts bring in code nobody here
+	// reviewed, and the backend refuses them, so never open on the hub for them.
+	let preFilter: 'all' | 'workspace' | 'hub' = $state(
+		untrack(() => $operatorBuilderFlows) ? 'workspace' : 'all'
+	)
 	let loading = $state(false)
 	let small = $derived(smallProp ?? (kind === 'preprocessor' || kind === 'failure'))
 
@@ -73,7 +79,8 @@
 	let savedAgentsLoading = $state(false)
 	let savedAgentsWs: string | undefined = undefined
 	async function loadSavedAgents() {
-		if (!ws || savedAgentsWs === ws) {
+		// The backend refuses a linked agent in a builder's flow.
+		if (!ws || savedAgentsWs === ws || $operatorBuilderFlows) {
 			return
 		}
 		savedAgentsLoading = true
@@ -185,13 +192,13 @@
 		<StepGenQuick
 			bind:this={stepGen}
 			on:escape={() => dispatch('close')}
-			{disableAi}
+			disableAi={disableAi || $operatorBuilderFlows}
 			on:insert
 			bind:funcDesc
 			{preFilter}
 			{loading}
 		/>
-		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
+		{#if selectedKind != 'preprocessor' && selectedKind != 'flow' && !$operatorBuilderFlows}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
 		<RefreshButton
@@ -317,7 +324,7 @@
 							}}
 						/>
 					{/if}
-					{#if customUi?.aiSandbox != false}
+					{#if customUi?.aiSandbox != false && !$operatorBuilderFlows}
 						<TopLevelNode
 							label="AI Sandbox"
 							selected={selectedKind === 'aisandbox'}
@@ -353,7 +360,9 @@
 						<kbd class="!text-xs">&crarr;</kbd>
 					{/if}
 				</Button>
-				{#if savedAgentsLoading}
+				{#if $operatorBuilderFlows}
+					<!-- Linked agents are refused to builders, see `loadSavedAgents`. -->
+				{:else if savedAgentsLoading}
 					<div class="flex items-center gap-2 p-2 text-xs text-tertiary">
 						<Loader2 size={13} class="animate-spin" /> Loading saved agents
 					</div>

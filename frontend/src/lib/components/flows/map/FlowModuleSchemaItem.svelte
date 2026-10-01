@@ -35,6 +35,9 @@
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import MoveHandleButton from '$lib/components/graph/MoveHandleButton.svelte'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	interface Props {
 		selected?: boolean
@@ -128,6 +131,12 @@
 
 	let newId: string = $state(untrack(() => id) ?? '')
 
+	let mod = $derived(
+		id && flowStore?.val?.value ? dfsPreviousResults(id, flowStore.val, false)[0] : undefined
+	)
+	// A script step is tested as a script preview, which operators are refused: running the
+	// deployed runnable is left to "Test flow".
+	let builderCannotTestStep = $derived($operatorBuilderFlows && mod?.value.type === 'script')
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let hover = $state(false)
@@ -234,8 +243,6 @@
 {/if}
 
 {#if deletable && id && flowStore && outputPickerVisible}
-	{@const flowStoreVal = flowStore.val}
-	{@const mod = flowStoreVal?.value ? dfsPreviousResults(id, flowStoreVal, false)[0] : undefined}
 	{#if mod && flowStateStore?.val?.[id]}
 		<ModuleTest
 			bind:this={moduleTest}
@@ -454,7 +461,7 @@
 			onmouseenter={() => (hover = true)}
 			onmouseleave={() => (hover = false)}
 		>
-			{#if !isMultiSelected && (hover || selected || testRunDropdownOpen) && outputPickerVisible}
+			{#if !isMultiSelected && (hover || selected || testRunDropdownOpen) && outputPickerVisible && !builderCannotTestStep}
 				<div class="bg-surface rounded-md" transition:fade={{ duration: 100 }} data-run-button={id}>
 					{#if !testIsLoading}
 						<Button
