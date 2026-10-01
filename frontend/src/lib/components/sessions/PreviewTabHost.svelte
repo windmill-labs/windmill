@@ -380,6 +380,7 @@
 						version={pinnedVersion}
 						{workspaceId}
 						tabId={tab.id}
+						container={overlayHostEl}
 						active={active && !collapsed}
 					/>
 				{/await}

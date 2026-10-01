@@ -30,11 +30,14 @@
 		version,
 		workspaceId,
 		tabId,
+		container,
 		active = true
 	}: {
 		runtime: SessionRuntime
 		/** The preview tab hosting this view, which its in-place moves re-point. */
 		tabId: string
+		/** The tab's host element, which also holds the overlays the page portals out. */
+		container: HTMLElement | undefined
 		kind: SessionTargetKind
 		path: string
 		/** Deployed version this tab is pinned to, from its URL's `?version=`. */
@@ -146,27 +149,36 @@
 		})
 	}
 
-	// Every in-app link the page renders, not only the ones that call `onNavigate`: a plain
-	// anchor followed by the browser would take it out of the session. Runs after the link's
-	// own handlers, so a click one of them already routed is left alone.
-	function routeLinkClick(e: MouseEvent): void {
-		if (e.defaultPrevented || e.button !== 0) return
-		if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-		const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
-		if (!a || (a.target && a.target !== '_self') || a.hasAttribute('download')) return
-		if (a.getAttribute('href')?.startsWith('#')) return
-		const url = new URL(a.href, window.location.href)
-		if (url.origin !== window.location.origin) return
-		e.preventDefault()
-		onNavigate(`${url.pathname}${url.search}`)
-	}
+	// Every in-app link under the tab, not only the ones that call `onNavigate`: a plain anchor
+	// followed by the browser would take it out of the session. `container` is the tab's host,
+	// which also holds the drawers the page portals out of this component. Listened for on
+	// `body`, between the link's own handlers (Svelte delegates them to the app root inside it)
+	// and SvelteKit's router (on the document element), so it leaves alone a click a handler
+	// already took and beats the router to the rest. A `#` link is a control's own; followed,
+	// it would write into the sessions page's hash.
+	$effect(() => {
+		const el = container
+		if (!el) return
+		function onClick(e: MouseEvent) {
+			if (e.defaultPrevented || e.button !== 0) return
+			if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+			const target = e.target as Element | null
+			if (!target || !el!.contains(target)) return
+			const a = target.closest?.('a[href]') as HTMLAnchorElement | null
+			if (!a || (a.target && a.target !== '_self') || a.hasAttribute('download')) return
+			const url = new URL(a.href, window.location.href)
+			if (url.origin !== window.location.origin) return
+			e.preventDefault()
+			if (a.getAttribute('href')?.startsWith('#')) return
+			onNavigate(`${url.pathname}${url.search}`)
+		}
+		document.body.addEventListener('click', onClick)
+		return () => document.body.removeEventListener('click', onClick)
+	})
 </script>
 
 <!-- Remount to refetch: both detail components load on mount, so a deploy lands here
      rather than as a refresh path of their own. -->
-<!-- Not a control: it only routes the clicks links inside it receive, Enter included. -->
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="contents" onclick={routeLinkClick}>
 	{#key loadKey}
 		{@const mountedKey = loadKey}
 		{@const setLoadState = (state: 'loaded' | 'not_found') => onLoadState(mountedKey, state)}
@@ -214,4 +226,3 @@
 			/>
 		{/if}
 	{/key}
-</div>
