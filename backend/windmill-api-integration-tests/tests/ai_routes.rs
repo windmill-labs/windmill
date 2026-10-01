@@ -232,3 +232,43 @@ async fn test_ai_proxy_x_resource_path_enforces_rls(db: Pool<Postgres>) -> anyho
 
     Ok(())
 }
+
+/// An unsaved resource value sent in X-Resource-Value is used as the credentials,
+/// with nothing configured or stored in the workspace.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_ai_proxy_x_resource_value(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    std::env::set_var("ALLOW_PRIVATE_AI_BASE_URLS", "true");
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let mock_port = start_mock_ai_api().await;
+    let value = json!({
+        "api_key": "sk-unsaved",
+        "base_url": format!("http://127.0.0.1:{mock_port}/v1"),
+    })
+    .to_string();
+    let encoded: String = value.bytes().map(|b| format!("%{b:02X}")).collect();
+
+    let resp = authed(
+        client()
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/ai/proxy/chat/completions"
+            ))
+            .header("X-Provider", "openai")
+            .header("X-Resource-Value", encoded)
+            .json(&json!({
+                "model": "gpt-4",
+                "messages": [{"role": "user", "content": "hi"}]
+            })),
+    )
+    .send()
+    .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "X-Resource-Value with an unsaved resource",
+    );
+
+    Ok(())
+}

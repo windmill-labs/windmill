@@ -1220,7 +1220,30 @@ async fn proxy(
     // Set when serving the request through Windmill's free AI tier (the lent key). Holds
     // the per-user concurrency lock and drives response metering.
     let mut free_lease: Option<crate::ai_free_tier_oss::FreeTierLease> = None;
+    // An unsaved resource value (percent-encoded JSON), so a resource can be tested
+    // before it is stored. `$var:` references resolve as the caller, like a
+    // user-specified resource path.
+    let inline_resource = headers
+        .get("X-Resource-Value")
+        .map(|v| {
+            let decoded = urlencoding::decode(v.to_str().unwrap_or(""))
+                .map_err(|e| Error::BadRequest(format!("Invalid X-Resource-Value: {e}")))?;
+            serde_json::from_str::<AIResource>(&decoded)
+                .map_err(|e| Error::BadRequest(format!("Invalid X-Resource-Value: {e}")))
+        })
+        .transpose()?;
+
     let mut credentials = 'cred: {
+        if let Some(resource) = inline_resource {
+            break 'cred resolve_provider_credentials(
+                &provider,
+                &db,
+                &w_id,
+                resource,
+                Some(&authed),
+            )
+            .await?;
+        }
         match workspace_cache {
             Some(request_cache)
                 if !request_cache.is_expired() && forced_resource_path.is_none() =>
