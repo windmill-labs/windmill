@@ -4,6 +4,7 @@
 	import Button from '../common/button/Button.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import { AI_PROVIDERS, testKey } from './lib'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		disabled?: boolean
@@ -27,14 +28,14 @@
 	}: Props = $props()
 
 	let loading = $state(false)
-	let typedModel = $state('')
-
-	// Providers without a model list (custom endpoints) cannot be tested until one is named.
-	let knownModel = $derived(model ?? AI_PROVIDERS[aiProvider]?.defaultModels[0])
+	// Without a model from the caller the default is only a guess: deployment-named
+	// providers (Azure, Bedrock, custom endpoints) reject a model the account lacks,
+	// which would read as an invalid key, so the guess stays editable.
+	let typedModel = $state(untrack(() => AI_PROVIDERS[aiProvider]?.defaultModels[0] ?? ''))
 </script>
 
 <div class="flex flex-row items-center gap-1">
-	{#if !knownModel}
+	{#if !model}
 		<TextInput
 			bind:value={typedModel}
 			size="md"
@@ -44,7 +45,7 @@
 	<Button
 		unifiedSize="md"
 		variant="default"
-		disabled={disabled || (!knownModel && !typedModel.trim())}
+		disabled={disabled || (!model && !typedModel.trim())}
 		{loading}
 		onClick={async () => {
 			loading = true
@@ -67,7 +68,7 @@
 					],
 					abortController,
 					aiProvider,
-					model: knownModel ?? typedModel.trim()
+					model: model ?? typedModel.trim()
 				})
 				sendUserToast('Valid key')
 			} catch (err) {

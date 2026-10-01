@@ -233,41 +233,75 @@ async fn test_ai_proxy_x_resource_path_enforces_rls(db: Pool<Postgres>) -> anyho
     Ok(())
 }
 
-/// An unsaved resource value sent in X-Resource-Value is used as the credentials,
-/// with nothing configured or stored in the workspace.
+/// An unsaved resource value sent in X-Resource-Value is what the upstream is called
+/// with, and a scoped token cannot use it to read a variable outside its scopes.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_ai_proxy_x_resource_value(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use axum::{http::HeaderMap, http::StatusCode, routing::post, Json, Router};
+
     initialize_tracing().await;
     std::env::set_var("ALLOW_PRIVATE_AI_BASE_URLS", "true");
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let mock_port = start_mock_ai_api().await;
-    let value = json!({
-        "api_key": "sk-unsaved",
-        "base_url": format!("http://127.0.0.1:{mock_port}/v1"),
-    })
-    .to_string();
-    let encoded: String = value.bytes().map(|b| format!("%{b:02X}")).collect();
+    // Only answers the key carried by the header, so another credential source fails.
+    let app = Router::new().fallback(post(|headers: HeaderMap| async move {
+        if headers.get("authorization").and_then(|v| v.to_str().ok()) == Some("Bearer sk-unsaved") {
+            Ok(Json(json!({
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "choices": [{"message": {"role": "assistant", "content": "hello"}}]
+            })))
+        } else {
+            Err(StatusCode::UNAUTHORIZED)
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let base_url = format!("http://127.0.0.1:{}/v1", listener.local_addr()?.port());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-    let resp = authed(
-        client()
-            .post(format!(
-                "http://localhost:{port}/api/w/test-workspace/ai/proxy/chat/completions"
-            ))
-            .header("X-Provider", "openai")
-            .header("X-Resource-Value", encoded)
-            .json(&json!({
-                "model": "gpt-4",
-                "messages": [{"role": "user", "content": "hi"}]
-            })),
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes) \
+         VALUES (encode(sha256('SCOPED_AI_TOKEN'::bytea), 'hex'), 'SCOPED_AI_', 'SCOPED_AI_TOKEN', \
+                 'test@windmill.dev', 'scoped', true, ARRAY['ai:write', 'resources:write'])",
     )
-    .send()
+    .execute(&db)
     .await?;
+
+    let send = |api_key: &'static str, token: &'static str| {
+        let value = json!({ "api_key": api_key, "base_url": base_url }).to_string();
+        let encoded: String = value.bytes().map(|b| format!("%{b:02X}")).collect();
+        authed_with(
+            client()
+                .post(format!(
+                    "http://localhost:{port}/api/w/test-workspace/ai/proxy/chat/completions"
+                ))
+                .header("X-Provider", "openai")
+                .header("X-Resource-Value", encoded)
+                .json(&json!({
+                    "model": "gpt-4",
+                    "messages": [{"role": "user", "content": "hi"}]
+                })),
+            token,
+        )
+        .send()
+    };
+
+    let resp = send("sk-unsaved", "SECRET_TOKEN").await?;
     assert_2xx(
         resp.status().as_u16(),
         &resp.text().await?,
         "X-Resource-Value with an unsaved resource",
+    );
+
+    let resp = send("sk-other", "SECRET_TOKEN").await?;
+    assert!(resp.status().as_u16() >= 400, "a different key must reach the upstream as is");
+
+    let resp = send("$var:u/test-user/secret", "SCOPED_AI_TOKEN").await?;
+    let body = resp.text().await?;
+    assert!(
+        body.contains("variables:read:u/test-user/secret"),
+        "a token without variables:read must not resolve a $var: reference, got: {body}"
     );
 
     Ok(())

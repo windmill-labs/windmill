@@ -1062,6 +1062,16 @@ where
     }
 }
 
+/// Paths of every `$var:` reference found anywhere in a resource value.
+fn var_references(value: &serde_json::Value) -> Vec<&str> {
+    match value {
+        serde_json::Value::String(s) => s.strip_prefix("$var:").into_iter().collect(),
+        serde_json::Value::Array(items) => items.iter().flat_map(var_references).collect(),
+        serde_json::Value::Object(fields) => fields.values().flat_map(var_references).collect(),
+        _ => vec![],
+    }
+}
+
 async fn global_proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1221,15 +1231,22 @@ async fn proxy(
     // the per-user concurrency lock and drives response metering.
     let mut free_lease: Option<crate::ai_free_tier_oss::FreeTierLease> = None;
     // An unsaved resource value (percent-encoded JSON), so a resource can be tested
-    // before it is stored. `$var:` references resolve as the caller, like a
-    // user-specified resource path.
+    // before it is stored. `$var:` references resolve as the caller, and since the
+    // caller also picks the base URL they are sent to, a scoped token needs the same
+    // scopes as storing the resource and reading each variable would.
     let inline_resource = headers
         .get("X-Resource-Value")
         .map(|v| {
-            let decoded = urlencoding::decode(v.to_str().unwrap_or(""))
-                .map_err(|e| Error::BadRequest(format!("Invalid X-Resource-Value: {e}")))?;
-            serde_json::from_str::<AIResource>(&decoded)
-                .map_err(|e| Error::BadRequest(format!("Invalid X-Resource-Value: {e}")))
+            let invalid = |e: String| Error::BadRequest(format!("Invalid X-Resource-Value: {e}"));
+            let decoded =
+                urlencoding::decode(v.to_str().unwrap_or("")).map_err(|e| invalid(e.to_string()))?;
+            let value = serde_json::from_str::<serde_json::Value>(&decoded)
+                .map_err(|e| invalid(e.to_string()))?;
+            check_scopes(&authed, || "resources:write".to_string())?;
+            for path in var_references(&value) {
+                check_scopes(&authed, || format!("variables:read:{path}"))?;
+            }
+            serde_json::from_value::<AIResource>(value).map_err(|e| invalid(e.to_string()))
         })
         .transpose()?;
 
