@@ -2287,7 +2287,9 @@ fn check_operator_composed_app(
     }
     let mut referenced: Vec<(bool, String)> = Vec::new();
     if let Some(value) = value {
-        let value: serde_json::Value = serde_json::from_str(value.get()).map_err(to_anyhow)?;
+        // The text stored, NULs stripped: a stripped NUL can rename a key into one this reads.
+        let value: serde_json::Value =
+            serde_json::from_str(&strip_json_nul(value.get())).map_err(to_anyhow)?;
         if app_value_has_inline_script(&value) {
             return Err(Error::PermissionDenied(
                 "Operators with builder rights cannot deploy an app carrying inline scripts"

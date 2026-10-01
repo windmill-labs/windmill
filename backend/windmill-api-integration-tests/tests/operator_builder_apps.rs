@@ -48,29 +48,30 @@ async fn add_script(db: &Pool<Postgres>, hash: i64, path: &str, owner: &str) -> 
 }
 
 /// A full-code app is deployed multipart, the way the editor and the CLI use it.
-fn raw_app(path: &str, mode: &str, runnable_path: &str) -> reqwest::multipart::Form {
+fn raw_app_form(app: serde_json::Value) -> reqwest::multipart::Form {
     reqwest::multipart::Form::new()
         .part(
             "app",
-            reqwest::multipart::Part::text(
-                json!({
-                    "path": path,
-                    "summary": "",
-                    "value": {"files": {}, "runnables": {"r": {
-                        "name": "r", "type": "runnableByPath", "runType": "script",
-                        "path": runnable_path
-                    }}},
-                    "policy": {"execution_mode": mode, "triggerables_v2": {}}
-                })
-                .to_string(),
-            )
-            .mime_str("application/json")
-            .unwrap(),
+            reqwest::multipart::Part::text(app.to_string())
+                .mime_str("application/json")
+                .unwrap(),
         )
         .part(
             "js",
             reqwest::multipart::Part::text("console.log(1)").file_name("app.js"),
         )
+}
+
+fn raw_app(path: &str, mode: &str, runnable_path: &str) -> reqwest::multipart::Form {
+    raw_app_form(json!({
+        "path": path,
+        "summary": "",
+        "value": {"files": {}, "runnables": {"r": {
+            "name": "r", "type": "runnableByPath", "runType": "script",
+            "path": runnable_path
+        }}},
+        "policy": {"execution_mode": mode, "triggerables_v2": {}}
+    }))
 }
 
 fn composition_flow(path: &str) -> serde_json::Value {
@@ -166,6 +167,26 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
         "a builder must not deploy a viewer-mode app: the policy stops bounding what it can invoke"
     );
 
+    // Storage strips a NUL, turning this key into `inlineScript`.
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app_form(json!({
+            "path": "u/operator/a_nul", "summary": "",
+            "value": {"files": {}, "runnables": {"r": {
+                "type": "inline",
+                "inline\u{0}Script": {"content": "x", "language": "bun"}
+            }}},
+            "policy": {"execution_mode": "publisher", "triggerables_v2": {}}
+        })))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a NUL in a key must not hide an inline script: {}",
+        resp.text().await?
+    );
+
     let resp = c
         .post(format!("{api}/apps/create_raw"))
         .multipart(raw_app(
@@ -197,30 +218,13 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
     // a key with a second colon still resolves at run time and must not slip past validation.
     let resp = c
         .post(format!("{api}/apps/create_raw"))
-        .multipart(
-            reqwest::multipart::Form::new()
-                .part(
-                    "app",
-                    reqwest::multipart::Part::text(
-                        json!({
-                            "path": "u/operator/a6", "summary": "",
-                            "value": {"files": {}, "runnables": {}},
-                            "policy": {"execution_mode": "publisher", "triggerables_v2": {
-                                "x:y:script/u/alice/private": {
-                                    "static_inputs": {}, "one_of_inputs": {}
-                                }
-                            }}
-                        })
-                        .to_string(),
-                    )
-                    .mime_str("application/json")
-                    .unwrap(),
-                )
-                .part(
-                    "js",
-                    reqwest::multipart::Part::text("console.log(1)").file_name("app.js"),
-                ),
-        )
+        .multipart(raw_app_form(json!({
+            "path": "u/operator/a6", "summary": "",
+            "value": {"files": {}, "runnables": {}},
+            "policy": {"execution_mode": "publisher", "triggerables_v2": {
+                "x:y:script/u/alice/private": {"static_inputs": {}, "one_of_inputs": {}}
+            }}
+        })))
         .send()
         .await?;
     assert!(
