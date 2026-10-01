@@ -1447,6 +1447,8 @@ const CLEANED_VALUE_KEYS = new Set([
 	'other_drafts_users',
 	'created_at',
 	'created_by',
+	'edited_at',
+	'edited_by',
 	'workspace_id',
 	'parent_hashes',
 	'lock_error_logs'
