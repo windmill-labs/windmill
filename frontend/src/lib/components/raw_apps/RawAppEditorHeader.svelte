@@ -323,8 +323,9 @@
 		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
 		return w > 0 && w < compactBelow
 	})
-	// A phone's bar holds the trail and Deploy. The file sidebar's toggle, Jobs and the export
-	// join the menu that compact already shows.
+	// A phone's bar keeps the trail, the file sidebar's toggle, Diff and Deploy. AI stands down —
+	// the sidebar's own Ask AI is the way in at that width — while Jobs and the export are already
+	// in the menu, Jobs from `compactTopbar` (true at any phone width) and the export always.
 	const phoneTopbar = $derived(
 		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
 	)
@@ -933,7 +934,14 @@
 	     the breadcrumb's, and everything else the bar carried rides along as the header's actions.
 	     The path is a plain label there — this editor renames from its deploy drawer. -->
 	<PageHeaderContent
-		item={{ kind: 'app', path: appPath || newPath || undefined, summaryContent: appSummary }}
+		item={{
+			// The path being edited, not the stored one: a brand-new app is parked at a
+			// `draft_<uuid>` placeholder, and the trail would name that instead of the path Deploy
+			// will create — which is why `newEditedPath` refuses the placeholder above.
+			kind: 'app',
+			path: newEditedPath || appPath || newPath || undefined,
+			summaryContent: appSummary
+		}}
 		actions={rawAppHeaderActions}
 		contexts={headerContexts}
 	/>
@@ -1010,16 +1018,19 @@
 
 {#snippet appSummary()}
 	<!-- The summary stays editable where the editor's own bar had it; the path beside it is the
-	     breadcrumb, which this editor renames from its deploy drawer. -->
-	<EditableInput
-		value={summary ?? ''}
-		placeholder="Add a summary..."
-		commitOnInput
-		size="sm"
-		onSave={(v) => (summary = v.trim())}
-		textClass="text-xs font-medium text-emphasis leading-tight"
-		class="max-w-full min-w-0"
-	/>
+	     breadcrumb, which this editor renames from its deploy drawer. `title` so a summary the
+	     band truncates can still be read, the way the editor's own bar did it. -->
+	<div class="max-w-full min-w-0" title={summary}>
+		<EditableInput
+			value={summary ?? ''}
+			placeholder="Add a summary..."
+			commitOnInput
+			size="sm"
+			onSave={(v) => (summary = v.trim())}
+			textClass="text-xs font-medium text-emphasis leading-tight"
+			class="max-w-full min-w-0"
+		/>
+	</div>
 {/snippet}
 
 {#snippet rawAppHeaderActions()}
@@ -1091,10 +1102,9 @@
 			</div>
 		</Button>
 	</div>
-	<!-- Hidden, not unmounted: the menu's own Export entry calls into this instance. -->
-	<span class={phoneTopbar ? 'hidden' : 'contents'}>
-		<AppExportButton bind:this={appExport} />
-	</span>
+	<!-- Draws nothing in the bar: it is the export drawer, opened from the menu's Export entry
+	     through this instance. -->
+	<AppExportButton bind:this={appExport} />
 	{#if !phoneTopbar}
 		<OpenInSessionButton source={sessionOpen}>
 			{#snippet fallback()}

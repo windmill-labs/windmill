@@ -943,7 +943,14 @@
 	<!-- The editor's own top bar is the page header on this route: the app's path and summary are
 	     the breadcrumb's, and everything else the bar carried rides along as the header's actions. -->
 	<PageHeaderContent
-		item={{ kind: 'app', path: $appPath || newPath || undefined, summaryContent: appSummary }}
+		item={{
+			// The path being edited, not the stored one: a brand-new app is parked at a
+			// `draft_<uuid>` placeholder, and the trail would name that instead of the path Deploy
+			// will create. Same chain the rename sites read, and what the editor's own bar showed.
+			kind: 'app',
+			path: newEditedPath || $appPath || newPath || undefined,
+			summaryContent: appSummary
+		}}
 		actions={appHeaderActions}
 		contexts={headerContexts}
 	/>
@@ -979,16 +986,19 @@
 
 {#snippet appSummary()}
 	<!-- The summary stays editable where the editor's own bar had it; the path beside it is the
-	     breadcrumb, which this editor renames from its deploy drawer. -->
-	<EditableInput
-		value={$summary ?? ''}
-		placeholder="Add a summary..."
-		commitOnInput
-		size="sm"
-		onSave={(v) => ($summary = v.trim())}
-		textClass="text-xs font-medium text-emphasis leading-tight"
-		class="max-w-full min-w-0"
-	/>
+	     breadcrumb, which this editor renames from its deploy drawer. `title` so a summary the
+	     band truncates can still be read, the way the editor's own bar did it. -->
+	<div class="max-w-full min-w-0" title={$summary}>
+		<EditableInput
+			value={$summary ?? ''}
+			placeholder="Add a summary..."
+			commitOnInput
+			size="sm"
+			onSave={(v) => ($summary = v.trim())}
+			textClass="text-xs font-medium text-emphasis leading-tight"
+			class="max-w-full min-w-0"
+		/>
+	</div>
 {/snippet}
 
 {#snippet appHeaderActions()}
@@ -1213,11 +1223,10 @@
 				</div>
 			</Button>
 		</div>
-		<!-- The export is in the menu on a phone; the preview switch keeps its place there, since
+		<!-- Draws nothing in the bar: it is the export drawer, opened from the menu's Export
+		     entries through this instance. The preview switch keeps its place on a phone, since
 		     seeing the app is most of what an app editor is good for on one. -->
-		<div class={phoneTopbar ? 'hidden' : 'contents'}>
-			<AppExportButton bind:this={appExport} />
-		</div>
+		<AppExportButton bind:this={appExport} />
 		<PreviewToggle loading={loading.save} iconOnly={phoneTopbar} />
 		<Button
 			variant="accent"

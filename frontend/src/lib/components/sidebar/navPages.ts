@@ -17,10 +17,11 @@ import type { OperatorPageKey } from './operatorRoutes'
  * The names the page header's breadcrumb gives the workspace's own pages, and the rows the
  * sidebar's main group is built from.
  *
- * Every entry names a page for the breadcrumb. Only the entries `SidebarContent`'s
- * `MAIN_MENU_EXTRAS` also lists become sidebar links from here — Schedules, HTTP routes, Workers
- * and Audit logs are grouped differently there and carry their own row, so for those four the
- * `icon` and `operatorKey` below go unread. Keep the labels in step with those rows by hand.
+ * Every entry names a page for the breadcrumb, and its `icon` goes there too. Only the entries
+ * `SidebarContent`'s `MAIN_MENU_EXTRAS` also lists become sidebar links from here — Schedules,
+ * HTTP routes, Workers and Audit logs are grouped differently there and carry their own row, so
+ * for those four the `operatorKey` below goes unread. Keep the labels in step with those rows by
+ * hand.
  */
 export type NavPage = {
 	label: string
