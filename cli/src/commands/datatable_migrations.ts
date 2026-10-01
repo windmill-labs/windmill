@@ -243,13 +243,6 @@ export async function pushMigrationFromDisk(
 }
 
 /**
- * Upsert the on-disk migrations of a data table to the workspace, so a freshly
- * created migration file works with `wmill datatable migrate up` even without a
- * prior `wmill sync push`. Pushes only migrations that are new or edited
- * (compared against the workspace's current definitions); it never deletes
- * remote migrations absent on disk and never touches other item kinds.
- */
-/**
  * The local migrations of a data table, identified by their `.up.sql` file (the
  * up file is mandatory); files only deleted locally are deliberately ignored.
  */
@@ -266,6 +259,13 @@ export function listLocalMigrations(
   return local;
 }
 
+/**
+ * Upsert the on-disk migrations of a data table to the workspace, so a freshly
+ * created migration file works with `wmill datatable migrate up` even without a
+ * prior `wmill sync push`. Pushes only migrations that are new or edited
+ * (compared against the workspace's current definitions); it never deletes
+ * remote migrations absent on disk and never touches other item kinds.
+ */
 export async function pushLocalMigrations(
   workspace: string,
   datatableName: string,
