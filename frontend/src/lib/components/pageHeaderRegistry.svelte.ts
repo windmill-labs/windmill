@@ -31,9 +31,11 @@ export type PageHeaderContent = {
 	/** Orders these buttons among the other registrations', ascending; registration order breaks a
 	 *  tie. For a menu that must stay at the far end however many pages register before it. */
 	actionsOrder?: number
-	/** These actions include something that can give width back — a search field rather than a row
-	 *  of buttons. On a phone the bar then lets their box shrink; without it the box holds its
-	 *  content width, because squeezing a row of buttons only pushes them out of the bar. */
+	/** These actions can give width back under pressure, so the bar lets their box shrink on a
+	 *  phone. Two ways to earn it: a control that is narrower when it has to be (the Runs filter
+	 *  row, whose search field yields), or a set that scrolls inside its own box (the app and
+	 *  pipeline editors, whose rows are too wide for any bar). Without it the box holds its content
+	 *  width, because squeezing a plain row of buttons only pushes them out of the bar. */
 	actionsFlexible?: boolean
 	/** Rendered right after the page's name in the breadcrumb: a mark that belongs to the name,
 	 *  like a documentation tooltip, or a control that acts on the thing named — an app's Edit,
