@@ -166,6 +166,11 @@ fn build_registry_request(
     }
 
     let mut req = HTTP_CLIENT.get(url);
+    // A packument may point a tarball at another port or plain http on the same host;
+    // credentials, often a real password, only go to the registry's own origin.
+    if parsed_url.origin() != parsed_base.origin() {
+        return Ok(req);
+    }
     match auth {
         Some(RegistryAuth::Bearer(token)) => req = req.bearer_auth(token),
         Some(RegistryAuth::Basic(credentials)) => {

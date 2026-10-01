@@ -2259,13 +2259,14 @@ pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<Regis
     let url_without_protocol = url.trim_start_matches("https:").trim_start_matches("http:");
     let url_prefix = url_without_protocol.trim_end_matches('/');
 
-    // Later lines override earlier ones and an empty value is unset, as in npm's config.
+    // As in npm's config, the last assignment wins, and an empty one unsets the key.
     let get = |prefix: &str, key: &str| {
         scoped_keys
             .iter()
             .rev()
-            .find(|(p, k, v)| p == prefix && k == key && !v.is_empty())
+            .find(|(p, k, _)| p == prefix && k == key)
             .map(|(_, _, value)| value.clone())
+            .filter(|value| !value.is_empty())
     };
     let auth_at = |prefix: &str| {
         if let Some(token) = get(prefix, "_authToken") {
@@ -2280,14 +2281,19 @@ pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<Regis
                 GeneralPurposeConfig::new()
                     .with_decode_padding_mode(DecodePaddingMode::Indifferent),
             );
-            let password = lenient
+            match lenient
                 .decode(&password)
                 .ok()
                 .and_then(|p| String::from_utf8(p).ok())
-                .unwrap_or(password);
-            Some(RegistryAuth::Basic(
-                STANDARD.encode(format!("{username}:{password}")),
-            ))
+            {
+                Some(password) => Some(RegistryAuth::Basic(
+                    STANDARD.encode(format!("{username}:{password}")),
+                )),
+                None => {
+                    tracing::warn!("npmrc _password for {prefix} is not base64, ignoring it");
+                    None
+                }
+            }
         } else {
             None
         }
@@ -2396,6 +2402,11 @@ mod npmrc_tests {
                 "{base}//r.example.com/:_authToken=\n{auth}//r.example.com/:_auth=y\n"
             )),
             Some(RegistryAuth::Basic("y".to_string()))
+        );
+        // An empty assignment clears an earlier value rather than being skipped
+        assert_eq!(
+            parse(format!("{base}{auth}//r.example.com/:_auth=\n{user_pass}")),
+            Some(RegistryAuth::Basic("b3RoZXI6eA==".to_string()))
         );
     }
 
