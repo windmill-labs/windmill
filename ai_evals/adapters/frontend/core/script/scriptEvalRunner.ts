@@ -15,6 +15,7 @@ import { runEval } from "../shared";
 import type { ModeRunContext } from "../../../../core/types";
 import type { TokenUsage, ToolCallDetail } from "../shared/types";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
+import { evalReasoningEffort } from "../shared/providerConfig";
 
 export interface ScriptEvalResult {
   success: boolean;
@@ -41,14 +42,15 @@ export interface ScriptEvalOptions {
 function resolveModelProvider(
   model: string,
   provider?: AIProvider,
-): AIProviderModel {
+): AIProviderModel & { reasoning?: string } {
+  const reasoning = evalReasoningEffort();
   if (provider) {
-    return { provider, model };
+    return { provider, model, reasoning };
   }
   if (model.startsWith("claude")) {
-    return { provider: "anthropic", model };
+    return { provider: "anthropic", model, reasoning };
   }
-  return { provider: "openai", model };
+  return { provider: "openai", model, reasoning };
 }
 
 export async function runScriptEval(

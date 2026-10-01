@@ -28,12 +28,16 @@
 	type MenuItemButton = {
 		label: string
 		Icon: any
-		onclick: () => void
+		onclick: (e: MouseEvent) => void
 		color?: 'red'
+		disabled?: boolean
 	}
 
-	const triggerContext = getContext<TriggerContext>('TriggerContext')
-	const { triggersCount, triggersState } = $state(triggerContext)
+	// An agent's page has no triggers, and so no context for them.
+	const triggerContext = getContext<TriggerContext | undefined>('TriggerContext')
+	const { triggersCount, triggersState } = $state(
+		triggerContext ?? ({} as Partial<TriggerContext>)
+	)
 	// The buttons below render in the page header, away from this page's tree.
 	const headerContexts = new Map<any, any>([['TriggerContext', triggerContext]])
 
@@ -42,15 +46,18 @@
 		menuItems?: MenuItemButton[]
 		summary?: string
 		path?: string
-		tag: string | undefined
-		errorHandlerKind: 'flow' | 'script'
-		scriptOrFlowPath: string
-		errorHandlerMuted: boolean | undefined
+		tag?: string | undefined
+		/** Unset for what has no workspace error handler to mute, such as an agent. */
+		errorHandlerKind?: 'flow' | 'script'
+		scriptOrFlowPath?: string
+		errorHandlerMuted?: boolean | undefined
 		labels?: string[] | undefined
 		inheritedLabels?: string[] | undefined
 		onSaved?: (newPath: string) => void
 		children?: import('svelte').Snippet
 		trigger_badges?: import('svelte').Snippet
+		/** Controls ahead of the menu, such as the way an agent's page runs it. */
+		leading_actions?: import('svelte').Snippet
 	}
 
 	let {
@@ -66,7 +73,8 @@
 		inheritedLabels = undefined,
 		onSaved,
 		children,
-		trigger_badges
+		trigger_badges,
+		leading_actions
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -88,6 +96,7 @@
 	}
 
 	async function toggleErrorHandler() {
+		if (!errorHandlerKind || !scriptOrFlowPath) return
 		const next = await toggleWorkspaceErrorHandler(
 			errorHandlerKind,
 			scriptOrFlowPath,
@@ -106,7 +115,7 @@
 			disabled: b.buttonProps.disabled,
 			type: 'action' as const
 		})),
-		...(wide
+		...(wide || !errorHandlerKind
 			? []
 			: [
 					{
@@ -120,6 +129,7 @@
 			displayName: item.label,
 			icon: item.Icon,
 			action: item.onclick,
+			disabled: item.disabled,
 			type: item.color === 'red' ? ('delete' as const) : ('action' as const),
 			separatorTop: i === 0 && !wide
 		}))
@@ -175,12 +185,13 @@
 		</Button>
 	{/if}
 	{@render trigger_badges?.()}
+	{@render leading_actions?.()}
 	{#if allMenuItems.length > 0}
 		{#key allMenuItems}
 			<DropdownV2 items={allMenuItems} placement="bottom-end" size="sm" />
 		{/key}
 	{/if}
-	{#if wide}
+	{#if wide && errorHandlerKind && scriptOrFlowPath}
 		<ErrorHandlerToggleButton
 			kind={errorHandlerKind}
 			{scriptOrFlowPath}
