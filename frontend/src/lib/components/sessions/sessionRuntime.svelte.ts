@@ -223,6 +223,13 @@ export interface SessionRuntime {
 	 * viewer refetches when this changes — it reads the deployed version from the
 	 * API, so nothing else tells it the editor beside it just published. */
 	deployedRevision(kind: SessionTargetKind, path: string): number
+	/** What a chat tool filled this item's deployed run form with, if one opened the page. */
+	seededRunArgsFor(
+		kind: SessionTargetKind,
+		path: string
+	): { args: Record<string, any>; seq: number } | undefined
+	/** Drop that note; the arguments themselves stay in the form. */
+	clearSeededRunArgs(kind: SessionTargetKind, path: string): void
 	/** Record that a preview tab landed on `url`. Fires for a newly opened tab and
 	 * for an existing one switched to the other side of its item. */
 	logTabUsage(url: string): void
@@ -564,6 +571,30 @@ function createRuntime(session: Session): SessionRuntime {
 		onTabOpened: logTabUsage
 	})
 
+	// Arguments a chat tool filled a deployed page's run form with, keyed by the item it
+	// showed. Not persisted: they belong to the turn that proposed them, and a restored tab
+	// comes back as a plain deployed page.
+	const seededRunArgs = new SvelteMap<string, { args: Record<string, any>; seq: number }>()
+	const seededKey = (kind: SessionTargetKind, path: string) => `${kind}:${path}`
+	let seededRunSeq = 0
+
+	/** What a tool filled this item's run form with, for the viewer that renders it. `seq`
+	 * identifies the request: a page already open is re-seeded rather than reopened, so a
+	 * latch on "seeded once" would leave the previous turn's arguments on screen. */
+	function seededRunArgsFor(
+		kind: SessionTargetKind,
+		path: string
+	): { args: Record<string, any>; seq: number } | undefined {
+		return seededRunArgs.get(seededKey(kind, path))
+	}
+
+	/** The reader dismissed the note above the form. The arguments stay in the fields — there
+	 * is nothing to restore them to — so this only stops the page claiming they came from the
+	 * chat. */
+	function clearSeededRunArgs(kind: SessionTargetKind, path: string): void {
+		seededRunArgs.delete(seededKey(kind, path))
+	}
+
 	// Let the jobs tray open a run in this session's preview panel (as an iframe
 	// tab over the run page). The global side-panel chat leaves this unset and
 	// falls back to a new browser tab.
@@ -580,6 +611,20 @@ function createRuntime(session: Session): SessionRuntime {
 	// proposing two jobs.
 	manager.openRunForm = ({ toolCallId, label }) => {
 		previewTabs.open({ type: 'runform', toolCallId, label })
+	}
+	// A DEPLOYED run opens the item's own page instead, with the model's arguments filled
+	// into the run form that is already there. Nothing waits on it: the tool call ends at the
+	// open, and the run is the reader's, started from that page as it would be with no chat
+	// open. `seq` rather than a flag, so a second request for a page already open re-seeds it.
+	manager.openDeployedRunPage = ({ kind, path, summary, args }) => {
+		// Through the shared adapter rather than building the item here: a session target
+		// spells a code-based app `raw_app` and a workspace item spells it `app` with a
+		// flag, and one place should know that.
+		const target = previewTargetForSessionTarget(kind, path)
+		if (target?.type !== 'item') return false
+		seededRunArgs.set(seededKey(kind, path), { args, seq: ++seededRunSeq })
+		previewTabs.open({ ...target, item: { ...target.item, summary }, mode: 'view' })
+		return true
 	}
 	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
 	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
@@ -626,6 +671,8 @@ function createRuntime(session: Session): SessionRuntime {
 		flowCell,
 		loadedEditorPath,
 		deployedRevision,
+		seededRunArgsFor,
+		clearSeededRunArgs,
 		logTabUsage,
 
 		async loadFlow(workspace: string, path: string, force = false) {

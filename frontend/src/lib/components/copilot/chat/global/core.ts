@@ -6041,6 +6041,13 @@ async function testRunScriptByPath(
 /** The "do not call again" half is load-bearing: without it the model re-proposes the
  * call, which re-opens the form the user just dismissed, and Stop becomes their only
  * way out. */
+/** Nothing ran, and saying so is the whole point: the model is about to report back, and a
+ * "started" it inferred would be wrong. The "do not call again" half is load-bearing for the
+ * same reason as the cancelled one — a re-proposal would reopen the page the reader is
+ * already looking at. */
+const deployedPageOpened = (path: string, noun: string, toolName: string) =>
+	`Opened the deployed page for "${path}" in the preview panel, with these arguments filled into its run form. The ${noun} has NOT run: the user starts it from that page, where they can also edit the arguments, schedule it, override the tag or pick a version. Do not call ${toolName} again for this. Tell the user it is ready to run; if you need the result afterwards, ask them or call get_run once they say it has run.`
+
 const runFormCancelled = (toolName: string, noun: string) =>
 	`The user cancelled the run form. The ${noun} did NOT run. Do not call ${toolName} again unless the user asks for it.`
 
@@ -6178,6 +6185,38 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// Files only: nothing rewrites `runForm.args` after this, so bytes left in it outlive the
 	// size guard that covers `parameters`.
 	const persisted = { ...form, args: redactFileArgs(proposed, schema as any) }
+
+	// A DEPLOYED run is handed to the item's own page and this call ends there. The reader
+	// runs it from the page they would have run it from anyway — with its scheduling, tag
+	// override and pinned version in reach, none of which this tool could carry — so there is
+	// no form to park on and no job for the tool to own.
+	//
+	// A TEST run has no such page: it executes the draft being written, which the deployed
+	// page does not show, so it keeps the form below. So does the bypass posture, which
+	// answers for a reader who already consented and would leave nobody to press Run.
+	if (spec.kind === 'run' && !autoAccepted && toolCallbacks.openDeployedRunPage) {
+		const handedOver = toolCallbacks.openDeployedRunPage({
+			kind: spec.contextName === 'flow' ? 'flow' : 'script',
+			path: spec.path,
+			summary: spec.summary ?? spec.path,
+			args: proposed
+		})
+		if (handedOver) {
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Opened the deployed page for "${spec.path}"`,
+				// Carried without `isLoading`, so `isActiveRunForm` reads it as settled: the card
+				// shows what was proposed and offers to reopen the page, rather than mounting a
+				// second form for a call that is already over.
+				runForm: persisted,
+				// The card settles on what the page opened with, as it would on what a form
+				// opened with: it is the record of what this call proposed.
+				parameters: persisted.args,
+				isLoading: false,
+				isStreamingArguments: false
+			})
+			return deployedPageOpened(spec.path, noun, spec.toolName)
+		}
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: autoAccepted

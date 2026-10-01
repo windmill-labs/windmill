@@ -579,6 +579,15 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 			this.#takeReturned()
 		})
 
+	/** Put a message in the composer showing this conversation, for the reader to edit and
+	 * send — a chat flow's page has no run form to fill, so this is where a chat tool's
+	 * proposed `user_message` lands. Declines when the composer already holds a draft, so it
+	 * never overwrites what the reader was typing. */
+	offerMessage(text: string): boolean {
+		if (!this.#aiChatInput || this.#disposed) return false
+		return this.#aiChatInput.restoreInstructions(text)
+	}
+
 	/** Whether a composer showing this conversation holds something not sent — text, an
 	 * attachment, a file still being read. Its panel stays mounted for as long as one does:
 	 * nothing else holds that draft. */

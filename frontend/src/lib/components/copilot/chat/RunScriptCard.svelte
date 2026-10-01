@@ -92,12 +92,24 @@
 	// "the run finished": a detached job keeps the card in its running state until
 	// the background poller lands an outcome on it or the tray sees the job end. An
 	// inspected run has no poller behind it — the status it was read at is the answer.
+	// The call ended by opening the item's deployed page: nothing ran, nothing is waiting, and
+	// the run is the reader's to start from there. An outcome of its own, so the card neither
+	// shimmers as if a job were in flight nor claims one finished.
+	const openedDeployedPage = $derived(
+		!pending &&
+			!message.isLoading &&
+			!ran &&
+			runForm?.kind === 'run' &&
+			!runForm?.submitted &&
+			!runForm?.canceled
+	)
 	const settled = $derived(
 		inspected
 			? ['success', 'failure', 'canceled'].includes(inspectedStatus ?? '')
 			: !pending &&
 					!message.isLoading &&
-					(message.result !== undefined ||
+					(openedDeployedPage ||
+						message.result !== undefined ||
 						failed ||
 						canceled ||
 						(chatJob !== undefined && ['success', 'failure', 'canceled'].includes(chatJob.status)))
@@ -170,7 +182,15 @@
 	// Inspecting is done the moment the tool returned, whatever the run it looked at is
 	// still doing — the tense belongs to the call, not to its subject.
 	const verb = $derived(
-		inspected ? 'Inspected' : running ? verbs.present : settled && ran ? verbs.past : verbs.future
+		inspected
+			? 'Inspected'
+			: openedDeployedPage
+				? 'Opened'
+				: running
+					? verbs.present
+					: settled && ran
+						? verbs.past
+						: verbs.future
 	)
 
 	// Being cancelled is an outcome like any other, and it is the one the card has to say out
@@ -185,7 +205,10 @@
 	)
 	// Streaming opens the tab early: the result is already arriving, and one that appeared
 	// only at the end would hide the thing the user is waiting to read.
-	const hasOutcome = $derived(settled || streaming)
+	// A call that ended by opening the page has no outcome to show — no job ran, so an outcome
+	// tab could only say the run returned nothing, which reads as a run that came back empty.
+	// The arguments it filled are the whole story, and `Inputs` carries those.
+	const hasOutcome = $derived(!openedDeployedPage && (settled || streaming))
 	const tabs = $derived([
 		{ value: 'input', label: 'Inputs' },
 		...(ran ? [{ value: 'logs', label: 'Logs' }] : []),
@@ -376,6 +399,11 @@
 	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
 	// the button is not drawn at all — a form has nowhere to go outside a session, and a
 	// call cancelled before Run never became a run.
+	// A deployed run never waits on a form: the tool opened the item's own page and ended, so
+	// this reopens that page — the reader may have closed the tab, or moved on and come back.
+	const asDeployedPage = $derived(
+		openedDeployedPage && !!path && !!aiChatManager.openDeployedRunPage
+	)
 	const previewTarget = $derived(
 		pending
 			? aiChatManager.openRunForm
@@ -383,20 +411,33 @@
 				: undefined
 			: job
 				? ('run' as const)
-				: undefined
+				: asDeployedPage
+					? ('deployed' as const)
+					: undefined
 	)
 	const previewTitle = $derived(
 		previewTarget === 'form'
 			? `Open this form in the preview panel: ${path}`
-			: aiChatManager.openRunInPreview
-				? `Open this run in the preview panel: ${path || runnableName}`
-				: `Open this run in a new tab: ${path || runnableName}`
+			: previewTarget === 'deployed'
+				? `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and its run form: ${path}`
+				: aiChatManager.openRunInPreview
+					? `Open this run in the preview panel: ${path || runnableName}`
+					: `Open this run in a new tab: ${path || runnableName}`
 	)
 
 	function openPreview() {
 		const label = runnableName
 		if (previewTarget === 'form') {
 			aiChatManager.openRunForm?.({ toolCallId: message.tool_call_id, label })
+			return
+		}
+		if (previewTarget === 'deployed') {
+			aiChatManager.openDeployedRunPage?.({
+				kind: runnableKind === 'flow' ? 'flow' : 'script',
+				path,
+				summary: label,
+				args: runForm?.args ?? {}
+			})
 			return
 		}
 		if (!job) return
@@ -432,6 +473,7 @@
 		title={previewTitle}
 		onOpen={openPreview}
 		kindIcon={false}
+		mode={previewTarget === 'deployed' ? 'view' : 'edit'}
 	/>
 {/snippet}
 

@@ -1418,6 +1418,16 @@ export interface ToolCallbacks {
 	) => Promise<Record<string, any> | undefined>
 	/** The submitted form's job is queued. Wired alongside requestRunArgs. */
 	markRunFormStarted?: (toolId: string) => void
+	/** Show a DEPLOYED run on the item's own page, with these arguments in the run form that
+	 * is already there, and end the call: the reader runs it from that page rather than
+	 * confirming a form the tool would then run itself. Returns whether the host took it.
+	 * Wired only where that page can be shown — a session's preview panel. */
+	openDeployedRunPage?: (a: {
+		kind: 'script' | 'flow'
+		path: string
+		summary: string
+		args: Record<string, any>
+	}) => boolean
 	/** Records a workspace item the tool call created/edited/deleted, by its
 	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
 	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */

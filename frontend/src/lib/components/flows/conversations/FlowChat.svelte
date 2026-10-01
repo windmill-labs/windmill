@@ -177,6 +177,14 @@
 	// The panel on screen. Every other panel the pool holds stays mounted behind it.
 	const shownKey = $derived(poolState?.shownKey)
 
+	/** Put a message in the composer of the conversation on screen, for the reader to edit and
+	 * send. Returns false when that composer already holds a draft — it is never overwritten,
+	 * and the caller leaves the message where the reader can still see it. */
+	export function offerMessage(text: string): boolean {
+		const panel = shownKey ? pool?.get(shownKey) : undefined
+		return panel?.host.offerMessage(text) ?? false
+	}
+
 	// Derive additional inputs schema (excluding user_message) for chat mode
 	const additionalInputsSchema = $derived.by(() => {
 		const props = inputSchema?.properties ?? {}
