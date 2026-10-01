@@ -10,6 +10,7 @@
 	 * scoped embed token / opaque isolation.
 	 */
 	import { base } from '$lib/base'
+	import { sendUserToast } from '$lib/toast'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
 	import { Button } from '$lib/components/common'
@@ -139,7 +140,9 @@
 			else if (e.status == 403) noPermission = true
 			else {
 				notExists = true
-				onLoadState?.('not_found')
+				// Only a 404 is "nothing deployed here"; anything else is a failure to say so.
+				if (e.status == 404) onLoadState?.('not_found')
+				else sendUserToast('Could not load app: ' + (e.body ?? e), true)
 			}
 		}
 	}
