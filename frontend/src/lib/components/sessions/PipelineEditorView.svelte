@@ -378,8 +378,8 @@
 	// Saves what is left of the folder's draft and says why if that failed. A
 	// flush resolves even when the save failed, and the server would then keep
 	// drafts already deployed — deploying them again would recreate their
-	// triggers. After a failed save there may be nothing queued to flush, so an
-	// emptied draft is sent again.
+	// triggers. A failed save stays queued until one succeeds, so the flush
+	// retries exactly what failed, an open script's unsaved edits included.
 	async function saveRemaining(): Promise<string | undefined> {
 		await tick()
 		const draft = {
@@ -387,11 +387,7 @@
 			itemKind: PIPELINE_DRAFT_KIND,
 			path: pipelineBundlePath(path)
 		}
-		if (pendingCount === 0 && UserDraftDbSyncer.getState(draft).state === 'failed') {
-			await UserDraftDbSyncer.save({ ...draft, value: null, immediate: true })
-		} else {
-			await UserDraftDbSyncer.flush(draft)
-		}
+		await UserDraftDbSyncer.flush(draft)
 		if (UserDraftDbSyncer.getConflict(draft).conflict)
 			return 'the remaining drafts conflict with a newer version.'
 		const sync = UserDraftDbSyncer.getState(draft)
