@@ -191,12 +191,24 @@
 		return panel?.host.offerMessage(text) ?? false
 	}
 
-	/** Set the flow's non-message inputs for the run a chat tool proposed. Separate from the
+	/** Set the flow's non-message inputs to the run a chat tool proposed. Separate from the
 	 * message because the two can land apart: a composer the reader is typing in declines the
-	 * message, and the inputs still belong to the proposal they can send afterwards. */
+	 * message, and the inputs still belong to the proposal they can send afterwards.
+	 *
+	 * Every input the schema declares is taken from the proposal, including the ones it leaves
+	 * out — those go back to their default. Merging instead would let a value the reader saved
+	 * on an earlier visit ride along in a run the agent announced without it, which is a
+	 * different run from the one the chat described. Inputs the composer owns rather than the
+	 * schema (its model wiring, its attachments) are not the proposal's to touch. */
 	export function applyInputs(inputs: Record<string, any>): void {
-		if (Object.keys(inputs).length === 0) return
-		inputValues = { ...inputValues, ...inputs }
+		const declared = Object.keys(additionalInputsSchema?.properties ?? {})
+		if (declared.length === 0) return
+		const next = { ...inputValues }
+		for (const key of declared) {
+			if (key in inputs) next[key] = inputs[key]
+			else delete next[key]
+		}
+		inputValues = next
 	}
 
 	/** Whether the conversation on screen has a composer to offer a message to. A caller that

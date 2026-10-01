@@ -624,7 +624,21 @@ function createRuntime(session: Session): SessionRuntime {
 		const target = previewTargetForSessionTarget(kind, path)
 		if (target?.type !== 'item') return false
 		seededRunArgs.set(seededKey(kind, path), { args, seq: ++seededRunSeq })
-		previewTabs.open({ ...target, item: { ...target.item, summary }, mode: 'view' })
+		const viewTarget = { ...target, item: { ...target.item, summary }, mode: 'view' as const }
+		// A viewer already open on an older version of this item keeps that pin when it is
+		// merely focused, and Run there executes that version — not the deployment these
+		// arguments were prepared against. Re-point it instead, which drops the pin.
+		const pinned = previewTabs.tabs.find((t) => {
+			const slot = resolvePreviewTab(t.url)
+			return (
+				slot.kind === 'viewer' &&
+				slot.viewerKind === kind &&
+				slot.path === path &&
+				t.url.includes('version=')
+			)
+		})
+		if (pinned) previewTabs.navigate(viewTarget, pinned.id)
+		else previewTabs.open(viewTarget)
 		return true
 	}
 	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)

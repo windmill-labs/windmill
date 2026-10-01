@@ -27,6 +27,8 @@
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import { processSecretArgs } from '$lib/components/secretArgUtils'
+	import type { Schema } from '$lib/common'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
@@ -323,11 +325,21 @@
 		conversationId: string,
 		additionalInputs?: Record<string, any>
 	): Promise<string> {
+		// A chat flow's inputs reach the job straight from the composer, with no RunForm in
+		// between to mint a secret as it is typed — so this is the only place a value the
+		// schema marks `password` can become a reference. Without it the literal is stored in
+		// the job's arguments, where anyone who can read the run can read it. Idempotent, so a
+		// reference that was already minted costs a walk and no round trip.
+		const requestBody = await processSecretArgs(
+			{ user_message: userMessage, ...(additionalInputs ?? {}) },
+			flow?.schema as Schema | undefined,
+			workspace
+		)
 		const run = await JobService.runFlowByPath({
 			workspace: workspace!,
 			path,
 			memoryId: conversationId,
-			requestBody: { user_message: userMessage, ...(additionalInputs ?? {}) },
+			requestBody,
 			skipPreprocessor: true
 		})
 		return run
