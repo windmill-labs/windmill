@@ -26,7 +26,9 @@ async function listPipelineScripts(workspace: string, folder: string): Promise<R
 	return out
 }
 
-async function listNativeTriggers(workspace: string, folder: string) {
+/** Trigger rows starting one of `scripts`. The folder graph also carries the
+ * triggers of the folder's ordinary scripts and flows, which are not the pipeline's. */
+async function listNativeTriggers(workspace: string, folder: string, scripts: ReadonlySet<string>) {
 	const res = await fetch(
 		`${OpenAPI.BASE ?? ''}/w/${workspace}/assets/graph?${new URLSearchParams({ folder })}`,
 		{ credentials: 'include' }
@@ -35,6 +37,8 @@ async function listNativeTriggers(workspace: string, folder: string) {
 	const graph = (await res.json()) as AssetGraphResponse
 	return graph.triggers.flatMap((t) =>
 		t.trigger_kind !== 'asset' &&
+			t.runnable_kind === 'script' &&
+			scripts.has(t.runnable_path) &&
 			t.trigger_kind !== 'webhook' &&
 			t.trigger_kind !== 'data_upload' &&
 			t.path &&
@@ -45,7 +49,9 @@ async function listNativeTriggers(workspace: string, folder: string) {
 }
 
 export type PipelineDeletePlan = {
-	scripts: { path: string; draftOnly: boolean }[]
+	/** `path` is what the API addresses (a draft-only node's storage key);
+	 * `displayPath` is the path the user typed for it. */
+	scripts: { path: string; displayPath: string; draftOnly: boolean }[]
 	triggers: { kind: NativeTriggerKind; path: string }[]
 	/** Whether the caller has an unsaved pipeline draft for this folder. */
 	hasDraft: boolean
@@ -56,9 +62,10 @@ export async function planPipelineDelete(
 	workspace: string,
 	folder: string
 ): Promise<PipelineDeletePlan> {
-	const [scripts, triggers, draft] = await Promise.all([
-		listPipelineScripts(workspace, folder),
-		listNativeTriggers(workspace, folder),
+	const scripts = await listPipelineScripts(workspace, folder)
+	const deployed = new Set(scripts.filter((s) => !s.draft_only).map((s) => s.path))
+	const [triggers, draft] = await Promise.all([
+		listNativeTriggers(workspace, folder, deployed),
 		DraftService.getOwnDraft({
 			workspace,
 			kind: PIPELINE_DRAFT_KIND,
@@ -67,7 +74,8 @@ export async function planPipelineDelete(
 	])
 	return {
 		scripts: scripts.map((s) => ({
-			path: s.draft_only ? s.draft_path || s.path : s.path,
+			path: s.path,
+			displayPath: (s.draft_only && s.draft_path) || s.path,
 			draftOnly: !!s.draft_only
 		})),
 		triggers,
@@ -110,7 +118,7 @@ export async function deletePipeline(
 			}
 			removed++
 		} catch (e) {
-			fail(s.path, e)
+			fail(s.displayPath, e)
 		}
 	}
 	if (plan.hasDraft) {

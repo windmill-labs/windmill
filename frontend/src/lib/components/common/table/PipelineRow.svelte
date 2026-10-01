@@ -110,13 +110,13 @@
 			{#if plan.scripts.some((s) => !s.draftOnly)}
 				{@render group(
 					hardDelete ? 'Scripts deleted' : 'Scripts archived',
-					plan.scripts.filter((s) => !s.draftOnly).map((s) => s.path)
+					plan.scripts.filter((s) => !s.draftOnly).map((s) => s.displayPath)
 				)}
 			{/if}
 			{#if plan.scripts.some((s) => s.draftOnly)}
 				{@render group(
 					'Draft scripts discarded',
-					plan.scripts.filter((s) => s.draftOnly).map((s) => s.path)
+					plan.scripts.filter((s) => s.draftOnly).map((s) => s.displayPath)
 				)}
 			{/if}
 			{#if plan.triggers.length}
