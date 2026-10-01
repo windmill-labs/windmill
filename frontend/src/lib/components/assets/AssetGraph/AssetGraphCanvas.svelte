@@ -1,5 +1,7 @@
 <script lang="ts">
 	import '@xyflow/svelte/dist/base.css'
+	import { randomUUID } from '$lib/utils/uuid'
+	import { onMount } from 'svelte'
 	import {
 		SvelteFlow,
 		Controls,
@@ -1626,6 +1628,35 @@
 				)
 			: undefined
 	)
+	// The fade goes through a stylesheet keyed on node and edge ids, never through
+	// the graph's node or edge objects: new node objects make the flow re-measure
+	// them and rebuild every edge they touch, and a rebuilt element jumps to its
+	// new opacity instead of easing there.
+	const canvasId = randomUUID()
+	let lineageFadeCss = $derived.by(() => {
+		if (!lineage) return ''
+		const scope = `[data-asset-canvas="${canvasId}"]`
+		const nodes = view.nodes
+			.filter((n) => outsideLineage(n.id))
+			.map((n) => `${scope} .svelte-flow__node[data-id="${CSS.escape(n.id)}"]`)
+		const edges = view.edges
+			.filter((e) => e.kind !== 'add-anchor' && !lineage!.hasEdge(e))
+			.map((e) => `${scope} .svelte-flow__edge[data-id="${CSS.escape(e.id)}"]`)
+		return [
+			nodes.length ? `${nodes.join(',')}{opacity:0.25}` : '',
+			edges.length ? `${edges.join(',')}{opacity:0.15}` : ''
+		].join('')
+	})
+	let lineageSheet = $state<HTMLStyleElement | undefined>(undefined)
+	onMount(() => {
+		const sheet = document.createElement('style')
+		document.head.appendChild(sheet)
+		lineageSheet = sheet
+		return () => sheet.remove()
+	})
+	$effect(() => {
+		if (lineageSheet) lineageSheet.textContent = lineageFadeCss
+	})
 	const outsideLineage = (id: string) =>
 		!!lineage && id !== ADD_NODE_ID && !lineage.upstream.has(id) && !lineage.downstream.has(id)
 	let dbtEmphasisIds = $derived.by(() => {
@@ -1814,13 +1845,7 @@
 				// The layout places centers; a node's position is its top-left corner.
 				position: { x: p.x - nodeWidth(n) / 2 + xCenter, y: p.y + 40 },
 				data,
-				class:
-					[
-						dragClass ?? boundClass ?? dbtClass ?? runClass ?? assetClass,
-						outsideLineage(n.id) ? 'wm-hover-dim' : undefined
-					]
-						.filter(Boolean)
-						.join(' ') || undefined,
+				class: dragClass ?? boundClass ?? dbtClass ?? runClass ?? assetClass,
 				selected: n.id === selectedId,
 				// All nodes non-draggable: the layout is sugiyama-computed,
 				// dragging would fight the reactive re-layout. Selection is
@@ -2050,7 +2075,6 @@
 				if (strokeDasharray) {
 					style = `${style} stroke-dasharray: ${strokeDasharray};`
 				}
-				if (lineage && !lineage.hasEdge(e)) style = `${style} opacity: 0.15;`
 				return {
 					id: e.id,
 					source: e.source,
@@ -2162,6 +2186,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div
 	class="w-full h-full relative"
+	data-asset-canvas={canvasId}
 	bind:this={flowEl}
 	bind:clientWidth={paneWidth}
 	onclickcapture={handleBackgroundClick}
@@ -2451,12 +2476,9 @@
 	:global(.svelte-flow__node.wm-bound-end .drop-shadow-sm) {
 		@apply outline outline-[3px] outline-amber-500;
 	}
-	/* Hovering a node: what is not in its lineage recedes. */
-	:global(.svelte-flow__node.wm-hover-dim) {
-		opacity: 0.25;
-	}
+	/* Hovering a node fades what is not in its lineage (see lineageFadeCss). */
 	:global(.svelte-flow__node),
-	:global(.svelte-flow__edge path) {
+	:global(.svelte-flow__edge) {
 		transition: opacity 120ms;
 	}
 	:global(.svelte-flow__node.wm-bound-dim) {
