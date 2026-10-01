@@ -1014,7 +1014,12 @@ pub async fn refresh_token_for_account<'c>(
         Some(effective_scopes),
         oauth_client_info
             .as_ref()
-            .and_then(|i| i.token_response_path.as_deref()),
+            .and_then(|i| i.token_response_path.as_deref())
+            .or_else(|| {
+                cc_config
+                    .as_ref()
+                    .and_then(|c| c.token_response_path.as_deref())
+            }),
     )
     .await;
 

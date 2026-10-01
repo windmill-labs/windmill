@@ -213,6 +213,8 @@
 			: undefined
 	)
 	let defaultName = $derived(tokenKind ? `${resourceType}_${tokenKind}` : resourceType)
+	/** Last description filled in from `tokenKind`, replaced on reconnect unless the user edited it. */
+	let generatedDescription = ''
 
 	function selectUserToken(user: boolean) {
 		if (user !== useUserToken) {
@@ -627,8 +629,9 @@
 			value = data.res.access_token!
 			valueToken = data.res
 			responseExtra = data.extra ?? {}
-			if (tokenKind && emptyString(description)) {
-				description = tokenKind === 'user' ? 'User token' : 'Bot token'
+			if (tokenKind && (emptyString(description) || description === generatedDescription)) {
+				generatedDescription = `${resourceType} ${tokenKind} token`
+				description = generatedDescription
 			}
 			step = 4
 			// `fillPath` decides the path as surely as express does, so neither stops here.
