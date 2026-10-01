@@ -26,7 +26,7 @@
 	import { processSecretArgs } from './secretArgUtils'
 	import { enforceDisabledDefaults, resetKeysToast } from './job_args'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
-	import { anyEditorUnparseable } from './pendingEditorFlush'
+	import { anyEditorUnparseable, flushAllPendingEditorChanges } from './pendingEditorFlush'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -63,7 +63,9 @@
 
 	export async function run(overrideScheduledForStr?: string | undefined | null) {
 		// An editor whose text does not parse never wrote it to `args`, so running now would send
-		// the last value that did parse.
+		// the last value that did parse. Flush first: a keystroke still inside the editor debounce
+		// has not been parsed yet.
+		flushAllPendingEditorChanges()
 		blockedByUnparseable = anyEditorUnparseable()
 		if (blockedByUnparseable) {
 			return
@@ -311,8 +313,8 @@
 				<JsonInputs
 					bind:this={jsonEditor}
 					on:select={(e) => {
+						blockedByUnparseable = false
 						if (e.detail) {
-							blockedByUnparseable = false
 							args = enforceDisabledDefaults(e.detail, runnable?.schema).args
 						}
 					}}
