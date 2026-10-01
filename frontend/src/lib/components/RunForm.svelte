@@ -26,6 +26,7 @@
 	import { processSecretArgs } from './secretArgUtils'
 	import { enforceDisabledDefaults, resetKeysToast } from './job_args'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
+	import { anyEditorUnparseable } from './pendingEditorFlush'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -33,6 +34,7 @@
 	let showInputSelectedBadge = $state(false)
 	let savedPreviousArgs: Record<string, any> | undefined = $state(undefined)
 	let psCommonParams: Record<string, any> = $state({})
+	let blockedByUnparseable = $state(false)
 
 	function extractPsCommonParams(allArgs: Record<string, any>): {
 		scriptArgs: Record<string, any>
@@ -60,6 +62,12 @@
 	}
 
 	export async function run(overrideScheduledForStr?: string | undefined | null) {
+		// An editor whose text does not parse never wrote it to `args`, so running now would send
+		// the last value that did parse.
+		blockedByUnparseable = anyEditorUnparseable()
+		if (blockedByUnparseable) {
+			return
+		}
 		let processedArgs: Record<string, any>
 		const { args: withDefaults, resetKeys } = enforceDisabledDefaults(args ?? {}, runnable?.schema)
 		if (resetKeys.length > 0) {
@@ -304,6 +312,7 @@
 					bind:this={jsonEditor}
 					on:select={(e) => {
 						if (e.detail) {
+							blockedByUnparseable = false
 							args = enforceDisabledDefaults(e.detail, runnable?.schema).args
 						}
 					}}
@@ -374,6 +383,7 @@
 					</Popover>
 				</div>
 			</div>
+			{@render unparseableError()}
 			{#if overrideTag}
 				<div class="flex-row-reverse flex w-full text-primary text-sm">
 					tag override: {overrideTag}
@@ -405,6 +415,7 @@
 			</Button>
 			<div>{@render actions()}</div>
 		</div>
+		{@render unparseableError()}
 	{:else}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
@@ -415,5 +426,14 @@
 		>
 			{buttonText}
 		</Button>
+		{@render unparseableError()}
 	{/if}
 </div>
+
+{#snippet unparseableError()}
+	{#if blockedByUnparseable}
+		<div class="flex-row-reverse flex w-full text-red-600 dark:text-red-400 text-xs mt-1">
+			Some input is not valid JSON. Fix it before running.
+		</div>
+	{/if}
+{/snippet}
