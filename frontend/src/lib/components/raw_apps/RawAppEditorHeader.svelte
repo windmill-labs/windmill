@@ -323,9 +323,9 @@
 		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
 		return w > 0 && w < compactBelow
 	})
-	// A phone's bar keeps the trail, Diff and Deploy. AI stands down — the sidebar's own Ask AI is
-	// the way in at that width — while Jobs and the export are already in the menu, Jobs from
-	// `compactTopbar` (true at any phone width) and the export always.
+	// A phone's bar keeps the trail, the file sidebar's toggle, Diff and Deploy. AI stands down —
+	// the sidebar's own Ask AI is the way in at that width — while Jobs and the export are already
+	// in the menu, Jobs from `compactTopbar` (true at any phone width) and the export always.
 	const phoneTopbar = $derived(
 		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
 	)
@@ -1034,9 +1034,10 @@
 {/snippet}
 
 {#snippet rawAppHeaderActions()}
-	<!-- The bar's own order kept: how the draft is doing, who else is here, then what to do with
-	     the app. The file sidebar's toggle stays out — the band is the workspace's header, not this
-	     editor's layout controls, and ⌘B still folds it. -->
+	<!-- The bar's own order kept: the file sidebar, how the draft is doing, who else is here, then
+	     what to do with the app. The sidebar's toggle is the only way back once it is folded — the
+	     collapsed sidebar renders nothing of its own — so it stays on the bar at every width. -->
+	{@render sidebarToggle()}
 	{@render autosaveIndicator()}
 	{@render awarenessMark()}
 	{@render rawAppActions()}
