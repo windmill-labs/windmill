@@ -570,9 +570,10 @@ export class AIChatManager implements ChatViewHost {
 	 * chat card holds. Unset outside a session: a chat-bound form has nowhere else to go,
 	 * so the card hides the control rather than offering a tab that cannot run. */
 	openRunForm?: (a: { toolCallId: string; label: string }) => void
-	/** Set by a host that can show a deployed page — a session's preview panel. Tools reach it
-	 * through {@link openDeployedRunPage}, never directly: the stop check belongs to the
-	 * manager, which owns the turn. */
+	/** Set by a host that can show a deployed page — a session's preview panel. Nothing calls
+	 * it directly: the reader's own way in is `openDeployedRunPage`, and a run tool's is the
+	 * private `#handOverDeployedRun`, which refuses after a stop. The turn is the manager's to
+	 * know about, not the host's. */
 	openDeployedRunPageHandler?: (a: {
 		kind: 'script' | 'flow'
 		path: string
@@ -2096,8 +2097,6 @@ export class AIChatManager implements ChatViewHost {
 		return false
 	}
 
-	/** False when the form is no longer pending, so the caller can say so instead of
-	 * leaving its submit button spinning on a run that will never start. */
 	/** A DEPLOYED run shows the item's own page instead, with the model's arguments in the run
 	 * form already there. The tool call ends at the open — the run belongs to the reader, who
 	 * starts it from that page with its scheduling, tag and version controls in reach.
@@ -2130,6 +2129,8 @@ export class AIChatManager implements ChatViewHost {
 		return this.openDeployedRunPage(a)
 	}
 
+	/** False when the form is no longer pending, so the caller can say so instead of
+	 * leaving its submit button spinning on a run that will never start. */
 	handleRunFormSubmit = (toolId: string, args: Record<string, any>): boolean => {
 		if (!this.isRunFormPending(toolId)) return false
 		this.#settleRunForm(toolId, args)
