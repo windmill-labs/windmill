@@ -1885,11 +1885,11 @@ async fn process_notify_event(
             windmill_common::workspaces::PUBLIC_APP_RATE_LIMIT_CACHE.remove(payload);
         }
         windmill_common::SCRIPT_VERSION_DELETED_CHANNEL => {
-            match payload.rsplit_once(':').map(|(w, h)| (w, h.parse::<i64>())) {
-                Some((workspace_id, Ok(hash))) => {
+            match windmill_common::parse_script_version_deleted(payload) {
+                Some((workspace_id, hash)) => {
                     windmill_common::evict_deleted_script_version(workspace_id, hash)
                 }
-                _ => tracing::error!("Invalid script version deletion payload: {payload}"),
+                None => tracing::error!("Invalid script version deletion payload: {payload}"),
             }
         }
         "notify_runnable_version_change" => {

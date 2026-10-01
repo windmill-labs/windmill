@@ -32,7 +32,21 @@ async fn deleted_version_stops_running_from_a_warm_cache(db: Pool<Postgres>) {
     .execute(&db)
     .await
     .unwrap();
-    windmill_common::evict_deleted_script_version("test-workspace", HASH);
+    windmill_common::notify_script_versions_deleted(&db, "test-workspace", &[HASH])
+        .await
+        .unwrap();
+
+    // What every process's notify poller does with the event.
+    let payload: String = sqlx::query_scalar(
+        "SELECT payload FROM notify_event WHERE channel = $1 ORDER BY id DESC LIMIT 1",
+    )
+    .bind(windmill_common::SCRIPT_VERSION_DELETED_CHANNEL)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let (w_id, hash) = windmill_common::parse_script_version_deleted(&payload).unwrap();
+    assert_eq!((w_id, hash), ("test-workspace", HASH));
+    windmill_common::evict_deleted_script_version(w_id, hash);
 
     let err = cache::script::fetch(&conn, ScriptHash(HASH))
         .await

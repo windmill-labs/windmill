@@ -644,12 +644,6 @@ pub mod script {
         CACHE.clear();
     }
 
-    /// Drop a deleted version from this process's memory and disk cache: entries are keyed
-    /// by hash and otherwise never expire, so a warm cache would keep running its code.
-    pub fn remove(hash: ScriptHash) {
-        CACHE.remove(&hash);
-    }
-
     /// Fetch the script referenced by `hash` from the cache.
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.

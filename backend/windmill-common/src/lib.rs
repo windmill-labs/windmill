@@ -2500,10 +2500,16 @@ pub async fn notify_script_versions_deleted<'e, E: sqlx::PgExecutor<'e>>(
     Ok(())
 }
 
+/// The `(workspace, hash)` of a [`SCRIPT_VERSION_DELETED_CHANNEL`] payload.
+pub fn parse_script_version_deleted(payload: &str) -> Option<(&str, i64)> {
+    let (w_id, hash) = payload.rsplit_once(':')?;
+    Some((w_id, hash.parse().ok()?))
+}
+
 /// Script data is cached by hash, memory and disk, with no expiry: without this, a process
 /// that ran a version before its deletion keeps running that version's code.
 pub fn evict_deleted_script_version(w_id: &str, hash: i64) {
-    cache::script::remove(ScriptHash(hash));
+    cache::script::invalidate(ScriptHash(hash));
     DEPLOYED_SCRIPT_INFO_CACHE.remove(&(w_id.to_string(), hash));
 }
 
