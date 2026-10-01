@@ -241,7 +241,13 @@
 	 * list rather than "every other field" because most OAuth types also hold the fields of
 	 * another way in: ServiceNow's basic-auth password, Bitbucket's app password. */
 	let resourceFields = $derived((registryEntry()?.resource_fields as string[] | undefined) ?? [])
-	let scopeOptions = $derived(registryEntry()?.scope_options)
+	/** The grant's defaults are offered as checkboxes too, so unticking one drops it.
+	 * `scope_options` lists authorization-code scopes, invalid in a 2-legged request. */
+	let scopeOptions = $derived(
+		useClientCredentials
+			? defaultCcScopes()
+			: [...(registryEntry()?.scope_options ?? []), ...instanceScopes]
+	)
 
 	/** Their slice of the resource type's schema, so they render with the type's own
 	 * descriptions; plain text inputs while the type is not synced from the hub. */
@@ -1147,8 +1153,6 @@
 		if (step !== 1) return
 		highlight.onKeydown(e)
 	}
-
-	let editScopes = $state(false)
 </script>
 
 {#if !express}
@@ -1558,23 +1562,8 @@
 				{/if}
 
 				<div class="flex flex-col gap-1">
-					<h3 class="text-xs font-semibold text-emphasis flex gap-4"
-						>Scopes {#if !scopeOptions?.length}<button
-								onclick={() => {
-									editScopes = !editScopes
-								}}><Pen size={14} /></button
-							>{/if}</h3
-					>
-
-					{#if editScopes || scopeOptions?.length}
-						<OauthScopes bind:scopes options={scopeOptions} />
-					{:else}
-						<div class="flex flex-col gap-1">
-							{#each scopes as scope}
-								<div class="py-0.5 pl-2 text-xs">- {scope}</div>
-							{/each}
-						</div>
-					{/if}
+					<h3 class="text-xs font-semibold text-emphasis">Scopes</h3>
+					<OauthScopes bind:scopes options={scopeOptions} />
 				</div>
 			</div>
 		{/if}

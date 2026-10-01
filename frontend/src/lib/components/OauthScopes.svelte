@@ -14,10 +14,16 @@
 
 	let { scopes = $bindable(), options = [] }: Props = $props()
 
+	// First occurrence wins, so a labelled option keeps its label when the same
+	// scope is also passed bare (e.g. as an instance default).
 	let choices = $derived(
-		options.map((o) =>
-			typeof o == 'string' ? { value: o, label: o } : { value: o.value, label: o.label || o.value }
-		)
+		options
+			.map((o) =>
+				typeof o == 'string'
+					? { value: o, label: o }
+					: { value: o.value, label: o.label || o.value }
+			)
+			.filter((c, i, all) => all.findIndex((d) => d.value == c.value) == i)
 	)
 	let values = $derived(choices.map((c) => c.value))
 
@@ -84,7 +90,6 @@
 			</label>
 		{/each}
 	</div>
-	<span class="text-xs text-secondary">Custom scopes</span>
 {/if}
 
 {#each custom as v, i (i)}
@@ -119,11 +124,6 @@
 			write(ticked, [...custom, ''])
 		}}
 	>
-		Add item
+		Add scope
 	</Button>
-	{#if custom.length > 0}
-		<span class="ml-2 text-xs text-primary font-normal">
-			({custom.length} item{custom.length > 1 ? 's' : ''})
-		</span>
-	{/if}
 </div>
