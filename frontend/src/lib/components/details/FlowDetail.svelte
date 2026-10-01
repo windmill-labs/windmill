@@ -28,7 +28,7 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { enterpriseLicense, userStore, userWorkspaces } from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -693,7 +693,10 @@
 				/>
 			{/snippet}
 			{#if workspace && flow}
-				<Star kind="flow" path={flow.path} summary={flow.summary} />
+				<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
+				{#if workspace === $workspaceStore}
+					<Star kind="flow" path={flow.path} summary={flow.summary} />
+				{/if}
 			{/if}
 			<OnBehalfOfBadge
 				onBehalfOf={flow?.on_behalf_of}

@@ -22,7 +22,13 @@
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { disableHubStore, enterpriseLicense, hubBaseUrlStore, userWorkspaces } from '$lib/stores'
+	import {
+		disableHubStore,
+		enterpriseLicense,
+		hubBaseUrlStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
@@ -877,7 +883,10 @@
 					/>
 				{/snippet}
 				{#if workspace && script}
-					<Star kind="script" path={script.path} summary={script.summary} />
+					<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
+					{#if workspace === $workspaceStore}
+						<Star kind="script" path={script.path} summary={script.summary} />
+					{/if}
 				{/if}
 				{#if script?.auto_kind === 'wac'}
 					<Popover notClickable>
