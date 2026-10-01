@@ -82,12 +82,15 @@ and the controls hung around the card.
 			draft && 'border-dashed border-gray-400 dark:border-gray-500',
 			// Like a selected flow step: the fill and the edge colour change, the edge's
 			// width and dashes stay.
-			selected && 'bg-surface-accent-selected border-border-selected hover:border-border-selected',
+			// Each dark: variant too: the base edge sets its own dark colour, which a plain
+			// border class does not override.
+			selected &&
+				'bg-surface-accent-selected border-border-selected dark:border-border-selected hover:border-border-selected dark:hover:border-border-selected',
 			tone === 'danger' &&
 				'bg-red-50 dark:bg-red-900/30 border-dashed border-red-400 dark:border-red-500 hover:bg-red-100 dark:hover:bg-red-900/40',
 			tone === 'error' &&
 				(selected
-					? 'bg-red-200 dark:bg-red-600 border-red-500 hover:border-red-500'
+					? 'bg-red-200 dark:bg-red-600 border-red-500 dark:border-red-500 hover:border-red-500 dark:hover:border-red-500'
 					: 'bg-red-100 dark:bg-red-700 border-transparent dark:border-transparent hover:border-transparent dark:hover:border-transparent'),
 			tone === 'success' &&
 				'bg-green-50 dark:bg-green-900/30 border-green-500 dark:border-green-600',
