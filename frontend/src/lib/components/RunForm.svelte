@@ -34,9 +34,11 @@
 	let showInputSelectedBadge = $state(false)
 	let savedPreviousArgs: Record<string, any> | undefined = $state(undefined)
 	let psCommonParams: Record<string, any> = $state({})
-	// Reset on a view switch: the editor that refused the run is no longer on screen.
+	// Reset on a view switch, where the editor that refused the run is gone, and on a form
+	// validity change, where the field's own error and the disabled button take over.
 	let blockedByUnparseable = $derived.by(() => {
 		void jsonView
+		void isValid
 		return false
 	})
 
