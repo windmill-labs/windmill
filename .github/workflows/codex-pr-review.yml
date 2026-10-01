@@ -222,7 +222,7 @@ jobs:
 
       - name: Install Codex CLI
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
-        run: npm install --global @openai/codex@0.153.4
+        run: npm install --global @openai/codex@0.159.3
 
       - name: Configure Codex auth
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
@@ -359,7 +359,7 @@ jobs:
           # e.g. a GitHub Action's index.js, which then runs with our credentials.
           codex exec \
             -C "$GITHUB_WORKSPACE" \
-            -m gpt-6-astra \
+            -m gpt-6.1-sol \
             -c 'model_reasoning_effort="xhigh"' \
             -s "$SANDBOX_MODE" \
             -o "$RUNNER_TEMP/codex-final-message.md" \

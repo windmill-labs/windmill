@@ -7,8 +7,8 @@
 # Usage: run.sh [BASE_REF]   (BASE_REF defaults to "main")
 set -euo pipefail
 
-MODEL="gpt-6-astra"
-CODEX_MIN="0.153.4"
+MODEL="gpt-6.1-sol"
+CODEX_MIN="0.159.3"
 
 BASE_REF="${1:-main}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"

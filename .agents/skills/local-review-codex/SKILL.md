@@ -11,7 +11,7 @@ before the PR exists. Use this before `git push` on a non-trivial change.
 
 **Correspondence with CI** — identical:
 - Policy: `REVIEW.md` (severity triage, public-surface checklist, AGENTS.md compliance, test coverage).
-- Model: `gpt-6-astra`.
+- Model: `gpt-6.1-sol`.
 - Reasoning effort: `model_reasoning_effort="xhigh"`.
 - Output: markdown starting with `## Codex Review`, findings tagged P0 / P1 / P2 with file:line.
 
@@ -22,7 +22,7 @@ before the PR exists. Use this before `git push` on a non-trivial change.
 
 ## Prerequisites
 
-- `codex` CLI **>= 0.153.4** installed and authed via `codex login` or an `OPENAI_API_KEY` in the environment (which takes priority). Older CLIs reject the model with "requires a newer version of Codex"; `run.sh` checks the version up front. Upgrade with `npm install --global @openai/codex@0.153.4` (may need `sudo` for a global install). This matches the pin in `.github/workflows/codex-pr-review.yml` — the CLI version is the same on both sides.
+- `codex` CLI **>= 0.159.3** installed and authed via `codex login` or an `OPENAI_API_KEY` in the environment (which takes priority). Older CLIs reject the model with "requires a newer version of Codex"; `run.sh` checks the version up front. Upgrade with `npm install --global @openai/codex@0.159.3` (may need `sudo` for a global install). This matches the pin in `.github/workflows/codex-pr-review.yml` — the CLI version is the same on both sides.
 - `git fetch` the base ref if it's stale, so the merge-base is accurate.
 
 ## Run
