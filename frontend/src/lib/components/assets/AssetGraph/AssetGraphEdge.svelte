@@ -117,7 +117,9 @@
 	function gutterPath(midX: number): string {
 		const bend = NODE.gap.vertical
 		const yTop = sourceY + bend
-		const yBot = Math.max(yTop, targetY - bend)
+		// Clamp only downward edges: an upward (feedback) edge must still run up the
+		// lane, or its last curve cuts across the node the detour was clearing.
+		const yBot = targetY > sourceY ? Math.max(yTop, targetY - bend) : targetY - bend
 		const [out] = getBezierPath({
 			sourceX,
 			sourceY,
