@@ -118,6 +118,21 @@ async fn paid_seats_and_fork_count(db: Pool<Postgres>) {
         (2, 2, 3)
     );
 
+    sqlx::query(
+        "INSERT INTO workspace_settings (workspace_id, operator_settings)
+         VALUES ('seat-root', '{\"builder_flows\": true}')",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    windmill_common::workspaces::invalidate_operator_rights_cache("seat-root");
+    let breakdown = billable_seats(&db, "seat-root").await.unwrap();
+    assert_eq!(
+        (breakdown.developers, breakdown.operators, breakdown.seats),
+        (4, 0, 4),
+        "builder rights bill every operator as a developer"
+    );
+
     insert_ws(&db, "seat-fork1", Some("seat-root"), false).await;
     insert_ws(&db, "seat-fork2", Some("seat-root"), false).await;
     // A deleted fork itself is not counted...
