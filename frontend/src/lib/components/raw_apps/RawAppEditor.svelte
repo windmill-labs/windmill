@@ -8,7 +8,8 @@
 	import type Drawer from '../common/drawer/Drawer.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import { Button } from '../common'
-	import { AppService, type Policy, WorkspaceService } from '$lib/gen'
+	import { ApiError, AppService, type Policy, UserService, WorkspaceService } from '$lib/gen'
+	import { useActingUser } from '$lib/actingUser.svelte'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
 
@@ -1546,6 +1547,53 @@
 	// once tokenless and again tokenful, running mount-time side effects twice.
 	let previewSdkPending = $state(false)
 
+	// The preview runs the app's code same-origin with the viewer's session, so an app an
+	// operator deployed could act as whoever opens it here. Until sandboxed apps also preview
+	// isolated, such an app waits for the viewer to run it. Unknown answers keep it held.
+	type PreviewGate = { kind: 'checking' } | { kind: 'open' } | { kind: 'held'; author?: string }
+	let previewGate: PreviewGate = $state({ kind: 'checking' })
+	let previewGateKey: string | undefined = undefined
+	const actingUser = useActingUser(() => opWorkspace)
+
+	$effect(() => {
+		const ws = opWorkspace
+		const me = actingUser.current
+		const key = `${ws ?? ''}|${path}|${newApp}|${me?.username ?? ''}`
+		if (key === previewGateKey) return
+		previewGateKey = key
+		if (newApp || me?.operator) {
+			untrack(() => runHeldPreview())
+			return
+		}
+		previewGate = { kind: 'checking' }
+		if (ws && me) untrack(() => checkPreviewAuthor(ws, me.username, key))
+	})
+
+	async function checkPreviewAuthor(ws: string, me: string, key: string) {
+		// `null`: never deployed, so the code on screen is the viewer's own draft.
+		const author = await AppService.getAppLiteByPath({ workspace: ws, path }).then(
+			(app) => app.created_by,
+			(e) => (e instanceof ApiError && e.status === 404 ? null : undefined)
+		)
+		let held = author === undefined
+		if (author && author !== me) {
+			const users = await UserService.listUsers({ workspace: ws }).catch(() => undefined)
+			held = !users || users.some((u) => u.username === author && u.operator)
+		}
+		if (key !== previewGateKey) return
+		if (held) {
+			previewGate = { kind: 'held', author: author ?? undefined }
+		} else {
+			runHeldPreview()
+		}
+	}
+
+	function runHeldPreview() {
+		previewGate = { kind: 'open' }
+		if (lastBuild) feedPreviewIframe(lastBuild)
+		syncExternalPreview()
+	}
+
 	/** Discard the running app. The shell resets the DOM but keeps the JavaScript
 	 * realm, so only a reload drops the old bundle's timers, listeners and the
 	 * token its client captured at module load. */
@@ -1617,7 +1665,7 @@
 	}
 
 	function syncExternalPreview() {
-		if (previewSdkPending || !externalPreviewReady) return
+		if (previewSdkPending || previewGate.kind !== 'open' || !externalPreviewReady) return
 		if (lastBuild) {
 			postToExternalPreview({
 				type: 'preview',
@@ -1634,7 +1682,7 @@
 		// Between dropping a credential and settling its replacement the shell stays
 		// blank; whichever settles last — the mint or the shell's own `load` — starts
 		// the app. Same for a shell still reloading: its `load` handler replays.
-		if (previewSdkPending || !previewIframeLoaded) return
+		if (previewSdkPending || previewGate.kind !== 'open' || !previewIframeLoaded) return
 		runtimeError = undefined
 		emptyRender = false
 		// Same-origin app-preview.html, and the payload now carries a token — address
@@ -2728,7 +2776,27 @@
 									src={PREVIEW_SHELL_URL}
 									class="w-full flex-1 block"
 								></iframe>
-								{#if buildError}
+								{#if previewGate.kind === 'held'}
+									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
+										<Alert
+											type="warning"
+											title="Preview paused"
+											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
+										>
+											<div class="flex flex-col items-start gap-2">
+												<span>
+													{previewGate.author
+														? `This app was last deployed by ${previewGate.author}, an operator.`
+														: 'Who last deployed this app could not be checked.'}
+													Running the preview runs its code with your session, so review its files first.
+												</span>
+												<Button variant="default" unifiedSize="sm" onclick={runHeldPreview}>
+													Run preview
+												</Button>
+											</div>
+										</Alert>
+									</div>
+								{:else if buildError}
 									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
 									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->
 									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
