@@ -140,12 +140,13 @@ and the controls hung around the card.
 		<div
 			class={twMerge(
 				'mx-2 flex items-stretch min-w-0 rounded-t-md overflow-hidden bg-surface border border-b-0 border-gray-200 dark:border-gray-700',
-				// Like an errored card: red, and a stronger red when selected.
+				// Like an errored card: red, and a stronger red when selected. The tab is
+				// part of the node's outline, so a selected card draws it selected too.
 				headerTone === 'error'
 					? headerSelected
 						? 'border-red-500 dark:border-red-500'
 						: 'border-red-300 dark:border-red-600'
-					: headerSelected && 'border-border-selected dark:border-border-selected'
+					: (headerSelected || selected) && 'border-border-selected dark:border-border-selected'
 			)}
 			style="height: {PIPELINE_NODE_HEADER}px;"
 		>
