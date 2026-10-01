@@ -22,7 +22,7 @@
 	import { argsToJsonPayload } from '$lib/schema'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import { processSecretArgs } from './secretArgUtils'
 	import { enforceDisabledDefaults, resetKeysToast } from './job_args'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
@@ -34,7 +34,11 @@
 	let showInputSelectedBadge = $state(false)
 	let savedPreviousArgs: Record<string, any> | undefined = $state(undefined)
 	let psCommonParams: Record<string, any> = $state({})
-	let blockedByUnparseable = $state(false)
+	// Reset on a view switch: the editor that refused the run is no longer on screen.
+	let blockedByUnparseable = $derived.by(() => {
+		void jsonView
+		return false
+	})
 
 	function extractPsCommonParams(allArgs: Record<string, any>): {
 		scriptArgs: Record<string, any>
@@ -64,8 +68,9 @@
 	export async function run(overrideScheduledForStr?: string | undefined | null) {
 		// An editor whose text does not parse never wrote it to `args`, so running now would send
 		// the last value that did parse. Flush first: a keystroke still inside the editor debounce
-		// has not been parsed yet.
+		// has not been parsed yet, and per-field editors parse it in an effect, hence the tick.
 		flushAllPendingEditorChanges()
+		await tick()
 		blockedByUnparseable = anyEditorUnparseable()
 		if (blockedByUnparseable) {
 			return
