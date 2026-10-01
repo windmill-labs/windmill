@@ -221,7 +221,7 @@
 		onRunInputs?: (
 			path: string,
 			args: Record<string, any>,
-			content?: string
+			live?: { content: string; language: ScriptLang }
 		) => Promise<string | undefined>
 		onShowScript?: () => void
 		// Data-upload entry scripts whose staged upload is ready (green node).

@@ -12,7 +12,7 @@
 		AssetGraphSelection,
 		NativeTriggerKind
 	} from '$lib/components/assets/AssetGraph/types'
-	import { AssetService, JobService } from '$lib/gen'
+	import { AssetService, JobService, type ScriptLang } from '$lib/gen'
 	import { DATA_ASSET_KINDS } from '$lib/components/assets/AssetGraph/cascadeRun'
 	import { usePipelineAssetPrefetch } from '$lib/components/assets/AssetGraph/pipelineAssetPrefetch.svelte'
 	import { sendUserToast } from '$lib/utils'
@@ -263,25 +263,27 @@
 	let runsRefreshKey = $state(0)
 	let runsPendingJobId = $state<string | undefined>(undefined)
 
-	// `content` overrides the stored draft body with a newer one (an open editor's).
+	// `live` is an open editor's body, newer than what is stored: it is previewed,
+	// a deployed node included.
 	async function runNode(
 		nodePath: string,
 		args: Record<string, any> = {},
 		cascade = false,
-		content?: string
+		live?: { content: string; language: ScriptLang }
 	): Promise<string | undefined> {
 		const draft = pe.drafts.get(nodePath)
+		const body = live ?? (draft && { content: draft.script.content, language: draft.script.language })
 		activeRunnables.arm(`script:${nodePath}`)
 		try {
 			let jobId: string
-			if (draft) {
-				// Preview-run the draft content; a preview never dispatches downstream.
+			if (body) {
+				// Preview-run the unsaved body; a preview never dispatches downstream.
 				jobId = await JobService.runScriptPreview({
 					workspace: workspaceId,
 					requestBody: {
 						path: nodePath,
-						content: content ?? draft.script.content,
-						language: draft.script.language,
+						content: body.content,
+						language: body.language,
 						args
 					}
 				})
@@ -513,7 +515,7 @@
 				onRunByPath={(path, args) => runNode(path, args)}
 				inputsOnly={uploadInputsPath !== undefined &&
 					(pe.openScriptPath === undefined || uploadInputsPath === pe.openScriptPath)}
-				onRunInputs={(path, args, content) => runNode(path, args, false, content)}
+				onRunInputs={(path, args, live) => runNode(path, args, false, live)}
 				onShowScript={() => (uploadInputsPath = undefined)}
 				canRunByPath
 				onTestStateChange={(running) => {

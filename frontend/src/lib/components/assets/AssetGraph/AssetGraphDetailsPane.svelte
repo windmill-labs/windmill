@@ -304,12 +304,13 @@
 		// its editor. `onRunInputs` runs it with them, drafts included, and
 		// `onShowScript` leaves this view for the script.
 		inputsOnly?: boolean
-		/** `content` is the pane's live buffer, newer than the stored draft when it was
-		 * edited before switching to the inputs view. */
+		/** `live` is the pane's buffer when it differs from what is stored: always
+		 * for a draft, and for a deployed script edited before switching to the
+		 * inputs view. A run with it previews that body. */
 		onRunInputs?: (
 			path: string,
 			args: Record<string, any>,
-			content?: string
+			live?: { content: string; language: ScriptLang }
 		) => Promise<string | undefined>
 		onShowScript?: () => void
 	}
@@ -525,15 +526,12 @@
 	// alongside `liveBodyAssets` and forwarded so the live graph can show
 	// inferred column lineage on the edited script before it deploys.
 	let liveColumnLineage = $state<ColumnLineage[] | undefined>(undefined)
-	// The script `liveBodyAssets` was inferred for: they stay bound after its editor
-	// unmounts, so a script with no editor of its own (the inputs-only view) must
-	// not report or persist them as its lineage. Not reset on a switch: the
-	// previous script's save-on-switch cleanup still reads its own.
+	// The script whose editor last bound `liveBodyAssets` (undefined there means it
+	// inferred nothing). They stay bound after that editor unmounts, so a script
+	// that never had one (the inputs-only view) must not report or persist them as
+	// its lineage. Set by an effect declared after the save-on-switch one, whose
+	// cleanup still needs the previous owner when the selection moves.
 	let liveAssetsOwner: string | undefined = undefined
-	$effect.pre(() => {
-		const assets = liveBodyAssets
-		untrack(() => (liveAssetsOwner = assets === undefined ? undefined : script?.path))
-	})
 
 	// Bumped when the runs panel reports a watched job has reached a
 	// terminal state. Drives S3FilePreview's refreshKey so the preview
@@ -651,7 +649,7 @@
 		return () => {
 			// No editor inferred this script (the inputs-only view): keep its stored
 			// lineage rather than persisting it as empty.
-			const inferred = liveBodyAssets !== undefined && liveAssetsOwner === captured.path
+			const inferred = liveAssetsOwner === captured.path
 			const writes = !inferred
 				? (writesAtRegister ?? [])
 				: (liveBodyAssets ?? [])
@@ -712,12 +710,23 @@
 		}
 	})
 
+	$effect(() => {
+		if (script && !readOnly && !inputsOnly) liveAssetsOwner = script.path
+	})
+
 	let saving = $state(false)
 	// What this pane last deployed, so the persist-back cleanup can tell "the
 	// buffer equals the new deployed head" from real unsaved edits (plain
 	// variable: only read inside the untracked cleanup).
 	let deployedFromPane: { path: string; content: string } | undefined = undefined
 	let isDraft = $derived(draftScript != undefined)
+	function liveBody(): { content: string; language: ScriptLang } | undefined {
+		if (!script) return undefined
+		const live = { content: script.content ?? '', language: script.language as ScriptLang }
+		if (isDraft) return live
+		const orig = scriptRes.current
+		return orig?.path === script.path && (orig.content ?? '') !== live.content ? live : undefined
+	}
 	// A draft's stored schema is empty until an editor infers it, and the inputs
 	// view mounts none: infer from the body here so its fields (the file picker)
 	// show up.
@@ -1396,7 +1405,7 @@
 					runsDrafts
 					inputsOnly
 					{onShowScript}
-					onRun={onRunInputs && ((path, args) => onRunInputs(path, args, script?.content))}
+					onRun={onRunInputs && ((path, args) => onRunInputs(path, args, liveBody()))}
 					script={inputsScript ?? script}
 					{runsRefreshKey}
 					{runsPendingJobId}
