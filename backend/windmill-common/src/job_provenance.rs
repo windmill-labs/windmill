@@ -93,30 +93,41 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
             END AS "origin_verified!",
             -- What `run/f` and `run/p` resolve the path to now; for scripts the predicate of
             -- `get_latest_deployed_script_hash`.
-            COALESCE(CASE kind
-                WHEN 'flow' THEN runnable_id = (SELECT f.versions[array_upper(f.versions, 1)]
+            COALESCE(CASE
+                WHEN kind = 'flow' THEN runnable_id = (SELECT f.versions[array_upper(f.versions, 1)]
                     FROM flow f WHERE f.path = runnable_path AND f.workspace_id = $2)
-                WHEN 'script' THEN runnable_id = (SELECT s.hash FROM script s
+                WHEN kind = 'script' THEN runnable_id = (SELECT s.hash FROM script s
                     WHERE s.path = runnable_path AND s.workspace_id = $2 AND NOT s.deleted
                         AND s.lock IS NOT NULL AND s.lock_error_logs IS NULL
                     ORDER BY s.created_at DESC LIMIT 1)
                 -- Flow nodes are shared by every version that has the same content, and a
                 -- restarted node keeps its id with or without a flow above it: it is current
-                -- only if the flow's current version still references it.
-                WHEN 'flowscript' THEN EXISTS (SELECT 1 FROM flow_node n
-                    JOIN flow f ON f.path = n.path AND f.workspace_id = n.workspace_id
-                    JOIN flow_version_lite l ON l.id = f.versions[array_upper(f.versions, 1)]
-                    WHERE n.id = runnable_id AND n.workspace_id = $2
-                        AND jsonb_path_exists(l.value,
-                            '$.** ? (@.type == "flowscript" && @.id == $node)',
-                            jsonb_build_object('node', runnable_id)))
-                WHEN 'flownode' THEN EXISTS (SELECT 1 FROM flow_node n
-                    JOIN flow f ON f.path = n.path AND f.workspace_id = n.workspace_id
-                    JOIN flow_version_lite l ON l.id = f.versions[array_upper(f.versions, 1)]
-                    WHERE n.id = runnable_id AND n.workspace_id = $2
-                        AND jsonb_path_exists(l.value,
-                            '$.** ? (@.modules_node == $node || @.default_node == $node)',
-                            jsonb_build_object('node', runnable_id)))
+                -- only if the flow's current version still reaches it. A loop or branch body
+                -- that is not a single simple step is itself stored as a node, referenced by
+                -- `modules_node`/`default_node`, so the bodies are followed down.
+                WHEN kind IN ('flowscript', 'flownode') THEN EXISTS (
+                    WITH RECURSIVE body(value) AS (
+                        SELECT l.value FROM flow_node n
+                        JOIN flow f ON f.path = n.path AND f.workspace_id = n.workspace_id
+                        JOIN flow_version_lite l ON l.id = f.versions[array_upper(f.versions, 1)]
+                        WHERE n.id = runnable_id AND n.workspace_id = $2
+                      UNION
+                        SELECT c.flow FROM body b
+                        CROSS JOIN LATERAL (
+                            SELECT jsonb_path_query(b.value, '$.**.modules_node')
+                            UNION ALL SELECT jsonb_path_query(b.value, '$.**.default_node')
+                        ) AS r(node)
+                        JOIN flow_node c ON c.id = (r.node #>> '{}')::bigint
+                            AND c.workspace_id = $2
+                        WHERE c.flow IS NOT NULL
+                    )
+                    SELECT 1 FROM body WHERE jsonb_path_exists(body.value,
+                        CASE kind
+                            WHEN 'flowscript'
+                                THEN '$.** ? (@.type == "flowscript" && @.id == $node)'::jsonpath
+                            ELSE '$.** ? (@.modules_node == $node || @.default_node == $node)'::jsonpath
+                        END,
+                        jsonb_build_object('node', runnable_id)))
             END, false) AS "current_version!",
             -- Only deployed-app runs are stamped with their app; an app editor preview
             -- runs app code at an app path it does not have to own.
