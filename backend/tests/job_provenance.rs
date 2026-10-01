@@ -137,6 +137,9 @@ async fn flow_steps_are_latest_only_under_a_current_unrestarted_flow(db: Pool<Po
         ("110", false),
         ("111", false),
         ("112", false),
+        ("00a", true),
+        ("113", false),
+        ("114", false),
     ] {
         let p = provenance(&db, &format!("3bb0c0de-0000-4000-8000-000000000{job}")).await;
         assert!(p.deployed, "job {job}");

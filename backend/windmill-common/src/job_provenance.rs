@@ -174,12 +174,16 @@ fn version(job: &LineageJob) -> Option<String> {
 /// Only meaningful under `deployed`, which already excludes every kind that runs
 /// request-supplied code.
 fn runs_current_version(job: &LineageJob) -> bool {
+    // A restart rebuilds a job from a past run, under a current flow or with nothing above
+    // it; only a flow's own version can still be checked then.
+    if job.restarted && job.kind != JobKind::Flow {
+        return false;
+    }
     match job.kind {
         JobKind::Script | JobKind::Flow => job.current_version,
         // A flow node is a loop or branch body taken from the version of the flow above
-        // it, which is checked itself. Only a restart rebuilds one from a past run instead,
-        // under a current flow or with nothing above it.
-        JobKind::FlowNode => !job.restarted && job.parent_job.is_some(),
+        // it, which is checked itself.
+        JobKind::FlowNode => job.parent_job.is_some(),
         // An app script is keyed by its content, not by an app version, so a past
         // deployment's script cannot be told apart from the current one's.
         JobKind::AppScript => false,

@@ -36,13 +36,25 @@ VALUES
     ('3bb0c0de-0000-4000-8000-000000000111', 'test-workspace', 'flownode', 'f/t/agent/branchone-1', 4444444445, '3bb0c0de-0000-4000-8000-000000000001', 'test-user', 'u/test-user', 'test@windmill.dev'),
     ('3bb0c0de-0000-4000-8000-000000000112', 'test-workspace', 'flowscript', 'f/t/agent/branchone-1/c', 4444444447, '3bb0c0de-0000-4000-8000-000000000111', 'test-user', 'u/test-user', 'test@windmill.dev');
 
--- The restarted bodies: one still running, one completed.
+-- An inline body (a flow deployed before flow nodes runs it as a preview) kept by a nested
+-- restart under the current flow version, and a step of it.
+INSERT INTO v2_job (id, workspace_id, kind, runnable_path, parent_job, created_by, permissioned_as, permissioned_as_email)
+VALUES
+    ('3bb0c0de-0000-4000-8000-000000000113', 'test-workspace', 'flowpreview', 'f/t/agent/branchone-0', '3bb0c0de-0000-4000-8000-000000000001', 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000114', 'test-workspace', 'preview', 'f/t/agent/branchone-0/c', '3bb0c0de-0000-4000-8000-000000000113', 'test-user', 'u/test-user', 'test@windmill.dev');
+
+-- The restarted bodies: two still running, one completed.
 INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running)
-VALUES ('3bb0c0de-0000-4000-8000-000000000111', 'test-workspace', NOW(), true);
+VALUES
+    ('3bb0c0de-0000-4000-8000-000000000111', 'test-workspace', NOW(), true),
+    ('3bb0c0de-0000-4000-8000-000000000113', 'test-workspace', NOW(), true);
 
 INSERT INTO v2_job_status (id, flow_status)
-VALUES ('3bb0c0de-0000-4000-8000-000000000111',
-    '{"restarted_from": {"flow_job_id": "3bb0c0de-0000-4000-8000-0000000000ff", "step_id": "br"}}');
+VALUES
+    ('3bb0c0de-0000-4000-8000-000000000111',
+        '{"restarted_from": {"flow_job_id": "3bb0c0de-0000-4000-8000-0000000000ff", "step_id": "br"}}'),
+    ('3bb0c0de-0000-4000-8000-000000000113',
+        '{"restarted_from": {"flow_job_id": "3bb0c0de-0000-4000-8000-0000000000fd", "step_id": "br"}}');
 
 INSERT INTO v2_job_completed (id, workspace_id, duration_ms, status, flow_status)
 VALUES ('3bb0c0de-0000-4000-8000-000000000109', 'test-workspace', 0, 'success',
