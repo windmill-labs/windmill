@@ -1663,6 +1663,8 @@
 					>
 					{#if customUi?.topBar?.editablePath != false}
 						<PathEditPopover
+							bind:summary={flowStore.val.summary}
+							summaryEditable={customUi?.topBar?.editableSummary != false}
 							bind:path={$pathStore}
 							bind:snapshotPath={pathSnapshot}
 							savedPath={initialPath}

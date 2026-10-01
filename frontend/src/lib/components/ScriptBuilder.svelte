@@ -2347,6 +2347,8 @@
 				>
 				{#if customUi?.topBar?.editablePath != false}
 					<PathEditPopover
+						bind:summary={script.summary}
+						summaryEditable={customUi?.topBar?.editableSummary != false}
 						bind:path={script.path}
 						bind:snapshotPath={pathSnapshot}
 						savedPath={initialPath}

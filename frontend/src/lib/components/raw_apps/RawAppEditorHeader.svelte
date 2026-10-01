@@ -1028,6 +1028,7 @@
 		<span class="min-w-0 truncate text-xs font-medium text-emphasis" title={summary}>{summary}</span
 		>
 		<PathEditPopover
+			bind:summary
 			bind:path={newEditedPath}
 			bind:snapshotPath={pathSnapshot}
 			savedPath={appPath || undefined}

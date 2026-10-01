@@ -1,7 +1,6 @@
 <!--
 @component
-The pen that opens an item's path for editing, beside the breadcrumb that shows it. Renders
-nothing when the path is not the caller's to change.
+The pen that opens an item's summary and path for editing, beside the breadcrumb that shows them.
 
 A caller that draws the path itself should render it from `snapshotPath ?? path`: while the
 popover is open this holds the path as it was when it opened, so the trail — and the pen anchored
@@ -13,6 +12,7 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import type { WorkspaceItemKind } from '$lib/components/workspacePicker'
 	import { isOwner } from '$lib/utils'
 	import { userStore } from '$lib/stores'
@@ -26,6 +26,10 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
+		/** The item's human name. Committed trimmed, like the bar's own field did. */
+		summary?: string
+		/** When false the summary is shown but not editable, for a host whose `customUi` says so. */
+		summaryEditable?: boolean
 		path?: string
 		/** The item's *saved* path on the server, so the popover can say a rename needs deploying. */
 		savedPath?: string
@@ -41,6 +45,8 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 	}
 
 	let {
+		summary = $bindable(),
+		summaryEditable = true,
 		path = $bindable(),
 		savedPath,
 		kind = 'flow',
@@ -80,8 +86,8 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 			unifiedSize="xs"
 			iconOnly
 			startIcon={{ icon: Pencil }}
-			title="Edit path"
-			aria-label="Edit path"
+			title={summaryEditable ? 'Edit summary and path' : 'Edit path'}
+			aria-label={summaryEditable ? 'Edit summary and path' : 'Edit path'}
 			btnClasses={penVisibility === 'hover' && !open
 				? 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
 				: ''}
@@ -89,6 +95,27 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 	{/snippet}
 	{#snippet content()}
 		<div class="flex flex-col gap-6 w-[480px]">
+			<!-- The summary first: it is the name a reader sees, and the path below is where that
+			     name lives. Not autofocused — the pen's own job is the path, which takes the cursor. -->
+			{#if summaryEditable}
+				<Label label="Summary">
+					<TextInput
+						bind:value={summary}
+						inputProps={{
+							placeholder: 'Add a summary...',
+							// The popover sits in a page that binds keys of its own (the editors all do),
+							// and a summary is prose — it must not reach them.
+							onkeydown: (e: KeyboardEvent) => e.stopPropagation(),
+							onblur: () => (summary = summary?.trim())
+						}}
+						size="sm"
+					/>
+				</Label>
+			{:else if summary}
+				<Label label="Summary">
+					<span class="text-xs text-secondary">{summary}</span>
+				</Label>
+			{/if}
 			{#if own}
 				<Path
 					autofocus

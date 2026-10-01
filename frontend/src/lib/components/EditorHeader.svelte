@@ -145,9 +145,12 @@
 			<!-- Skipped entirely when path editing is disabled so the user doesn't see an inert
 			     button. -->
 			{#if pathEditable}
+				<!-- Path only: this bar carries its own summary field below, and `hidePath` would take
+				     the pen with it, leaving a condensed pane no way to name the item. -->
 				<PathEditPopover
 					bind:path
 					bind:snapshotPath
+					summaryEditable={false}
 					{savedPath}
 					{kind}
 					{workspaceId}

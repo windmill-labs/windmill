@@ -998,6 +998,7 @@
 			>{$summary}</span
 		>
 		<PathEditPopover
+			bind:summary={$summary}
 			bind:path={newEditedPath}
 			bind:snapshotPath={pathSnapshot}
 			savedPath={$appPath || newPath || undefined}
