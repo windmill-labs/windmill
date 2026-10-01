@@ -21,9 +21,15 @@
 		 * (publish flow) needs it to read the app's DOM, which is only possible on
 		 * the unsandboxed path. */
 		oniframe?: (iframe: HTMLIFrameElement | undefined) => void
+		/** Mirror the app's own route into the page URL's hash, and start from it. Off where
+		 * the app is embedded in a page that is not its own — an AI session preview tab —
+		 * since there the hash belongs to that page and to whichever app was opened first. */
+		syncHashToUrl?: boolean
 	}
 
-	let { workspace, user, secret, path, runnables, oniframe }: Props = $props()
+	let { workspace, user, secret, path, runnables, oniframe, syncHashToUrl = true }: Props =
+		$props()
+	const pageHash = () => (syncHashToUrl ? window.location.hash : '')
 
 	$effect(() => {
 		const el = unsandboxed ? iframe : undefined
@@ -86,7 +92,7 @@
 				secret,
 				{ ctx: u, workspace },
 				window.location.origin,
-				window.location.hash || ''
+				pageHash()
 			)
 			return URL.createObjectURL(new Blob([html], { type: 'text/html' }))
 		}
@@ -94,8 +100,9 @@
 		// to the wrapper document: under a COEP `require-corp` embedder, a nested
 		// document is only allowed to load if it asserts COEP itself, so the
 		// backend adds the header when the flag is present. Also request it when
-		// this document is itself cross-origin isolated (e.g. the raw app editor)
-		// — the wrapper would otherwise be blocked outright, URL flag or not.
+		// this document is itself cross-origin isolated without the flag (a proxy
+		// adding COOP/COEP to the whole site) — the wrapper would otherwise be
+		// blocked outright.
 		const coep =
 			new URLSearchParams(window.location.search).has('wm_coep') || window.crossOriginIsolated
 				? 'wm_coep=1&'
@@ -185,7 +192,7 @@
 	}
 
 	onMount(() => {
-		initialHash = window.location.hash || ''
+		initialHash = pageHash()
 		if (framed) {
 			// Pre-fetch the shared store from the embedder.
 			try {
@@ -248,7 +255,7 @@
 						)
 					} catch (_) {}
 				}
-			} else if (data?.type === 'windmill:hashchange') {
+			} else if (data?.type === 'windmill:hashchange' && syncHashToUrl) {
 				// Keep the parent URL hash in sync for shareable URLs.
 				const newHash = data.hash || ''
 				if (window.location.hash !== newHash) {

@@ -77,6 +77,7 @@ import {
 import {
   getEffectiveSettings,
   inferWsNameFromProfile,
+  inferWsNameFromForkBranch,
   resolveWsNameForConfigFromFlags,
   mergeConfigWithConfigFile,
   parseSyncBehavior,
@@ -772,12 +773,20 @@ export function generateAgentsDocumentation(
         tables?: string[];
         datatable?: string;
         schema?: string;
+        roles?: Record<string, string>;
       }
     | undefined,
 ): string {
   const tables = data?.tables ?? [];
   const defaultDatatable = data?.datatable;
   const defaultSchema = data?.schema;
+  // A bare `wmill.datatable()` always means `main`, and a datatable under a role
+  // is only reachable through that role, so the example names both.
+  const role = defaultDatatable ? data?.roles?.[defaultDatatable] : undefined;
+  const datatableCall = `wmill.datatable('${defaultDatatable || "main"}'${
+    role ? `, { role: '${role}' }` : ""
+  })`;
+  const tableRef = defaultSchema ? `${defaultSchema}.table` : "table";
 
   return `# AI Agent Instructions
 
@@ -791,7 +800,13 @@ This file contains **app-specific configuration** for this raw app instance.
 
 ${
   defaultDatatable
-    ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ""}`
+    ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ""}${
+        role ? ` | **Role:** \`${role}\` (pass it to every \`wmill.datatable\` call)` : ""
+      }${
+        defaultSchema
+          ? `\n\nWrite this app's tables as \`${defaultSchema}.<table>\`, in migrations and queries: an unqualified name means the \`public\` schema.`
+          : ""
+      }`
     : "**No default datatable configured.** Set \`data.datatable\` in \`raw_app.yaml\` to enable database access."
 }
 
@@ -833,8 +848,8 @@ const result = await backend.<name>({ arg: 'value' });
 
 **Query datatable (TypeScript):**
 \`\`\`typescript
-const sql = wmill.datatable();
-const rows = await sql\`SELECT * FROM table WHERE id = \${id}\`.fetch();
+const sql = ${datatableCall};
+const rows = await sql\`SELECT * FROM ${tableRef} WHERE id = \${id}\`.fetch();
 \`\`\`
 
 **SQL migrations:** Add \`.sql\` files to \`sql_to_apply/\`, run \`wmill app dev\`, then whitelist tables
@@ -3738,9 +3753,12 @@ export async function pull(
     }
   }
 
-  // If wsNameForConfig wasn't set from flags, infer from the resolved profile
+  // If wsNameForConfig wasn't set from flags, infer from the resolved profile,
+  // then (for a fork) from the parent's entry
   if (!wsNameForConfig) {
-    wsNameForConfig = inferWsNameFromProfile(opts, workspace);
+    wsNameForConfig =
+      inferWsNameFromProfile(opts, workspace) ??
+      inferWsNameFromForkBranch(opts, workspace.workspaceId);
   }
 
   // Resolve effective sync options with workspace awareness
@@ -4788,9 +4806,12 @@ export async function push(
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
-  // If wsNameForConfig wasn't set from flags, infer from the resolved profile
+  // If wsNameForConfig wasn't set from flags, infer from the resolved profile,
+  // then (for a fork) from the parent's entry
   if (!wsNameForConfig) {
-    wsNameForConfig = inferWsNameFromProfile(opts, workspace);
+    wsNameForConfig =
+      inferWsNameFromProfile(opts, workspace) ??
+      inferWsNameFromForkBranch(opts, workspace.workspaceId);
   }
 
   // Resolve effective sync options with workspace awareness

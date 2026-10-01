@@ -79,9 +79,17 @@
 		invalidateWorkspaceDrafts(workspaceId)
 	}
 
+	let runtimeLogRequester = $state<RawAppRuntimeLogRequester | undefined>(undefined)
 	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
-		runtime.setRuntimeLogRequester(requester)
+		runtimeLogRequester = requester
 	}
+	$effect(() => {
+		const p = path
+		const r = runtimeLogRequester
+		if (!r) return
+		runtime.registerRuntimeLogRequester(p, r)
+		return () => runtime.unregisterRuntimeLogRequester(p, r)
+	})
 
 	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
 		runtime.setAppRunsProvider(provider)
@@ -266,12 +274,7 @@
 				{onNavigate}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
-				onDeploy={(e) => {
-					// Sync the preview to deployed (raw apps deploy only from this editor).
-					runtime.syncPreviewWithDeployed(workspaceId, 'raw_app', e.path)
-					// Deploying clears the item's pending draft — refresh the Draft Count.
-					invalidateWorkspaceDrafts(workspaceId)
-				}}
+				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', e.path)}
 				defaultSidebarCollapsed
 				sidebarStorageKey="raw-app-sidebar-collapsed-preview"
 				defaultSplitWithPreview={false}

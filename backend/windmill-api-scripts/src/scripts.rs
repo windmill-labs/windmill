@@ -17,7 +17,7 @@ use windmill_common::{
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
-    DB,
+    DeletedScriptVersions, DB,
 };
 use windmill_queue::schedule::clear_schedule;
 
@@ -551,6 +551,7 @@ async fn create_snapshot_script(
     let mut handle_deployment_metadata = None;
     let mut moved_native_triggers = Vec::new();
     let mut deployed_path = None;
+    let mut deployed_perpetual = false;
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
@@ -559,6 +560,7 @@ async fn create_snapshot_script(
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
             let use_esm = ns.codebase.as_ref().is_some_and(|x| x.contains(".esm"));
             deployed_path = Some(ns.path.clone());
+            deployed_perpetual = ns.restart_unless_cancelled == Some(true);
             let (new_hash, ntx, hdm, moved) = create_script_internal(
                 ns,
                 w_id.clone(),
@@ -616,6 +618,19 @@ async fn create_snapshot_script(
     }
     reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
     if let Some(hdm) = handle_deployment_metadata {
+        let runnable_now = matches!(hdm, PostCommitDeploy::Full { .. });
+        if let Some(script_path) = deployed_path
+            .as_deref()
+            .filter(|_| runnable_now && deployed_perpetual)
+        {
+            windmill_queue::restart_perpetual_runs_on_new_version(
+                &db,
+                &w_id,
+                script_path,
+                &authed.username,
+            )
+            .await;
+        }
         hdm.handle(&db).await?;
     }
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
@@ -734,6 +749,9 @@ async fn deploy_script(
         return Err(Error::PermissionDenied(msg));
     }
     let script_path = ns.path.clone();
+    // Only a perpetual deploy can have runs to move, so every other one skips the lookups that
+    // would find that out.
+    let perpetual = ns.restart_unless_cancelled == Some(true);
     let email = authed.email.clone();
     let username = authed.username.clone();
     let authed_for_triggers = authed.clone();
@@ -757,6 +775,19 @@ async fn deploy_script(
         // they don't run against a version whose lock does not exist yet — and
         // don't run twice.
         let ready_to_test = matches!(hdm, PostCommitDeploy::Full { .. });
+        // The version is runnable, so the perpetual runs of earlier ones move to it here, before
+        // anything that can fail this deploy after its commit: a version nothing moved to would
+        // leave those runs on the old code with nothing left to notice. A deploy that needed lock
+        // generation hands this to its dependency job instead.
+        if ready_to_test && perpetual {
+            windmill_queue::restart_perpetual_runs_on_new_version(
+                &db,
+                &w_id,
+                &script_path,
+                &username,
+            )
+            .await;
+        }
         hdm.handle(&db).await?;
         let db2 = db.clone();
         if ready_to_test {
@@ -785,6 +816,16 @@ async fn deploy_script(
 fn invalidate_script_path_caches(w_id: &str, script_path: &str) {
     windmill_common::invalidate_latest_script_hash_caches(w_id, script_path);
     RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{w_id}:{script_path}"));
+}
+
+/// [`DeletedScriptVersions::evict`], plus this crate's own path -> hash cache. Run by the
+/// deleting process after its commit and by every process on the deletion event.
+pub fn evict_deleted_script_versions(deleted: DeletedScriptVersions) {
+    deleted.evict_with(|deleted| {
+        for path in &deleted.paths {
+            RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{}:{path}", deleted.workspace_id));
+        }
+    });
 }
 
 /// What a script deploy still has to do once its transaction has committed.
@@ -2864,6 +2905,12 @@ async fn create_script_internal<'c>(
         if let Some(dm) = ns.deployment_message {
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
         }
+        // The version becomes runnable when this job writes its lock, which is where the
+        // perpetual runs of earlier versions can move to it. Only a deploy someone made carries
+        // this, so a relock triggered by an imported script changing leaves those runs alone.
+        if ns.restart_unless_cancelled.is_some_and(|x| x) {
+            args.insert("restart_perpetual_runs".to_string(), to_raw_value(&true));
+        }
         if let Some(ref p_path) = p_path_opt {
             args.insert("parent_path".to_string(), to_raw_value(&p_path));
         }
@@ -4124,6 +4171,8 @@ async fn delete_script_by_hash(
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
     clear_macro_registry(&mut *tx, &w_id, &script.path).await?;
+    let deleted = DeletedScriptVersions::new(&w_id, [(script.path.clone(), hash.0)]);
+    deleted.notify(&mut *tx).await?;
 
     audit_log(
         &mut *tx,
@@ -4136,6 +4185,7 @@ async fn delete_script_by_hash(
     )
     .await?;
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     webhook.send_message(
         w_id.clone(),
@@ -4203,14 +4253,24 @@ async fn delete_script_by_path(
     .fetch_all(&mut *tx)
     .await?;
 
-    let script = sqlx::query_scalar!(
-        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+    let deleted_hashes = sqlx::query_scalar!(
+        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING hash",
         path,
         w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_all(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?;
+    if deleted_hashes.is_empty() {
+        return Err(Error::NotFound(format!(
+            "script {path} not found in {w_id}"
+        )));
+    }
+    let script = path.to_string();
+    let deleted = DeletedScriptVersions::new(
+        &w_id,
+        deleted_hashes.into_iter().map(|h| (script.clone(), h)),
+    );
 
     // After the DELETE, never before: every dbt writer locks the `script` row
     // first, so taking a sidecar ahead of it deadlocks one of the pair. The
@@ -4250,6 +4310,7 @@ async fn delete_script_by_path(
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
     clear_macro_registry(&mut *tx, &w_id, path).await?;
+    deleted.notify(&mut *tx).await?;
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(
@@ -4280,6 +4341,7 @@ async fn delete_script_by_path(
     )
     .await?;
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     handle_deployment_metadata(
         &authed.email,
@@ -4375,14 +4437,21 @@ async fn delete_scripts_bulk(
         }
     }
 
-    let mut deleted_paths = sqlx::query_scalar!(
-        "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
-        w_id,
-        &request.paths
-    )
-    .fetch_all(&mut *tx)
-    .await
-    .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?;
+    let deleted = DeletedScriptVersions::new(
+        &w_id,
+        sqlx::query!(
+            "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path, hash",
+            w_id,
+            &request.paths
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?
+        .into_iter()
+        .map(|r| (r.path, r.hash)),
+    );
+    deleted.notify(&mut *tx).await?;
+    let deleted_paths = deleted.paths.clone();
 
     // Same reason as the single-path delete, over every requested path rather
     // than the deleted ones: a path that had no script left can still hold state.
@@ -4390,10 +4459,6 @@ async fn delete_scripts_bulk(
         windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, p).await?;
         windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, p).await?;
     }
-
-    // remove duplicates from deleted_paths
-    deleted_paths.sort();
-    deleted_paths.dedup();
 
     sqlx::query!(
         "DELETE FROM draft WHERE workspace_id = $1 AND path = ANY($2) AND typ = 'script'",
@@ -4435,6 +4500,7 @@ async fn delete_scripts_bulk(
     .await?;
 
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     try_join_all(deleted_paths.iter().map(|path| {
         handle_deployment_metadata(

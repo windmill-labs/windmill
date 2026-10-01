@@ -864,6 +864,24 @@ pub fn make_pull_query(tags: &[String]) -> String {
     query
 }
 
+/// Claim a parent's tool jobs matching its worker tags. The caller must supply only child IDs
+/// it owns; this query is an internal scheduling primitive and does not authorize job access.
+pub fn make_tool_job_pull_query(job_ids: &[uuid::Uuid], tags: &[String]) -> String {
+    // pull() binds only the worker name. These literals come from typed UUIDs, never input SQL.
+    let ids = job_ids.iter().map(|id| format!("'{id}'::uuid")).join(", ");
+    let tags = tags
+        .iter()
+        .map(|tag| format!("'{}'", tag.replace('\'', "''")))
+        .join(", ");
+    format_pull_query(format!(
+        "SELECT id FROM v2_job_queue
+        WHERE running = false AND id = ANY(ARRAY[{ids}]::uuid[]) AND scheduled_for <= now()
+        AND tag = ANY(ARRAY[{tags}]::text[])
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED LIMIT 1"
+    ))
+}
+
 // Variant of `make_pull_query` that additionally excludes jobs whose workspace_id is in the
 // overloaded-list bind parameter ($2::text[]). Built as a separate string (rather than reusing
 // `make_pull_query` with an always-bound array) so the planner can keep using the same indexes
@@ -1157,6 +1175,7 @@ pub struct TypeScriptAnnotations {
     pub native: bool,
     pub nobundling: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 #[annotations("--")]
@@ -1939,6 +1958,9 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_30m,
                 insert_ping.native_mode.unwrap_or(false),
                 insert_ping.ip.as_deref(),
+                insert_ping
+                    .last_job_executed
+                    .zip(insert_ping.last_job_workspace_id.as_deref()),
                 db,
             )
             .await?
@@ -2220,12 +2242,15 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
     ip: Option<&str>,
+    last_job: Option<(Uuid, &str)>,
     db: &DB,
 ) -> anyhow::Result<()> {
+    let (last_job_id, last_job_workspace_id) = last_job.unzip();
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
-         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip) WHERE worker = $6",
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip),
+         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id) WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -2239,6 +2264,8 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_30m,
         native_mode,
         ip,
+        last_job_id,
+        last_job_workspace_id,
     )
         .execute(db))
     .await??;

@@ -637,6 +637,20 @@ export namespace DynamicInput {
 		| { source: 'deployed'; path: string; runnable_kind: RunnableKind }
 		| { source: 'inline'; code: string; lang: ScriptLang }
 
+	/** A flow's dropdown options for its editor. An operator may not run request-supplied code, and
+	 * a builder cannot change the stored code, so an operator reads it from the deployed flow. */
+	export function flowHelperScript(
+		code: string | undefined,
+		lang: ScriptLang | undefined,
+		deployedPath: string | undefined,
+		operator: boolean | undefined
+	): HelperScript | undefined {
+		if (!code || !lang) return undefined
+		return operator && deployedPath
+			? { source: 'deployed', path: deployedPath, runnable_kind: 'flow' }
+			: { source: 'inline', code, lang }
+	}
+
 	export const generatePythonFnTemplate = (functionName: string): string => {
 		return `
 def ${functionName}():
@@ -1447,6 +1461,8 @@ const CLEANED_VALUE_KEYS = new Set([
 	'other_drafts_users',
 	'created_at',
 	'created_by',
+	'edited_at',
+	'edited_by',
 	'workspace_id',
 	'parent_hashes',
 	'lock_error_logs'

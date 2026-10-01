@@ -80,6 +80,9 @@
 		startIcon?: ButtonType.Icon | undefined
 		endIcon?: ButtonType.Icon | undefined
 		destructive?: boolean
+		/** Colors the `accent`, `default` and `subtle` variants to match an Alert of this type.
+		 * Ignored when `dropdownItems` is set: split buttons keep the neutral palette. */
+		tone?: ButtonType.Tone
 		shortCut?: { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean } | undefined
 		tooltipPopover?:
 			| {
@@ -130,6 +133,7 @@
 		startIcon = undefined,
 		endIcon = undefined,
 		destructive = false,
+		tone = undefined,
 		shortCut = undefined,
 		tooltipPopover = undefined,
 		dropdownBtnClasses = '',
@@ -142,6 +146,8 @@
 		dropdownWidth = undefined,
 		...rest
 	}: Props = $props()
+
+	const activeTone = $derived(dropdownItems ? undefined : tone)
 
 	function computeDropdowns(menuItems: MenuItem[] | (() => MenuItem[])): Item[] {
 		const items = typeof menuItems === 'function' ? menuItems() : menuItems
@@ -185,7 +191,11 @@
 		if (['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)) {
 			let style = destructive
 				? ButtonType.DestructiveVariantStyles[variant]
-				: ButtonType.VariantStyles[variant]
+				: activeTone
+					? ButtonType.ToneVariantStyles[activeTone][
+							variant === 'accent-secondary' ? 'accent' : variant
+						]
+					: ButtonType.VariantStyles[variant]
 			// For default variant with dropdowns, remove border from button since it's on wrapper
 			if (
 				variant === 'default' &&
@@ -272,9 +282,11 @@
 			'justify-center items-center text-center inline-flex gap-2',
 			'active:opacity-80 transition-[background-color,opacity] duration-150',
 			disabled
-				? ['default', 'subtle'].includes(variant)
-					? '!text-disabled'
-					: '!bg-surface-disabled !text-disabled'
+				? activeTone && !destructive
+					? 'disabled:opacity-50'
+					: ['default', 'subtle'].includes(variant)
+						? '!text-disabled'
+						: '!bg-surface-disabled !text-disabled'
 				: '',
 			loading ? 'cursor-wait' : '',
 			selected && ['default', 'subtle'].includes(variant)

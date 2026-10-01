@@ -1,6 +1,6 @@
 import { base } from '$lib/base'
 import { randomUUID } from '$lib/utils/uuid'
-import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
+import { editPathFor, viewPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import {
 	artifactUrl,
@@ -22,6 +22,7 @@ import {
 	runFormUrl,
 	stripBase,
 	type ArtifactVersionTarget,
+	type PreviewItemMode,
 	type PreviewTarget
 } from './previewRouter'
 import type { SessionPreviewTab, SessionTarget } from './sessionState.svelte'
@@ -60,12 +61,25 @@ export type PreviewTabsAdapter = {
 	onTabOpened?: (url: string) => void
 }
 
-// True when a tab's URL is the live editor for a specific editable item. Every
-// editable route resolves to an editor, so this doubles as the "same item" dedupe
-// test in open()/navigate().
-function isEditorTabFor(url: string, target: SessionTarget): boolean {
+// True when a tab's URL is on one SIDE of a specific editable item. The two sides are
+// separate tabs, so this is the dedupe test in open()/navigate(): asking for a side that
+// is already open focuses it, asking for the other one opens it alongside.
+//
+// Keying on the side is also what keeps the editor cell safe. Two editor tabs on one item
+// would mount two editors racing the same (kind, path) cell; an editor beside a viewer is
+// fine, because the viewer reads the deployed version over the API and touches no cell.
+function isItemTabFor(url: string, target: SessionTarget, side: PreviewItemMode): boolean {
 	const slot = resolvePreviewTab(url)
+	if (side === 'view') {
+		return slot.kind === 'viewer' && slot.viewerKind === target.kind && slot.path === target.path
+	}
 	return slot.kind === 'editor' && slot.editorKind === target.kind && slot.path === target.path
+}
+
+/** Which side a target asks for. Openers that predate the split omit `mode`, and the editor
+ * is what they have always meant. */
+function sideOf(target: PreviewTarget): PreviewItemMode {
+	return target.type === 'item' && target.mode === 'view' ? 'view' : 'edit'
 }
 
 // The version a tab shows when it is re-pointed: the opener's, if it named one, else whatever
@@ -95,7 +109,14 @@ function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 		return artifactUrl(target.id, target.name, keptVersion(target, onto))
 	}
 	if (target.type === 'runform') return runFormUrl(target.toolCallId, target.label)
-	return `${base}${editPathFor(target.item)}`
+	// A re-point with no mode keeps the side the tab is already on, so an AI write to
+	// an item the user left on View does not yank them back to the editor.
+	const mode = target.mode ?? (onto ? (parsePreviewItemRoute(onto.url)?.mode ?? 'edit') : 'edit')
+	if (mode !== 'view') return `${base}${editPathFor(target.item)}`
+	// Not carried over from `onto`: a version pin is something the reader asked for
+	// once, so every other re-point of this tab lands on the current deployed version.
+	const pin = target.version ? `?version=${encodeURIComponent(target.version)}` : ''
+	return `${base}${viewPathFor(target.item)}${pin}`
 }
 
 // Point a tab at a new destination. Clears `friendlyLabel`/`friendlyPath`
@@ -168,12 +189,23 @@ export function previewTargetForSessionTarget(
 // drag-and-drop apps, which the panel hosts as an iframe over their edit route.
 // Every other kind maps to undefined, and its row falls back to the diff. The
 // undefined is also the caller's test for "can this row be previewed?".
-export function previewTargetForDeployKind(kind: Kind, path: string): PreviewTarget | undefined {
+export function previewTargetForDeployKind(
+	kind: Kind,
+	path: string,
+	/** Whether nothing is deployed at `path`. The review dock reads this off the
+	 * row it is about to open, so an item side is chosen the same way the picker
+	 * chooses it; omitted, the tab falls back to the editor as before. */
+	draftOnly?: boolean
+): PreviewTarget | undefined {
+	const mode: PreviewItemMode | undefined =
+		draftOnly === undefined ? undefined : draftOnly ? 'edit' : 'view'
 	if (kind === 'app') {
-		return { type: 'item', item: { kind: 'app', raw_app: false, path, summary: '' } }
+		return { type: 'item', item: { kind: 'app', raw_app: false, path, summary: '' }, mode }
 	}
 	if (kind === 'script' || kind === 'flow' || kind === 'raw_app') {
-		return previewTargetForSessionTarget(kind, path)
+		const target = previewTargetForSessionTarget(kind, path)
+		if (target?.type !== 'item') return target
+		return { type: 'item', item: target.item, mode }
 	}
 	if (kind === 'variable' || kind === 'resource' || kind === 'schedule') {
 		return { type: 'pageitem', ref: { kind, path } }
@@ -412,8 +444,9 @@ export class SessionPreviewTabs {
 		// collapsed panel and the user sees nothing change.
 		this.#collapsed = false
 		if (editorTarget) {
-			// One editor tab per item: focus the tab already hosting this exact item.
-			const existing = this.#tabs.find((t) => isEditorTabFor(t.url, editorTarget))
+			// One tab per side: focus the tab already showing this side of this item. The
+			// other side, if open, is a tab of its own and is left where it is.
+			const existing = this.#tabs.find((t) => isItemTabFor(t.url, editorTarget, sideOf(target)))
 			if (existing) {
 				this.#activeId = existing.id
 				this.#flush()
@@ -487,19 +520,22 @@ export class SessionPreviewTabs {
 
 	// Re-point the active tab at a destination (breadcrumb pick / in-editor link /
 	// iframe-posted editor navigation).
-	navigate(target: PreviewTarget): void {
-		this.#pulsingIfUnchanged(() => this.#navigate(target))
+	// `tabId` names the tab to re-point when the request comes from a tab's own content, which
+	// can finish after the reader has moved to another tab, or run in a tab that is hidden.
+	navigate(target: PreviewTarget, tabId?: string): void {
+		this.#pulsingIfUnchanged(() => this.#navigate(target, tabId))
 	}
 
-	#navigate(target: PreviewTarget): void {
-		const t = this.#tabs.find((x) => x.id === this.#activeId)
+	#navigate(target: PreviewTarget, tabId?: string): void {
+		const t = this.#tabs.find((x) => x.id === (tabId ?? this.#activeId))
 		if (!t) return
 		const editorTarget = editorTargetFor(target)
 		if (editorTarget) {
-			// Same dedupe as open(): if another tab already hosts this exact item,
-			// focus it instead of re-pointing this one — two tabs for one item would
-			// mount two editors racing the same (kind, path) cell.
-			const existing = this.#tabs.find((x) => isEditorTabFor(x.url, editorTarget))
+			// Same dedupe as open(): another tab already showing this side of this item is
+			// focused rather than duplicated. Re-pointing THIS tab to the other side of the
+			// item it already shows falls through to the retarget below — the breadcrumb
+			// redirects the tab you are on, it does not spawn one.
+			const existing = this.#tabs.find((x) => isItemTabFor(x.url, editorTarget, sideOf(target)))
 			if (existing && existing.id !== t.id) {
 				this.#activeId = existing.id
 				this.#flush()
@@ -608,11 +644,12 @@ export class SessionPreviewTabs {
 	 * under the path it is stored at, which the deploy then removes. */
 	retargetEditorItem(from: SessionTarget, to: SessionTarget): void {
 		if (from.kind === to.kind && from.path === to.path) return
-		const tab = this.#tabs.find((t) => isEditorTabFor(t.url, from))
+		const tab = this.#tabs.find((t) => isItemTabFor(t.url, from, 'edit'))
 		if (!tab) return
-		// Two tabs on one item would mount two editors racing the same cell, as in
-		// open()/navigate(); the tab already there wins and this one is closed.
-		if (this.#tabs.some((t) => t.id !== tab.id && isEditorTabFor(t.url, to))) {
+		// Two editor tabs on one item would race the same cell, as in open()/navigate();
+		// the tab already there wins and this one is closed. The viewer side is left alone:
+		// it reads the deployed version and touches no cell.
+		if (this.#tabs.some((t) => t.id !== tab.id && isItemTabFor(t.url, to, 'edit'))) {
 			this.close(tab.id)
 			return
 		}
@@ -689,7 +726,10 @@ export class SessionPreviewTabs {
 		label: string | undefined,
 		friendlyPath?: string
 	): void {
-		const t = this.#tabs.find((x) => isEditorTabFor(x.url, target))
+		// The editor's tab, never the viewer's: this is the live editor stamping the name it
+		// is holding, including a rename staged only in the draft. The deployed page beside
+		// it still answers to the deployed name.
+		const t = this.#tabs.find((x) => isItemTabFor(x.url, target, 'edit'))
 		if (!t) return
 		// Set before the no-change early return: an item with neither a summary nor
 		// a staged path leaves both fields undefined, and the editor still owns it.
@@ -800,7 +840,12 @@ export function describePreview(
 								// their `#<path>` is the trigger the drawer has open.
 								`${stripBase(where)}${previewLocationDetail(where)}`
 		const slotKind = resolvePreviewTab(t.url).kind
-		const live = slotKind === 'editor' || slotKind === 'pageitem' ? ', live editor' : ''
+		const live =
+			slotKind === 'editor' || slotKind === 'pageitem'
+				? ', live editor'
+				: slotKind === 'viewer'
+					? ', deployed view'
+					: ''
 		const active = t.id === activeId ? ', active' : ''
 		// One list entry per tab: an artifact's name, a pipeline folder and an item path
 		// all arrive decoded from a URL, so any of them could otherwise write a line here.

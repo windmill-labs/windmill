@@ -34,6 +34,7 @@ use std::collections::HashMap;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult},
+    workspaces::operator_can_build_flows,
 };
 use windmill_types::scripts::ScriptHash;
 use windmill_types::user_drafts::DraftUserRef;
@@ -397,7 +398,7 @@ fn draft_branch_sql(kind: &str) -> String {
 async fn list_runnables(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Extension(_db): Extension<DB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(q): Query<ListRunnablesQuery>,
 ) -> JsonResult<ListRunnablesResponse> {
@@ -571,9 +572,9 @@ async fn list_runnables(
     // Draft-only rows are the caller's own work in progress: never archived, so they
     // have no place in the archived view, and carrying no labels of their own they are
     // out of scope of a label filter (as in the per-kind endpoints). Operators don't
-    // see other people's drafts and have none of their own to see.
+    // see other people's drafts and have none of their own, except a builder's flows.
     let include_drafts = q.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
+        && (!authed.is_operator || operator_can_build_flows(&db, &w_id).await?)
         && !show_archived
         && q.label.as_ref().filter(|s| !s.is_empty()).is_none();
     let draft_extras_for = |kind: &str| -> Vec<String> {
@@ -659,7 +660,7 @@ async fn list_runnables(
                             keyset: Option<&str>,
                             limit: Option<usize>|
      -> Option<String> {
-        if !include_drafts || !kinds.contains(&kind) {
+        if !include_drafts || !kinds.contains(&kind) || (authed.is_operator && kind != "flow") {
             return None;
         }
         // `fav` is ignored: with no favorite join there is nothing to filter on, and the
@@ -1004,9 +1005,17 @@ async fn add_draft_counts(
     q: &CountRunnablesQuery,
     counts: &mut HashMap<String, i64>,
 ) -> Result<(), Error> {
-    if !q.include_draft_only.unwrap_or(false) || authed.is_operator {
+    if !q.include_draft_only.unwrap_or(false) {
         return Ok(());
     }
+    // An operator has no drafts of their own, except a builder's flows.
+    let kinds: &[&str] = if !authed.is_operator {
+        kinds
+    } else if kinds.contains(&"flow") && operator_can_build_flows(db, w_id).await? {
+        &["flow"]
+    } else {
+        return Ok(());
+    };
     // $1 = workspace, $2 = the caller's email.
     let mut binds: Vec<String> = vec![];
     let branches: Vec<String> = kinds

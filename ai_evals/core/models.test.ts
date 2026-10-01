@@ -35,6 +35,10 @@ describe("resolveEvalModel", () => {
   it("supports DeepSeek aliases for frontend evals", () => {
     expect(resolveEvalModel("flow", "deepseek").frontend).toEqual({
       provider: "deepseek",
+      model: "deepseek-flash",
+    });
+    expect(resolveEvalModel("flow", "deepseek-v4-flash").frontend).toEqual({
+      provider: "deepseek",
       model: "deepseek-v4-flash",
     });
     expect(resolveEvalModel("script", "deepseek-v4-pro").frontend).toEqual({

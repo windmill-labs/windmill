@@ -79,6 +79,32 @@ export const EVAL_MODELS: EvalModelSpec[] = [
     },
   },
   {
+    id: "sonnet-5.5",
+    label: "Claude Sonnet 5.5",
+    aliases: ["sonnet-5.5", "claude-sonnet-5.5", "claude-sonnet-5-5"],
+    frontend: {
+      provider: "anthropic",
+      model: "claude-sonnet-5-5",
+    },
+    cli: {
+      provider: "anthropic",
+      model: "claude-sonnet-5-5",
+    },
+  },
+  {
+    id: "opus-5.5",
+    label: "Claude Opus 5.5",
+    aliases: ["opus-5.5", "claude-opus-5.5", "claude-opus-5-5"],
+    frontend: {
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+    },
+    cli: {
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+    },
+  },
+  {
     id: "4o",
     label: "GPT-4o",
     aliases: ["4o", "gpt-4o"],
@@ -94,6 +120,51 @@ export const EVAL_MODELS: EvalModelSpec[] = [
     frontend: {
       provider: "openai",
       model: "gpt-5.5",
+    },
+  },
+  {
+    id: "gpt-5.6-sol",
+    label: "GPT-5.6 Sol",
+    aliases: ["gpt-5.6-sol"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-5.6-sol",
+    },
+  },
+  {
+    id: "gpt-6-astra",
+    label: "GPT-6 Astra",
+    aliases: ["gpt-6-astra", "gpt-6"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-6-astra",
+    },
+  },
+  {
+    id: "gpt-6-sol",
+    label: "GPT-6 Sol",
+    aliases: ["gpt-6-sol"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-6-sol",
+    },
+  },
+  {
+    id: "gpt-6-luna",
+    label: "GPT-6 Luna",
+    aliases: ["gpt-6-luna"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-6-luna",
+    },
+  },
+  {
+    id: "gemini-3.8-flash",
+    label: "Gemini 3.8 Flash",
+    aliases: ["gemini-3.8-flash"],
+    frontend: {
+      provider: "googleai",
+      model: "gemini-3.8-flash",
     },
   },
   {
@@ -121,10 +192,19 @@ export const EVAL_MODELS: EvalModelSpec[] = [
   {
     id: "deepseek-v4-flash",
     label: "DeepSeek V4 Flash",
-    aliases: ["deepseek", "deepseek-v4", "deepseek-v4-flash"],
+    aliases: ["deepseek-v4", "deepseek-v4-flash"],
     frontend: {
       provider: "deepseek",
       model: "deepseek-v4-flash",
+    },
+  },
+  {
+    id: "deepseek-flash",
+    label: "DeepSeek V4.1 Flash",
+    aliases: ["deepseek", "deepseek-flash", "deepseek-v4.1-flash"],
+    frontend: {
+      provider: "deepseek",
+      model: "deepseek-flash",
     },
   },
   {

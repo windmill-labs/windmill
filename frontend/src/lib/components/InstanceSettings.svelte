@@ -60,6 +60,14 @@
 	let requirePreexistingUserForOauth: boolean = $state(false)
 
 	let initialValues: Record<string, any> = $state({})
+
+	/// A setting its own component writes (it has to persist before acting on the cluster) is
+	/// already saved, so the baseline must move with it: otherwise Discard restores the value it
+	/// replaced, and a later bulk save sends that stale one back.
+	function markSettingSaved(key: string) {
+		initialValues[key] =
+			$values[key] === undefined ? undefined : JSON.parse(JSON.stringify($values[key]))
+	}
 	let baseUrlIsFallback = $state(false)
 	// Per-instance OAuth providers (Snowflake, ServiceNow, …): instance name
 	// keyed by provider, used to build their per-instance connect_config URLs.
@@ -730,6 +738,7 @@
 		secret_backend: ['token', 'client_secret', 'secret_access_key'],
 		object_store_cache_config: ['secret_key', 'serviceAccountKey', 'accessKey'],
 		custom_instance_pg_databases: ['user_pwd'],
+		external_instance_pg: ['password'],
 		rsa_keys: ['private_key'],
 		github_enterprise_app: ['private_key']
 	}
@@ -1065,54 +1074,19 @@
 					Telemetry is required on Enterprise Edition for license compliance. When minimal telemetry
 					is enabled, only the following data is sent:
 					<ul class="list-disc list-inside pl-2">
-						<li>version of your instance</li>
-						<li>instance base URL</li>
-						<li>login type usage (login type, count)</li>
-						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li
-							>user usage (author count, operator count, the distinct guests of the last 30 days,
-							the seats they add past the free allowance, and the workspaces that allow guests)</li
-						>
-						<li>superadmin email addresses</li>
-						<li>development instance status</li>
+						<li>Instance version and base URL</li>
+						<li>Login types, user and seat counts</li>
+						<li>Worker count, vCPUs and memory</li>
+						<li>Superadmin email addresses</li>
+						<li>Development instance status</li>
 					</ul>
 					<br />When minimal telemetry is disabled, the following is also collected:
 					<ul class="list-disc list-inside pl-2">
-						<li>job usage (language, total duration, count)</li>
-						<li>git sync repo count (sync vs promotion mode)</li>
-						<li
-							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers, the names of public hub scripts used, the languages debug sessions
-							are started for, whether AI chat skills are turned on or off and how often one is
-							loaded, whether an AI agent run narrows the tools it may call and whether that leaves
-							it with none, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and
-							change a membership, the plan tier and quota shown when the execution meter is opened,
-							whether app sandbox isolation is turned on, whether a step's workspace script is
-							edited from the flow editor, which skin approval steps are given, how many AI sessions
-							are brought back from the workspace object storage backup, how data tables and their
-							migrations are set up and used, how often the database manager is switched between its
-							data and schema diagram views, how often an empty workspace home is seen, how often
-							the home page’s create menu and hub-project picker are opened and from which entry
-							point, the name of any public hub project imported from the home page and how far that
-							import got, whether a pre-approved trial offer was opened, whether data tables are put
-							under roles and whether callers name a role or take the default, which kinds of access
-							change (grant, revoke, ownership, default privileges) are applied to data tables, and
-							whether a data table under roles is cloned into a fork with its schema only or with
-							its data, last 30 days)</li
-						>
-						<li
-							>feature adoption (counts of which flow, script, trigger, worker and data table
-							features your deployed items use, including how many apps run sandboxed, how many data
-							tables exist per database kind, how many use migrations, and what references them)</li
-						>
-						<li
-							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
-							apps, raw apps)</li
-						>
-						<li
-							>infrastructure info (container runtime, managed database provider, database version,
-							size and cluster size, max and active connections, object storage backend)</li
-						>
+						<li>Job counts and durations per language</li>
+						<li>Git sync repository counts</li>
+						<li>Feature usage and adoption counts, including AI model and public Hub names</li>
+						<li>Counts of workspaces, scripts, flows and apps</li>
+						<li>Database, runtime and object storage details</li>
 					</ul>
 					<br />For air-gapped instances, you can download the telemetry data and send it manually.
 				</div>
@@ -1141,45 +1115,13 @@
 					Anonymous usage data is collected to help improve Windmill.
 					<br />The following information is collected:
 					<ul class="list-disc list-inside pl-2">
-						<li>version of your instance</li>
-						<li>instance base URL</li>
-						<li>job usage (language, total duration, count)</li>
-						<li>login type usage (login type, count)</li>
-						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li
-							>user usage (author count, operator count, the distinct guests of the last 30 days,
-							the seats they add past the free allowance, and the workspaces that allow guests)</li
-						>
-						<li>development instance status</li>
-						<li
-							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers, the names of public hub scripts used, the languages debug sessions
-							are started for, whether AI chat skills are turned on or off and how often one is
-							loaded, whether an AI agent run narrows the tools it may call and whether that leaves
-							it with none, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and
-							change a membership, the plan tier and quota shown when the execution meter is opened,
-							whether app sandbox isolation is turned on, whether a step's workspace script is
-							edited from the flow editor, which skin approval steps are given, how many AI sessions
-							are brought back from the workspace object storage backup, how data tables and their
-							migrations are set up and used, how often the database manager is switched between its
-							data and schema diagram views, how often an empty workspace home is seen, how often
-							the home page’s create menu and hub-project picker are opened and from which entry
-							point, the name of any public hub project imported from the home page and how far that
-							import got, whether a pre-approved trial offer was opened, whether data tables are put
-							under roles and whether callers name a role or take the default, which kinds of access
-							change (grant, revoke, ownership, default privileges) are applied to data tables, and
-							whether a data table under roles is cloned into a fork with its schema only or with
-							its data, last 30 days)</li
-						>
-						<li
-							>feature adoption (counts of which flow, script, trigger, worker and data table
-							features your deployed items use, including how many apps run sandboxed, how many data
-							tables exist per database kind, how many use migrations, and what references them)</li
-						>
-						<li
-							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
-							apps, raw apps)</li
-						>
+						<li>Instance version and base URL</li>
+						<li>Job counts and durations per language</li>
+						<li>Login types, user and seat counts</li>
+						<li>Worker count, vCPUs and memory</li>
+						<li>Development instance status</li>
+						<li>Feature usage and adoption counts, including AI model and public Hub names</li>
+						<li>Counts of workspaces, scripts, flows and apps</li>
 					</ul>
 				</div>
 			{/if}
@@ -1261,6 +1203,7 @@
 								{loading}
 								{setting}
 								{values}
+								{markSettingSaved}
 								{version}
 								{oauths}
 							/>
@@ -1280,6 +1223,7 @@
 						{loading}
 						{setting}
 						{values}
+						{markSettingSaved}
 						{version}
 						{oauths}
 						warning={setting.key === 'base_url' && baseUrlIsFallback
@@ -1295,6 +1239,7 @@
 					{@const licenseKeySetting = settings['Core'].find((s) => s.key === 'license_key')}
 					{#if licenseKeySetting}
 						<InstanceSetting
+							{markSettingSaved}
 							{openSmtpSettings}
 							on:closeDrawer={() => closeDrawer?.()}
 							{loading}
@@ -1320,6 +1265,7 @@
 						{loading}
 						{setting}
 						{values}
+						{markSettingSaved}
 						{version}
 						{oauths}
 					/>

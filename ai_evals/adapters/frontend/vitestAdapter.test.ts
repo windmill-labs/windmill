@@ -1,9 +1,13 @@
 import { expect, it, vi } from 'vitest'
 // @ts-ignore - Node.js fs/promises
-import { mkdir, writeFile } from 'fs/promises'
+import { mkdir, readFile, writeFile } from 'fs/promises'
 // @ts-ignore - Node.js path
 import { dirname, resolve } from 'path'
+// @ts-ignore - Node.js url
+import { fileURLToPath } from 'url'
 import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
+
+const FRONTEND_DIR = fileURLToPath(new URL('../../../frontend/', import.meta.url))
 
 // Some tools reach the backend by relative fetch('/api/...'), which has no meaning
 // in the vitest environment — serve the ones the benchmark handles.
@@ -24,8 +28,29 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 	if (typeof url === 'string' && hasBenchmarkApiHandler(url)) {
 		return handleBenchmarkApiFetch(url, init)
 	}
+	// The parsers behind inferArgs load their wasm from a vite `?url` path, which only a dev
+	// server serves. Unserved, every script schema infers as empty, and the tools then tell the
+	// model its arguments are undeclared, so it rewrites a correct script until it runs out of turns.
+	const wasmPath = typeof url === 'string' ? wasmFilePath(url) : undefined
+	if (wasmPath) {
+		return new Response(await readFile(wasmPath), {
+			headers: { 'Content-Type': 'application/wasm' }
+		})
+	}
 	return ORIGINAL_FETCH(input as Parameters<typeof fetch>[0], init)
 }) as typeof fetch
+
+function wasmFilePath(url: string): string | undefined {
+	const raw = url.split(/[?#]/)[0]
+	if (!raw.endsWith('.wasm')) return undefined
+	const pathname = decodeURIComponent(raw)
+	// Located past whatever base path the config prefixes.
+	const fs = pathname.indexOf('/@fs/')
+	if (fs !== -1) return pathname.slice(fs + '/@fs'.length)
+	const modules = pathname.indexOf('/node_modules/')
+	if (modules !== -1) return resolve(FRONTEND_DIR, `.${pathname.slice(modules)}`)
+	return undefined
+}
 
 vi.mock('monaco-editor', () => ({
 	editor: {},
@@ -640,6 +665,13 @@ benchmarkIt(
 	async () => {
 		const { resetBenchmarkMockBackend } = await import('./mockBackend')
 		resetBenchmarkMockBackend()
+		// The tools swallow inference failures, so a wasm the fetch stub stops serving would
+		// only show up as empty schemas the model chases, never as an error.
+		const { inferArgs } = await import('$lib/infer')
+		const { emptySchema } = await import('$lib/utils')
+		const probe = emptySchema()
+		await inferArgs('bun', 'export async function main(name: string) {}', probe)
+		expect(Object.keys(probe.properties)).toEqual(['name'])
 		const { runFrontendBenchmarkFromEnv } = await import('./benchmarkRunner')
 		try {
 			const payload = await runFrontendBenchmarkFromEnv()

@@ -48,6 +48,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than `script pr
 
 Use `wmill resource-type list --schema` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it `main` (`Main` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no `main`: their language section shows how they take arguments
+- Where the language has a Windmill client (`wmill`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via `results.step_id`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named `preprocessor` instead of `main`, and it receives a single parameter called `event` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., `{ b: 1, a: 2 }` calls the flow with `a = 2` and `b = 1`, assuming the flow has two inputs called `a` and `b`.
+
 # TypeScript (Bun Native)
 
 Native TypeScript execution. Native scripts are Bun scripts that run on the native worker — a lightweight V8 isolate that exposes `fetch` and the JavaScript standard library — and can be heavily parallelized. Every script MUST start with `//native` on its first line so Windmill routes it to the native worker; without it the exact same script runs on the regular Bun worker. You may import npm packages and other Windmill scripts (e.g. `./helper.ts`) — imports are resolved and bundled just like a regular Bun script — as long as everything (your code and its dependencies) relies only on `fetch` and the standard library. Libraries that need Node/Bun runtime APIs (filesystem, `node:*` modules, child processes, native addons) will not work on the native worker; use the regular `bun` language for those.
@@ -95,11 +118,23 @@ export async function main(url: string) {
 }
 ```
 
+## Pure computation: `//no_network`
+
+A native script that only transforms its inputs can declare `//no_network` in its leading comment block (right after `//native`). The runtime then refuses every connection the script attempts: `fetch` to any host, the Windmill API (so `windmill-client` calls fail too), raw sockets and unix sockets, and `WM_TOKEN` is not set. It only takes effect on native scripts: without `//native` it is ignored. Use it only when the script needs no external data beyond its arguments:
+
+```typescript
+//native
+//no_network
+export async function main(items: { price: number; qty: number }[]) {
+  return items.reduce((sum, i) => sum + i.price * i.qty, 0);
+}
+```
+
 ## Windmill Client
 
 `windmill-client` works on the native worker (its calls go over `fetch`), so use it as the **preferred way to talk to Windmill** — reading resources/variables/states, running scripts and flows, and the S3 helpers below (`loadS3File`, `loadS3FileStream`, `writeS3File`, `S3Object`). It handles auth, the workspace, and the base URL for you. Reserve raw `fetch` for calling *external* HTTP APIs that aren't Windmill.
 
-The full `windmill-client` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of hand-rolling a `fetch` against the Windmill API.
+The full `windmill-client` API reference (every exported function and its signature) is included below — consult it for the exact method instead of hand-rolling a `fetch` against the Windmill API.
 
 ## Preprocessor Scripts
 
@@ -118,7 +153,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
@@ -167,7 +204,6 @@ const result: wmill.S3Object = await wmill.writeS3File(
   s3ResourcePath // Optional: specific S3 resource to use
 );
 ```
-
 
 # TypeScript SDK (windmill-client)
 

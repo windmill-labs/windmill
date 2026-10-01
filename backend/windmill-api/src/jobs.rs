@@ -26,6 +26,7 @@ use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
 use url::Url;
+use windmill_api_flows::flows::validate_operator_composed_flow;
 use windmill_common::assets::AssetUsageAccessType;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
 #[cfg(feature = "run_inline")]
@@ -53,7 +54,9 @@ use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
-use windmill_common::workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult};
+use windmill_common::workspaces::{
+    check_operator_can_build_flows, check_user_against_rule, ProtectionRuleKind, RuleCheckResult,
+};
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
@@ -282,6 +285,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/add_batch_jobs/{n}", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
+        .route("/run/agent/{*path}", post(crate::agent_runs::run_agent))
         .route(
             "/run_wait_result/preview_flow",
             post(run_wait_result_preview_flow),
@@ -1894,7 +1898,10 @@ async fn require_job_within_run_scope(
     // NULL for a job no such scope reaches directly (previews, dependency jobs,
     // flow-inlined scripts) — those are still readable as a step of a matching flow,
     // through their ancestors. A `singlestepflow` wraps either a script or a flow, so it
-    // projects onto the wrapped runnable the same way the batch-rerun query does.
+    // projects onto the wrapped runnable the same way the batch-rerun query does. An agent
+    // run is a preview of the one-step flow `agent_runs::agent_step_flow` builds, filed under the
+    // agent's path (`<path>.chat` for a chat turn); the editor's own runs of it look the same,
+    // and are runs of that agent too.
     let chain = sqlx::query!(
         r#"WITH RECURSIVE chain(id, parent_job) AS (
                 SELECT id, parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2
@@ -1902,8 +1909,11 @@ async fn require_job_within_run_scope(
                 SELECT j.id, j.parent_job FROM v2_job j
                     JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
             )
-            SELECT j.runnable_path,
+            SELECT
+                CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\.chat$', '')
+                    ELSE j.runnable_path END AS runnable_path,
                 CASE
+                    WHEN a.agent THEN 'agents'
                     WHEN j.kind IN ('script', 'script_hub', 'unassigned_script') THEN 'scripts'
                     WHEN j.kind IN ('flow', 'unassigned_flow') THEN 'flows'
                     WHEN j.kind IN ('singlestepflow', 'unassigned_singlestepflow') THEN
@@ -1916,7 +1926,10 @@ async fn require_job_within_run_scope(
                             ) = 'flow' THEN 'flows' ELSE 'scripts' END
                 END AS scope_kind,
                 CASE WHEN j.trigger_kind = 'app' THEN j.trigger END AS launched_by_app
-            FROM v2_job j JOIN chain c ON c.id = j.id
+            FROM v2_job j JOIN chain c ON c.id = j.id,
+            LATERAL (SELECT j.kind = 'flowpreview'
+                AND j.raw_flow->'modules'->1 IS NULL
+                AND j.raw_flow->'modules'->0->>'id' = '__wm_agent_root' AS agent) a
             WHERE j.workspace_id = $2"#,
         job_id,
         w_id,
@@ -2772,15 +2785,16 @@ async fn send_email_with_instance_smtp(
         return Err(anyhow::anyhow!("Feature not supported in cloud hosted windmill").into());
     }
 
-    // Any code pushed as a workspace or schedule error handler, custom ones included, runs as
-    // one of these identities: this keeps out ad-hoc job tokens, not who authors handler code.
+    // Workspace error handlers (admin-configured, custom ones included) and the preset hub
+    // handlers of a schedule run as one of these identities. A custom schedule handler runs as
+    // the schedule and is set by any schedule writer, so it must stay out of this list.
     let is_handler_job = authed.email == EMAIL_ERROR_HANDLER_USER_EMAIL
         || authed.email == ERROR_HANDLER_USER_EMAIL
         || authed.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL;
 
     if !is_handler_job && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::NotAuthorized(
-            "Only super admin or a workspace/schedule error handler job can send emails with the instance SMTP"
+            "Only super admin, a workspace error handler or a preset schedule handler can send emails with the instance SMTP"
                 .to_string(),
         ));
     }
@@ -4227,6 +4241,7 @@ async fn get_started_at_by_ids(
 struct ListableQueuedJob {
     pub id: Uuid,
     pub running: bool,
+    pub canceled: bool,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -4272,6 +4287,9 @@ async fn list_queue_jobs(
         &[
             "v2_job.id",
             "v2_job_queue.running",
+            // A canceled row stays in the queue until a worker picks it up and completes it, and
+            // the `QueuedJob` schema this answers with declares the field either way.
+            "v2_job_queue.canceled_by IS NOT NULL as canceled",
             "v2_job.created_by",
             "v2_job.created_at",
             "v2_job_queue.started_at",
@@ -4770,15 +4788,7 @@ pub async fn resume_suspended_flow_as_owner(
     .await?;
 
     if is_wac {
-        // WAC: directly decrement suspend counter
-        if flow.suspend > 0 {
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
-                flow.id,
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
+        decrement_suspend(flow.id, &mut tx).await?;
     } else {
         resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
     }
@@ -4929,12 +4939,7 @@ async fn resume_suspended(
             .execute(&mut *tx)
             .await?;
     } else if is_wac {
-        if flow.suspend > 0 {
-            sqlx::query("UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1")
-                .bind(&flow.id)
-                .execute(&mut *tx)
-                .await?;
-        }
+        decrement_suspend(flow.id, &mut tx).await?;
     } else {
         resume_immediately_if_relevant(flow, resume_job_id, &mut tx).await?;
     }
@@ -5412,8 +5417,13 @@ async fn resume_suspended_job_internal(
     let value = value.unwrap_or(serde_json::Value::Null);
     verify_suspended_secret(&w_id, &db, job_id, resume_id, &approver, secret).await?;
 
-    // Get flow info - works for step-level, flow-level, and WAC approval
-    let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &w_id, &db).await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    // Get flow info - works for step-level, flow-level, and WAC approval. This locks the
+    // queue row until commit, so resumes serialize with each other and with the worker
+    // entering the suspend.
+    let (flow_info, is_flow_level, is_wac) =
+        get_flow_info_for_resume(job_id, &w_id, &mut tx).await?;
 
     // HMAC secret = full capability. Skip approval_conditions checks: possession of the full
     // resume URL is the authorization (it is only disclosed to intended approvers, e.g. when a
@@ -5426,7 +5436,7 @@ async fn resume_suspended_job_internal(
             "#,
         Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
     )
-    .fetch_one(&db)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -5444,7 +5454,6 @@ async fn resume_suspended_job_internal(
     } else {
         authed.as_ref().map(|x| x.username.clone())
     };
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     // Inside the transaction that inserts the row and moves the suspend counter:
     // validating earlier would let the workflow resolve this step and suspend on the
@@ -5473,20 +5482,11 @@ async fn resume_suspended_job_internal(
         .await?;
     } else if is_wac {
         // WAC approval: decrement suspend counter directly on the WAC parent job.
-        // `flow_info.suspend` was read before this transaction took the queue-row
-        // lock, so gating on it would skip the decrement for a workflow that
-        // suspended in between and leave the approval parked until timeout.
-        sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
-             WHERE id = $1 AND suspend > 0",
-            flow_info.id,
-        )
-        .execute(&mut *tx)
-        .await?;
+        decrement_suspend(flow_info.id, &mut tx).await?;
     } else if is_flow_level {
-        // For flow-level resumes, decrement the suspend counter if the flow is currently suspended
-        // The approval will be matched when the worker checks for resumes (both step-level and flow-level)
-        resume_immediately_for_flow_level(&flow_info, &mut tx).await?;
+        // Flow-level resumes don't match a step: the approval is picked up when the worker
+        // checks for resumes (both step-level and flow-level).
+        decrement_suspend(flow_info.id, &mut tx).await?;
     } else {
         // For step-level resumes, try to resume immediately if the step is waiting
         resume_immediately_if_relevant(flow_info, job_id, &mut tx).await?;
@@ -5564,42 +5564,27 @@ async fn resume_immediately_if_relevant<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<()> {
-    Ok(
-        if let Some(suspend) = (0 < flow.suspend).then(|| flow.suspend - 1) {
-            let status =
-                serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
-                    .context("deserialize flow status")?;
-            if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
-            {
-                sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = $1 WHERE id = $2",
-                    suspend,
-                    flow.id,
-                )
-                .execute(&mut **tx)
-                .await?;
-            }
-        },
-    )
+    Ok(if 0 < flow.suspend {
+        let status =
+            serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
+                .context("deserialize flow status")?;
+        if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
+        {
+            decrement_suspend(flow.id, tx).await?;
+        }
+    })
 }
 
-/// For flow-level resumes, decrement the suspend counter if the flow is currently suspended.
-/// Unlike step-level resumes, we don't check if the job_id matches - we just need the flow
-/// to be in a suspended state.
-async fn resume_immediately_for_flow_level<'c>(
-    flow: &FlowInfo,
-    tx: &mut Transaction<'c, Postgres>,
-) -> error::Result<()> {
-    if flow.suspend > 0 {
-        let new_suspend = flow.suspend - 1;
-        sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = $1 WHERE id = $2",
-            new_suspend,
-            flow.id,
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
+/// Relative rather than `suspend = <read value> - 1`, so concurrent approvals each remove one
+/// event from the count instead of overwriting each other's decrement.
+async fn decrement_suspend(flow_id: Uuid, tx: &mut Transaction<'_, Postgres>) -> error::Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
+         WHERE id = $1 AND suspend > 0",
+        flow_id,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -5648,10 +5633,10 @@ struct FlowInfo {
 async fn get_flow_info_for_resume(
     job_id: Uuid,
     w_id: &str,
-    db: &DB,
+    tx: &mut Transaction<'_, Postgres>,
 ) -> error::Result<(FlowInfo, bool, bool)> {
     // Single query that determines if job_id is a flow, step, or WAC job,
-    // and fetches the appropriate suspended job info.
+    // and locks the appropriate suspended job's queue row.
     // For WAC jobs (no parent, not a flow), the job itself is the suspended target.
     let result = sqlx::query!(
         r#"
@@ -5662,7 +5647,6 @@ async fn get_flow_info_for_resume(
         )
         SELECT
             q.id AS "id!",
-            s.flow_status,
             q.suspend AS "suspend!",
             j.runnable_path AS script_path,
             j.permissioned_as_email AS email,
@@ -5674,13 +5658,12 @@ async fn get_flow_info_for_resume(
             ELSE COALESCE(ji.parent_job, ji.id)
         END
         JOIN v2_job j ON j.id = q.id
-        LEFT JOIN v2_job_status s ON s.id = q.id
         FOR UPDATE OF q
         "#,
         job_id,
         w_id,
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| {
         Error::NotFound(format!(
@@ -5688,9 +5671,18 @@ async fn get_flow_info_for_resume(
         ))
     })?;
 
+    // Read in its own statement: a statement that waited on the queue-row lock above re-reads
+    // only the locked row, so a status joined into it could predate the worker's commit.
+    let flow_status: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT flow_status FROM v2_job_status WHERE id = $1")
+            .bind(result.id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+
     let flow_info = FlowInfo {
         id: result.id,
-        flow_status: result.flow_status,
+        flow_status,
         suspend: result.suspend,
         script_path: result.script_path,
         email: Some(result.email),
@@ -5703,6 +5695,13 @@ async fn get_suspended_flow_info<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<(FlowInfo, Uuid, bool)> {
+    // Lock before reading: a single statement that waited on this lock would re-read only
+    // the queue row, pairing a fresh suspend counter with a stale flow status.
+    sqlx::query("SELECT 1 FROM v2_job_queue WHERE id = $1 FOR UPDATE")
+        .bind(job_id)
+        .execute(&mut **tx)
+        .await?;
+
     let flow = sqlx::query_as!(
             FlowInfo,
             r#"
@@ -7147,7 +7146,7 @@ pub async fn restart_flow(
     let completed_job = sqlx::query!(
             "SELECT
                 j.runnable_path as script_path, j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
-                j.tag AS \"tag!\", j.priority
+                j.tag AS \"tag!\", j.priority, j.kind AS \"kind!: JobKind\"
             FROM v2_job j
             WHERE j.id = $1 and j.workspace_id = $2",
             job_id,
@@ -7164,6 +7163,13 @@ pub async fn restart_flow(
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
     let mut run_query = run_query;
     drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
+    // A restarted flow preview reruns the value its request supplied, while a flow preview
+    // under a parent is read (by job provenance) as that parent's own definition.
+    let (parent_job, root_job) = if completed_job.kind == JobKind::FlowPreview {
+        (None, None)
+    } else {
+        (run_query.parent_job, run_query.root_job)
+    };
 
     let ehm = HashMap::new();
     let push_args = completed_job
@@ -7207,9 +7213,9 @@ pub async fn restart_flow(
         authed.username_override.as_deref(),
         scheduled_for,
         None,
-        run_query.parent_job,
+        parent_job,
         None,
-        run_query.root_job,
+        root_job,
         run_query.job_id,
         false,
         false,
@@ -7409,6 +7415,20 @@ pub async fn run_workflow_as_code(
         )
         .await?;
 
+    // A task re-runs a preview with the preview's modules: the ones `push` stored for it, never
+    // the task's args. Read on their own, as `fetch_queued` swaps oversized args for a placeholder.
+    let preview_modules = if job.job_kind == JobKind::Preview {
+        sqlx::query_scalar::<_, Option<sqlx::types::Json<HashMap<String, ScriptModule>>>>(
+            "SELECT args->'_MODULES' FROM v2_job WHERE id = $1",
+        )
+        .bind(job.id)
+        .fetch_one(&db)
+        .await?
+        .map(|modules| modules.0)
+    } else {
+        None
+    };
+
     let (job_payload, tag, _delete_after_use, _delete_after_secs, timeout, on_behalf_of) =
         match job.job_kind {
             JobKind::Preview => (
@@ -7432,7 +7452,7 @@ pub async fn run_workflow_as_code(
                     dedicated_worker: None,
                     // TODO(debouncing): enable for this mode
                     debouncing_settings: DebouncingSettings::default(),
-                    modules: None,
+                    modules: preview_modules,
                     tag: None,
                 }),
                 Some(job.tag.clone()),
@@ -8574,7 +8594,9 @@ fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
     } else {
         "Operators cannot run preview jobs for security reasons"
     };
-    error::Error::NotAuthorized(reason.to_string())
+    // 403, not 401: the frontend reads a 401 as a dead session and logs the user out, and the
+    // flow editor builders open reaches this route.
+    error::Error::PermissionDenied(reason.to_string())
 }
 
 async fn run_preview_script(
@@ -8617,9 +8639,6 @@ async fn run_preview_script(
     let mut extra = HashMap::new();
     if let Some(fp) = &preview.flow_path {
         extra.insert("_FLOW_PATH".to_string(), to_raw_value(fp));
-    }
-    if let Some(ref modules) = preview.modules {
-        extra.insert("_MODULES".to_string(), to_raw_value(modules));
     }
     if let Some(ref temp_script_refs) = preview.temp_script_refs {
         extra.insert(
@@ -9259,14 +9278,32 @@ pub struct RunFlowDependenciesResponse {
 async fn push_flow_dependencies_job(
     authed: &ApiAuthed,
     db: &DB,
+    user_db: &UserDB,
     w_id: &str,
     req: RunFlowDependenciesRequest,
 ) -> error::Result<Uuid> {
     check_scopes(authed, || format!("jobs:run"))?;
+    check_operator_can_build_flows(db, w_id, authed.is_operator, "run dependencies jobs").await?;
+    // The dependency job locks whatever inline code this request carries, on a worker. A
+    // composition-only flow has none, so validating here costs a builder nothing and keeps the
+    // lock step from becoming the way to run code the write path refuses.
     if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run dependencies jobs for security reasons".to_string(),
-        ));
+        validate_operator_composed_flow(&req.flow_value, &None, authed, db, user_db, w_id).await?;
+        // The job rewrites bookkeeping stored under `req.path` (dependency map, asset usages,
+        // lock error) even with `skip_flow_update`, so a builder must be able to write there.
+        crate::drafts::require_can_write_path(
+            authed,
+            db,
+            user_db,
+            w_id,
+            windmill_common::user_drafts::UserDraftItemKind::Flow,
+            &req.path,
+        )
+        .await
+        .map_err(|e| match e {
+            error::Error::NotAuthorized(msg) => error::Error::PermissionDenied(msg),
+            e => e,
+        })?;
     }
 
     if req.raw_deps.is_some() {
@@ -9332,20 +9369,22 @@ async fn push_flow_dependencies_job(
 async fn run_flow_dependencies_job(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(req): Json<RunFlowDependenciesRequest>,
 ) -> error::Result<Response> {
-    let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
+    let uuid = push_flow_dependencies_job(&authed, &db, &user_db, &w_id, req).await?;
     run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await
 }
 
 async fn run_flow_dependencies_job_async(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(req): Json<RunFlowDependenciesRequest>,
 ) -> error::Result<(StatusCode, String)> {
-    let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
+    let uuid = push_flow_dependencies_job(&authed, &db, &user_db, &w_id, req).await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
@@ -9646,15 +9685,31 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "run preview jobs").await?;
     // Flow preview runs an arbitrary, request-supplied flow definition; require the broad
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
+    // A builder must be able to test what it composes, but the submitted value is not the stored
+    // one: without this the preview is a way to run inline code the write path refuses.
+    if authed.is_operator {
+        validate_operator_composed_flow(
+            &raw_flow.value,
+            &raw_flow.tag,
+            &authed,
+            &db,
+            &user_db,
+            &w_id,
+        )
+        .await?;
+    }
+    // Restarting copies the source runs' step results into the new run, and the queue resolves
+    // them with the service pool, so every run the request names must be readable as the caller.
+    let mut level = raw_flow.restarted_from.as_ref();
+    while let Some(r) = level {
+        require_job_update_read_access(&db, &user_db, &authed, &w_id, &r.flow_job_id, None).await?;
+        level = r.nested.as_deref();
+    }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
@@ -9781,9 +9836,7 @@ async fn run_dynamic_select(
         DynamicSelectRunnableRef::Inline { .. }
     ) && authed.is_operator
     {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
+        return Err(operator_preview_refusal(None));
     }
 
     if !is_valid_entrypoint_name(&request.entrypoint_function) {

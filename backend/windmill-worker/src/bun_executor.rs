@@ -2362,7 +2362,11 @@ try {{
 
         #[cfg(feature = "deno_core")]
         {
-            let env_code = build_nativets_env_code(base_internal_url, &reserved_variables);
+            let env_code = build_nativets_env_code(
+                base_internal_url,
+                &reserved_variables,
+                annotation.no_network,
+            );
             let js_code = read_file_content(&format!("{job_dir}/main.js")).await?;
             let started_at = Instant::now();
             let args = crate::common::build_args_map(job, client, conn)
@@ -2940,7 +2944,9 @@ pub async fn handle_wac_v2_output(
                         dedicated_worker: None,
                         concurrency_settings: ConcurrencySettingsWithCustom::default(),
                         debouncing_settings: DebouncingSettings::default(),
-                        modules: None,
+                        // `push` drops the `_MODULES` the children inherit with the
+                        // parent's args, so the preview's own modules are handed over here.
+                        modules: modules.clone(),
                         tag: None,
                     }))
                 }
@@ -3805,11 +3811,15 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
 pub fn build_nativets_env_code(
     base_internal_url: &str,
     reserved_variables: &HashMap<String, String>,
+    no_network: bool,
 ) -> String {
     format!(
         "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
         reserved_variables
             .iter()
+            // Useless without network, and a `//no_network` script could still
+            // hand it out through its result to whoever authored it.
+            .filter(|(k, _)| !(no_network && k.as_str() == "WM_TOKEN"))
             .map(|(k, v)| {
                 // The key is attacker-controllable (custom workspace env vars), so
                 // escape it as a string literal too, not just the value.
@@ -4204,7 +4214,11 @@ pub async fn start_worker(
             .iter()
             .map(|x| (x.name.clone(), x.value.clone()))
             .collect();
-        let env_code = build_nativets_env_code(base_internal_url, &reserved_variables);
+        let env_code = build_nativets_env_code(
+            base_internal_url,
+            &reserved_variables,
+            annotation.no_network,
+        );
 
         return handle_dedicated_bunnative(
             inner_content,

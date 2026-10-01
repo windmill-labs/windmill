@@ -50,6 +50,8 @@
 	import { getChatViewHost } from './chatViewHost'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
+	import ToolGroupDisplay from './ToolGroupDisplay.svelte'
+	import { chatItemKey, groupToolRuns } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
@@ -237,6 +239,7 @@
 	const mcpMenu = new McpMenu(aiChatManager, () => assistantSettings?.open('mcp'))
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
+	const chatItems = $derived(groupToolRuns(messages))
 
 	// Escape stops the generation when focus is on the chat (or parked on
 	// body), but stays with other widgets (e.g. the session's Monaco editor).
@@ -247,8 +250,16 @@
 		function onWindowKeydownCapture(e: KeyboardEvent) {
 			if (e.key !== 'Escape' || !chatHost.loading) return
 			const active = document.activeElement
+			// Focus parked on the body answers for the panel on screen only: the flow chat keeps
+			// a panel per conversation mounted, several of which can be loading, and a hidden
+			// one's listener would otherwise swallow the press (immediate form, below) and stop
+			// its own turn instead. `inert` marks the panels behind, and is matched as an
+			// attribute so the browsers without `checkVisibility` read it too.
+			const hidden =
+				panelEl?.closest('[inert]') != null ||
+				panelEl?.checkVisibility?.({ visibilityProperty: true }) === false
 			const focusOnChat =
-				!active || active === document.body || (panelEl?.contains(active) ?? false)
+				!hidden && (!active || active === document.body || panelEl?.contains(active) === true)
 			// An Escape while a run form is open must not discard what the user typed, so the action
 			// row alone stops the turn — wherever it is mounted, since the preview panel holds the
 			// form outside `panelEl`. Matched by call: two chats can be loading at once, and one's
@@ -487,22 +498,30 @@
 		const flatFiles = Array.from(dt.files ?? [])
 		const topLevelImages = flatFiles.filter(isImageFile)
 		const imageWork: Promise<unknown>[] = []
+		// The composer this drop landed on, held for the whole routing: a panel destroyed
+		// while a file is being read clears the binding, and the file would then reach no
+		// composer at all.
+		const dropped = aiChatInput
 		if (topLevelImages.length > 0) {
-			imageWork.push(aiChatInput?.addImages(topLevelImages) ?? Promise.resolve())
+			imageWork.push(dropped?.addImages(topLevelImages) ?? Promise.resolve())
 		}
 		// Text-file routing must await handle/entry resolution before it can call
 		// addTextFiles — hold sending across that window (taken BEFORE the first
 		// await) or a send mid-resolution would land the drop on the next message.
-		const releaseSendHold = aiChatInput?.holdSendForIngestion()
+		const releaseSendHold = dropped?.holdSendForIngestion()
 		try {
-			await routeDroppedTextAndFolders(dt, flatFiles)
+			await routeDroppedTextAndFolders(dt, flatFiles, dropped)
 		} finally {
 			releaseSendHold?.()
 		}
 		await Promise.all(imageWork)
 	}
 
-	async function routeDroppedTextAndFolders(dt: DataTransfer, flatFiles: File[]) {
+	async function routeDroppedTextAndFolders(
+		dt: DataTransfer,
+		flatFiles: File[],
+		input: typeof aiChatInput
+	) {
 		if (canUseFsAccess) {
 			// getAsFileSystemHandle calls are kicked off synchronously inside this call.
 			const handles = await handlesFromDataTransfer(dt)
@@ -514,7 +533,10 @@
 					? flatFiles
 					: await Promise.all(handles.filter(isFileHandle).map((h) => h.getFile()))
 			// Loose files attach to the message, like images.
-			await attachNonImageFiles(looseFiles.filter((f) => !isImageFile(f)))
+			await attachNonImageFiles(
+				looseFiles.filter((f) => !isImageFile(f)),
+				input
+			)
 			// Folders link as a live handle.
 			const dirs = handles.filter(isDirectoryHandle)
 			if (dirs.length > 0 && !canLinkFolders) {
@@ -551,7 +573,7 @@
 				if (canLinkFolders) await handleAddFiles(folderEntries)
 				else sendUserToast('Folders cannot be attached in this chat — drop individual files.', true)
 			}
-			await attachNonImageFiles(topLevelText)
+			await attachNonImageFiles(topLevelText, input)
 		}
 	}
 
@@ -563,8 +585,10 @@
 		input.value = '' // allow re-selecting the same file
 	}
 
-	async function attachNonImageFiles(files: File[]) {
-		await aiChatInput?.addNonImageFiles(files)
+	/** `input` is the composer the files are for, captured before any await: read off the
+	 * binding afterwards it would be null once the panel has been destroyed. */
+	async function attachNonImageFiles(files: File[], input: typeof aiChatInput) {
+		await input?.addNonImageFiles(files)
 	}
 
 	async function attachPickedFiles(picked: File[]) {
@@ -572,7 +596,7 @@
 		const others = picked.filter((f) => !isImageFile(f))
 		// Reserved before the other work is awaited — see onPanelDrop.
 		const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
-		await attachNonImageFiles(others)
+		await attachNonImageFiles(others, aiChatInput)
 		await imageWork
 	}
 
@@ -851,15 +875,45 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				onscroll={onScroll}
 			>
 				<div class="{columnClass} flex flex-col pb-2" bind:clientHeight={height}>
-					{#each messages as message, messageIndex (messageIndex)}
+					{#snippet messageRow(
+						message: DisplayMessage,
+						messageIndex: number,
+						isLast: boolean,
+						inGroup: boolean
+					)}
 						<AIChatMessage
 							{message}
 							{messageIndex}
 							{availableContext}
 							bind:editingMessageIndex
-							isLast={messageIndex === messages.length - 1}
+							{isLast}
+							{inGroup}
 							showAnswerActions={showsAnswerActions[messageIndex]}
 						/>
+					{/snippet}
+					{#snippet groupRow(message: DisplayMessage, messageIndex: number)}
+						{@render messageRow(message, messageIndex, false, true)}
+					{/snippet}
+					{#each chatItems as item (chatItemKey(item))}
+						{#if item.kind === 'group'}
+							<div
+								class={twMerge(
+									'mb-1 min-w-0 text-sm px-2 text-primary',
+									item.entries.at(-1)?.index === messages.length - 1 && '!mb-12'
+								)}
+							>
+								<div class="px-[1px]">
+									<ToolGroupDisplay group={item} entry={groupRow} />
+								</div>
+							</div>
+						{:else}
+							{@render messageRow(
+								item.message,
+								item.index,
+								item.index === messages.length - 1,
+								false
+							)}
+						{/if}
 					{/each}
 					{#if freeTierExhausted}
 						{@render freeTierExhaustedBanner()}

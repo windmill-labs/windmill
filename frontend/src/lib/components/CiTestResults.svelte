@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ScriptService, type CiTestResult } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { base } from '$lib/base'
 	import { CircleCheck, CircleX, Loader2, FlaskConical } from 'lucide-svelte'
 	import { resource } from 'runed'
@@ -12,8 +12,10 @@
 
 	let { path, kind }: Props = $props()
 
+	const operatingWorkspace = useOperatingWorkspace()
+
 	let ciTests = resource(
-		() => ({ workspace: $workspaceStore!, path, kind }),
+		() => ({ workspace: $operatingWorkspace!, path, kind }),
 		async (args) => {
 			if (!args.workspace || !args.path) return []
 			return ScriptService.getCiTestResults({
@@ -55,14 +57,14 @@
 						<div class="w-3.5 h-3.5 rounded-full border border-tertiary"></div>
 					{/if}
 					<a
-						href="{base}/scripts/get/{test.test_script_path}?workspace={$workspaceStore}"
+						href="{base}/scripts/get/{test.test_script_path}?workspace={$operatingWorkspace}"
 						class="text-secondary hover:text-primary truncate"
 					>
 						{test.test_script_path}
 					</a>
 					{#if test.job_id}
 						<a
-							href="{base}/run/{test.job_id}?workspace={$workspaceStore}"
+							href="{base}/run/{test.job_id}?workspace={$operatingWorkspace}"
 							class="text-tertiary hover:text-secondary text-2xs"
 						>
 							view run

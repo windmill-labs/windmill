@@ -16,7 +16,7 @@ section or the flat layout.
 
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Compass, FileText } from 'lucide-svelte'
+	import { Compass, FileText, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -45,6 +45,7 @@ section or the flat layout.
 		isArtifactKey,
 		pageHref,
 		pageKey,
+		previewModeFor,
 		type PreviewTarget
 	} from './previewRouter'
 
@@ -135,7 +136,11 @@ section or the flat layout.
 					draftPath: storagePath !== d.path ? d.path : d.draftPath,
 					summary: d.summary ?? '',
 					kind: k,
-					raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
+					raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined,
+					// A chat-scaffolded draft the workspace listers have never seen. It has
+					// an editor and nothing else, so picking it must not aim at a deployed
+					// page — and a row merged over a loaded one keeps the lister's answer.
+					draftOnly: true
 				}
 			})
 	}
@@ -145,12 +150,40 @@ section or the flat layout.
 
 	// Wrap item leaves as PreviewTargets so the tree can carry page leaves too.
 	// Branch structure is untouched — only leaf `data` is re-tagged.
+	//
+	// `mode` is stamped here rather than left to the tab: picking is the reader
+	// saying "show me this", so it lands on the deployed page, and `navigate`
+	// would otherwise keep whichever side the re-pointed tab happened to be on.
 	function tagItems(nodes: DrillNode<WorkspaceItem>[]): DrillNode<PreviewTarget>[] {
 		return nodes.map((n) =>
 			n.type === 'leaf'
-				? { ...n, data: { type: 'item', item: n.data } }
+				? { ...n, data: { type: 'item', item: n.data, mode: previewModeFor(n.data) } }
 				: { ...n, children: tagItems(n.children) }
 		)
+	}
+
+	// Open the item's editor. Offered on every item row, including the draft-only ones
+	// a plain click already opens there: a row that drops the button to say "you were
+	// getting this anyway" reads as one that cannot be edited.
+	function editAction(leaf: DrillLeaf<PreviewTarget>) {
+		const target = leaf.data
+		if (target.type !== 'item') return undefined
+		return {
+			icon: Pen,
+			label: 'Edit',
+			title: `Edit ${workspaceItemDisplayPath(target.item)}`,
+			run: () => onPick({ ...target, mode: 'edit' })
+		}
+	}
+
+	// What the row says about the item's deploy state, in the review dock's words so
+	// the two never describe the same item differently.
+	function stateBadge(leaf: DrillLeaf<PreviewTarget>) {
+		const target = leaf.data
+		if (target.type !== 'item') return undefined
+		if (target.item.draftOnly) return { label: 'Draft only', color: 'indigo' as const }
+		if (target.item.hasDraft) return { label: 'Draft', color: 'indigo' as const }
+		return undefined
 	}
 
 	function pageLeaf(p: (typeof PREVIEW_PAGES)[number]): DrillLeaf<PreviewTarget> {
@@ -262,5 +295,7 @@ section or the flat layout.
 		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
 	}}
 	onFilterChange={loader.onFilterChange}
+	leafAction={editAction}
+	leafBadge={stateBadge}
 	{rootLoading}
 />

@@ -106,12 +106,13 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -1111,10 +1112,11 @@
 		onClick: () => void
 	}> = []
 
-	// In a session pane every one of these leaves the session (details page, new
-	// tab), so the deploy button carries no dropdown there — as in ScriptBuilder.
-	if (untrack(() => customUi).topBar?.extraDeployOptions != false && !inSessionPane) {
-		if (!newFlow) {
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
+		// The one option that stays in a session pane: the session hosts the details page
+		// itself, so this flips the tab to it rather than leaving the session. Everything
+		// below opens a details page or a new tab outside the session, so it stays hidden.
+		if (!newFlow && savedFlow?.no_deployed !== true) {
 			dropdownItems.push({
 				label: 'Exit & see details',
 				// Use the deployed path, not the live `$pathStore` — the latter
@@ -1124,7 +1126,7 @@
 			})
 		}
 
-		if (!untrack(() => newFlow)) {
+		if (!untrack(() => newFlow) && !inSessionPane) {
 			dropdownItems.push({
 				label: 'Fork',
 				onClick: () => window.open(`/flows/add?template=${initialPath}`)
@@ -1133,6 +1135,7 @@
 
 		if (
 			!untrack(() => newFlow) &&
+			!inSessionPane &&
 			!isCloudHosted() &&
 			editInForkAllowed(opWorkspace, $userWorkspaces)
 		) {
@@ -1519,7 +1522,7 @@
 <AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
 
 {#key renderCount}
-	{#if !actingUser?.operator}
+	{#if !actingUser?.operator || $operatorBuilderFlows}
 		{#if $pathStore}
 			<FlowHistory bind:this={flowHistory} path={$pathStore} {onHistoryRestore} />
 		{/if}
@@ -1673,7 +1676,9 @@
 					{forceTestTab}
 					{highlightArg}
 					aiChatOpen={aiChatManager.open}
-					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
+					showFlowAiButton={!disableAi &&
+						customUi?.topBar?.aiBuilder != false &&
+						!$operatorBuilderFlows}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}
@@ -1702,7 +1707,9 @@
 			{/if}
 		</div>
 	{:else}
-		Flow Builder not available to operators
+		<div class="h-full w-full center-center text-sm text-secondary">
+			Flow builder not available to operators
+		</div>
 	{/if}
 {/key}
 

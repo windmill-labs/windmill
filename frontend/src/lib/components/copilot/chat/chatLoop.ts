@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { SvelteSet } from 'svelte/reactivity'
 import Anthropic from '@anthropic-ai/sdk'
 import type {
 	ChatCompletionMessageParam,
@@ -157,7 +158,9 @@ export function closeInterruptedToolBatch(
 	return [...paired, batch, ...answers, ...interrupted]
 }
 
-const unsupportedWebSearchCache = new Set<string>()
+// Reactive so the assistant settings modal stops listing web search the moment a
+// provider rejects it.
+const unsupportedWebSearchCache = new SvelteSet<string>()
 const WEB_SEARCH_UNAVAILABLE_STATUS_CODES = new Set([400, 403, 404])
 
 // Reasoning-summary availability is an org-level property of the provider
@@ -174,6 +177,20 @@ const unsupportedPromptCacheKeyCache = new Set<string>()
 
 function getWebSearchCacheKey(workspace: string, modelProvider: ReasoningProviderModel): string {
 	return [workspace, modelProvider.provider, modelProvider.model].join(':')
+}
+
+/** Whether a turn attaches the provider's native web search. `enabled` is the workspace's
+ * toggle for the provider. */
+export function sendsWebSearch(
+	workspace: string,
+	modelProvider: ReasoningProviderModel,
+	enabled: boolean
+): boolean {
+	return (
+		enabled &&
+		providerSupportsWebSearch(modelProvider.provider) &&
+		!unsupportedWebSearchCache.has(getWebSearchCacheKey(workspace, modelProvider))
+	)
 }
 
 function getReasoningSummaryCacheKey(
@@ -399,10 +416,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const modelProvider = config.modelProvider
 		iterationModel = modelProvider
 		const webSearchCacheKey = getWebSearchCacheKey(workspace, modelProvider)
-		const webSearch =
-			(config.webSearch ?? true) &&
-			providerSupportsWebSearch(modelProvider.provider) &&
-			!unsupportedWebSearchCache.has(webSearchCacheKey)
+		const webSearch = sendsWebSearch(workspace, modelProvider, config.webSearch ?? true)
 
 		if (onBeforeIteration) {
 			await onBeforeIteration(modelProvider)
