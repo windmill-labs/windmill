@@ -46,22 +46,24 @@ export function forkDiffKindToUserDraftKind(kind: ForkDiffKind): UserDraftItemKi
 	return FORK_DIFF_KIND_TO_USER_DRAFT_KIND[kind]
 }
 
+// A pipeline the chat edited is masked as its folder's draft bundle, and each
+// script that bundle deploys is masked too, so a fork review selects exactly
+// those. The session's changes list shows them as the pipeline's one row, not
+// as rows of their own.
+export function foldedIntoPipelineRow(
+	mask: ReadonlySet<string>,
+	kind: UserDraftItemKind,
+	path: string
+): boolean {
+	if (kind !== 'script') return false
+	const folder = path.match(/^f\/([^/]+)\//)?.[1]
+	return !!folder && mask.has(maskKey(PIPELINE_DRAFT_KIND, pipelineBundlePath(folder)))
+}
+
 // True when a fork-comparison diff names an item present in the chat-modified mask.
 export function diffInMask(diff: WorkspaceItemDiff, mask: Set<string>): boolean {
 	const kind = forkDiffKindToUserDraftKind(diff.kind)
 	if (kind !== undefined && mask.has(maskKey(kind, diff.path))) return true
-	// A pipeline is masked as its folder's draft bundle, which deploys into the
-	// scripts and triggers of that folder — none of which the mask names itself.
-	// Only those kinds: anything else in the folder is not the pipeline's doing.
-	const deployedByPipeline =
-		diff.kind === 'script' || diff.kind === 'schedule' || diff.kind.endsWith('_trigger')
-	const folder = diff.path.match(/^f\/([^/]+)\//)?.[1]
-	if (
-		folder &&
-		deployedByPipeline &&
-		mask.has(maskKey(PIPELINE_DRAFT_KIND, pipelineBundlePath(folder)))
-	)
-		return true
 	// Legacy drag-and-drop apps tally fork diffs under `app`, and an explicit
 	// `?items=` mask names them `app:<path>` (the same kind the drafts list uses).
 	// The bridged lookup above reads them as `raw_app` (kept for chat masks, which

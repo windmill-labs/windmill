@@ -531,11 +531,17 @@
 		const workspace = $workspaceStore
 		if (!workspace) return
 		await tick()
-		await UserDraftDbSyncer.flush({
-			workspace,
-			itemKind: PIPELINE_DRAFT_KIND,
-			path: pipelineDraftPath
-		})
+		const draft = { workspace, itemKind: PIPELINE_DRAFT_KIND, path: pipelineDraftPath }
+		await UserDraftDbSyncer.flush(draft)
+		// A flush resolves even when the save failed or conflicted, and the session
+		// would then open on the older drafts the server holds: stay here instead.
+		if (UserDraftDbSyncer.getConflict(draft).conflict) {
+			throw new Error('The pipeline drafts conflict with a newer version — resolve that first.')
+		}
+		const sync = UserDraftDbSyncer.getState(draft)
+		if (sync.state === 'failed') {
+			throw new Error(`The pipeline drafts could not be saved: ${sync.failureMessage ?? 'unknown error'}`)
+		}
 		// The drafts go with the pipeline into the session, so leaving for it is
 		// not leaving them behind.
 		bypassNavigationGuard = true
@@ -677,10 +683,6 @@
 	function reportDeployDrift(predicted: Map<string, CascadeFacts>) {
 		const msg = formatDrift(diffDeployedGraph(predicted, graphRes.current ?? EMPTY_GRAPH))
 		if (msg) sendUserToast(msg, true)
-	}
-
-	function saveDraft(_path: string, draft: Draft, ws: string): Promise<void> {
-		return deployPipelineScript(draft, ws)
 	}
 
 	// Scripts plus trigger drafts: what "Save all" deploys.
@@ -870,7 +872,7 @@
 				const draft = pe.drafts.get(path)
 				if (!draft) break
 				try {
-					await saveDraft(path, draft, $workspaceStore)
+					await deployPipelineScript(draft, $workspaceStore)
 					// Archive the previously-deployed intermediate path (if
 					// any) — a double-rename otherwise leaves it as an
 					// orphan script visible on the canvas as a "deployed"

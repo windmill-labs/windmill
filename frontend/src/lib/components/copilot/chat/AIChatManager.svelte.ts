@@ -898,6 +898,15 @@ export class AIChatManager implements ChatViewHost {
 		await this.#persistModifiedItems()
 	}
 
+	// Record the items deploying a chat-modified item produced — a pipeline's
+	// scripts — so a fork review selects exactly them. Persisted at once, like a
+	// discard: the deploy can run outside any turn.
+	async recordDeployedItems(itemKind: UserDraftItemKind, storagePaths: string[]) {
+		if (!this.modifiedItems || storagePaths.length === 0) return
+		for (const p of storagePaths) this.modifiedItems.add(maskKey(itemKind, p))
+		await this.#persistModifiedItems()
+	}
+
 	// Move a mask entry to the path a draft actually deployed to. A draft-only
 	// flow/app parks at a synthetic `draft_{uuid}` storage path and deploys to
 	// its chosen path — without the move, the existence check at the synthetic

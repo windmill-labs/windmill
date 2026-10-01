@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resource } from 'runed'
-	import { tick, untrack } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import { Loader2, Save, Workflow } from 'lucide-svelte'
 	import PipelineGraphEditor from '$lib/components/assets/AssetGraph/PipelineGraphEditor.svelte'
 	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
@@ -30,6 +30,7 @@
 	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import type { DeployResult } from '$lib/utils_workspace_deploy'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
+	import { maskKey } from './modifiedItemsMask'
 
 	let {
 		runtime,
@@ -320,14 +321,17 @@
 	}
 
 	async function deployAll(): Promise<DeployResult> {
+		// Taken before any await: a second caller (the tab's button and the changes
+		// list both reach here) would otherwise replace the pending confirmation and
+		// leave the first one waiting forever.
 		if (deploying) return { success: false, error: 'This pipeline is already deploying.' }
-		if (!(await hydrated())) return { success: false, error: 'The pipeline drafts did not load.' }
-		if (pendingCount === 0) return { success: true }
-		if (pe.triggerDrafts.size > 0 && !(await confirmTriggers())) {
-			return { success: false, error: 'Deploy cancelled.' }
-		}
 		deploying = true
 		try {
+			if (!(await hydrated())) return { success: false, error: 'The pipeline drafts did not load.' }
+			if (pendingCount === 0) return { success: true }
+			if (pe.triggerDrafts.size > 0 && !(await confirmTriggers())) {
+				return { success: false, error: 'Deploy cancelled.' }
+			}
 			// What the canvas promises for each draft, checked against what the
 			// backend derived once deployed.
 			const predicted = new Map(
@@ -335,6 +339,10 @@
 			)
 			const { savedPaths, savedTriggers, errors } = await deployPipelineDrafts(pe, workspaceId)
 			assetPrefetch.forget(...savedPaths)
+			const bundleKey = maskKey(PIPELINE_DRAFT_KIND, pipelineBundlePath(path))
+			if (aiChatManager.modifiedItems?.has(bundleKey)) {
+				await aiChatManager.recordDeployedItems('script', savedPaths)
+			}
 			if (savedPaths.length > 0 || savedTriggers.length > 0) {
 				await graphRes.refetch()
 				const deployed = new Map([...predicted].filter(([p]) => savedPaths.includes(p)))
@@ -372,6 +380,8 @@
 	}
 
 	$effect(() => runtime.registerPipelineView(path, { deployAll }))
+	// A deploy waiting on the trigger confirmation must still settle when the tab goes.
+	onDestroy(() => answerTriggerConfirm(false))
 </script>
 
 <div class="flex flex-col h-full w-full bg-surface">

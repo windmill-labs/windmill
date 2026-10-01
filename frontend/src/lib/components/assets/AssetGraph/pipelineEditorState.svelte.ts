@@ -59,21 +59,19 @@ export class PipelineEditorState {
 	 * autosave hydrate when persistence is enabled. */
 	loadedFromDbDraft = $state(false)
 
-	/** Folder this state is scoped to. Used by the in-session preview (where one
-	 * instance is reused across editor hide/show) to detect a retarget to a
-	 * different folder and reset, so stale drafts don't bleed across folders. */
+	/** Folder this state is scoped to. The route page compares it on a folder
+	 * switch and resets, so one folder's drafts don't bleed into the next. */
 	folder = $state<string | undefined>(undefined)
 
 	/** True once the DB draft bundle for the current folder has been hydrated
-	 * into this instance. Gated per-instance (not per component mount) so the
-	 * in-session preview hydrates ONCE when its runtime is fresh and then keeps
-	 * the in-memory drafts across editor hide/show — re-reading the DB on every
-	 * remount would race a not-yet-flushed autosave and drop a just-staged draft.
-	 * Reset to false on a folder retarget so the new folder re-hydrates. */
+	 * into this instance. Gated per-instance (not per component mount) so an AI
+	 * session's folder hydrates ONCE and then keeps its in-memory drafts across
+	 * editor remounts — re-reading the DB on every remount would race a
+	 * not-yet-flushed autosave and drop a just-staged draft. `reset` clears it
+	 * so a new folder re-hydrates. */
 	hydratedFromDb = $state(false)
 
-	/** Clear all in-flight state. Used when the session preview retargets a
-	 * different pipeline folder (a same-folder remount keeps the drafts). */
+	/** Clear all in-flight state, for the route page switching folders. */
 	reset = () => {
 		this.drafts = new Map()
 		this.triggerDrafts = new Map()
