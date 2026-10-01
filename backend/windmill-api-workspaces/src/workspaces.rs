@@ -14367,18 +14367,27 @@ async fn prune_versions(
 
     let pruned = match req.resource_type.as_str() {
         "scripts" => {
-            let result = sqlx::query(
-                "DELETE FROM script
-                WHERE workspace_id = $1 AND hash NOT IN (
-                    SELECT DISTINCT ON (path) hash FROM script
-                    WHERE workspace_id = $1 AND deleted = false
-                    ORDER BY path, created_at DESC
-                )",
-            )
-            .bind(&w_id)
-            .execute(&db)
-            .await?;
-            result.rows_affected()
+            let mut tx = db.begin().await?;
+            let deleted = windmill_common::DeletedScriptVersions::new(
+                &w_id,
+                sqlx::query_as::<_, (String, i64)>(
+                    "DELETE FROM script
+                    WHERE workspace_id = $1 AND hash NOT IN (
+                        SELECT DISTINCT ON (path) hash FROM script
+                        WHERE workspace_id = $1 AND deleted = false
+                        ORDER BY path, created_at DESC
+                    )
+                    RETURNING path, hash",
+                )
+                .bind(&w_id)
+                .fetch_all(&mut *tx)
+                .await?,
+            );
+            deleted.notify(&mut *tx).await?;
+            tx.commit().await?;
+            let pruned = deleted.hashes.len() as u64;
+            deleted.evict();
+            pruned
         }
         "flows" => {
             let deleted = sqlx::query(
