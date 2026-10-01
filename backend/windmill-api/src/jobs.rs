@@ -4788,15 +4788,7 @@ pub async fn resume_suspended_flow_as_owner(
     .await?;
 
     if is_wac {
-        // WAC: directly decrement suspend counter
-        if flow.suspend > 0 {
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
-                flow.id,
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
+        decrement_suspend(flow.id, &mut tx).await?;
     } else {
         resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
     }
@@ -4947,12 +4939,7 @@ async fn resume_suspended(
             .execute(&mut *tx)
             .await?;
     } else if is_wac {
-        if flow.suspend > 0 {
-            sqlx::query("UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1")
-                .bind(&flow.id)
-                .execute(&mut *tx)
-                .await?;
-        }
+        decrement_suspend(flow.id, &mut tx).await?;
     } else {
         resume_immediately_if_relevant(flow, resume_job_id, &mut tx).await?;
     }
@@ -5495,17 +5482,11 @@ async fn resume_suspended_job_internal(
         .await?;
     } else if is_wac {
         // WAC approval: decrement suspend counter directly on the WAC parent job.
-        sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
-             WHERE id = $1 AND suspend > 0",
-            flow_info.id,
-        )
-        .execute(&mut *tx)
-        .await?;
+        decrement_suspend(flow_info.id, &mut tx).await?;
     } else if is_flow_level {
-        // For flow-level resumes, decrement the suspend counter if the flow is currently suspended
-        // The approval will be matched when the worker checks for resumes (both step-level and flow-level)
-        resume_immediately_for_flow_level(&flow_info, &mut tx).await?;
+        // Flow-level resumes don't match a step: the approval is picked up when the worker
+        // checks for resumes (both step-level and flow-level).
+        decrement_suspend(flow_info.id, &mut tx).await?;
     } else {
         // For step-level resumes, try to resume immediately if the step is waiting
         resume_immediately_if_relevant(flow_info, job_id, &mut tx).await?;
@@ -5589,33 +5570,21 @@ async fn resume_immediately_if_relevant<'c>(
                 .context("deserialize flow status")?;
         if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
         {
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
-                 WHERE id = $1 AND suspend > 0",
-                flow.id,
-            )
-            .execute(&mut **tx)
-            .await?;
+            decrement_suspend(flow.id, tx).await?;
         }
     })
 }
 
-/// For flow-level resumes, decrement the suspend counter if the flow is currently suspended.
-/// Unlike step-level resumes, we don't check if the job_id matches - we just need the flow
-/// to be in a suspended state.
-async fn resume_immediately_for_flow_level<'c>(
-    flow: &FlowInfo,
-    tx: &mut Transaction<'c, Postgres>,
-) -> error::Result<()> {
-    if flow.suspend > 0 {
-        sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
-             WHERE id = $1 AND suspend > 0",
-            flow.id,
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
+/// Relative rather than `suspend = <read value> - 1`, so concurrent approvals each remove one
+/// event from the count instead of overwriting each other's decrement.
+async fn decrement_suspend(flow_id: Uuid, tx: &mut Transaction<'_, Postgres>) -> error::Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
+         WHERE id = $1 AND suspend > 0",
+        flow_id,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
