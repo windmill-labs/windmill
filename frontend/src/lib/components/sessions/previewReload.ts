@@ -4,6 +4,7 @@ import {
 	pageItemListPath,
 	pageItemUrl,
 	parsePageItemRoute,
+	parsePreviewItemRoute,
 	stripBase,
 	TRIGGER_PAGES,
 	type PageItemRef,
@@ -26,8 +27,14 @@ import {
 // in-process tabs: their editors read a draft only when they open, so a write to
 // one reloads its tab too. `items` names it when the tool's args do; without a
 // path, every tab of that kind reloads.
-export type ToolReloadEffect = { pages: string[]; items: PageItemRef[] }
-const NO_RELOAD: ToolReloadEffect = { pages: [], items: [] }
+//
+// `deployed` is the other exception. A tab can sit on the VIEW side of an item,
+// which renders the DEPLOYED version read over the API — it shares no store with
+// the chat, so a tool that changes what is deployed at a path has to name it here
+// or that tab keeps showing the previous deployment. Only tools that change the
+// deployed item belong in `deployed`; a draft write does not.
+export type ToolReloadEffect = { pages: string[]; items: PageItemRef[]; deployed: string[] }
+const NO_RELOAD: ToolReloadEffect = { pages: [], items: [], deployed: [] }
 
 export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 	switch (name) {
@@ -41,13 +48,19 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 		case 'write_variable':
 			return withItem(['/variables'], itemRef('variable', args))
 		case 'create_folder':
-			return { pages: ['/folders'], items: [] }
+			return { pages: ['/folders'], items: [], deployed: [] }
+		// These two change what is deployed at a path, so a tab on that item's View side
+		// is showing a version that no longer exists.
+		case 'delete_workspace_item':
+		case 'deploy_workspace_item':
+			return {
+				...withItem(pagesForItemType(args?.type, args), itemRef(args?.type, args)),
+				deployed: deployedItems(args)
+			}
 		// Generic item tools carry a workspace-item `type`; refresh its list page
 		// when it lives on one (schedule/resource/variable/trigger). script/flow/app
 		// have their own live editor tab and no previewed list page → nothing.
-		case 'delete_workspace_item':
 		case 'discard_local_draft':
-		case 'deploy_workspace_item':
 		case 'rebase_draft':
 			return withItem(
 				pagesForItemType(args?.type, args),
@@ -58,8 +71,16 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 	}
 }
 
+// The item path a deploy/delete changed, when it is one of the kinds a preview tab can
+// show the deployed side of. Other types (schedule, resource, …) have list pages instead.
+function deployedItems(args: any): string[] {
+	const type = args?.type
+	if (type !== 'script' && type !== 'flow' && type !== 'app') return []
+	return typeof args?.path === 'string' && args.path ? [args.path] : []
+}
+
 function withItem(pages: string[], item: PageItemRef | undefined): ToolReloadEffect {
-	return { pages, items: item && pages.length ? [item] : [] }
+	return { pages, items: item && pages.length ? [item] : [], deployed: [] }
 }
 
 function itemRef(type: unknown, args: any, triggerKind?: unknown): PageItemRef | undefined {
@@ -112,5 +133,19 @@ export function tabsToReload(
 		if (!pages.has(listPath)) return false
 		const named = [...items].some((u) => pageItemListPath(parsePageItemRoute(u)!) === listPath)
 		return !named || items.has(pageItemUrl(pageItem))
+	})
+}
+
+// The open tabs a deploy/delete of `items` should refresh: those sitting on the VIEW side
+// of one of those paths. The Edit side is excluded on purpose — it is the live editor that
+// self-syncs, and reloading it would throw away whatever is being edited.
+export function viewerTabsToReload(
+	tabs: SessionPreviewTab[],
+	items: ReadonlySet<string>
+): SessionPreviewTab[] {
+	if (items.size === 0) return []
+	return tabs.filter((t) => {
+		const route = parsePreviewItemRoute(whereIs(t))
+		return route?.mode === 'view' && items.has(route.itemPath)
 	})
 }

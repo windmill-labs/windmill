@@ -39,9 +39,11 @@
 	const unparseableKey = {}
 	onDestroy(() => setEditorUnparseable(unparseableKey, false))
 
+	let rootEl: HTMLElement | undefined = $state()
+
 	function setParseError(message: string) {
 		parseError = message
-		setEditorUnparseable(unparseableKey, message !== '')
+		setEditorUnparseable(unparseableKey, message !== '', rootEl)
 	}
 
 	$effect(() => {
@@ -104,7 +106,7 @@
 <!-- Add a hidden button that can receive focus -->
 <button bind:this={focusTrap} class="sr-only" tabindex="-1" aria-hidden="true">Focus trap</button>
 
-<div class="h-full flex flex-col">
+<div bind:this={rootEl} class="h-full flex flex-col">
 	<div class="flex-1 min-h-0 rounded-md border">
 		<SimpleEditor
 			bind:this={simpleEditor}

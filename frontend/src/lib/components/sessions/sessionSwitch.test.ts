@@ -259,7 +259,7 @@ describe('takeNewSessionSeed', () => {
 		rememberNavRoute('/flows/edit/u/me/my_flow?workspace=ws')
 		expect(takeNewSessionSeed()).toEqual({
 			url: '/flows/edit/u/me/my_flow?workspace=ws',
-			route: { kind: 'flow', raw_app: false, itemPath: 'u/me/my_flow' }
+			route: { kind: 'flow', raw_app: false, itemPath: 'u/me/my_flow', mode: 'edit' }
 		})
 		// A dismissed or taken offer is not repeated until the user leaves again.
 		expect(takeNewSessionSeed()).toBeUndefined()
@@ -267,7 +267,8 @@ describe('takeNewSessionSeed', () => {
 		expect(takeNewSessionSeed()?.route).toEqual({
 			kind: 'app',
 			raw_app: true,
-			itemPath: 'f/team/dashboard'
+			itemPath: 'f/team/dashboard',
+			mode: 'edit'
 		})
 	})
 

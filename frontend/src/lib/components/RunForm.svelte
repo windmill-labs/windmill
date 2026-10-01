@@ -27,6 +27,13 @@
 	import { enforceDisabledDefaults, resetKeysToast } from './job_args'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 	import { anyEditorUnparseable, flushAllPendingEditorChanges } from './pendingEditorFlush'
+	import { useOperatingWorkspace } from './operatingWorkspace.svelte'
+
+	// The ephemeral secret variable a password argument mints has to be created in the same
+	// workspace the job runs in: a form embedded in a session runs the job in the session's
+	// workspace, and a `$var:` minted in the navigation workspace resolves to nothing there.
+	const operatingWorkspace = useOperatingWorkspace()
+	let formEl: HTMLElement | undefined = $state()
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -73,7 +80,7 @@
 		// has not been parsed yet, and per-field editors parse it in an effect, hence the tick.
 		flushAllPendingEditorChanges()
 		await tick()
-		blockedByUnparseable = anyEditorUnparseable()
+		blockedByUnparseable = anyEditorUnparseable(formEl)
 		if (blockedByUnparseable) {
 			return
 		}
@@ -83,7 +90,7 @@
 			sendUserToast(resetKeysToast(resetKeys))
 		}
 		try {
-			processedArgs = await processSecretArgs(withDefaults, runnable?.schema)
+			processedArgs = await processSecretArgs(withDefaults, runnable?.schema, $operatingWorkspace)
 		} catch (e) {
 			sendUserToast('Failed to process sensitive args: ' + e, true)
 			return
@@ -140,6 +147,11 @@
 		args?: Record<string, any>
 		jsonView?: boolean
 		isValid?: boolean
+		/** Mirror the current args into the page URL's fragment, which is what makes a
+		 * filled-in form shareable and what `Run again` reads back. Turn off wherever this
+		 * form is embedded in a page that is not the runnable's own — an AI session preview
+		 * tab — since there the fragment would land on an unrelated URL. */
+		syncArgsToUrl?: boolean
 		/** Controls beside the Run button of a form that cannot schedule, in the row a
 		 *  schedulable one gives its Advanced options. */
 		actions?: import('svelte').Snippet
@@ -162,6 +174,7 @@
 		args = $bindable(),
 		jsonView = false,
 		isValid = $bindable(true),
+		syncArgsToUrl = true,
 		actions = undefined
 	}: Props = $props()
 
@@ -184,6 +197,7 @@
 	let debounced: number | undefined = undefined
 
 	function onArgsChange(args: any) {
+		if (!syncArgsToUrl) return
 		try {
 			debounced && clearTimeout(debounced)
 			debounced = setTimeout(() => {
@@ -262,7 +276,7 @@
 		}}
 	/>
 {/if}
-<div class="max-w-3xl">
+<div bind:this={formEl} class="max-w-3xl">
 	{#if detailed}
 		{#if runnable}
 			<div class="flex flex-row flex-wrap justify-between gap-4">

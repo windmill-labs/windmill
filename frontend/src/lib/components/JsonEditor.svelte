@@ -62,13 +62,17 @@
 		} catch (e) {
 			error = e.message
 		}
-		setEditorUnparseable(unparseableKey, error !== '')
+		setEditorUnparseable(unparseableKey, error !== '', rootEl)
 	}
+	let rootEl: HTMLElement | undefined = $state()
 	$effect(() => {
 		code != undefined && untrack(() => parseJson())
 	})
 </script>
 
+<!-- Wraps both branches: the unparseable registry locates this editor by it, and the
+     too-big placeholder must not drop an invalid editor out of its form's run gate. -->
+<div bind:this={rootEl} class="contents">
 {#if tooBig && !loadTooBigAnyway}
 	<div class="flex-1 text-sm">
 		JSON is too big
@@ -105,3 +109,4 @@
 		{/if}
 	</div>
 {/if}
+</div>
