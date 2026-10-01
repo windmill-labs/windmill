@@ -1620,9 +1620,26 @@
 			return out
 		}
 	)
-	let nodeErrors = $derived(
-		pipelineNodeErrors(shownGraph, explicitOnByPath, writtenElsewhere.current ?? new Set())
-	)
+	// Until the lookup answers for the assets it is asking about, they count as
+	// written: a node turns red only once nothing is known to write them, never
+	// for the moment the answer is in flight.
+	let nodeErrors = $derived.by(() => {
+		const errors = pipelineNodeErrors(
+			shownGraph,
+			explicitOnByPath,
+			writtenElsewhere.loading || !writtenElsewhere.current
+				? new Set([...(writtenElsewhere.current ?? []), ...unwrittenInPipeline.split('\n')])
+				: writtenElsewhere.current
+		)
+		// A webhook or data upload trigger is read from the script's body, which loads
+		// after the graph: until it has, "nothing starts it" may only mean "not read yet".
+		for (const path of [...errors.untriggered.keys()]) {
+			if (pe.drafts.has(path) || assetPrefetch.bodies.has(path)) continue
+			errors.untriggered.delete(path)
+			errors.scripts.delete(path)
+		}
+		return errors
+	})
 	let displayGraph = $derived(withSummaries(shownGraph))
 	// Adds what the canvas shows but the resolved graph does not carry: script
 	// summaries and languages, schedule crons, and which nodes are misconfigured.
