@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { BaseEdge, getBezierPath, type EdgeProps } from '@xyflow/svelte'
+	import { BaseEdge, getBezierPath, useInternalNode, type EdgeProps } from '@xyflow/svelte'
 	import { polylineMidpoint, roundedPath, type EdgeRoute } from './assetGraphEdgeRouting'
 	import { FlaskConical, Columns3, SquareFunction, BellOff } from 'lucide-svelte'
 	import type { ColumnLineage, DataTest } from './parsePipelineAnnotations'
@@ -7,6 +7,8 @@
 	const CORNER = 10
 
 	let {
+		source,
+		target,
 		sourceX,
 		sourceY,
 		sourcePosition,
@@ -29,34 +31,57 @@
 	// spread ports, the height of each horizontal run and, for an edge that
 	// skips layers, the lane beside the nodes in between.
 	let route = $derived((data as { route?: EdgeRoute } | undefined)?.route)
+	// A side end sits at the node's rendered mid-height, which only the flow knows.
+	const sourceNode = useInternalNode(source)
+	const targetNode = useInternalNode(target)
+	function sidePoint(
+		node: typeof sourceNode.current,
+		side: 'left' | 'right'
+	): [number, number] | undefined {
+		const pos = node?.internals.positionAbsolute
+		const w = node?.measured.width
+		const h = node?.measured.height
+		if (!pos || !w || !h) return undefined
+		return [side === 'left' ? pos.x : pos.x + w, pos.y + h / 2]
+	}
 	let points = $derived.by((): Array<[number, number]> | undefined => {
 		if (!route) return undefined
-		const sx = sourceX + route.sourceOffset
-		const tx = targetX + route.targetOffset
-		// The layout reserves each row's height, but a node can render shorter or
-		// taller; keep every run clear of the edge's own endpoints.
-		const clamp = (y: number) =>
-			Math.min(Math.max(y, sourceY + 8), Math.max(sourceY + 8, targetY - 8))
-		if (route.lane) {
-			const y1 = Math.max(route.lane.y, sourceY + 8)
-			const y2 = Math.min(Math.max(route.y, y1), targetY - 8)
-			return [
-				[sx, sourceY],
-				[sx, y1],
-				[route.lane.x, y1],
-				[route.lane.x, y2],
-				[tx, y2],
-				[tx, targetY]
-			]
-		}
-		const y = clamp(route.y)
-		return [
-			[sx, sourceY],
-			[sx, y],
-			[tx, y],
-			[tx, targetY]
-		]
+		const pts = route.points.map(([x, y]): [number, number] => [x, y])
+		const n = pts.length
+		// The ends sit on this edge's handles, or on a side of its node. The
+		// layout reserves each row's height, but a node can render shorter or
+		// taller: keep every other turn clear of the edge's own ends.
+		const fixed = new Set<number>([0, n - 1])
+		if (route.sourceSide) {
+			const at = sidePoint(sourceNode.current, route.sourceSide)
+			if (at) {
+				pts[0] = at
+				pts[1][1] = at[1]
+			}
+			fixed.add(1)
+		} else pts[0][1] = sourceY
+		if (route.targetSide) {
+			const at = sidePoint(targetNode.current, route.targetSide)
+			if (at) {
+				pts[n - 1] = at
+				pts[n - 2][1] = at[1]
+			}
+			fixed.add(n - 2)
+		} else pts[n - 1][1] = targetY
+		const lo = sourceY + 8
+		const hi = Math.max(lo, targetY - 8)
+		for (let k = 0; k < n; k++) if (!fixed.has(k)) pts[k][1] = Math.min(Math.max(pts[k][1], lo), hi)
+		return pts
 	})
+	// Dots where this edge merges with or splits from others, so a junction never
+	// reads as a crossing. Clamped like the turns they sit on.
+	let junctions = $derived(
+		(route?.junctions ?? []).map(([x, y]): [number, number] => [
+			x,
+			Math.min(Math.max(y, sourceY + 8), Math.max(sourceY + 8, targetY - 8))
+		])
+	)
+	let strokeColor = $derived(/stroke:\s*([^;]+)/.exec(style ?? '')?.[1]?.trim() ?? 'currentColor')
 	let mid = $derived(points ? polylineMidpoint(points) : undefined)
 	let labelX = $derived(mid?.[0] ?? (sourceX + targetX) / 2)
 	let labelY = $derived(mid?.[1] ?? (sourceY + targetY) / 2)
@@ -130,7 +155,8 @@
 	)
 
 	let edgePath = $derived.by(() => {
-		if (points) return roundedPath(points, CORNER)
+		// Sharp at junctions, so the lines meet on the dot rather than curving off it.
+		if (points) return roundedPath(points, CORNER, junctions)
 		// No route: an edge pointing up (a cycle's feedback edge), which the
 		// layered routing has no gap for.
 		const [bezier] = getBezierPath({
@@ -154,6 +180,9 @@
 	label={undefined}
 	labelStyle={undefined}
 />
+{#each junctions as [x, y] (`${x}:${y}`)}
+	<circle cx={x} cy={y} r="2.5" fill={strokeColor} />
+{/each}
 
 {#if tests && tests.length > 0}
 	<!-- Badge centered on the link midpoint. Edges render in the SVG layer, so

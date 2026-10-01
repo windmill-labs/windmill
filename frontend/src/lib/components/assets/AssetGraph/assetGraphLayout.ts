@@ -244,6 +244,11 @@ function layoutComponent(
 	return out
 }
 
+/** Height reserved for every row of the layout: no node renders taller. */
+export function layoutRowHeight(extraRowHeight = 0): number {
+	return NODE_HEIGHT + extraRowHeight
+}
+
 // Top-down layered layout (same orientation as the flow editor — see
 // compoundLayout.ts): producers above → assets in the middle → consumers
 // below.
@@ -265,7 +270,7 @@ export function layoutAssetGraph(
 	anchorId?: string,
 	extraRowHeight = 0
 ): Map<string, Positioned> {
-	const rowH = NODE_HEIGHT + extraRowHeight
+	const rowH = layoutRowHeight(extraRowHeight)
 	const layerH = rowH + LAYER_GAP
 	const byId = new Map<string, Positioned>()
 	if (graph.nodes.length === 0) return byId
