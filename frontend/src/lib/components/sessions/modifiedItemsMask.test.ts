@@ -67,6 +67,8 @@ describe('diffInMask', () => {
 		expect(diffInMask(diff('script', 'f/crm/clean'), mask)).toBe(true)
 		expect(diffInMask(diff('schedule', 'f/crm/clean_schedule'), mask)).toBe(true)
 		expect(diffInMask(diff('script', 'f/sales/clean'), mask)).toBe(false)
+		expect(diffInMask(diff('flow', 'f/crm/unrelated'), mask)).toBe(false)
+		expect(diffInMask(diff('resource', 'f/crm/db'), mask)).toBe(false)
 	})
 
 	it('matches a legacy app diff under both its identity and bridged mask keys', () => {

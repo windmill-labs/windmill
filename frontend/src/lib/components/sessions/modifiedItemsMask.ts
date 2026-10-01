@@ -52,10 +52,13 @@ export function diffInMask(diff: WorkspaceItemDiff, mask: Set<string>): boolean 
 	if (kind !== undefined && mask.has(maskKey(kind, diff.path))) return true
 	// A pipeline is masked as its folder's draft bundle, which deploys into the
 	// scripts and triggers of that folder — none of which the mask names itself.
+	// Only those kinds: anything else in the folder is not the pipeline's doing.
+	const deployedByPipeline =
+		diff.kind === 'script' || diff.kind === 'schedule' || diff.kind.endsWith('_trigger')
 	const folder = diff.path.match(/^f\/([^/]+)\//)?.[1]
 	if (
 		folder &&
-		diff.kind !== 'folder' &&
+		deployedByPipeline &&
 		mask.has(maskKey(PIPELINE_DRAFT_KIND, pipelineBundlePath(folder)))
 	)
 		return true
