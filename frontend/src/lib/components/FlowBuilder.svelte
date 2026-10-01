@@ -38,6 +38,7 @@
 
 	import { getContext, onDestroy, setContext, untrack } from 'svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
@@ -70,7 +71,6 @@
 	import FlowHistory from './flows/FlowHistory.svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
-	import EditableInput from './common/EditableInput.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
@@ -223,6 +223,10 @@
 	// Top-bar responsive collapse. Measured via bind:clientWidth — we can't
 	// rely on viewport `md:` because the editor lives inside other panes
 	// (session pane, drawer, etc.) where the viewport stays wide.
+	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
+
 	let topbarWidth = $state(0)
 	// In the page header the buttons share the row with the breadcrumb, so they collapse sooner:
 	// the trail and the summary take ~560px before either truncates, and the full group — the
@@ -1564,7 +1568,12 @@
 				<!-- The editor's own top bar is the page header on this route: its breadcrumb and
 				     summary are the header's, and its buttons are the header's actions. -->
 				<PageHeaderContent
-					item={{ kind: 'flow', path: $pathStore, summaryContent: flowSummary }}
+					item={{
+						// Frozen while the pen's popover is open so the trail holds still as the user types.
+						kind: 'flow',
+						path: pathSnapshot ?? $pathStore,
+						summaryContent: flowSummary
+					}}
 					actions={flowHeaderActions}
 					contexts={headerContexts}
 				/>
@@ -1644,18 +1653,25 @@
 			{/if}
 
 			{#snippet flowSummary()}
-				<!-- The summary stays editable where the editor's own bar had it: the breadcrumb
-				     beside it is the path, which this editor renames from its settings tab. -->
-				<EditableInput
-					value={flowStore.val.summary ?? ''}
-					placeholder="Add a summary..."
-					editable={customUi?.topBar?.editableSummary != false}
-					commitOnInput
-					size="sm"
-					onSave={(v) => (flowStore.val.summary = v)}
-					textClass="text-xs font-medium text-emphasis leading-tight"
-					class="max-w-full min-w-0"
-				/>
+				<!-- Read-only here: the summary is a Settings-tab field, and the band is where the flow
+				     is named rather than where it is edited. The pen sits after it, at the end of what
+				     it renames. -->
+				<div class="group flex items-center gap-1 min-w-0">
+					<span
+						class="min-w-0 truncate text-xs font-medium text-emphasis"
+						title={flowStore.val.summary}>{flowStore.val.summary}</span
+					>
+					{#if customUi?.topBar?.editablePath != false}
+						<PathEditPopover
+							bind:path={$pathStore}
+							bind:snapshotPath={pathSnapshot}
+							savedPath={initialPath}
+							kind="flow"
+							onBehalfOfEmail={$savedOnBehalfOfEmail}
+							workspaceId={autosaveWorkspace}
+						/>
+					{/if}
+				</div>
 			{/snippet}
 
 			{#snippet flowHeaderActions()}

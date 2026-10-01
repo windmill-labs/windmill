@@ -94,8 +94,8 @@
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { getContext, onDestroy, onMount, setContext, tick, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
-	import EditableInput from './common/EditableInput.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
 	import ScriptSettingsBadges from './ScriptSettingsBadges.svelte'
 	import Badge from './common/badge/Badge.svelte'
@@ -200,6 +200,10 @@
 	// right group (hide the ~200px tag select, icon-only Diff/Settings) before the
 	// full group crowds the path into heavy truncation; ~900 is where the path
 	// keeps a usable width given the right group's natural ~440px.
+	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
+
 	let topbarWidth = $state(0)
 	// In the page header the buttons share the row with the breadcrumb, so they collapse sooner:
 	// the trail and the summary take ~560px before either truncates, and the full button group is
@@ -2280,7 +2284,12 @@
 			<!-- The editor's own top bar is the page header on this route: the script's path and
 			     summary are the breadcrumb's, and its buttons are the header's actions. -->
 			<PageHeaderContent
-				item={{ kind: 'script', path: script.path, summaryContent: scriptSummary }}
+				item={{
+					// Frozen while the pen's popover is open so the trail holds still as the user types.
+					kind: 'script',
+					path: pathSnapshot ?? script.path,
+					summaryContent: scriptSummary
+				}}
 				afterName={scriptMarks}
 				actions={scriptHeaderActions}
 			/>
@@ -2329,18 +2338,23 @@
 		{/if}
 
 		{#snippet scriptSummary()}
-			<!-- The summary stays editable where the editor's own bar had it; the path beside it is
-			     the breadcrumb, which this editor renames from its settings drawer. -->
-			<EditableInput
-				value={script.summary ?? ''}
-				placeholder="Add a summary..."
-				editable={customUi?.topBar?.editableSummary != false}
-				commitOnInput
-				size="sm"
-				onSave={(v) => (script.summary = v.trim())}
-				textClass="text-xs font-medium text-emphasis leading-tight"
-				class="max-w-full min-w-0"
-			/>
+			<!-- Read-only here: the summary is a settings field, and the band is where the script is
+			     named rather than where it is edited. The pen sits after it, at the end of what it
+			     renames. -->
+			<div class="group flex items-center gap-1 min-w-0">
+				<span class="min-w-0 truncate text-xs font-medium text-emphasis" title={script.summary}
+					>{script.summary}</span
+				>
+				{#if customUi?.topBar?.editablePath != false}
+					<PathEditPopover
+						bind:path={script.path}
+						bind:snapshotPath={pathSnapshot}
+						savedPath={initialPath}
+						kind="script"
+						workspaceId={autosaveWorkspace}
+					/>
+				{/if}
+			</div>
 		{/snippet}
 
 		{#snippet scriptMarks()}

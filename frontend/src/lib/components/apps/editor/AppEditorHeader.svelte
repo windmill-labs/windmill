@@ -52,8 +52,8 @@
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
-	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { editPathFor } from '$lib/components/workspacePicker'
@@ -232,6 +232,10 @@
 	// The header's buttons render under the page header, not under this component, so the contexts
 	// they look up have to travel with them. The app's own two carry everything the canvas toggles,
 	// the panel buttons, Debug runs and the preview switch read.
+	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
+
 	const headerContexts = new Map<any, any>([
 		['AppViewerContext', getContext('AppViewerContext')],
 		['AppEditorContext', getContext('AppEditorContext')]
@@ -947,8 +951,9 @@
 			// The path being edited, not the stored one: a brand-new app is parked at a
 			// `draft_<uuid>` placeholder, and the trail would name that instead of the path Deploy
 			// will create. Same fallback chain the rename sites read.
+			// Frozen while the pen's popover is open so the trail holds still as the user types.
 			kind: 'app',
-			path: newEditedPath || $appPath || newPath || undefined,
+			path: pathSnapshot ?? newEditedPath ?? $appPath ?? newPath ?? undefined,
 			summaryContent: appSummary
 		}}
 		actions={appHeaderActions}
@@ -985,18 +990,18 @@
 {/if}
 
 {#snippet appSummary()}
-	<!-- The summary stays editable where the editor's own bar had it; the path beside it is the
-	     breadcrumb, which this editor renames from its deploy drawer. `title` so a summary the
-	     band truncates can still be read, the way the editor's own bar did it. -->
-	<div class="max-w-full min-w-0" title={$summary}>
-		<EditableInput
-			value={$summary ?? ''}
-			placeholder="Add a summary..."
-			commitOnInput
-			size="sm"
-			onSave={(v) => ($summary = v.trim())}
-			textClass="text-xs font-medium text-emphasis leading-tight"
-			class="max-w-full min-w-0"
+	<!-- Read-only here: the summary is a deploy-drawer field, and the band is where the app is
+	     named rather than where it is edited. `title` so one the band truncates can still be read.
+	     The pen sits after it, at the end of what it renames. -->
+	<div class="group flex items-center gap-1 min-w-0">
+		<span class="min-w-0 truncate text-xs font-medium text-emphasis" title={$summary}
+			>{$summary}</span
+		>
+		<PathEditPopover
+			bind:path={newEditedPath}
+			bind:snapshotPath={pathSnapshot}
+			savedPath={$appPath || newPath || undefined}
+			kind="app"
 		/>
 	</div>
 {/snippet}

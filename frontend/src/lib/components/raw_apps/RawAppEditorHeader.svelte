@@ -82,7 +82,7 @@
 	} from '$lib/components/operatingWorkspace.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
-	import EditableInput from '$lib/components/common/EditableInput.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -335,6 +335,10 @@
 	// In the page header the buttons ride a 44px band, the same size the condensed session-pane
 	// header uses.
 	const headerBtnSize = $derived(condensedHeader || ownsPageHeader ? 'sm' : 'md')
+
+	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
 
 	// The actions render under the band, outside the subtree RawAppEditor declared the operating
 	// workspace in, so it has to travel with them: OpenInSessionButton asks who the acting user is.
@@ -931,15 +935,15 @@
 
 {#if ownsPageHeader}
 	<!-- The editor's own top bar is the page header on this route: the app's path and summary are
-	     the breadcrumb's, and everything else the bar carried rides along as the header's actions.
-	     The path is a plain label there — this editor renames from its deploy drawer. -->
+	     the breadcrumb's, and everything else the bar carried rides along as the header's actions. -->
 	<PageHeaderContent
 		item={{
 			// The path being edited, not the stored one: a brand-new app is parked at a
 			// `draft_<uuid>` placeholder, and the trail would name that instead of the path Deploy
-			// will create — which is why `newEditedPath` refuses the placeholder.
+			// will create — which is why `newEditedPath` refuses the placeholder. Frozen while the
+			// pen's popover is open so the trail holds still as the user types.
 			kind: 'app',
-			path: newEditedPath || appPath || newPath || undefined,
+			path: pathSnapshot ?? newEditedPath ?? appPath ?? newPath ?? undefined,
 			summaryContent: appSummary
 		}}
 		actions={rawAppHeaderActions}
@@ -1017,18 +1021,18 @@
 {/snippet}
 
 {#snippet appSummary()}
-	<!-- The summary stays editable where the editor's own bar had it; the path beside it is the
-	     breadcrumb, which this editor renames from its deploy drawer. `title` so a summary the
-	     band truncates can still be read, the way the editor's own bar did it. -->
-	<div class="max-w-full min-w-0" title={summary}>
-		<EditableInput
-			value={summary ?? ''}
-			placeholder="Add a summary..."
-			commitOnInput
-			size="sm"
-			onSave={(v) => (summary = v.trim())}
-			textClass="text-xs font-medium text-emphasis leading-tight"
-			class="max-w-full min-w-0"
+	<!-- Read-only here: the summary is a deploy-drawer field, and the band is where the app is
+	     named rather than where it is edited. `title` so one the band truncates can still be read.
+	     The pen sits after it, at the end of what it renames. -->
+	<div class="group flex items-center gap-1 min-w-0">
+		<span class="min-w-0 truncate text-xs font-medium text-emphasis" title={summary}>{summary}</span
+		>
+		<PathEditPopover
+			bind:path={newEditedPath}
+			bind:snapshotPath={pathSnapshot}
+			savedPath={appPath || undefined}
+			kind="app"
+			workspaceId={autosaveWorkspace}
 		/>
 	</div>
 {/snippet}
