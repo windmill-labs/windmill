@@ -359,7 +359,7 @@ jobs:
           # e.g. a GitHub Action's index.js, which then runs with our credentials.
           codex exec \
             -C "$GITHUB_WORKSPACE" \
-            -m gpt-5.6-sol \
+            -m gpt-6-astra \
             -c 'model_reasoning_effort="xhigh"' \
             -s "$SANDBOX_MODE" \
             -o "$RUNNER_TEMP/codex-final-message.md" \
