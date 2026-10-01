@@ -54,7 +54,7 @@
 		CONTEXT_MENU_ITEM_HOVER_CLASS
 	} from '$lib/components/common/contextmenu/contextMenuStyles'
 	import { computeMutedReadKeys, dbtAssociations } from './resolveGraph'
-	import { buildDownstreamMap } from './graphTraversal'
+	import { buildDownstreamMap, hoverLineage } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
 	import type {
 		AssetGraphResponse,
@@ -1613,6 +1613,21 @@
 	// project node lights up every model it owns. Clicking the badge selects the
 	// project node, so the association survives the pointer leaving.
 	let dbtHoverId = $state<string | undefined>(undefined)
+
+	// Hovering a node keeps its lineage — everything upstream and downstream of
+	// it, recursively — at full strength and fades the rest. Off while a bounded
+	// pick or a subscribe drag owns the graph's dimming.
+	let hoveredNodeId = $state<string | undefined>(undefined)
+	let lineage = $derived(
+		hoveredNodeId && hoveredNodeId !== ADD_NODE_ID && !boundPick && !onDrag
+			? hoverLineage(
+					view.edges.filter((e) => e.kind !== 'add-anchor'),
+					hoveredNodeId
+				)
+			: undefined
+	)
+	const outsideLineage = (id: string) =>
+		!!lineage && id !== ADD_NODE_ID && !lineage.upstream.has(id) && !lineage.downstream.has(id)
 	let dbtEmphasisIds = $derived.by(() => {
 		if (!dbtHoverId) return new Set<string>()
 		const owned = model.dbtWritesByOwner.get(dbtHoverId)
@@ -1799,7 +1814,13 @@
 				// The layout places centers; a node's position is its top-left corner.
 				position: { x: p.x - nodeWidth(n) / 2 + xCenter, y: p.y + 40 },
 				data,
-				class: dragClass ?? boundClass ?? dbtClass ?? runClass ?? assetClass,
+				class:
+					[
+						dragClass ?? boundClass ?? dbtClass ?? runClass ?? assetClass,
+						outsideLineage(n.id) ? 'wm-hover-dim' : undefined
+					]
+						.filter(Boolean)
+						.join(' ') || undefined,
 				selected: n.id === selectedId,
 				// All nodes non-draggable: the layout is sugiyama-computed,
 				// dragging would fight the reactive re-layout. Selection is
@@ -2029,6 +2050,7 @@
 				if (strokeDasharray) {
 					style = `${style} stroke-dasharray: ${strokeDasharray};`
 				}
+				if (lineage && !lineage.hasEdge(e)) style = `${style} opacity: 0.15;`
 				return {
 					id: e.id,
 					source: e.source,
@@ -2162,6 +2184,8 @@
 		defaultEdgeOptions={{ type: 'asset' }}
 		proOptions={{ hideAttribution: true }}
 		onnodeclick={handleNodeClick}
+		onnodepointerenter={({ node }) => (hoveredNodeId = node.id)}
+		onnodepointerleave={() => (hoveredNodeId = undefined)}
 		onedgepointerenter={onEdgeEnter}
 		onedgepointerleave={onEdgeLeave}
 		--background-color={false}
@@ -2426,6 +2450,14 @@
 	}
 	:global(.svelte-flow__node.wm-bound-end .drop-shadow-sm) {
 		@apply outline outline-[3px] outline-amber-500;
+	}
+	/* Hovering a node: what is not in its lineage recedes. */
+	:global(.svelte-flow__node.wm-hover-dim) {
+		opacity: 0.25;
+	}
+	:global(.svelte-flow__node),
+	:global(.svelte-flow__edge path) {
+		transition: opacity 120ms;
 	}
 	:global(.svelte-flow__node.wm-bound-dim) {
 		@apply opacity-30;
