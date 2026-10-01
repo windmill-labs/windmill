@@ -1,0 +1,1055 @@
+{
+	"app": "outreach",
+	"display_name": "Outreach",
+	"description": "Sales engagement: prospects, sequences and tasks.",
+	"docs_url": "https://developers.outreach.io/api/",
+	"curated": true,
+	"meta": {
+		"api_docs": "https://developers.outreach.io/api/",
+		"shipped_surfaces": [
+			"prospects",
+			"accounts",
+			"sequences",
+			"sequence_states",
+			"mailings",
+			"tasks",
+			"mailboxes"
+		],
+		"validation": {
+			"status": "not_live_validated",
+			"method": "static \u2014 shapes derived from the official OpenAPI spec (https://api.outreach.io/api/v2/schema/openapi.json) + Pipedream actions; filters/pagination cross-checked against the spec's per-relationship filter notes and Airbyte source-outreach's live incremental-sync params; smoke test blocked: Outreach has no self-serve signup (demo-request only) and the developer portal requires an existing org admin account. Production-connector cross-validation pass (2026-06): checked ActivePieces (no outreach piece), n8n (no Outreach node), Microsoft PowerPlatformConnectors (no Outreach connector); corroborated against estuary/connectors source-outreach (newFilterSyntax [gte]/[lte] datetime cursors, page[size]/page[after] from links.next), singer-io/tap-outreach a.k.a. Stitch (old-syntax filter[updatedAt]=<full ISO datetime>..inf + sort + count=false, links.next pagination), Supaglue (supaglue-labs, via fork: old-syntax ..inf with millisecond ISO datetimes; JSON:API create bodies for account/prospect/sequenceState incl. emails[] attribute and prospect/sequence/mailbox relationships), and friggframework api-module-library (task create/update with polymorphic subject relationship, live-test fixture). No contradictions found; no script changes required.",
+			"sources": {
+				"prospects": "MEDIUM \u2014 official OpenAPI spec + Pipedream create-prospect action; create body (attributes incl. emails[], account relationship) corroborated by Supaglue's production mapper; list filters corroborated by the Stitch tap; not run live",
+				"accounts": "MEDIUM \u2014 official OpenAPI spec + Pipedream create-account action; create body (name/domain attributes, owner relationship) corroborated by Supaglue; list filters corroborated by the Stitch tap; not run live",
+				"sequences": "MEDIUM \u2014 official OpenAPI spec; reads corroborated by Supaglue (sequences/sequenceSteps) and the Stitch tap; not run live",
+				"sequence_states": "MEDIUM \u2014 official OpenAPI spec + Pipedream add-prospect-sequence action; create body (prospect/sequence/mailbox relationships, mailbox required) matches Supaglue's production mapper exactly; not run live",
+				"mailings": "MEDIUM \u2014 official OpenAPI spec; list + updatedAt filter corroborated by the Stitch tap and Estuary; not run live",
+				"tasks": "MEDIUM \u2014 official OpenAPI spec; polymorphic subject relationship on create/update corroborated by friggframework's live-test fixture; list filters corroborated by the Stitch tap; not run live",
+				"mailboxes": "MEDIUM \u2014 official OpenAPI spec + Pipedream mailbox options resolver; list corroborated by the Stitch tap; not run live"
+			},
+			"low_confidence_fields": []
+		},
+		"pagination": {
+			"pattern": "cursor",
+			"request_params": {
+				"limit": "page[size]",
+				"cursor": "page[after]"
+			},
+			"response_fields": {
+				"next": "links.next (full URL; the page[after] value is its query param)"
+			},
+			"default_limit": 50
+		},
+		"gotchas": [
+			"JSON:API \u2014 every request with a body must send Content-Type: application/vnd.api+json or the API returns 415.",
+			"Write payloads wrap fields as { data: { type, attributes, relationships } }; ids are integers.",
+			"Filters: filter[attr]=value; multi filter[id]=1,2,3; ranges filter[updatedAt]=2024-01-01..inf (full ISO datetimes work too \u2014 Stitch's tap and Supaglue both send filter[updatedAt]=<datetime>..inf in production; range bounds are inclusive); relationship filters filter[prospect][id]=123 (only [id] is reliably supported \u2014 attribute-based relationship filters were deprecated May 2023); sort=-createdAt for descending.",
+			"New filter syntax (newFilterSyntax=true) replaces ranges with filter[attr][gte]/[lte] and value lists with filter[attr][]=v \u2014 required when values contain ',' or '..'; Airbyte's connector uses it for datetime cursors, so prefer it for timestamp comparisons.",
+			"Task\u2194prospect association is set via the polymorphic `subject` relationship (type account|opportunity|prospect); the `prospect` relationship on tasks is readonly/derived.",
+			"Action endpoints (POST \u2026/tasks/{id}/actions/markComplete, \u2026/sequenceStates/{id}/actions/{pause|resume|finish}) take no request body and return 200 with the updated resource.",
+			"OAuth access tokens last 2h; refresh is grant_type=refresh_token at the same https://api.outreach.io/oauth/token endpoint, so Windmill auto-refresh works.",
+			"Scopes are <pluralResource>.<read|write|delete|all>, e.g. prospects.all sequenceStates.all. All scopes registered in oauth_connect.json are enumerated verbatim in Outreach's official SDK (getoutreach/extensibility-sdk, src/manifest/api/Scopes.ts)."
+		],
+		"enums": {
+			"task_action": [
+				"action_item",
+				"call",
+				"email",
+				"in_person"
+			],
+			"task_state": [
+				"pending",
+				"incomplete",
+				"complete"
+			],
+			"mailing_state": [
+				"bounced",
+				"delivered",
+				"delivering",
+				"drafted",
+				"failed",
+				"opened",
+				"placeholder",
+				"queued",
+				"replied",
+				"scheduled"
+			]
+		},
+		"errors": {
+			"415": "Missing/wrong Content-Type \u2014 JSON:API requires application/vnd.api+json on requests with a body.",
+			"502": "Bad Gateway on list endpoints usually means the requested page[size] was too large to serve in time \u2014 retry with a smaller page[size] (Estuary's connector halves it and retries).",
+			"422": "Validation error \u2014 response carries errors[] with title/detail and a source.pointer to the offending attribute."
+		}
+	},
+	"resource_type": {
+		"name": "outreach",
+		"description": "OAuth2 access token for the Outreach REST API (api.outreach.io). Connect with OAuth so the token refreshes automatically \u2014 Outreach has no long-lived API keys.",
+		"schema": {
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"properties": {
+				"token": {
+					"description": "OAuth2 access token, filled automatically when you connect with OAuth (recommended \u2014 tokens are refreshed for you). Pasting a token minted from your own Outreach OAuth app (https://developers.outreach.io/api/oauth/) also works but it expires after 2 hours, so only do that for one-off testing.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"token"
+			],
+			"type": "object"
+		}
+	},
+	"scripts": [
+		{
+			"version_id": 28686,
+			"app": "outreach",
+			"summary": "Add Prospect to Sequence",
+			"description": "Adds an existing prospect to a sequence, sending from the selected mailbox.",
+			"terms": "outreach add prospect to sequence adds an existing prospect to a sequence, sending from the selected mailbox.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nexport type DynSelect_sequence = string\n\n// Resolver: lists the org's sequences for the dropdown.\nexport async function sequence(auth: RT.Outreach) {\n  const url = new URL(\"https://api.outreach.io/api/v2/sequences\")\n  url.searchParams.append(\"sort\", \"name\")\n  url.searchParams.append(\"page[size]\", \"100\")\n  const response = await fetch(url, {\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      Accept: \"application/vnd.api+json\",\n    },\n  })\n  const { data } = (await response.json()) as {\n    data: { id: number; attributes: { name: string } }[]\n  }\n  return data.map((s) => ({ value: String(s.id), label: s.attributes.name }))\n}\n\nexport type DynSelect_mailbox = string\n\n// Resolver: lists the org's sending mailboxes for the dropdown.\nexport async function mailbox(auth: RT.Outreach) {\n  const url = new URL(\"https://api.outreach.io/api/v2/mailboxes\")\n  url.searchParams.append(\"page[size]\", \"100\")\n  const response = await fetch(url, {\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      Accept: \"application/vnd.api+json\",\n    },\n  })\n  const { data } = (await response.json()) as {\n    data: { id: number; attributes: { email: string } }[]\n  }\n  return data.map((m) => ({ value: String(m.id), label: m.attributes.email }))\n}\n\n/**\n * Add Prospect to Sequence\n * Adds an existing prospect to a sequence, sending from the selected mailbox.\n */\nexport async function main(\n  auth: RT.Outreach,\n  prospect_id: number,\n  sequence: DynSelect_sequence,\n  mailbox: DynSelect_mailbox\n) {\n  const response = await fetch(\n    \"https://api.outreach.io/api/v2/sequenceStates\",\n    {\n      method: \"POST\",\n      headers: {\n        Authorization: `Bearer ${auth.token}`,\n        \"Content-Type\": \"application/vnd.api+json\",\n        Accept: \"application/vnd.api+json\",\n      },\n      body: JSON.stringify({\n        data: {\n          type: \"sequenceState\",\n          relationships: {\n            prospect: { data: { type: \"prospect\", id: prospect_id } },\n            sequence: { data: { type: \"sequence\", id: Number(sequence) } },\n            mailbox: { data: { type: \"mailbox\", id: Number(mailbox) } },\n          },\n        },\n      }),\n    }\n  )\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"mailbox": {
+						"default": null,
+						"description": "",
+						"format": "dynselect-mailbox",
+						"type": "object"
+					},
+					"prospect_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"sequence": {
+						"default": null,
+						"description": "",
+						"format": "dynselect-sequence",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth",
+					"prospect_id",
+					"sequence",
+					"mailbox"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28687,
+			"app": "outreach",
+			"summary": "Complete Task",
+			"description": "Marks a task as complete.",
+			"terms": "outreach complete task marks a task as complete.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Complete Task\n * Marks a task as complete.\n */\nexport async function main(auth: RT.Outreach, task_id: number) {\n  const response = await fetch(\n    `https://api.outreach.io/api/v2/tasks/${task_id}/actions/markComplete`,\n    {\n      method: \"POST\",\n      headers: {\n        Authorization: `Bearer ${auth.token}`,\n        Accept: \"application/vnd.api+json\",\n      },\n    }\n  )\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"task_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					}
+				},
+				"required": [
+					"auth",
+					"task_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28688,
+			"app": "outreach",
+			"summary": "Create Account",
+			"description": "Creates a company account in Outreach.",
+			"terms": "outreach create account creates a company account in outreach.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Create Account\n * Creates a company account in Outreach.\n */\nexport async function main(\n  auth: RT.Outreach,\n  name: string,\n  domain: string | undefined,\n  additional_attributes: { [key: string]: any } | undefined\n) {\n  const attributes: { [key: string]: any } = { ...additional_attributes, name }\n  if (domain !== undefined && domain !== \"\") {\n    attributes.domain = domain\n  }\n\n  const response = await fetch(\"https://api.outreach.io/api/v2/accounts\", {\n    method: \"POST\",\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      \"Content-Type\": \"application/vnd.api+json\",\n      Accept: \"application/vnd.api+json\",\n    },\n    body: JSON.stringify({ data: { type: \"account\", attributes } }),\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"additional_attributes": {
+						"default": null,
+						"description": "",
+						"properties": {},
+						"type": "object"
+					},
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"domain": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"name": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth",
+					"name"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28689,
+			"app": "outreach",
+			"summary": "Create Prospect",
+			"description": "Creates a new prospect in Outreach, optionally linked to an account.",
+			"terms": "outreach create prospect creates a new prospect in outreach, optionally linked to an account.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Create Prospect\n * Creates a new prospect in Outreach, optionally linked to an account.\n */\nexport async function main(\n  auth: RT.Outreach,\n  first_name: string | undefined,\n  last_name: string | undefined,\n  emails: string[] | undefined,\n  title: string | undefined,\n  company: string | undefined,\n  account_id: number | undefined,\n  additional_attributes: { [key: string]: any } | undefined\n) {\n  const attributes: { [key: string]: any } = { ...additional_attributes }\n  if (first_name !== undefined && first_name !== \"\") {\n    attributes.firstName = first_name\n  }\n  if (last_name !== undefined && last_name !== \"\") {\n    attributes.lastName = last_name\n  }\n  if (emails !== undefined && emails.length > 0) {\n    attributes.emails = emails\n  }\n  if (title !== undefined && title !== \"\") {\n    attributes.title = title\n  }\n  if (company !== undefined && company !== \"\") {\n    attributes.company = company\n  }\n\n  const data: { [key: string]: any } = { type: \"prospect\", attributes }\n  if (account_id !== undefined) {\n    data.relationships = {\n      account: { data: { type: \"account\", id: account_id } },\n    }\n  }\n\n  const response = await fetch(\"https://api.outreach.io/api/v2/prospects\", {\n    method: \"POST\",\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      \"Content-Type\": \"application/vnd.api+json\",\n      Accept: \"application/vnd.api+json\",\n    },\n    body: JSON.stringify({ data }),\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"account_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"additional_attributes": {
+						"default": null,
+						"description": "",
+						"properties": {},
+						"type": "object"
+					},
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"company": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"emails": {
+						"default": null,
+						"description": "",
+						"items": {
+							"type": "string"
+						},
+						"originalType": "string[]",
+						"type": "array"
+					},
+					"first_name": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"last_name": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"title": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28690,
+			"app": "outreach",
+			"summary": "Create Task",
+			"description": "Creates a manual task, optionally tied to a prospect and assigned to an owner.",
+			"terms": "outreach create task creates a manual task, optionally tied to a prospect and assigned to an owner.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Create Task\n * Creates a manual task, optionally tied to a prospect and assigned to an owner.\n */\nexport async function main(\n  auth: RT.Outreach,\n  action: \"action_item\" | \"call\" | \"email\" | \"in_person\",\n  due_at: string,\n  note: string | undefined,\n  prospect_id: number | undefined,\n  owner_id: number | undefined\n) {\n  const attributes: { [key: string]: any } = { action, dueAt: due_at }\n  if (note !== undefined && note !== \"\") {\n    attributes.note = note\n  }\n\n  const relationships: { [key: string]: any } = {}\n  if (prospect_id !== undefined) {\n    // the writable association is `subject`; the `prospect` relationship is readonly\n    relationships.subject = { data: { type: \"prospect\", id: prospect_id } }\n  }\n  if (owner_id !== undefined) {\n    relationships.owner = { data: { type: \"user\", id: owner_id } }\n  }\n\n  const response = await fetch(\"https://api.outreach.io/api/v2/tasks\", {\n    method: \"POST\",\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      \"Content-Type\": \"application/vnd.api+json\",\n      Accept: \"application/vnd.api+json\",\n    },\n    body: JSON.stringify({ data: { type: \"task\", attributes, relationships } }),\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"action": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"action_item",
+							"call",
+							"email",
+							"in_person"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"due_at": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"note": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"owner_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"prospect_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					}
+				},
+				"required": [
+					"auth",
+					"action",
+					"due_at"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28691,
+			"app": "outreach",
+			"summary": "Get Account",
+			"description": "Retrieves a single account by its ID.",
+			"terms": "outreach get account retrieves a single account by its id.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Get Account\n * Retrieves a single account by its ID.\n */\nexport async function main(auth: RT.Outreach, account_id: number) {\n  const response = await fetch(\n    `https://api.outreach.io/api/v2/accounts/${account_id}`,\n    {\n      headers: {\n        Authorization: `Bearer ${auth.token}`,\n        Accept: \"application/vnd.api+json\",\n      },\n    }\n  )\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"account_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth",
+					"account_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28692,
+			"app": "outreach",
+			"summary": "Get Mailing",
+			"description": "Retrieves a single mailing by its ID, including engagement attributes.",
+			"terms": "outreach get mailing retrieves a single mailing by its id, including engagement attributes.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Get Mailing\n * Retrieves a single mailing by its ID, including engagement attributes (opens, clicks, replies).\n */\nexport async function main(auth: RT.Outreach, mailing_id: number) {\n  const response = await fetch(\n    `https://api.outreach.io/api/v2/mailings/${mailing_id}`,\n    {\n      headers: {\n        Authorization: `Bearer ${auth.token}`,\n        Accept: \"application/vnd.api+json\",\n      },\n    }\n  )\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"mailing_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					}
+				},
+				"required": [
+					"auth",
+					"mailing_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28693,
+			"app": "outreach",
+			"summary": "Get Prospect",
+			"description": "Retrieves a single prospect by its ID.",
+			"terms": "outreach get prospect retrieves a single prospect by its id.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Get Prospect\n * Retrieves a single prospect by its ID.\n */\nexport async function main(auth: RT.Outreach, prospect_id: number) {\n  const response = await fetch(\n    `https://api.outreach.io/api/v2/prospects/${prospect_id}`,\n    {\n      headers: {\n        Authorization: `Bearer ${auth.token}`,\n        Accept: \"application/vnd.api+json\",\n      },\n    }\n  )\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"prospect_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					}
+				},
+				"required": [
+					"auth",
+					"prospect_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28694,
+			"app": "outreach",
+			"summary": "Get Sequence",
+			"description": "Retrieves a single sequence by its ID.",
+			"terms": "outreach get sequence retrieves a single sequence by its id.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Get Sequence\n * Retrieves a single sequence by its ID.\n */\nexport async function main(auth: RT.Outreach, sequence_id: number) {\n  const response = await fetch(\n    `https://api.outreach.io/api/v2/sequences/${sequence_id}`,\n    {\n      headers: {\n        Authorization: `Bearer ${auth.token}`,\n        Accept: \"application/vnd.api+json\",\n      },\n    }\n  )\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"sequence_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					}
+				},
+				"required": [
+					"auth",
+					"sequence_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28695,
+			"app": "outreach",
+			"summary": "List Accounts",
+			"description": "Lists accounts with optional filters and cursor pagination.",
+			"terms": "outreach list accounts lists accounts with optional filters and cursor pagination.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * List Accounts\n * Lists accounts with optional filters (name, domain, updatedAt range like \"2024-01-01..inf\") and cursor pagination.\n */\nexport async function main(\n  auth: RT.Outreach,\n  filter_name: string | undefined,\n  filter_domain: string | undefined,\n  filter_updated_at: string | undefined,\n  sort: string | undefined,\n  page_size: number | undefined,\n  page_after: string | undefined\n) {\n  const url = new URL(\"https://api.outreach.io/api/v2/accounts\")\n  if (filter_name !== undefined && filter_name !== \"\") {\n    url.searchParams.append(\"filter[name]\", filter_name)\n  }\n  if (filter_domain !== undefined && filter_domain !== \"\") {\n    url.searchParams.append(\"filter[domain]\", filter_domain)\n  }\n  if (filter_updated_at !== undefined && filter_updated_at !== \"\") {\n    url.searchParams.append(\"filter[updatedAt]\", filter_updated_at)\n  }\n  if (sort !== undefined && sort !== \"\") {\n    url.searchParams.append(\"sort\", sort)\n  }\n  if (page_size !== undefined) {\n    url.searchParams.append(\"page[size]\", String(page_size))\n  }\n  if (page_after !== undefined && page_after !== \"\") {\n    url.searchParams.append(\"page[after]\", page_after)\n  }\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      Accept: \"application/vnd.api+json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"filter_domain": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"filter_name": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"filter_updated_at": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_after": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_size": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"sort": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28696,
+			"app": "outreach",
+			"summary": "List Mailboxes",
+			"description": "Lists the org's sending mailboxes, optionally filtered by email address.",
+			"terms": "outreach list mailboxes lists the org's sending mailboxes, optionally filtered by email address.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * List Mailboxes\n * Lists the org's sending mailboxes, optionally filtered by email address.\n */\nexport async function main(\n  auth: RT.Outreach,\n  filter_email: string | undefined,\n  page_size: number | undefined,\n  page_after: string | undefined\n) {\n  const url = new URL(\"https://api.outreach.io/api/v2/mailboxes\")\n  if (filter_email !== undefined && filter_email !== \"\") {\n    url.searchParams.append(\"filter[email]\", filter_email)\n  }\n  if (page_size !== undefined) {\n    url.searchParams.append(\"page[size]\", String(page_size))\n  }\n  if (page_after !== undefined && page_after !== \"\") {\n    url.searchParams.append(\"page[after]\", page_after)\n  }\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      Accept: \"application/vnd.api+json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"filter_email": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_after": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_size": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28697,
+			"app": "outreach",
+			"summary": "List Mailings",
+			"description": "Lists mailings (sent/scheduled emails), filterable by prospect, state or updatedAt range.",
+			"terms": "outreach list mailings lists mailings (sent/scheduled emails), filterable by prospect, state or updatedat range.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * List Mailings\n * Lists mailings (sent/scheduled emails), filterable by prospect, state or updatedAt range.\n */\nexport async function main(\n  auth: RT.Outreach,\n  filter_prospect_id: number | undefined,\n  filter_state:\n    | (\n        | \"bounced\"\n        | \"delivered\"\n        | \"delivering\"\n        | \"drafted\"\n        | \"failed\"\n        | \"opened\"\n        | \"placeholder\"\n        | \"queued\"\n        | \"replied\"\n        | \"scheduled\"\n      )\n    | undefined,\n  filter_updated_at: string | undefined,\n  sort: string | undefined,\n  page_size: number | undefined,\n  page_after: string | undefined\n) {\n  const url = new URL(\"https://api.outreach.io/api/v2/mailings\")\n  if (filter_prospect_id !== undefined) {\n    url.searchParams.append(\"filter[prospect][id]\", String(filter_prospect_id))\n  }\n  if (filter_state !== undefined) {\n    url.searchParams.append(\"filter[state]\", filter_state)\n  }\n  if (filter_updated_at !== undefined && filter_updated_at !== \"\") {\n    url.searchParams.append(\"filter[updatedAt]\", filter_updated_at)\n  }\n  if (sort !== undefined && sort !== \"\") {\n    url.searchParams.append(\"sort\", sort)\n  }\n  if (page_size !== undefined) {\n    url.searchParams.append(\"page[size]\", String(page_size))\n  }\n  if (page_after !== undefined && page_after !== \"\") {\n    url.searchParams.append(\"page[after]\", page_after)\n  }\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      Accept: \"application/vnd.api+json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"filter_prospect_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"filter_state": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"bounced",
+							"delivered",
+							"delivering",
+							"drafted",
+							"failed",
+							"opened",
+							"placeholder",
+							"queued",
+							"replied",
+							"scheduled"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"filter_updated_at": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_after": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_size": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"sort": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28698,
+			"app": "outreach",
+			"summary": "List Prospects",
+			"description": "Lists prospects with optional filters and cursor pagination.",
+			"terms": "outreach list prospects lists prospects with optional filters and cursor pagination.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * List Prospects\n * Lists prospects with optional filters (email, name, updatedAt range like \"2024-01-01..inf\") and cursor pagination.\n */\nexport async function main(\n  auth: RT.Outreach,\n  filter_emails: string | undefined,\n  filter_first_name: string | undefined,\n  filter_last_name: string | undefined,\n  filter_updated_at: string | undefined,\n  sort: string | undefined,\n  page_size: number | undefined,\n  page_after: string | undefined\n) {\n  const url = new URL(\"https://api.outreach.io/api/v2/prospects\")\n  if (filter_emails !== undefined && filter_emails !== \"\") {\n    url.searchParams.append(\"filter[emails]\", filter_emails)\n  }\n  if (filter_first_name !== undefined && filter_first_name !== \"\") {\n    url.searchParams.append(\"filter[firstName]\", filter_first_name)\n  }\n  if (filter_last_name !== undefined && filter_last_name !== \"\") {\n    url.searchParams.append(\"filter[lastName]\", filter_last_name)\n  }\n  if (filter_updated_at !== undefined && filter_updated_at !== \"\") {\n    url.searchParams.append(\"filter[updatedAt]\", filter_updated_at)\n  }\n  if (sort !== undefined && sort !== \"\") {\n    url.searchParams.append(\"sort\", sort)\n  }\n  if (page_size !== undefined) {\n    url.searchParams.append(\"page[size]\", String(page_size))\n  }\n  if (page_after !== undefined && page_after !== \"\") {\n    url.searchParams.append(\"page[after]\", page_after)\n  }\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      Accept: \"application/vnd.api+json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"filter_emails": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"filter_first_name": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"filter_last_name": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"filter_updated_at": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_after": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_size": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"sort": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28699,
+			"app": "outreach",
+			"summary": "List Sequence States",
+			"description": "Lists sequence states (prospect \u2194 sequence memberships), filterable by prospect, sequence or state.",
+			"terms": "outreach list sequence states lists sequence states (prospect \u2194 sequence memberships), filterable by prospect, sequence or state.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * List Sequence States\n * Lists sequence states (prospect \u2194 sequence memberships), filterable by prospect, sequence or state.\n */\nexport async function main(\n  auth: RT.Outreach,\n  filter_prospect_id: number | undefined,\n  filter_sequence_id: number | undefined,\n  filter_state: string | undefined,\n  page_size: number | undefined,\n  page_after: string | undefined\n) {\n  const url = new URL(\"https://api.outreach.io/api/v2/sequenceStates\")\n  if (filter_prospect_id !== undefined) {\n    url.searchParams.append(\"filter[prospect][id]\", String(filter_prospect_id))\n  }\n  if (filter_sequence_id !== undefined) {\n    url.searchParams.append(\"filter[sequence][id]\", String(filter_sequence_id))\n  }\n  if (filter_state !== undefined && filter_state !== \"\") {\n    url.searchParams.append(\"filter[state]\", filter_state)\n  }\n  if (page_size !== undefined) {\n    url.searchParams.append(\"page[size]\", String(page_size))\n  }\n  if (page_after !== undefined && page_after !== \"\") {\n    url.searchParams.append(\"page[after]\", page_after)\n  }\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      Accept: \"application/vnd.api+json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"filter_prospect_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"filter_sequence_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"filter_state": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_after": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_size": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28700,
+			"app": "outreach",
+			"summary": "List Sequences",
+			"description": "Lists sequences with an optional name filter and cursor pagination.",
+			"terms": "outreach list sequences lists sequences with an optional name filter and cursor pagination.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * List Sequences\n * Lists sequences with an optional name filter and cursor pagination.\n */\nexport async function main(\n  auth: RT.Outreach,\n  filter_name: string | undefined,\n  sort: string | undefined,\n  page_size: number | undefined,\n  page_after: string | undefined\n) {\n  const url = new URL(\"https://api.outreach.io/api/v2/sequences\")\n  if (filter_name !== undefined && filter_name !== \"\") {\n    url.searchParams.append(\"filter[name]\", filter_name)\n  }\n  if (sort !== undefined && sort !== \"\") {\n    url.searchParams.append(\"sort\", sort)\n  }\n  if (page_size !== undefined) {\n    url.searchParams.append(\"page[size]\", String(page_size))\n  }\n  if (page_after !== undefined && page_after !== \"\") {\n    url.searchParams.append(\"page[after]\", page_after)\n  }\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      Accept: \"application/vnd.api+json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"filter_name": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_after": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_size": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"sort": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28701,
+			"app": "outreach",
+			"summary": "List Tasks",
+			"description": "Lists tasks, filterable by state, task type, prospect or dueAt range.",
+			"terms": "outreach list tasks lists tasks, filterable by state, task type, prospect or dueat range.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * List Tasks\n * Lists tasks, filterable by state, task type, prospect or dueAt range (e.g. \"2024-01-01..inf\").\n */\nexport async function main(\n  auth: RT.Outreach,\n  filter_state: (\"pending\" | \"incomplete\" | \"complete\") | undefined,\n  filter_task_type: string | undefined,\n  filter_prospect_id: number | undefined,\n  filter_due_at: string | undefined,\n  sort: string | undefined,\n  page_size: number | undefined,\n  page_after: string | undefined\n) {\n  const url = new URL(\"https://api.outreach.io/api/v2/tasks\")\n  if (filter_state !== undefined) {\n    url.searchParams.append(\"filter[state]\", filter_state)\n  }\n  if (filter_task_type !== undefined && filter_task_type !== \"\") {\n    url.searchParams.append(\"filter[taskType]\", filter_task_type)\n  }\n  if (filter_prospect_id !== undefined) {\n    url.searchParams.append(\"filter[prospect][id]\", String(filter_prospect_id))\n  }\n  if (filter_due_at !== undefined && filter_due_at !== \"\") {\n    url.searchParams.append(\"filter[dueAt]\", filter_due_at)\n  }\n  if (sort !== undefined && sort !== \"\") {\n    url.searchParams.append(\"sort\", sort)\n  }\n  if (page_size !== undefined) {\n    url.searchParams.append(\"page[size]\", String(page_size))\n  }\n  if (page_after !== undefined && page_after !== \"\") {\n    url.searchParams.append(\"page[after]\", page_after)\n  }\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      Accept: \"application/vnd.api+json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"filter_due_at": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"filter_prospect_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"filter_state": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"pending",
+							"incomplete",
+							"complete"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"filter_task_type": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_after": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_size": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"sort": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28702,
+			"app": "outreach",
+			"summary": "Pause, Resume or Finish Sequence State",
+			"description": "Performs a lifecycle action on a prospect's sequence state.",
+			"terms": "outreach pause, resume or finish sequence state performs a lifecycle action on a prospect's sequence state.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Pause, Resume or Finish Sequence State\n * Performs a lifecycle action on a prospect's sequence state.\n */\nexport async function main(\n  auth: RT.Outreach,\n  sequence_state_id: number,\n  action: \"pause\" | \"resume\" | \"finish\"\n) {\n  const response = await fetch(\n    `https://api.outreach.io/api/v2/sequenceStates/${sequence_state_id}/actions/${action}`,\n    {\n      method: \"POST\",\n      headers: {\n        Authorization: `Bearer ${auth.token}`,\n        Accept: \"application/vnd.api+json\",\n      },\n    }\n  )\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"action": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"pause",
+							"resume",
+							"finish"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"sequence_state_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					}
+				},
+				"required": [
+					"auth",
+					"sequence_state_id",
+					"action"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28703,
+			"app": "outreach",
+			"summary": "Update Account",
+			"description": "Updates attributes of an existing account.",
+			"terms": "outreach update account updates attributes of an existing account.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Update Account\n * Updates attributes of an existing account (e.g. { \"industry\": \"Manufacturing\" }).\n */\nexport async function main(\n  auth: RT.Outreach,\n  account_id: number,\n  attributes: { [key: string]: any }\n) {\n  const response = await fetch(\n    `https://api.outreach.io/api/v2/accounts/${account_id}`,\n    {\n      method: \"PATCH\",\n      headers: {\n        Authorization: `Bearer ${auth.token}`,\n        \"Content-Type\": \"application/vnd.api+json\",\n        Accept: \"application/vnd.api+json\",\n      },\n      body: JSON.stringify({\n        data: { type: \"account\", id: account_id, attributes },\n      }),\n    }\n  )\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"account_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"attributes": {
+						"default": null,
+						"description": "",
+						"properties": {},
+						"type": "object"
+					},
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth",
+					"account_id",
+					"attributes"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28704,
+			"app": "outreach",
+			"summary": "Update Prospect",
+			"description": "Updates attributes of an existing prospect.",
+			"terms": "outreach update prospect updates attributes of an existing prospect.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Update Prospect\n * Updates attributes of an existing prospect (e.g. { \"title\": \"VP Sales\", \"occupation\": \"Sales\" }).\n */\nexport async function main(\n  auth: RT.Outreach,\n  prospect_id: number,\n  attributes: { [key: string]: any }\n) {\n  const response = await fetch(\n    `https://api.outreach.io/api/v2/prospects/${prospect_id}`,\n    {\n      method: \"PATCH\",\n      headers: {\n        Authorization: `Bearer ${auth.token}`,\n        \"Content-Type\": \"application/vnd.api+json\",\n        Accept: \"application/vnd.api+json\",\n      },\n      body: JSON.stringify({\n        data: { type: \"prospect\", id: prospect_id, attributes },\n      }),\n    }\n  )\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"attributes": {
+						"default": null,
+						"description": "",
+						"properties": {},
+						"type": "object"
+					},
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					},
+					"prospect_id": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					}
+				},
+				"required": [
+					"auth",
+					"prospect_id",
+					"attributes"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28705,
+			"app": "outreach",
+			"summary": "New Mailing",
+			"description": "Returns mailings created since the last run.",
+			"terms": "outreach new mailing returns mailings created since the last run.",
+			"kind": "trigger",
+			"language": "bunnative",
+			"content": "//native\n\nimport * as wmill from \"windmill-client\"\n\n/**\n * New Mailing\n * Returns mailings created since the last run (first run sets the watermark and returns nothing).\n */\nexport async function main(auth: RT.Outreach) {\n  const lastChecked: string | undefined = await wmill.getState()\n\n  const url = new URL(\"https://api.outreach.io/api/v2/mailings\")\n  url.searchParams.append(\"sort\", \"-createdAt\")\n  url.searchParams.append(\"page[size]\", \"100\")\n  url.searchParams.append(\"count\", \"false\")\n  if (lastChecked) {\n    url.searchParams.append(\"newFilterSyntax\", \"true\")\n    url.searchParams.append(\"filter[createdAt][gte]\", lastChecked)\n  }\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      Accept: \"application/vnd.api+json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  const { data } = (await response.json()) as {\n    data: { id: number; attributes: { createdAt: string } }[]\n  }\n\n  const newItems = lastChecked\n    ? data.filter((m) => m.attributes.createdAt > lastChecked)\n    : []\n  const newWatermark =\n    data[0]?.attributes.createdAt ?? lastChecked ?? new Date().toISOString()\n  await wmill.setState(newWatermark)\n\n  return newItems\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28706,
+			"app": "outreach",
+			"summary": "New Task",
+			"description": "Returns tasks created since the last run.",
+			"terms": "outreach new task returns tasks created since the last run.",
+			"kind": "trigger",
+			"language": "bunnative",
+			"content": "//native\n\nimport * as wmill from \"windmill-client\"\n\n/**\n * New Task\n * Returns tasks created since the last run (first run sets the watermark and returns nothing).\n */\nexport async function main(auth: RT.Outreach) {\n  const lastChecked: string | undefined = await wmill.getState()\n\n  const url = new URL(\"https://api.outreach.io/api/v2/tasks\")\n  url.searchParams.append(\"sort\", \"-createdAt\")\n  url.searchParams.append(\"page[size]\", \"100\")\n  url.searchParams.append(\"count\", \"false\")\n  if (lastChecked) {\n    url.searchParams.append(\"newFilterSyntax\", \"true\")\n    url.searchParams.append(\"filter[createdAt][gte]\", lastChecked)\n  }\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: `Bearer ${auth.token}`,\n      Accept: \"application/vnd.api+json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  const { data } = (await response.json()) as {\n    data: { id: number; attributes: { createdAt: string } }[]\n  }\n\n  const newItems = lastChecked\n    ? data.filter((t) => t.attributes.createdAt > lastChecked)\n    : []\n  const newWatermark =\n    data[0]?.attributes.createdAt ?? lastChecked ?? new Date().toISOString()\n  await wmill.setState(newWatermark)\n\n  return newItems\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-outreach",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		}
+	]
+}

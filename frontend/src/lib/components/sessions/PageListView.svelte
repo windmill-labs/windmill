@@ -60,7 +60,11 @@
 			if (item) {
 				runtime.previewTabs.open({
 					type: 'item',
-					item: { kind: item.kind, raw_app: item.raw_app, path: item.itemPath, summary: '' }
+					item: { kind: item.kind, raw_app: item.raw_app, path: item.itemPath, summary: '' },
+					// A list page only ever links what it runs — a schedule's script, a
+					// trigger's flow — which is deployed by construction. Its deployed page
+					// is what the reader clicking through is asking about.
+					mode: item.mode ?? 'view'
 				})
 			} else {
 				runtime.previewTabs.open({ type: 'page', href, label: previewLocationLabel(href) })

@@ -274,12 +274,7 @@
 				{onNavigate}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
-				onDeploy={(e) => {
-					// Sync the preview to deployed (raw apps deploy only from this editor).
-					runtime.syncPreviewWithDeployed(workspaceId, 'raw_app', e.path)
-					// Deploying clears the item's pending draft — refresh the Draft Count.
-					invalidateWorkspaceDrafts(workspaceId)
-				}}
+				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', e.path)}
 				defaultSidebarCollapsed
 				sidebarStorageKey="raw-app-sidebar-collapsed-preview"
 				defaultSplitWithPreview={false}

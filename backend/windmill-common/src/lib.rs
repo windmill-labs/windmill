@@ -2479,6 +2479,91 @@ pub fn invalidate_deployed_script_hash_cache(w_id: &str, script_path: &str) {
     DEPLOYED_SCRIPT_HASH_CACHE.remove(&(w_id.to_string(), script_path.to_string()));
 }
 
+pub const SCRIPT_VERSION_DELETED_CHANNEL: &str = "notify_script_version_deleted";
+
+/// The payload of a [`SCRIPT_VERSION_DELETED_CHANNEL`] event. `paths` and `hashes` are the
+/// deleted versions' paths and hashes as independent sets, not paired by position.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DeletedScriptVersions {
+    pub workspace_id: String,
+    pub paths: Vec<String>,
+    pub hashes: Vec<i64>,
+}
+
+/// Bounds each event's payload: pruning a workspace deletes every past version of every path
+/// in one call, and every process logs each event it receives.
+const DELETED_SCRIPT_VERSIONS_PER_EVENT: usize = 500;
+
+impl DeletedScriptVersions {
+    pub fn new(workspace_id: &str, deleted: impl IntoIterator<Item = (String, i64)>) -> Self {
+        let (mut paths, hashes): (Vec<String>, Vec<i64>) = deleted.into_iter().unzip();
+        paths.sort();
+        paths.dedup();
+        Self { workspace_id: workspace_id.to_string(), paths, hashes }
+    }
+
+    /// Tell every replica to drop these versions from its caches, in the transaction that
+    /// deletes them. Authorization is the caller's: only call it for versions the caller was
+    /// allowed to delete.
+    pub async fn notify(&self, db: &mut sqlx::PgConnection) -> error::Result<()> {
+        let per_event = DELETED_SCRIPT_VERSIONS_PER_EVENT;
+        let events = self.paths.len().max(self.hashes.len()).div_ceil(per_event);
+        for i in 0..events {
+            let range = i * per_event..(i + 1) * per_event;
+            let event = Self {
+                workspace_id: self.workspace_id.clone(),
+                paths: self
+                    .paths
+                    .get(range.start..range.end.min(self.paths.len()))
+                    .unwrap_or_default()
+                    .to_vec(),
+                hashes: self
+                    .hashes
+                    .get(range.start..range.end.min(self.hashes.len()))
+                    .unwrap_or_default()
+                    .to_vec(),
+            };
+            sqlx::query("INSERT INTO notify_event (channel, payload) VALUES ($1, $2)")
+                .bind(SCRIPT_VERSION_DELETED_CHANNEL)
+                .bind(serde_json::to_string(&event)?)
+                .execute(&mut *db)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// [`Self::evict_with`] for this crate's caches only.
+    pub fn evict(self) {
+        self.evict_with(|_| {});
+    }
+
+    /// Script data is cached by hash, memory and disk, with no expiry: without this, a
+    /// process that ran a version before its deletion keeps running that version's code,
+    /// and a path keeps resolving to its deleted latest version until its cache expires.
+    /// `also` drops the entries of caches other crates own, on both passes. Needs no
+    /// authorization: it only drops cache entries, refilled from the database. Must run
+    /// inside a Tokio runtime.
+    pub fn evict_with(self, also: impl Fn(&Self) + Send + 'static) {
+        let evict = move || {
+            for hash in &self.hashes {
+                cache::script::invalidate(ScriptHash(*hash));
+                DEPLOYED_SCRIPT_INFO_CACHE.remove(&(self.workspace_id.clone(), *hash));
+            }
+            for path in &self.paths {
+                invalidate_latest_script_hash_caches(&self.workspace_id, path);
+            }
+            also(&self);
+        };
+        evict();
+        // A fill that read a row before the deletion committed can still be writing it to
+        // the cache: a second pass, once such a fill has had time to finish, removes it.
+        spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            evict();
+        });
+    }
+}
+
 /// Same, for a new version row, which also moves the import-side answer (that one has no lock
 /// predicate, so only a new row moves it).
 pub fn invalidate_latest_script_hash_caches(w_id: &str, script_path: &str) {

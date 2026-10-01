@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE chain(id, parent_job) AS (\n                SELECT id, parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2\n                UNION ALL\n                SELECT j.id, j.parent_job FROM v2_job j\n                    JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2\n            )\n            SELECT\n                CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\\.chat$', '')\n                    ELSE j.runnable_path END AS runnable_path,\n                CASE\n                    WHEN a.agent THEN 'agents'\n                    WHEN j.kind IN ('script', 'script_hub', 'unassigned_script') THEN 'scripts'\n                    WHEN j.kind IN ('flow', 'unassigned_flow') THEN 'flows'\n                    WHEN j.kind IN ('singlestepflow', 'unassigned_singlestepflow') THEN\n                        CASE WHEN COALESCE(\n                                (SELECT m->'value'->>'type'\n                                    FROM jsonb_array_elements(j.raw_flow->'modules') m\n                                    WHERE m->>'id' IN ('a', 'main')\n                                    LIMIT 1),\n                                'script'\n                            ) = 'flow' THEN 'flows' ELSE 'scripts' END\n                END AS scope_kind,\n                CASE WHEN j.trigger_kind = 'app' THEN j.trigger END AS launched_by_app\n            FROM v2_job j JOIN chain c ON c.id = j.id,\n            LATERAL (SELECT j.kind = 'flowpreview'\n                AND j.raw_flow->'modules'->1 IS NULL\n                AND j.raw_flow->'modules'->0->>'id' = '__wm_agent_root' AS agent) a\n            WHERE j.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "scope_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "launched_by_app",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "7904ac35748b1de2c7ff764f22787436d0fe74f99f298e5c399233f0d247f2ec"
+}

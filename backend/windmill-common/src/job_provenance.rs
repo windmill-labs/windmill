@@ -1,12 +1,19 @@
 use uuid::Uuid;
 
-use crate::{db::DB, error::Result, jobs::JobKind};
+use crate::{db::DB, error::Result, jobs::JobKind, scripts::ScriptHash};
 
 /// Where a job's code comes from, as far as its chain of parents can prove it.
 pub struct JobProvenance {
     /// True only when the job and every ancestor run code at a path taken from a
     /// deployed version, never from the request that created the job.
     pub deployed: bool,
+    /// Deployed, and every script and flow in the chain runs the version its path
+    /// currently resolves to. Any past version still counts as deployed, and a run started
+    /// before a redeploy stops being latest once the redeploy lands. App runs never count:
+    /// app scripts are not tied to an app version.
+    pub latest: bool,
+    /// The job's own script hash (hex) or flow version id; `None` for other kinds.
+    pub version: Option<String>,
     /// The chain reached a parent it cannot read (other workspace, depth cap), so
     /// nothing above that point is known.
     pub unproven_ancestry: bool,
@@ -21,6 +28,7 @@ pub struct JobProvenance {
     pub root_path: Option<String>,
     pub root_kind: JobKind,
     pub root_trigger_kind: Option<String>,
+    pub root_version: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -48,9 +56,14 @@ struct LineageJob {
     parent_job: Option<Uuid>,
     kind: JobKind,
     runnable_path: Option<String>,
+    runnable_id: Option<i64>,
     trigger_kind: Option<String>,
     permissioned_as: String,
     origin_verified: bool,
+    current_version: bool,
+    restarted: bool,
+    /// The job a restart rebuilt this one from.
+    restarted_from: Option<String>,
     app_stamped: bool,
     args_modules: bool,
 }
@@ -69,7 +82,7 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
             FROM v2_job p JOIN lineage l ON p.id = l.parent_job
             WHERE p.workspace_id = $2 AND l.depth < 100
         )
-        SELECT id AS "id!", parent_job, kind AS "kind!: JobKind", runnable_path,
+        SELECT id AS "id!", parent_job, kind AS "kind!: JobKind", runnable_path, runnable_id,
             trigger_kind::text AS trigger_kind, permissioned_as AS "permissioned_as!",
             -- A restart takes its flow version from the request, so a trusted flow path
             -- can carry another flow's code: the version must belong to that path.
@@ -77,9 +90,31 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
                 WHEN 'flow' THEN EXISTS (SELECT 1 FROM flow_version fv
                     WHERE fv.id = runnable_id AND fv.path = runnable_path AND fv.workspace_id = $2)
                 WHEN 'script' THEN EXISTS (SELECT 1 FROM script s
-                    WHERE s.hash = runnable_id AND s.path = runnable_path AND s.workspace_id = $2)
+                    WHERE s.hash = runnable_id AND s.path = runnable_path AND s.workspace_id = $2
+                        AND NOT s.deleted)
                 ELSE true
             END AS "origin_verified!",
+            -- What `run/f` and `run/p` resolve the path to now; for scripts the predicate of
+            -- `get_latest_deployed_script_hash`.
+            COALESCE(CASE kind
+                WHEN 'flow' THEN runnable_id = (SELECT f.versions[array_upper(f.versions, 1)]
+                    FROM flow f WHERE f.path = runnable_path AND f.workspace_id = $2)
+                WHEN 'script' THEN runnable_id = (SELECT s.hash FROM script s
+                    WHERE s.path = runnable_path AND s.workspace_id = $2 AND NOT s.deleted
+                        AND s.lock IS NOT NULL AND s.lock_error_logs IS NULL
+                    ORDER BY s.created_at DESC LIMIT 1)
+            END, false) AS "current_version!",
+            EXISTS (SELECT 1 FROM v2_job_status st WHERE st.id = lineage.id
+                    AND jsonb_typeof(st.flow_status->'restarted_from') = 'object')
+                OR EXISTS (SELECT 1 FROM v2_job_completed c WHERE c.id = lineage.id
+                    AND jsonb_typeof(c.flow_status->'restarted_from') = 'object')
+                AS "restarted!",
+            COALESCE(
+                (SELECT st.flow_status->'restarted_from'->>'flow_job_id' FROM v2_job_status st
+                    WHERE st.id = lineage.id),
+                (SELECT c.flow_status->'restarted_from'->>'flow_job_id' FROM v2_job_completed c
+                    WHERE c.id = lineage.id)
+            ) AS restarted_from,
             -- Only deployed-app runs are stamped with their app; an app editor preview
             -- runs app code at an app path it does not have to own.
             COALESCE(trigger_kind = 'app' AND starts_with(runnable_path, trigger || '/'), false)
@@ -103,8 +138,21 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
     // Walk from the root down: whether a job runs stored code can depend on its parent.
     let mut claimed_paths = vec![];
     let mut all_stored = true;
+    let mut all_current = true;
+    let mut restart_origins = vec![];
     let mut parent: Option<(&LineageJob, bool)> = None;
     for job in lineage.iter().rev() {
+        // A restart rebuilds a job from a past run, under a current flow or with nothing
+        // above it, so it runs that run's code: a flow's own version can still be checked,
+        // anything else is current only if the run it was rebuilt from is.
+        if job.restarted && job.kind != JobKind::Flow {
+            match job.restarted_from.as_deref().map(Uuid::parse_str) {
+                Some(Ok(origin)) => restart_origins.push(origin),
+                _ => all_current = false,
+            }
+        } else {
+            all_current &= runs_current_version(job);
+        }
         let stored = runs_stored_code(job, parent);
         if !stored {
             all_stored = false;
@@ -117,8 +165,19 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         parent = Some((job, stored));
     }
 
+    let deployed = !unproven_ancestry && all_stored;
+    if deployed && all_current {
+        for origin in restart_origins {
+            if !restart_origin_is_current(db, &origin, w_id).await? {
+                all_current = false;
+                break;
+            }
+        }
+    }
     Ok(Some(JobProvenance {
-        deployed: !unproven_ancestry && all_stored,
+        deployed,
+        latest: deployed && all_current,
+        version: version(&lineage[0]),
         unproven_ancestry,
         claimed_paths,
         permissioned_as: lineage[0].permissioned_as.clone(),
@@ -127,7 +186,78 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         root_path: root.runnable_path.clone(),
         root_kind: root.kind,
         root_trigger_kind: root.trigger_kind.clone(),
+        root_version: version(root),
     }))
+}
+
+/// Whether the completed job a restart rebuilt a job from ran current code: its nearest
+/// flow ancestor runs the current version of its path, and nothing between them was itself
+/// rebuilt by a restart (which would carry an older run's code again).
+async fn restart_origin_is_current(db: &DB, origin: &Uuid, w_id: &str) -> Result<bool> {
+    let current = sqlx::query_scalar!(
+        r#"WITH RECURSIVE up AS (
+            SELECT id, parent_job, kind, runnable_id, runnable_path, 0 AS depth
+            FROM v2_job WHERE id = $1 AND workspace_id = $2
+          UNION ALL
+            SELECT p.id, p.parent_job, p.kind, p.runnable_id, p.runnable_path, u.depth + 1
+            FROM v2_job p JOIN up u ON p.id = u.parent_job
+            WHERE p.workspace_id = $2 AND u.kind <> 'flow' AND u.depth < 100
+        )
+        SELECT EXISTS (SELECT 1 FROM up WHERE kind = 'flow'
+                AND runnable_id = (SELECT f.versions[array_upper(f.versions, 1)]
+                    FROM flow f WHERE f.path = up.runnable_path AND f.workspace_id = $2))
+            AND NOT EXISTS (SELECT 1 FROM up WHERE kind <> 'flow' AND (
+                EXISTS (SELECT 1 FROM v2_job_completed c WHERE c.id = up.id
+                    AND jsonb_typeof(c.flow_status->'restarted_from') = 'object')
+                OR EXISTS (SELECT 1 FROM v2_job_status st WHERE st.id = up.id
+                    AND jsonb_typeof(st.flow_status->'restarted_from') = 'object')))
+            AS "current!""#,
+        origin,
+        w_id
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(current)
+}
+
+fn version(job: &LineageJob) -> Option<String> {
+    match job.kind {
+        JobKind::Script => job.runnable_id.map(|h| ScriptHash(h).to_string()),
+        JobKind::Flow => job.runnable_id.map(|v| v.to_string()),
+        _ => None,
+    }
+}
+
+/// Only meaningful under `deployed`, which already excludes every kind that runs
+/// request-supplied code.
+fn runs_current_version(job: &LineageJob) -> bool {
+    match job.kind {
+        JobKind::Script | JobKind::Flow => job.current_version,
+        // A flow node is a loop or branch body taken from the version of the flow above
+        // it, which is checked itself.
+        JobKind::FlowNode => job.parent_job.is_some(),
+        // An app script is keyed by its content, not by an app version, so a past
+        // deployment's script cannot be told apart from the current one's.
+        JobKind::AppScript => false,
+        JobKind::Preview if job.app_stamped => false,
+        // They run no code of their own beyond what checked jobs above them define, or
+        // (hub) the path names the version.
+        JobKind::Script_Hub
+        | JobKind::SingleStepFlow
+        | JobKind::FlowScript
+        | JobKind::AIAgent
+        | JobKind::Preview
+        | JobKind::FlowPreview
+        | JobKind::Dependencies
+        | JobKind::FlowDependencies
+        | JobKind::AppDependencies
+        | JobKind::Identity
+        | JobKind::Noop
+        | JobKind::DeploymentCallback
+        | JobKind::UnassignedScript
+        | JobKind::UnassignedFlow
+        | JobKind::UnassignedSinglestepFlow => true,
+    }
 }
 
 /// Whether the job's code and its path are both fixed by what was deployed (or, for a

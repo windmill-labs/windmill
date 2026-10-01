@@ -21,10 +21,13 @@ they follow the mode, the connected servers and the workspace's AI settings.
 		tools,
 		providerTools,
 		active,
-		blocksClose = $bindable()
+		blocksClose = $bindable(),
+		description = "What the assistant can call in this session: the built-in tools, whatever the connected MCP servers expose, and what the model's provider runs itself."
 	}: {
 		tools: ToolSummary[]
 		providerTools: ProviderToolSummary[]
+		/** What the list is, under its heading. */
+		description?: string
 		/** Whether this is the panel on screen. Gates the detail page's build, which pulls
 		 * in the schema table and its syntax highlighter. */
 		active: boolean
@@ -145,10 +148,7 @@ they follow the mode, the connected servers and the workspace's AI settings.
 		onkeydown={highlight.onKeydown}
 		onpointermove={highlight.pointerMoved}
 	>
-		<Section
-			label="Tools"
-			description="What the assistant can call in this session: the built-in tools, whatever the connected MCP servers expose, and what the model's provider runs itself."
-		>
+		<Section label="Tools" {description}>
 			<!-- Sticks to the top of the scrolling panel so a 70-row list stays searchable. -->
 			<div class="sticky top-0 z-10 bg-surface pb-2">
 				<TextInput

@@ -192,10 +192,19 @@ export const EVAL_MODELS: EvalModelSpec[] = [
   {
     id: "deepseek-v4-flash",
     label: "DeepSeek V4 Flash",
-    aliases: ["deepseek", "deepseek-v4", "deepseek-v4-flash"],
+    aliases: ["deepseek-v4", "deepseek-v4-flash"],
     frontend: {
       provider: "deepseek",
       model: "deepseek-v4-flash",
+    },
+  },
+  {
+    id: "deepseek-flash",
+    label: "DeepSeek V4.1 Flash",
+    aliases: ["deepseek", "deepseek-flash", "deepseek-v4.1-flash"],
+    frontend: {
+      provider: "deepseek",
+      model: "deepseek-flash",
     },
   },
   {

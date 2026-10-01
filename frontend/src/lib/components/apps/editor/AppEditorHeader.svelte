@@ -219,7 +219,7 @@
 	// UserDraft handle in that case, so the cleanup calls here must skip too
 	// (otherwise we'd wipe a non-session tab's autosave at the same path). The
 	// session-side equivalent is the View's `onDeploy` →
-	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
+	// `runtime.itemDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
 	const inSessionPane = !!getContext('aiChatManager')
 

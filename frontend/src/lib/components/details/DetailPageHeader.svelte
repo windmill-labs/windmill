@@ -6,12 +6,14 @@
 	import { twMerge } from 'tailwind-merge'
 	import { userStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
-	import { MediaQuery } from 'svelte/reactivity'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import type { TriggerContext } from '../triggers'
 	import type { Item } from '$lib/utils'
 	import { Bell, BellOff, Calendar } from 'lucide-svelte'
 	import { toggleWorkspaceErrorHandler } from './errorHandlerToggle'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type MainButton = {
 		label: string
@@ -29,26 +31,37 @@
 	type MenuItemButton = {
 		label: string
 		Icon: any
-		onclick: () => void
+		onclick: (e: MouseEvent) => void
 		color?: 'red'
+		disabled?: boolean
 	}
 
-	const { triggersCount, triggersState } = $state(getContext<TriggerContext>('TriggerContext'))
+	// An agent's page has no triggers, and so no context for them.
+	const { triggersCount, triggersState } = $state(
+		getContext<TriggerContext | undefined>('TriggerContext') ?? ({} as Partial<TriggerContext>)
+	)
 
 	interface Props {
 		mainButtons?: MainButton[]
 		menuItems?: MenuItemButton[]
 		summary?: string
 		path?: string
-		tag: string | undefined
-		errorHandlerKind: 'flow' | 'script'
-		scriptOrFlowPath: string
-		errorHandlerMuted: boolean | undefined
+		tag?: string | undefined
+		/** Unset for what has no workspace error handler to mute, such as an agent. */
+		errorHandlerKind?: 'flow' | 'script'
+		scriptOrFlowPath?: string
+		errorHandlerMuted?: boolean | undefined
 		labels?: string[] | undefined
 		inheritedLabels?: string[] | undefined
 		onSaved?: (newPath: string) => void
 		children?: import('svelte').Snippet
 		trigger_badges?: import('svelte').Snippet
+		/** Whether the bar is wide enough to hold every button beside the summary, decided by
+		 * the layout from its own width. Not a viewport media query: the same page also renders
+		 * inside an AI session's preview panel, where the window is wide and the pane is not. */
+		wide?: boolean
+		/** Controls ahead of the menu, such as the way an agent's page runs it. */
+		leading_actions?: import('svelte').Snippet
 	}
 
 	let {
@@ -64,15 +77,14 @@
 		inheritedLabels = undefined,
 		onSaved,
 		children,
-		trigger_badges
+		trigger_badges,
+		wide = true,
+		leading_actions
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	// Tailwind's `lg`, matched in JS so the one ellipsis menu can carry the collapsed buttons.
-	const wide = new MediaQuery('(min-width: 1024px)')
-
-	const barButtons = $derived(wide.current ? mainButtons : mainButtons.filter((b) => !b.narrow))
+	const barButtons = $derived(wide ? mainButtons : mainButtons.filter((b) => !b.narrow))
 
 	function dropdownHost(btn: MainButton): MainButton | undefined {
 		if (typeof btn.narrow !== 'object') return undefined
@@ -81,7 +93,9 @@
 	}
 
 	async function toggleErrorHandler() {
+		if (!errorHandlerKind || !scriptOrFlowPath) return
 		const next = await toggleWorkspaceErrorHandler(
+			$operatingWorkspace,
 			errorHandlerKind,
 			scriptOrFlowPath,
 			errorHandlerMuted
@@ -90,7 +104,7 @@
 	}
 
 	const allMenuItems: Item[] = $derived([
-		...(wide.current ? [] : mainButtons.filter((b) => b.narrow && !dropdownHost(b))).map((b) => ({
+		...(wide ? [] : mainButtons.filter((b) => b.narrow && !dropdownHost(b))).map((b) => ({
 			displayName: b.label,
 			description: b.description,
 			icon: b.buttonProps.startIcon,
@@ -99,7 +113,7 @@
 			disabled: b.buttonProps.disabled,
 			type: 'action' as const
 		})),
-		...(wide.current
+		...(wide || !errorHandlerKind
 			? []
 			: [
 					{
@@ -113,13 +127,14 @@
 			displayName: item.label,
 			icon: item.Icon,
 			action: item.onclick,
+			disabled: item.disabled,
 			type: item.color === 'red' ? ('delete' as const) : ('action' as const),
-			separatorTop: i === 0 && !wide.current
+			separatorTop: i === 0 && !wide
 		}))
 	])
 
 	function dropdownItemsOf(host: MainButton) {
-		if (wide.current) return undefined
+		if (wide) return undefined
 		const items = mainButtons
 			.filter((b) => dropdownHost(b) === host)
 			.map((b) => ({
@@ -176,12 +191,13 @@
 				{@render trigger_badges?.()}
 			</div>
 			<div class="flex gap-1 items-center pr-4">
+				{@render leading_actions?.()}
 				{#if allMenuItems.length > 0}
 					{#key allMenuItems}
 						<DropdownV2 items={allMenuItems} placement="bottom-end" size="md" />
 					{/key}
 				{/if}
-				{#if wide.current}
+				{#if wide && errorHandlerKind && scriptOrFlowPath}
 					<ErrorHandlerToggleButton
 						kind={errorHandlerKind}
 						{scriptOrFlowPath}

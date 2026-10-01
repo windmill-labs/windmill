@@ -1,0 +1,79 @@
+<script lang="ts">
+	import { resource } from 'runed'
+	import { Badge } from '$lib/components/common'
+	import Label from '$lib/components/Label.svelte'
+	import LabelsInput from '$lib/components/LabelsInput.svelte'
+	import Path from '$lib/components/Path.svelte'
+	import ResourceDescriptionField from '$lib/components/ResourceDescriptionField.svelte'
+	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { WorkspaceService } from '$lib/gen'
+	import type { AgentDraftHandle } from '../agentDraft.svelte'
+
+	/** An agent's own settings, laid out as the top of the resource editor: what it is saved as
+	 *  rather than what it does. */
+	interface Props {
+		draft: AgentDraftHandle
+		/** The path the editor opened, which a first deploy of a new agent replaces. */
+		path: string
+		workspace: string | undefined
+		/** Why the path cannot be deployed to, if it cannot. */
+		error?: string
+	}
+
+	let { draft, path, workspace, error = $bindable() }: Props = $props()
+
+	let readOnly = $derived(!draft.canWrite)
+	// Only a workspace that deploys somewhere has anything to keep an agent out of.
+	const deployTo = resource(
+		() => workspace,
+		async (ws) =>
+			ws ? (await WorkspaceService.getDeployTo({ workspace: ws })).deploy_to : undefined
+	)
+</script>
+
+{#if draft.state}
+	<div class="flex flex-col gap-6">
+		<Label label="Path">
+			<ResourcePathHint />
+			<Path
+				bind:path={
+					() => draft.state?.path,
+					(v) => {
+						if (draft.state && v !== undefined) draft.state.path = v
+					}
+				}
+				bind:error
+				initialPath={draft.noDeployed ? '' : path}
+				checkInitialPathExistence={draft.noDeployed}
+				namePlaceholder="agent"
+				kind="resource"
+				workspaceOverride={workspace}
+				autofocus={false}
+				disabled={readOnly}
+			/>
+		</Label>
+		{#if readOnly}
+			{#if draft.state.labels?.length}
+				<div class="-mt-4 inline-flex items-center gap-1">
+					{#each draft.state.labels as label (label)}
+						<Badge color="blue" small>{label}</Badge>
+					{/each}
+				</div>
+			{/if}
+		{:else}
+			<LabelsInput bind:labels={draft.state.labels} {workspace} class="-mt-4" />
+		{/if}
+		{#if deployTo.current}
+			<Label label="Workspace specific" tooltip="Keeps this agent out of deploys to prod/staging.">
+				<Toggle bind:checked={draft.state.wsSpecific} disabled={readOnly} />
+			</Label>
+		{/if}
+		<ResourceDescriptionField
+			bind:description={draft.state.description}
+			label="Description"
+			placeholder="Describe what this agent does"
+			canWrite={!readOnly}
+		/>
+	</div>
+{/if}
