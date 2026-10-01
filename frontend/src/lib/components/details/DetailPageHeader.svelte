@@ -35,9 +35,7 @@
 
 	// An agent's page has no triggers, and so no context for them.
 	const triggerContext = getContext<TriggerContext | undefined>('TriggerContext')
-	const { triggersCount, triggersState } = $state(
-		triggerContext ?? ({} as Partial<TriggerContext>)
-	)
+	const { triggersCount, triggersState } = $state(triggerContext ?? ({} as Partial<TriggerContext>))
 	// The buttons below render in the page header, away from this page's tree.
 	const headerContexts = new Map<any, any>([['TriggerContext', triggerContext]])
 

@@ -148,7 +148,9 @@ same weight, size and icon size, so the line reads as one control rather than fo
 {/snippet}
 
 {#snippet itemKindIcon()}
-	{#if item}<WorkspaceItemKindIcon kind={item.kind} size={ICON} />{/if}
+	<!-- No kind, no glyph: WorkspaceItemKindIcon falls through to the script icon, which would
+	     label an agent a script. -->
+	{#if item?.kind}<WorkspaceItemKindIcon kind={item.kind} size={ICON} />{/if}
 {/snippet}
 
 {#snippet sectionKindIcon()}
@@ -304,7 +306,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 					</span>
 				{/if}
 			</div>
-		{:else}
+		{:else if item.kind}
 			<span class="{SEGMENT} hover:bg-transparent" aria-current="page">
 				{@render itemKindIcon()}
 				<span class="truncate">{KIND_LABEL_LOWER[item.kind]}</span>

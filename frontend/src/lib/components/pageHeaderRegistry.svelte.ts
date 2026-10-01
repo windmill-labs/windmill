@@ -3,7 +3,9 @@ import type { WorkspaceItemKind } from './workspacePicker'
 
 /** An item the page is working on: the breadcrumb walks its path and ends with its summary. */
 export type PageHeaderItem = {
-	kind: WorkspaceItemKind
+	/** Absent for an item the picker does not file under a kind — an agent's detail page. The
+	 *  breadcrumb then names the item without claiming it is one of the three. */
+	kind?: WorkspaceItemKind
 	/** Shown whole, and copied on click. */
 	path: string | undefined
 	summary?: string
