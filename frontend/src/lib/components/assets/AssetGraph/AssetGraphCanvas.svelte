@@ -23,14 +23,11 @@
 	import PanToNode from './PanToNode.svelte'
 	import InitialFitView from './InitialFitView.svelte'
 	import {
-		LAYER_GAP,
 		layoutAssetGraph,
-		layoutRowHeight,
 		PIPELINE_NODE_EXTRA_ROW,
 		PIPELINE_NODE_HEADER,
 		PIPELINE_NODE_HEADER_CARD_PAD
 	} from './assetGraphLayout'
-	import { detourLane, routeAssetGraphEdges, type EdgeRoute } from './assetGraphEdgeRouting'
 	import {
 		assetsOnlyView,
 		upstreamDeletion,
@@ -1680,10 +1677,15 @@
 						: 1
 			)
 	})
-	const extraRowHeight = $derived(
-		assetsOnly ? PIPELINE_NODE_EXTRA_ROW + PIPELINE_NODE_HEADER + PIPELINE_NODE_HEADER_CARD_PAD : 0
+	let layoutPositions = $derived(
+		layoutAssetGraph(
+			layoutInput,
+			ADD_NODE_ID,
+			assetsOnly
+				? PIPELINE_NODE_EXTRA_ROW + PIPELINE_NODE_HEADER + PIPELINE_NODE_HEADER_CARD_PAD
+				: 0
+		)
 	)
-	let layoutPositions = $derived(layoutAssetGraph(layoutInput, ADD_NODE_ID, extraRowHeight))
 
 	/** Assets-only asset cards size to their text; every other node is `NODE.width`. */
 	const nodeWidth = (n: { data?: any }): number => n.data?.width ?? NODE.width
@@ -1859,51 +1861,33 @@
 				halfW: nodeWidth(n) / 2
 			}))
 	)
-	let routeNodes = $derived(
-		nodeCenters.map((n) => ({
-			id: n.id,
-			cx: n.cx,
-			top: n.cy,
-			halfW: n.halfW,
-			height: layoutRowHeight(extraRowHeight)
-		}))
-	)
-	// An edge spanning rows goes down its target's column; when a node in the
-	// rows between is in the way, it takes a lane clear of all of them.
+	// Detour lane for an edge whose run would pass over an unrelated node. An
+	// edge spanning rows bends inside the first gap below its source and then
+	// runs straight down the *target's* column (see AssetGraphEdge), so every
+	// node strictly between the endpoints' rows is tested against the target's
+	// x, not against a source→target line. A crossed node is routed around on
+	// the side the target lies. Returns the outermost lane x clearing every
+	// crossed node, or undefined when the corridor is clear. O(nodes) per edge.
 	const ROUTE_PAD = NODE.gap.horizontal / 2
 	function detourForEdge(sourceId: string, targetId: string): number | undefined {
-		const s = routeNodes.find((n) => n.id === sourceId)
-		const t = routeNodes.find((n) => n.id === targetId)
-		return s && t ? detourLane(s, t, routeNodes, ROUTE_PAD) : undefined
+		const s = nodeCenters.find((n) => n.id === sourceId)
+		const t = nodeCenters.find((n) => n.id === targetId)
+		if (!s || !t || s.cy === t.cy) return undefined
+		const dyTot = t.cy - s.cy
+		let lane: number | undefined
+		for (const n of nodeCenters) {
+			if (n.id === sourceId || n.id === targetId) continue
+			// strictly between the two rows
+			if ((n.cy - s.cy) / dyTot <= 0.01 || (n.cy - s.cy) / dyTot >= 0.99) continue
+			if (Math.abs(t.cx - n.cx) >= n.halfW + 8) continue
+			// Crossed: a lane just outside this node, toward the target side.
+			const side = t.cx >= n.cx ? 1 : -1
+			const candidate = n.cx + side * (n.halfW + ROUTE_PAD)
+			// Keep the outermost lane so one detour clears every obstacle.
+			if (lane == undefined || Math.abs(candidate - s.cx) > Math.abs(lane - s.cx)) lane = candidate
+		}
+		return lane
 	}
-
-	// Routing depends on geometry and edges only. The nodes are rebuilt on every
-	// selection or run update, so the routes are kept until either really changes.
-	let routeInput = $derived.by(() => {
-		const edges = view.edges
-			.filter((e) => e.kind !== 'add-anchor')
-			.map((e) => ({
-				id: e.id,
-				source: e.source,
-				target: e.target,
-				// What sets how an edge is drawn (see the styling below): only
-				// edges that look the same may share a segment.
-				style: `${e.kind}:${e.reactive ? 1 : 0}:${e.missing ? 1 : 0}`
-			}))
-		return { nodes: routeNodes, edges, key: JSON.stringify([routeNodes, edges]) }
-	})
-	let routedFor: { key: string; routes: Map<string, EdgeRoute> } | undefined
-	let edgeRoutes = $derived.by(() => {
-		const { nodes, edges, key } = routeInput
-		if (routedFor?.key === key) return routedFor.routes
-		const routes = routeAssetGraphEdges(
-			nodes,
-			edges.map((e) => ({ ...e, laneX: detourForEdge(e.source, e.target) })),
-			LAYER_GAP
-		)
-		routedFor = { key, routes }
-		return routes
-	})
 
 	let flowEdges = $derived.by(() =>
 		view.edges
@@ -2051,7 +2035,7 @@
 					target: e.target,
 					type: 'asset',
 					data: {
-						route: edgeRoutes.get(e.id),
+						detourX: detourForEdge(e.source, e.target),
 						// Data-test badge on the producer→asset write-edge. The
 						// producer's last-run status (the script fails if any test
 						// fails) tints it green/red; neutral until it has run.

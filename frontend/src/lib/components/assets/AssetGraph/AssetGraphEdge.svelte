@@ -1,14 +1,11 @@
 <script lang="ts">
-	import { BaseEdge, getBezierPath, useInternalNode, type EdgeProps } from '@xyflow/svelte'
-	import { polylineMidpoint, roundedPath, type EdgeRoute } from './assetGraphEdgeRouting'
+	import { BaseEdge, getBezierPath, type EdgeProps } from '@xyflow/svelte'
+	import { NODE } from '$lib/components/graph/util'
+	import { PIPELINE_NODE_HEIGHT } from './assetGraphLayout'
 	import { FlaskConical, Columns3, SquareFunction, BellOff } from 'lucide-svelte'
 	import type { ColumnLineage, DataTest } from './parsePipelineAnnotations'
 
-	const CORNER = 10
-
 	let {
-		source,
-		target,
 		sourceX,
 		sourceY,
 		sourcePosition,
@@ -27,64 +24,12 @@
 	let testsStatus = $derived(
 		(data as { testsRunStatus?: 'running' | 'success' | 'failure' } | undefined)?.testsRunStatus
 	)
-	// The route the canvas computed for this edge (see assetGraphEdgeRouting):
-	// spread ports, the height of each horizontal run and, for an edge that
-	// skips layers, the lane beside the nodes in between.
-	let route = $derived((data as { route?: EdgeRoute } | undefined)?.route)
-	// A side end sits at the node's rendered mid-height, which only the flow knows.
-	const sourceNode = useInternalNode(source)
-	const targetNode = useInternalNode(target)
-	function sidePoint(
-		node: typeof sourceNode.current,
-		side: 'left' | 'right'
-	): [number, number] | undefined {
-		const pos = node?.internals.positionAbsolute
-		const w = node?.measured.width
-		const h = node?.measured.height
-		if (!pos || !w || !h) return undefined
-		return [side === 'left' ? pos.x : pos.x + w, pos.y + h / 2]
-	}
-	let points = $derived.by((): Array<[number, number]> | undefined => {
-		if (!route) return undefined
-		const pts = route.points.map(([x, y]): [number, number] => [x, y])
-		const n = pts.length
-		// The ends sit on this edge's handles, or on a side of its node. The
-		// layout reserves each row's height, but a node can render shorter or
-		// taller: keep every other turn clear of the edge's own ends.
-		const fixed = new Set<number>([0, n - 1])
-		if (route.sourceSide) {
-			const at = sidePoint(sourceNode.current, route.sourceSide)
-			if (at) {
-				pts[0] = at
-				pts[1][1] = at[1]
-			}
-			fixed.add(1)
-		} else pts[0][1] = sourceY
-		if (route.targetSide) {
-			const at = sidePoint(targetNode.current, route.targetSide)
-			if (at) {
-				pts[n - 1] = at
-				pts[n - 2][1] = at[1]
-			}
-			fixed.add(n - 2)
-		} else pts[n - 1][1] = targetY
-		const lo = sourceY + 8
-		const hi = Math.max(lo, targetY - 8)
-		for (let k = 0; k < n; k++) if (!fixed.has(k)) pts[k][1] = Math.min(Math.max(pts[k][1], lo), hi)
-		return pts
-	})
-	// Dots where this edge merges with or splits from others, so a junction never
-	// reads as a crossing. Clamped like the turns they sit on.
-	let junctions = $derived(
-		(route?.junctions ?? []).map(([x, y]): [number, number] => [
-			x,
-			Math.min(Math.max(y, sourceY + 8), Math.max(sourceY + 8, targetY - 8))
-		])
-	)
-	let strokeColor = $derived(/stroke:\s*([^;]+)/.exec(style ?? '')?.[1]?.trim() ?? 'currentColor')
-	let mid = $derived(points ? polylineMidpoint(points) : undefined)
-	let labelX = $derived(mid?.[0] ?? (sourceX + targetX) / 2)
-	let labelY = $derived(mid?.[1] ?? (sourceY + targetY) / 2)
+	// Badge position on the link. A detoured edge runs its vertical segment in
+	// the gutter lane at `detourX`, so anchor the badge there (not on the
+	// straight-line midpoint, which would float off the routed path).
+	let detourX = $derived((data as { detourX?: number } | undefined)?.detourX)
+	let labelX = $derived(detourX ?? (sourceX + targetX) / 2)
+	let labelY = $derived((sourceY + targetY) / 2)
 
 	function fmtTest(t: DataTest): string {
 		switch (t.type) {
@@ -154,21 +99,86 @@
 				: ''
 	)
 
-	let edgePath = $derived.by(() => {
-		// Sharp at junctions, so the lines meet on the dot rather than curving off it.
-		if (points) return roundedPath(points, CORNER, junctions)
-		// No route: an edge pointing up (a cycle's feedback edge), which the
-		// layered routing has no gap for.
-		const [bezier] = getBezierPath({
+	// An edge that skips at least one full layer (source-bottom → target-top
+	// gap larger than gap + node row) while staying near-vertical runs
+	// straight under the nodes in between — the child-and-grandchild-of-the-
+	// same-node case, where the tidy-tree layout puts all three on one
+	// column. Detour those through the gutter beside the column.
+	const SKIP_DY = NODE.gap.vertical * 2 + PIPELINE_NODE_HEIGHT
+	const NEAR_VERTICAL_DX = NODE.width / 4
+	// Lane offset: half a node plus a margin that stays inside the
+	// inter-column gutter (gap.horizontal / 2).
+	const LANE = NODE.width / 2 + NODE.gap.horizontal / 2
+
+	// Detour through the gutter lane at `midX`, drawn with the same curves as
+	// every other edge: curve out of the source into the lane within the gap
+	// below it, run down the lane past the rows in between, curve into the
+	// target within the gap above it.
+	function gutterPath(midX: number): string {
+		const bend = NODE.gap.vertical
+		const yTop = sourceY + bend
+		const yBot = Math.max(yTop, targetY - bend)
+		const [out] = getBezierPath({
 			sourceX,
 			sourceY,
+			sourcePosition,
+			targetX: midX,
+			targetY: yTop,
+			targetPosition,
+			curvature: 0.25
+		})
+		const [into] = getBezierPath({
+			sourceX: midX,
+			sourceY: yBot,
 			sourcePosition,
 			targetX,
 			targetY,
 			targetPosition,
 			curvature: 0.25
 		})
-		return bezier
+		// Continue from the lane rather than lifting the pen.
+		return `${out} L${midX},${yBot} ${into.replace(/^M/, 'L')}`
+	}
+
+	// Long edges bend out of the source within the layer gap and descend in
+	// the *target* column. The flow editor's pattern (descend at the source,
+	// bend at the bottom) assumed the source column below was free — in the
+	// banded tree layout it's where the source's own children live, so the
+	// straight segment ran under them (e.g. fx_rates → daily_revenue under
+	// fx_rates' other subtree). Long edges only target joins here (a single-
+	// parent child is always exactly one layer below its parent), and the
+	// space above a join is the seam between its parents' bands — clear by
+	// construction.
+	let edgePath = $derived.by(() => {
+		const dy = targetY - sourceY
+		// Obstacle-aware detour: the canvas detected this edge's straight run
+		// would pass over an unrelated node and chose a clear lane. Route there.
+		const detourX = (data as { detourX?: number } | undefined)?.detourX
+		if (detourX != undefined) {
+			return gutterPath(detourX)
+		}
+		if (dy > SKIP_DY && Math.abs(targetX - sourceX) < NEAR_VERTICAL_DX) {
+			// Near-vertical same-column skip: lane just beside the column, past
+			// both endpoints so the horizontal runs never degenerate.
+			const side = targetX >= sourceX ? 1 : -1
+			return gutterPath(
+				side > 0 ? Math.max(sourceX, targetX) + LANE : Math.min(sourceX, targetX) - LANE
+			)
+		}
+		const bendY = sourceY + Math.min(100, NODE.gap.vertical)
+		const long = dy > 100
+		const [bezier] = getBezierPath({
+			sourceX,
+			sourceY,
+			sourcePosition,
+			targetX,
+			targetY: long ? bendY : targetY,
+			targetPosition,
+			curvature: 0.25
+		})
+		// The bezier ends at (targetX, bendY); continue straight down the
+		// target column into the node.
+		return long ? `${bezier} L${targetX},${targetY}` : bezier
 	})
 </script>
 
@@ -180,9 +190,6 @@
 	label={undefined}
 	labelStyle={undefined}
 />
-{#each junctions as [x, y] (`${x}:${y}`)}
-	<circle cx={x} cy={y} r="2.5" fill={strokeColor} />
-{/each}
 
 {#if tests && tests.length > 0}
 	<!-- Badge centered on the link midpoint. Edges render in the SVG layer, so

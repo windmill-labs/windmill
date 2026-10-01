@@ -11,7 +11,7 @@ const NODE_HEIGHT = NODE.height + 30
  * the `NODE_HEIGHT` row the layout reserves. */
 export const PIPELINE_NODE_HEIGHT = 48
 // A step more than the flow editor's gap: the + on a node's bottom edge sits in it.
-export const LAYER_GAP = NODE.gap.vertical + 16
+const LAYER_GAP = NODE.gap.vertical + 16
 /** Height of the "Add data source" pill the anchor draws, and its gap to the
  * graph: tighter than LAYER_GAP, since no edge runs through it. */
 const ANCHOR_HEIGHT = 32
@@ -244,11 +244,6 @@ function layoutComponent(
 	return out
 }
 
-/** Height reserved for every row of the layout: no node renders taller. */
-export function layoutRowHeight(extraRowHeight = 0): number {
-	return NODE_HEIGHT + extraRowHeight
-}
-
 // Top-down layered layout (same orientation as the flow editor — see
 // compoundLayout.ts): producers above → assets in the middle → consumers
 // below.
@@ -270,7 +265,7 @@ export function layoutAssetGraph(
 	anchorId?: string,
 	extraRowHeight = 0
 ): Map<string, Positioned> {
-	const rowH = layoutRowHeight(extraRowHeight)
+	const rowH = NODE_HEIGHT + extraRowHeight
 	const layerH = rowH + LAYER_GAP
 	const byId = new Map<string, Positioned>()
 	if (graph.nodes.length === 0) return byId
