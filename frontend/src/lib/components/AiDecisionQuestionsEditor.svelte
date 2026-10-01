@@ -23,13 +23,20 @@
 
 	let { value = $bindable(), disabled = false }: Props = $props()
 
-	// Decided once: a value the cards cannot hold is edited as JSON for the life of this editor.
-	const fitsRows = questionsFitRows(untrack(() => value))
+	// A value the cards cannot hold is edited as JSON. Decided on open and again whenever the value
+	// is replaced from elsewhere (an undo, the AI chat), never by an edit made here.
+	let fitsRows = $state(questionsFitRows(untrack(() => value)))
+	let jsonCode = $state(
+		JSON.stringify(
+			untrack(() => value),
+			null,
+			2
+		)
+	)
 
 	let rows: QuestionRow[] = $state(questionsToRows(untrack(() => value)))
 	// What the rows last wrote or were read from. Rows hold drafts the value leaves out (an unnamed
-	// question), so only an edit writes, and only a value changed from elsewhere, like an undo,
-	// replaces them; opening the editor leaves the stored value untouched.
+	// question), so only an edit writes; opening the editor leaves the stored value untouched.
 	let synced = JSON.stringify(rowsToQuestions(untrack(() => rows)))
 	let written = JSON.stringify(untrack(() => value) ?? {})
 
@@ -48,8 +55,10 @@
 	$effect(() => {
 		const json = JSON.stringify(value ?? {})
 		untrack(() => {
-			if (fitsRows && json !== written) {
+			if (json !== written) {
 				written = json
+				fitsRows = questionsFitRows(value)
+				jsonCode = JSON.stringify(value, null, 2)
 				rows = questionsToRows(value)
 				synced = JSON.stringify(rowsToQuestions(rows))
 			}
@@ -76,9 +85,10 @@
 		</span>
 		{#await import('./JsonEditor.svelte') then Module}
 			<Module.default
-				code={JSON.stringify(value, null, 2)}
+				code={jsonCode}
 				{disabled}
 				on:changeValue={(e) => {
+					written = JSON.stringify(e.detail ?? {})
 					value = e.detail
 				}}
 			/>
