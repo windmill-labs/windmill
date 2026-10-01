@@ -299,7 +299,9 @@ leaves and ignores the current scope.
 	 * itself — ⌘/Ctrl-click and ⌘/Ctrl-Enter, the keyboard reach for the button
 	 * that only appears on hover. A leaf with no second action ignores it. */
 	function pick(leaf: DrillLeaf<L>, alt = false) {
-		if (leaf.current || leaf.disabled) return
+		if (leaf.disabled) return
+		// The second action is the row's other destination (its editor, for the deployed page
+		// this tab shows), so it stays available on the current row the plain pick skips.
 		if (alt) {
 			const action = leafAction?.(leaf)
 			if (action) {
@@ -307,6 +309,7 @@ leaves and ignores the current scope.
 				return
 			}
 		}
+		if (leaf.current) return
 		onPick(leaf)
 	}
 
