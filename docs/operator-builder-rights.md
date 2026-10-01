@@ -94,7 +94,17 @@ A builder-authored app is forced to `policy.sandbox = true`. That is what makes 
 operator publish a bundle nobody reviewed: without it the bundle runs same-origin with each
 viewer's Windmill session. The same check refuses a `rawscript/<sha>` key in either triggerables
 map, since that key is the deployed app's authorization to run caller-supplied `raw_code` hashing
-to it.
+to it. It reads the value as stored, NUL escapes stripped: a stripped NUL can turn a key it
+ignored into `inlineScript`.
+
+`update_app` takes a builder too, but settings only: the deploy panel saves a deployed full-code
+app's access and frontend scopes through it with no value. It reaches the same check, so a builder
+can no more switch the sandbox off there than on deploy.
+
+The sandbox does not cover the raw-app editor: its preview runs the bundle same-origin with the
+session of whoever opens it, so an operator's app opened by an admin acts as that admin. Until
+sandboxed apps also preview isolated, `RawAppEditor` holds the preview of an app an operator last
+deployed until the viewer runs it. That is a speed bump, not a boundary.
 
 ## Billing
 
@@ -122,6 +132,9 @@ that already have one on, is a zero delta and never blocks.
   curated scope list. The viewer consent prompt is the gate. The lever, if this is ever revisited,
   is dropping `variables:read` / `resources:read` / `jobs:run` from `FRONTEND_SDK_ALLOWED_SCOPES`
   for builder apps.
+- A builder may make an app public (`ExecutionMode::Anonymous`): anyone with the URL runs the
+  runnables its policy names, as the builder. Refusing it is the workspace's call, through the
+  `RestrictAnonymousAppDeployment` protection rule.
 - All-or-nothing per workspace: there is no per-user builder role.
 - `operator_settings` is git-synced, so a pull can flip every operator's class in a workspace and
   the billed seat count with it.
