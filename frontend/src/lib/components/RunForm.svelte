@@ -33,6 +33,7 @@
 	// workspace the job runs in: a form embedded in a session runs the job in the session's
 	// workspace, and a `$var:` minted in the navigation workspace resolves to nothing there.
 	const operatingWorkspace = useOperatingWorkspace()
+	let formEl: HTMLElement | undefined = $state()
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -79,7 +80,7 @@
 		// has not been parsed yet, and per-field editors parse it in an effect, hence the tick.
 		flushAllPendingEditorChanges()
 		await tick()
-		blockedByUnparseable = anyEditorUnparseable()
+		blockedByUnparseable = anyEditorUnparseable(formEl)
 		if (blockedByUnparseable) {
 			return
 		}
@@ -275,7 +276,7 @@
 		}}
 	/>
 {/if}
-<div class="max-w-3xl">
+<div bind:this={formEl} class="max-w-3xl">
 	{#if detailed}
 		{#if runnable}
 			<div class="flex flex-row flex-wrap justify-between gap-4">

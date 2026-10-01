@@ -62,8 +62,9 @@
 		} catch (e) {
 			error = e.message
 		}
-		setEditorUnparseable(unparseableKey, error !== '')
+		setEditorUnparseable(unparseableKey, error !== '', rootEl)
 	}
+	let rootEl: HTMLElement | undefined = $state()
 	$effect(() => {
 		code != undefined && untrack(() => parseJson())
 	})
@@ -77,7 +78,7 @@
 		</Button>
 	</div>
 {:else}
-	<div class="flex flex-col w-full">
+	<div bind:this={rootEl} class="flex flex-col w-full">
 		<div
 			class={twMerge(
 				'w-full rounded-md overflow-auto',
