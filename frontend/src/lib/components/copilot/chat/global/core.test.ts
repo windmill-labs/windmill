@@ -1137,13 +1137,15 @@ describe('global AI tools', () => {
 
 		expect(ScriptService.queryHubScripts).toHaveBeenCalledWith({
 			text: 'slack message',
-			kind: 'script'
+			kind: 'script',
+			app: undefined
 		})
 		expect(ScriptService.getHubScriptContentByPath).not.toHaveBeenCalled()
-		expect(JSON.parse(raw)).toEqual([
+		expect(JSON.parse(raw).results).toEqual([
 			{
 				path: 'hub/7/slack/send_message',
-				summary: 'Send Message'
+				summary: 'Send Message',
+				integration: 'slack'
 			}
 		])
 	})

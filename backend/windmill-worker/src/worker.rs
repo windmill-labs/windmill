@@ -6326,8 +6326,12 @@ pub async fn run_language_executor(
         )
         .await;
 
-        let reserved_variables =
+        let mut reserved_variables =
             get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+        // Same reason as in `build_nativets_env_code`.
+        if windmill_common::worker::TypeScriptAnnotations::parse(&code).no_network {
+            reserved_variables.remove("WM_TOKEN");
+        }
 
         let env_code = format!(
             "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",

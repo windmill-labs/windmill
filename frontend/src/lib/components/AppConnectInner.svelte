@@ -449,16 +449,15 @@
 
 	// Google's terms require its own button on the control that starts the sign-in, which is
 	// the step-2 Connect: step 1 only picks a type, and a manual step 2 saves a resource
-	// without ever reaching Google.
+	// without ever reaching Google. Every registry provider that signs in through Google's
+	// authorize endpoint counts; `google` itself is a login provider, not a registry entry.
 	run(() => {
 		isGoogleSignin =
 			step == 2 &&
 			!manual &&
 			(resourceType == 'google' ||
-				resourceType == 'gmail' ||
-				resourceType == 'gcal' ||
-				resourceType == 'gdrive' ||
-				resourceType == 'gsheets')
+				(registryEntryFor(resourceType)?.auth_url?.startsWith('https://accounts.google.com/') ??
+					false))
 	})
 
 	run(() => {
