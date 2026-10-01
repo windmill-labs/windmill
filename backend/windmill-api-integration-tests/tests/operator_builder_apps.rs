@@ -283,6 +283,47 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
         resp.text().await?
     );
 
+    // The deploy panel saves access and frontend scopes through the settings-only endpoint.
+    for (body, expected) in [
+        (
+            json!({"policy": {"execution_mode": "anonymous", "triggerables_v2": {}}}),
+            200,
+        ),
+        (
+            json!({"policy": {"execution_mode": "publisher", "sandbox": false, "triggerables_v2": {}}}),
+            403,
+        ),
+        (
+            json!({"value": {"files": {}, "runnables": {}}, "policy": {"execution_mode": "publisher"}}),
+            403,
+        ),
+    ] {
+        let resp = c
+            .post(format!("{api}/apps/update/u/operator/apps_only_app"))
+            .json(&body)
+            .send()
+            .await?;
+        let status = resp.status();
+        assert_eq!(
+            status,
+            expected,
+            "settings update {body}: {}",
+            resp.text().await?
+        );
+    }
+    let sandbox: Option<bool> = sqlx::query_scalar(
+        "SELECT (policy->>'sandbox')::boolean FROM app WHERE workspace_id = $1 AND path = $2",
+    )
+    .bind(WS)
+    .bind("u/operator/apps_only_app")
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        sandbox,
+        Some(true),
+        "a settings update must not turn a builder app's sandbox off"
+    );
+
     // The editor runs a draft's inline runnables as whoever opens it.
     for (runnables, expected) in [
         (json!({}), 200),

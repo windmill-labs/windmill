@@ -3214,13 +3214,20 @@ async fn update_app(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> JsonResult<AppDeployed> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update apps for security reasons".to_string(),
-        ));
-    }
-    // create_app_internal(authed, user_db, db, &w_id, &mut app).await?;
     let path = path.to_path();
+    // The deploy panel saves a deployed full-code app's access and frontend scopes here. A
+    // builder may change those settings; the app itself only through `update_app_raw`.
+    if authed.is_operator {
+        check_operator_can_build(&db, &w_id, true, BuilderKind::Apps, "update apps").await?;
+        if ns.value.is_some()
+            || deployed_app_kind(&user_db, &authed, &w_id, path).await? != Some(true)
+        {
+            return Err(Error::PermissionDenied(
+                "Operators with builder rights can only change the settings of full-code apps"
+                    .to_string(),
+            ));
+        }
+    }
     check_scopes(&authed, || format!("apps:write:{}", path))?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -3237,8 +3244,10 @@ async fn update_app(
 
     let opath = path.to_string();
     let db2 = db.clone();
+    // Settings-only for an operator, of an app checked above to be full-code.
+    let raw_app = authed.is_operator;
     let (new_tx, npath, v_id) =
-        update_app_internal(authed, db, user_db, &w_id, path, false, ns, None).await?;
+        update_app_internal(authed, db, user_db, &w_id, path, raw_app, ns, None).await?;
     new_tx.commit().await?;
 
     tally_app_rename(&db2, &w_id, &opath, &npath, v_id).await;
