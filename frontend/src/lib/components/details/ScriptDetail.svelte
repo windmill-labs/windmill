@@ -127,6 +127,8 @@
 		active = true,
 		embedded = false,
 		seededRun,
+		seededByAgent = false,
+		onSeedApplied,
 		onClearSeededRun,
 		onLoadState
 	}: {
@@ -143,12 +145,19 @@
 		/** Rendered inside a page that is not the script's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
-		/** Arguments a chat tool filled this form with when it opened the page. Nothing waits
-		 * on them: the page runs as it always does, and these only seed the fields and put a
-		 * note above them. `seq` identifies the request, so a second one re-seeds a page that
-		 * is already open. */
+		/** Arguments a chat tool proposed when it opened the page, for as long as they have
+		 * still to be applied. Nothing waits on them: the page runs as it always does, and
+		 * these only fill the fields. `seq` identifies the request, so a second one re-seeds a
+		 * page already open. Gone once applied — this page remounts under its host on a
+		 * deploy, a refresh or a version pin, and applying again would overwrite what the
+		 * reader has typed since. */
 		seededRun?: { args: Record<string, any>; seq: number }
-		/** The reader dismissed that note. The values stay in the fields. */
+		/** Whether to say the agent filled them. Outlives `seededRun`, since the note stands
+		 * until the reader dismisses it. */
+		seededByAgent?: boolean
+		/** Applied, so the host stops offering them. */
+		onSeedApplied?: () => void
+		/** The reader dismissed the note. The values stay in the fields. */
 		onClearSeededRun?: () => void
 		/** How the load ended, for a host that renders its own state around this page.
 		 * Providing it also suppresses the "could not load" toast: a 404 here is the normal
@@ -432,6 +441,7 @@
 		if (seededSeq === seededRun.seq) return
 		seededSeq = seededRun.seq
 		runForm.setArgs(seededRun.args)
+		onSeedApplied?.()
 	})
 
 	// Read once on purpose: these args seed the form, so tracking the fragment would
@@ -1105,7 +1115,7 @@
 								/>
 							{/if}
 
-							{#if seededRun}
+							{#if seededByAgent}
 								<InputSelectedBadge inputSelected="agent" onReject={() => onClearSeededRun?.()} />
 							{/if}
 							<RunForm

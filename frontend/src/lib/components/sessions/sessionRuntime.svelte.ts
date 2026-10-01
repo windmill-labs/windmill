@@ -637,8 +637,15 @@ function createRuntime(session: Session): SessionRuntime {
 				t.url.includes('version=')
 			)
 		})
-		if (pinned) previewTabs.navigate(viewTarget, pinned.id)
-		else previewTabs.open(viewTarget)
+		if (pinned) {
+			previewTabs.navigate(viewTarget, pinned.id)
+			// `navigate` re-points without bringing the tab forward, and the call is about to
+			// tell the reader the page is open — which it would not be, if they had switched
+			// away from it before asking.
+			previewTabs.select(pinned.id)
+		} else {
+			previewTabs.open(viewTarget)
+		}
 		return true
 	}
 	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)

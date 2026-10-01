@@ -104,6 +104,8 @@
 		active = true,
 		embedded = false,
 		seededRun,
+		seededByAgent = false,
+		onSeedApplied,
 		onClearSeededRun,
 		onLoadState
 	}: {
@@ -125,7 +127,12 @@
 		 * note above them. `seq` identifies the request, so a second one re-seeds a page that
 		 * is already open. */
 		seededRun?: { args: Record<string, any>; seq: number }
-		/** The reader dismissed that note. The values stay in the fields. */
+		/** Whether to say the agent filled them. Outlives `seededRun`, since the note stands
+		 * until the reader dismisses it. */
+		seededByAgent?: boolean
+		/** Applied, so the host stops offering them. */
+		onSeedApplied?: () => void
+		/** The reader dismissed the note. The values stay in the fields. */
 		onClearSeededRun?: () => void
 		/** How the load ended, for a host that renders its own state around this page. */
 		onLoadState?: (state: 'loaded' | 'not_found') => void
@@ -402,9 +409,11 @@
 			// would put words in the box long after they were proposed. The card still shows
 			// what was asked for.
 			if (typeof message === 'string' && message) flowChat.offerMessage(message)
+			onSeedApplied?.()
 		} else if (runForm) {
 			seededSeq = seededRun.seq
 			runForm.setArgs(seededRun.args)
+			onSeedApplied?.()
 		}
 	})
 
@@ -920,7 +929,7 @@
 									/>
 								{/if}
 
-								{#if seededRun}
+								{#if seededByAgent}
 									<InputSelectedBadge inputSelected="agent" onReject={() => onClearSeededRun?.()} />
 								{/if}
 
