@@ -24,8 +24,10 @@
 		Pencil,
 		CircleSlash,
 		Trash2,
+		Upload,
 		XCircle
 	} from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import type { ScriptLang } from '$lib/gen'
 	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast, type Item } from '$lib/utils'
@@ -48,6 +50,8 @@
 	/** What starts a producing script, as its chip shows it. */
 	export type TriggerChipData = {
 		label: string
+		/** The native trigger kind; a data upload renders as a call to action. */
+		kind?: string
 		/** No chip: the node's incoming edges already show what starts it. */
 		hidden?: boolean
 		missing?: boolean
@@ -517,7 +521,29 @@
 			trigger?.onOpen && 'bg-surface hover:bg-surface-hover cursor-pointer',
 			trigger?.selected && CHIP_SELECTED
 		)}
-		{#if trigger?.onOpen}
+		{#if trigger?.kind === 'data_upload' && trigger.onOpen}
+			<!-- The one trigger that needs the user: nothing runs until a file is
+			     provided, so it reads as the node's main action rather than a chip. -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<span
+				class="flex min-w-0"
+				onpointerdown={(e) => e.stopPropagation()}
+				onkeydown={(e) => e.stopPropagation()}
+			>
+				<Button
+					variant="accent"
+					unifiedSize="sm"
+					startIcon={{ icon: Upload }}
+					title={`Upload the data ${triggerScript} runs on`}
+					onClick={(e) => {
+						e?.stopPropagation()
+						trigger.onOpen?.()
+					}}
+				>
+					Upload data
+				</Button>
+			</span>
+		{:else if trigger?.onOpen}
 			<button
 				type="button"
 				class={twMerge(chipClass, 'flex items-center gap-1 min-w-0')}

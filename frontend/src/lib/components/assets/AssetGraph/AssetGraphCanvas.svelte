@@ -1325,6 +1325,7 @@
 		label: string
 		/** Nothing to show: the edges into the node already say it runs on writes. */
 		hidden?: boolean
+		kind?: string
 		nodeId?: string
 		missing?: boolean
 		draft?: boolean
@@ -1352,6 +1353,7 @@
 							: undefined
 		return {
 			label,
+			kind,
 			nodeId: t.nodeId,
 			missing,
 			draft: t.data?.draft,

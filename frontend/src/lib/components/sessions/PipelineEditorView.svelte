@@ -4,6 +4,7 @@
 	import { Loader2, Save, Workflow } from 'lucide-svelte'
 	import PipelineGraphEditor from '$lib/components/assets/AssetGraph/PipelineGraphEditor.svelte'
 	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
+	import { usePipelineDataUploads } from '$lib/components/assets/AssetGraph/pipelineDataUploads.svelte'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import { useActiveRunnableIds } from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
 	import type {
@@ -142,6 +143,7 @@
 	})
 
 	function handleCanvasSelect(s: AssetGraphSelection | undefined) {
+		uploadInputsPath = undefined
 		if (s && s.kind === 'runnable' && s.runnable_kind === 'script' && pe.drafts.has(s.path)) {
 			pe.activeDraftPath = s.path
 			pe.selection = undefined
@@ -202,7 +204,11 @@
 
 	// Data upload has no trigger row — open the target in the details pane and pulse
 	// the signal so its auto-generated run form focuses the S3 input.
+	// A data-upload click opens the node on its inputs alone; any other selection
+	// (or "Open script") goes back to the editor.
+	let uploadInputsPath = $state<string | undefined>(undefined)
 	function openDataUploadRun(scriptPath: string) {
+		uploadInputsPath = scriptPath
 		if (pe.drafts.has(scriptPath)) {
 			pe.activeDraftPath = scriptPath
 			pe.selection = undefined
@@ -244,11 +250,18 @@
 		}
 	})
 
+	const dataUploads = usePipelineDataUploads(() => resolvedGraph)
+
 	function runProducer(producer: { kind: 'script' | 'flow'; path: string; cascade?: boolean }) {
 		// Pipeline nodes are scripts; a flow producer can't be preview/by-path run.
 		if (producer.kind !== 'script') return Promise.resolve(undefined)
-		return runNode(producer.path, {}, producer.cascade ?? false)
+		// A data-upload entry runs on the file staged in its run form.
+		return runNode(producer.path, dataUploads.argsFor(producer.path) ?? {}, producer.cascade ?? false)
 	}
+
+	// Tell the open node's runs list a job started, so it shows it right away.
+	let runsRefreshKey = $state(0)
+	let runsPendingJobId = $state<string | undefined>(undefined)
 
 	async function runNode(
 		nodePath: string,
@@ -283,6 +296,8 @@
 			}
 			activeRunnable = { kind: 'script', path: nodePath }
 			activeRunnableJobId = jobId
+			runsPendingJobId = jobId
+			runsRefreshKey++
 			return jobId
 		} catch (e: any) {
 			sendUserToast(`Run failed: ${e?.body ?? e?.message ?? e}`, true)
@@ -483,12 +498,20 @@
 				onOpenWebhook={openWebhookDrawer}
 				onOpenDataUpload={openDataUploadRun}
 				focusUploadSignal={focusDataUploadSignal}
+				readyDataUploadPaths={dataUploads.readyPaths}
+				runFormInitialArgs={pe.openScriptPath ? dataUploads.argsFor(pe.openScriptPath) : undefined}
+				onRunFormArgsChange={dataUploads.stage}
 				{activeRunnable}
+				{runsRefreshKey}
+				{runsPendingJobId}
 				activeRunnableIds={activeRunnables.ids}
 				runStates={activeRunnables.states}
 				eventLogEvents={activeRunnables.events}
 				onRunProducer={runProducer}
 				onRunByPath={(path, args) => runNode(path, args)}
+				inputsOnly={uploadInputsPath !== undefined && uploadInputsPath === pe.openScriptPath}
+				onRunInputs={(path, args) => runNode(path, args)}
+				onShowScript={() => (uploadInputsPath = undefined)}
 				canRunByPath
 				onTestStateChange={(running) => {
 					const openPath = pe.openScriptPath

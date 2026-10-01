@@ -95,6 +95,9 @@
 		onRunCascadeByPath,
 		runFormInitialArgs,
 		onRunFormArgsChange,
+		inputsOnly = false,
+		onRunInputs,
+		onShowScript,
 		readyDataUploadPaths,
 		resolveLocalScript,
 		localScriptsVersion,
@@ -213,6 +216,10 @@
 		// callback to persist them as they change — see the page's dataUploadArgs.
 		runFormInitialArgs?: Record<string, any>
 		onRunFormArgsChange?: (path: string, args: Record<string, any>, isValid: boolean) => void
+		/** See AssetGraphDetailsPane's `inputsOnly`. */
+		inputsOnly?: boolean
+		onRunInputs?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		onShowScript?: () => void
 		// Data-upload entry scripts whose staged upload is ready (green node).
 		readyDataUploadPaths?: Set<string>
 		/** Local-dev (`/pipeline_dev`): resolve a node to its working-tree content
@@ -329,6 +336,13 @@
 		onSelect(s)
 		if (opts?.open && s && panelMode === 'modal') panelModalOpen = true
 	}
+	// A data-upload node's click asks for its run form; in modal mode nothing shows
+	// it unless the modal opens too.
+	$effect(() => {
+		if (focusUploadSignal > 0 && untrack(() => panelMode) === 'modal') {
+			untrack(() => (panelModalOpen = true))
+		}
+	})
 	const showNodeHint = $derived(panelMode === 'modal' && !panelModalOpen)
 	const nodeHintText = $derived(
 		effectiveSelection
@@ -656,6 +670,9 @@
 			{onRunCascadeByPath}
 			{runFormInitialArgs}
 			{onRunFormArgsChange}
+			{inputsOnly}
+			{onRunInputs}
+			{onShowScript}
 			{resolveLocalScript}
 			{localScriptsVersion}
 			selection={activeDraft ? undefined : editor.selection}

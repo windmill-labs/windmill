@@ -299,6 +299,12 @@
 		// can persist a data-upload entry's staged input (drives node readiness).
 		// `isValid` is the full-schema validity, not just "file present".
 		onRunFormArgsChange?: (path: string, args: Record<string, any>, isValid: boolean) => void
+		// Show only the open script's inputs and runs (a data-upload click), not
+		// its editor. `onRunInputs` runs it with them, drafts included, and
+		// `onShowScript` leaves this view for the script.
+		inputsOnly?: boolean
+		onRunInputs?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		onShowScript?: () => void
 	}
 	let {
 		selection,
@@ -351,7 +357,10 @@
 		onRunByPath,
 		onRunCascadeByPath,
 		runFormInitialArgs,
-		onRunFormArgsChange
+		onRunFormArgsChange,
+		inputsOnly = false,
+		onRunInputs,
+		onShowScript
 	}: Props = $props()
 
 	let readOnly = $derived(mode !== 'edit')
@@ -433,7 +442,7 @@
 	// PipelineScriptView renders instead of the test panel.
 	let viewReadyForTarget = $derived.by(
 		() =>
-			readOnly &&
+			(readOnly || inputsOnly) &&
 			runTargetPath !== undefined &&
 			script?.path === runTargetPath &&
 			(isDraft || (!scriptRes.loading && scriptRes.current?.path === runTargetPath))
@@ -574,7 +583,9 @@
 	let args = $state<Record<string, any>>({})
 	let argsSeedPath: string | undefined = undefined
 	$effect.pre(() => {
-		const p = script?.path
+		// Re-seeded on leaving the inputs-only view too, so the file picked there
+		// shows in the editor's test form.
+		const p = script?.path === undefined ? undefined : `${script.path}|${inputsOnly}`
 		if (p === argsSeedPath) return
 		argsSeedPath = p
 		args = runFormInitialArgs ? structuredClone($state.snapshot(runFormInitialArgs)) : {}
@@ -584,7 +595,8 @@
 	// required field (not just the S3 file) is satisfied.
 	let runFormIsValid = $state(true)
 	$effect(() => {
-		if (readOnly || !script) return
+		// Inputs-only mounts no ScriptEditor: PipelineScriptView reports its own args.
+		if (readOnly || inputsOnly || !script) return
 		onRunFormArgsChange?.(script.path, $state.snapshot(args), runFormIsValid)
 	})
 
@@ -1333,6 +1345,26 @@
 			<div class="p-3 text-xs text-red-500">
 				Failed to load: {scriptRes.error.message}
 			</div>
+		{:else if script && inputsOnly}
+			{#key script.path}
+				<PipelineScriptView
+					{script}
+					{isDraft}
+					canRun
+					runsDrafts
+					inputsOnly
+					{onShowScript}
+					onRun={onRunInputs}
+					{runsRefreshKey}
+					{runsPendingJobId}
+					initialArgs={runFormInitialArgs}
+					onArgsChange={onRunFormArgsChange}
+					onRunCompleted={() => {
+						previewRefreshKey += 1
+						onRunCompleted?.()
+					}}
+				/>
+			{/key}
 		{:else if script && readOnly}
 			<!-- Read-only modes: no Monaco/ScriptEditor (operators are
 			     backend-blocked from previews anyway) — highlighted source,
