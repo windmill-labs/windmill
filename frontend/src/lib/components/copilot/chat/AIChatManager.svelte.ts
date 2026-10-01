@@ -2102,19 +2102,32 @@ export class AIChatManager implements ChatViewHost {
 	 * form already there. The tool call ends at the open — the run belongs to the reader, who
 	 * starts it from that page with its scheduling, tag and version controls in reach.
 	 *
-	 * False where there is no page to show (no session host) and where the turn was stopped
-	 * while the tool read the item's schema: opening then would act on a turn the reader
-	 * ended, and would write a form onto a card the stop already settled, which the card would
-	 * read as `Opened`. Declining hands the call on to `requestRunArgs`, whose own stop guard
-	 * settles it as cancelled. */
+	 * This is the reader's own way in — the card's eye, reopening a page they closed — so it
+	 * carries no turn check. False means there is no session to show it in. The tool's way in
+	 * is {@link #handOverDeployedRun}, which additionally refuses after a stop. */
 	openDeployedRunPage = (a: {
+		kind: 'script' | 'flow'
+		path: string
+		summary: string
+		args: Record<string, any>
+	}): boolean => this.openDeployedRunPageHandler?.(a) ?? false
+
+	/** What the run tools call. Opening after a stop would act on a turn the reader ended, and
+	 * would write a form onto a card the stop already settled — which the card then reads as
+	 * `Opened`, hiding the cancellation. Declining hands the call on to `requestRunArgs`,
+	 * whose own stop guard settles it as cancelled.
+	 *
+	 * The controller is per-turn and stays aborted once stopped, so this check belongs here
+	 * rather than on `openDeployedRunPage`: the reader's eye button must keep working on a
+	 * card whose turn was stopped long ago. */
+	#handOverDeployedRun = (a: {
 		kind: 'script' | 'flow'
 		path: string
 		summary: string
 		args: Record<string, any>
 	}): boolean => {
 		if (this.abortController?.signal.aborted) return false
-		return this.openDeployedRunPageHandler?.(a) ?? false
+		return this.openDeployedRunPage(a)
 	}
 
 	handleRunFormSubmit = (toolId: string, args: Record<string, any>): boolean => {
@@ -4177,7 +4190,7 @@ export class AIChatManager implements ChatViewHost {
 					requestUserQuestion: this.requestUserQuestion,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
-					openDeployedRunPage: this.openDeployedRunPage,
+					openDeployedRunPage: this.#handOverDeployedRun,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
 					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),

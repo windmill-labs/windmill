@@ -639,10 +639,11 @@ function createRuntime(session: Session): SessionRuntime {
 		})
 		if (pinned) {
 			previewTabs.navigate(viewTarget, pinned.id)
-			// `navigate` re-points without bringing the tab forward, and the call is about to
-			// tell the reader the page is open — which it would not be, if they had switched
-			// away from it before asking.
+			// `navigate` re-points a tab in place and nothing more, while the call is about to
+			// tell the reader the page is open. `open` would have brought it forward and shown
+			// the panel; this path has to do both itself.
 			previewTabs.select(pinned.id)
+			previewTabs.setCollapsed(false)
 		} else {
 			previewTabs.open(viewTarget)
 		}
