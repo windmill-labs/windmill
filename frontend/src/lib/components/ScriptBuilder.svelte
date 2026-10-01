@@ -2338,9 +2338,8 @@
 		{/if}
 
 		{#snippet scriptSummary()}
-			<!-- Read-only here: the summary is a settings field, and the band is where the script is
-			     named rather than where it is edited. The pen sits after it, at the end of what it
-			     renames. -->
+			<!-- Not edited in place: the pen beside it opens the summary and the path together,
+		     so the band reads as a name rather than a form. `title` for one it truncates. -->
 			<div class="group flex items-center gap-1 min-w-0">
 				<span
 					class="min-w-0 truncate text-xs {emptyString(script.summary)
@@ -2349,11 +2348,12 @@
 					title={script.summary}
 					>{emptyString(script.summary) ? 'Add a summary...' : script.summary}</span
 				>
-				{#if customUi?.topBar?.editablePath != false}
+				{#if customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false}
 					<PathEditPopover
 						penVisibility={emptyString(script.summary) ? 'always' : 'hover'}
 						bind:summary={script.summary}
 						summaryEditable={customUi?.topBar?.editableSummary != false}
+						pathEditable={customUi?.topBar?.editablePath != false}
 						bind:path={script.path}
 						bind:snapshotPath={pathSnapshot}
 						savedPath={initialPath}

@@ -264,11 +264,12 @@
 	// In the page header the buttons share the row with the breadcrumb, so they shed the canvas
 	// toggles and fold Debug runs into the menu sooner: the whole group is ~840px and the trail
 	// with the summary takes ~430px of the same row.
-	// Measured on the band: the canvas toggles are 240px, the rest of the actions 334, and the trail
-	// with the summary about 430 — so the whole row fits down to ~1050. 1350 hid the toggles on an
-	// ordinary laptop (a 1440 window with the rail out leaves 1232), and the menu below is what
-	// keeps them reachable under this.
-	const compactBelow = $derived(ownsPageHeader ? 1100 : 720)
+	// Measured on the band rather than estimated: with the canvas toggles shown the actions alone
+	// are 826-911px and the trail with the summary another ~500, so the row overflows the bar at
+	// every width up to about 1470 — 1350 was not high enough either. Below this the toggles stand
+	// down and the menu carries all three, which is what keeps them reachable rather than merely
+	// out of the way.
+	const compactBelow = $derived(ownsPageHeader ? 1500 : 720)
 	const compactTopbar = $derived.by(() => {
 		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
 		return w > 0 && w < compactBelow
@@ -1020,9 +1021,8 @@
 {/if}
 
 {#snippet appSummary()}
-	<!-- Read-only here: the summary is a deploy-drawer field, and the band is where the app is
-	     named rather than where it is edited. `title` so one the band truncates can still be read.
-	     The pen sits after it, at the end of what it renames. -->
+	<!-- Not edited in place: the pen beside it opens the summary and the path together,
+		     so the band reads as a name rather than a form. `title` for one it truncates. -->
 	<div class="group flex items-center gap-1 min-w-0">
 		<span
 			class="min-w-0 truncate text-xs {emptyString($summary)
@@ -1043,14 +1043,20 @@
 
 {#snippet appHeaderActions()}
 	<!-- The bar's own order kept: what the canvas looks like, how the draft is doing, which panels
-	     are open, then what to do with the app. -->
-	{@render canvasToggles()}
-	{@render autosaveIndicator()}
-	{#if !phoneTopbar}
-		{@render panelButtons()}
-		{@render awarenessMark()}
-	{/if}
-	{@render appActions()}
+	     are open, then what to do with the app. The set scrolls rather than pushing past the end of
+	     the bar — this editor carries the widest action row of any page, and the row it replaced
+	     scrolled for the same reason. -->
+	<div
+		class="flex flex-row items-center gap-2 min-w-0 overflow-x-auto scrollbar-hidden whitespace-nowrap"
+	>
+		{@render canvasToggles()}
+		{@render autosaveIndicator()}
+		{#if !phoneTopbar}
+			{@render panelButtons()}
+			{@render awarenessMark()}
+		{/if}
+		{@render appActions()}
+	</div>
 {/snippet}
 
 {#snippet canvasToggles()}

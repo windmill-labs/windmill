@@ -30,6 +30,9 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 		summary?: string
 		/** When false the summary is shown but not editable, for a host whose `customUi` says so. */
 		summaryEditable?: boolean
+		/** When false the path is shown but not editable, the same way. A host may allow one and
+		 *  refuse the other, and the pen offers whichever it is given. */
+		pathEditable?: boolean
 		path?: string
 		/** The item's *saved* path on the server, so the popover can say a rename needs deploying. */
 		savedPath?: string
@@ -47,6 +50,7 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 	let {
 		summary = $bindable(),
 		summaryEditable = true,
+		pathEditable = true,
 		path = $bindable(),
 		savedPath,
 		kind = 'flow',
@@ -57,10 +61,17 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 	}: Props = $props()
 
 	let open = $state(false)
+	const penLabel = $derived(
+		summaryEditable && pathEditable
+			? 'Edit summary and path'
+			: summaryEditable
+				? 'Edit summary'
+				: 'Edit path'
+	)
 
 	// Treat an empty path as ownable so the popover lets a user pick the path for a brand-new
 	// item. `Path.reset()` then synthesizes a default under their own user/folder scope.
-	const own = $derived(!path || isOwner(path, actingUser, $operatingWorkspace))
+	const own = $derived(pathEditable && (!path || isOwner(path, actingUser, $operatingWorkspace)))
 
 	function setOpen(v: boolean) {
 		open = v
@@ -86,8 +97,8 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 			unifiedSize="xs"
 			iconOnly
 			startIcon={{ icon: Pencil }}
-			title={summaryEditable ? 'Edit summary and path' : 'Edit path'}
-			aria-label={summaryEditable ? 'Edit summary and path' : 'Edit path'}
+			title={penLabel}
+			aria-label={penLabel}
 			btnClasses={penVisibility === 'hover' && !open
 				? 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
 				: ''}
@@ -142,7 +153,11 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 			{:else}
 				<Label label="Path">
 					<span class="text-xs font-mono text-secondary">{path}</span>
-					<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
+					<p class="text-2xs text-tertiary mt-1">
+						{pathEditable
+							? 'Only the owner can change the path'
+							: 'This path cannot be changed here'}
+					</p>
 				</Label>
 			{/if}
 		</div>

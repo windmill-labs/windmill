@@ -1021,9 +1021,8 @@
 {/snippet}
 
 {#snippet appSummary()}
-	<!-- Read-only here: the summary is a deploy-drawer field, and the band is where the app is
-	     named rather than where it is edited. `title` so one the band truncates can still be read.
-	     The pen sits after it, at the end of what it renames. -->
+	<!-- Not edited in place: the pen beside it opens the summary and the path together,
+		     so the band reads as a name rather than a form. `title` for one it truncates. -->
 	<div class="group flex items-center gap-1 min-w-0">
 		<span
 			class="min-w-0 truncate text-xs {emptyString(summary)

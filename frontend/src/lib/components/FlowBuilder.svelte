@@ -1654,9 +1654,8 @@
 			{/if}
 
 			{#snippet flowSummary()}
-				<!-- Read-only here: the summary is a Settings-tab field, and the band is where the flow
-				     is named rather than where it is edited. The pen sits after it, at the end of what
-				     it renames. -->
+				<!-- Not edited in place: the pen beside it opens the summary and the path together,
+		     so the band reads as a name rather than a form. `title` for one it truncates. -->
 				<div class="group flex items-center gap-1 min-w-0">
 					<span
 						class="min-w-0 truncate text-xs {emptyString(flowStore.val.summary)
@@ -1665,11 +1664,12 @@
 						title={flowStore.val.summary}
 						>{emptyString(flowStore.val.summary) ? 'Add a summary...' : flowStore.val.summary}</span
 					>
-					{#if customUi?.topBar?.editablePath != false}
+					{#if customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false}
 						<PathEditPopover
 							penVisibility={emptyString(flowStore.val.summary) ? 'always' : 'hover'}
 							bind:summary={flowStore.val.summary}
 							summaryEditable={customUi?.topBar?.editableSummary != false}
+							pathEditable={customUi?.topBar?.editablePath != false}
 							bind:path={$pathStore}
 							bind:snapshotPath={pathSnapshot}
 							savedPath={initialPath}
