@@ -5430,8 +5430,13 @@ async fn resume_suspended_job_internal(
     let value = value.unwrap_or(serde_json::Value::Null);
     verify_suspended_secret(&w_id, &db, job_id, resume_id, &approver, secret).await?;
 
-    // Get flow info - works for step-level, flow-level, and WAC approval
-    let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &w_id, &db).await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    // Get flow info - works for step-level, flow-level, and WAC approval. This locks the
+    // queue row until commit, so concurrent resumes serialize and each sees the suspend
+    // counter and flow status left by the previous one.
+    let (flow_info, is_flow_level, is_wac) =
+        get_flow_info_for_resume(job_id, &w_id, &mut tx).await?;
 
     // HMAC secret = full capability. Skip approval_conditions checks: possession of the full
     // resume URL is the authorization (it is only disclosed to intended approvers, e.g. when a
@@ -5444,7 +5449,7 @@ async fn resume_suspended_job_internal(
             "#,
         Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
     )
-    .fetch_one(&db)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -5462,7 +5467,6 @@ async fn resume_suspended_job_internal(
     } else {
         authed.as_ref().map(|x| x.username.clone())
     };
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     // Inside the transaction that inserts the row and moves the suspend counter:
     // validating earlier would let the workflow resolve this step and suspend on the
@@ -5491,9 +5495,6 @@ async fn resume_suspended_job_internal(
         .await?;
     } else if is_wac {
         // WAC approval: decrement suspend counter directly on the WAC parent job.
-        // `flow_info.suspend` was read before this transaction took the queue-row
-        // lock, so gating on it would skip the decrement for a workflow that
-        // suspended in between and leave the approval parked until timeout.
         sqlx::query!(
             "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
              WHERE id = $1 AND suspend > 0",
@@ -5582,23 +5583,21 @@ async fn resume_immediately_if_relevant<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<()> {
-    Ok(
-        if let Some(suspend) = (0 < flow.suspend).then(|| flow.suspend - 1) {
-            let status =
-                serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
-                    .context("deserialize flow status")?;
-            if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
-            {
-                sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = $1 WHERE id = $2",
-                    suspend,
-                    flow.id,
-                )
-                .execute(&mut **tx)
-                .await?;
-            }
-        },
-    )
+    Ok(if 0 < flow.suspend {
+        let status =
+            serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
+                .context("deserialize flow status")?;
+        if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
+        {
+            sqlx::query!(
+                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
+                 WHERE id = $1 AND suspend > 0",
+                flow.id,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+    })
 }
 
 /// For flow-level resumes, decrement the suspend counter if the flow is currently suspended.
@@ -5609,10 +5608,9 @@ async fn resume_immediately_for_flow_level<'c>(
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<()> {
     if flow.suspend > 0 {
-        let new_suspend = flow.suspend - 1;
         sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = $1 WHERE id = $2",
-            new_suspend,
+            "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
+             WHERE id = $1 AND suspend > 0",
             flow.id,
         )
         .execute(&mut **tx)
@@ -5666,7 +5664,7 @@ struct FlowInfo {
 async fn get_flow_info_for_resume(
     job_id: Uuid,
     w_id: &str,
-    db: &DB,
+    tx: &mut Transaction<'_, Postgres>,
 ) -> error::Result<(FlowInfo, bool, bool)> {
     // Single query that determines if job_id is a flow, step, or WAC job,
     // and fetches the appropriate suspended job info.
@@ -5698,7 +5696,7 @@ async fn get_flow_info_for_resume(
         job_id,
         w_id,
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| {
         Error::NotFound(format!(
@@ -5727,6 +5725,7 @@ async fn get_suspended_flow_info<'c>(
             SELECT j.id AS "id!", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS "suspend!", j.runnable_path as script_path, j.permissioned_as_email as email
             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)
             WHERE j.id = $1
+            FOR UPDATE OF q
             "#,
             job_id,
         )

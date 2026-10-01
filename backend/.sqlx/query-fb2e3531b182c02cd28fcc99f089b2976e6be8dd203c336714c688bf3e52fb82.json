@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT j.id AS \"id!\", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS \"suspend!\", j.runnable_path as script_path, j.permissioned_as_email as email\n            FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)\n            WHERE j.id = $1\n            ",
+  "query": "\n            SELECT j.id AS \"id!\", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS \"suspend!\", j.runnable_path as script_path, j.permissioned_as_email as email\n            FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)\n            WHERE j.id = $1\n            FOR UPDATE OF q\n            ",
   "describe": {
     "columns": [
       {
@@ -42,5 +42,5 @@
       false
     ]
   },
-  "hash": "5c6e158aee5db3c4bf41a0aedfa5d6c73f5e04ebfd8703dc631bc49f2e797dd4"
+  "hash": "fb2e3531b182c02cd28fcc99f089b2976e6be8dd203c336714c688bf3e52fb82"
 }
