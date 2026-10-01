@@ -86,8 +86,9 @@ export async function planPipelineDelete(
 /** Removes what `plan` lists: the trigger rows, the scripts (deleted when
  * `hardDelete`, which the backend allows admins only, archived otherwise; a
  * draft-only node is discarded) and the caller's pipeline draft. The data the
- * nodes wrote (DuckLake tables, S3 objects) is left alone. Triggers go first, so
- * a refused script never leaves a schedule firing at a path that is gone. */
+ * nodes wrote (DuckLake tables, S3 objects) is left alone. Triggers go first: a
+ * script refused afterwards loses its trigger, but no trigger outlives the script
+ * it starts. */
 export async function deletePipeline(
 	workspace: string,
 	folder: string,

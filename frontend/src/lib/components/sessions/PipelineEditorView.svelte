@@ -317,7 +317,9 @@
 	// ── Deploy all ───────────────────────────────────────────────────────────
 	// The same deploy as the pipeline page's "Save all", reached from this tab's
 	// button and from the session's changes list (through the runtime).
-	const pendingCount = $derived(pe.drafts.size + pe.triggerDrafts.size)
+	const pendingCount = $derived(
+		pe.drafts.size + pe.triggerDrafts.size + (pe.liveEditPath != undefined ? 1 : 0)
+	)
 	let deploying = $state(false)
 	let deployErrors = $state<Map<string, string>>(new Map())
 	let deployErrorsOpen = $state(false)

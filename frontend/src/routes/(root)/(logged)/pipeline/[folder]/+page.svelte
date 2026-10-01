@@ -692,7 +692,9 @@
 	}
 
 	// Scripts plus trigger drafts: what "Save all" deploys.
-	let pendingCount = $derived(pe.drafts.size + pe.triggerDrafts.size)
+	let pendingCount = $derived(
+		pe.drafts.size + pe.triggerDrafts.size + (pe.liveEditPath != undefined ? 1 : 0)
+	)
 	let confirmTriggerDeployOpen = $state(false)
 
 	function requestSaveAll() {

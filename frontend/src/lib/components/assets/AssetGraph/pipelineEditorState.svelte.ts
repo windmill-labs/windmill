@@ -117,6 +117,35 @@ export class PipelineEditorState {
 		this.liveContent = { scriptPath, content, base }
 	}
 
+	/** The open deployed script's unsaved edits, which live only in `liveContent`
+	 * until its pane closes: the path, or undefined when there are none. */
+	get liveEditPath(): string | undefined {
+		const { scriptPath, content, base } = this.liveContent
+		if (scriptPath == undefined || !base || this.drafts.has(scriptPath)) return undefined
+		return content !== (base.content ?? '') ? scriptPath : undefined
+	}
+
+	/** Turn the open deployed script's unsaved edits into its draft now, rather
+	 * than when its pane closes, so a deploy includes them. */
+	promoteLiveEdit = () => {
+		const path = this.liveEditPath
+		const base = this.liveContent.base
+		if (!path || !base) return
+		this.drafts = new Map(this.drafts).set(path, {
+			localId: this.promotedDraftLocalId(path),
+			script: { ...base, content: this.liveContent.content }
+		})
+	}
+
+	// Paths whose open edits were discarded: the pane's save-back on close must
+	// not bring them back as a draft.
+	#discardedOpenEdits = new Set<string>()
+	/** Discard the open pane's unsaved edits along with the drafts. */
+	discardOpenEdits = () => {
+		const path = this.liveContent.scriptPath
+		if (path != undefined) this.#discardedOpenEdits.add(path)
+	}
+
 	clearLiveOverlays = () => {
 		this.liveAnnotations = { scriptPath: undefined, annotations: EMPTY_ANNOTATIONS }
 		this.liveBodyAssets = { scriptPath: undefined, assets: [] }
@@ -229,6 +258,7 @@ export class PipelineEditorState {
 		queueMicrotask(() => {
 			const d = this.drafts.get(p)
 			if (!d) {
+				if (this.#discardedOpenEdits.delete(p)) return
 				if (!snapshot.script) return
 				const next = new Map(this.drafts)
 				next.set(p, {

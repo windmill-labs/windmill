@@ -653,6 +653,7 @@ function createRuntime(session: Session): SessionRuntime {
 			editor.drafts = new Map()
 			editor.triggerDrafts = new Map()
 			editor.activeDraftPath = undefined
+			editor.discardOpenEdits()
 			editor.clearLiveOverlays()
 		}
 		// The editor's crash mirror, which its load falls back to when the DB has
