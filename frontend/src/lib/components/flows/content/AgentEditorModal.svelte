@@ -135,9 +135,10 @@
 	let canEvaluate = $derived(
 		draft != undefined && !draft.loading && !draftOnly && !readOnly && !refused
 	)
-	// A never-deployed agent is stored at a minted `draft_<uuid>` path, so it is named by the path
-	// its first deploy will create, as the home list names it.
-	let shownPath = $derived((draftOnly && draft?.state?.path) || target?.path)
+	// The draft's path, so a rename shows where it is typed — including a never-deployed agent,
+	// stored at a minted `draft_<uuid>` path and named by the path its first deploy will create,
+	// as the home list names it. Falls back to the target while the draft is still loading.
+	let shownPath = $derived(draft?.state?.path || target?.path)
 
 	// Where the evals pane is within itself, so its levels extend this dialog's trail rather than
 	// opening a dialog of their own. Cleared on the way in: the pane reports a level once it is on
@@ -357,6 +358,7 @@
 						}
 					}
 					bind:snapshotPath={pathSnapshot}
+					bind:error={() => host?.pathError(), (error) => host?.setPathError(error)}
 					savedPath={draft?.noDeployed ? undefined : target?.path}
 					kind="resource"
 					workspaceId={ws}

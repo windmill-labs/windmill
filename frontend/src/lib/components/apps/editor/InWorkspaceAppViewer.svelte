@@ -32,10 +32,15 @@
 		path,
 		onEdit,
 		onLoadState,
-		syncHashToUrl = true
+		syncHashToUrl = true,
+		ownsPageHeader = false
 	}: {
 		workspace: string
 		path: string
+		/** True for the route's own page: the app becomes what the page header names. A host that
+		 * renders this inside something else — a session's preview panel, whose band names the
+		 * session — leaves it false, and the app keeps its Edit over its own canvas. */
+		ownsPageHeader?: boolean
 		/** Handle Edit in place instead of following `editHref`. An AI session shows
 		 * this viewer inside a preview tab, where a plain link would navigate the whole
 		 * page out of the session rather than flipping the tab to its editor. */
@@ -200,16 +205,18 @@
 
 <!-- The band names the app for whoever opened it, write access or not: the route alone registers
      no item, and the breadcrumb would fall back to the section name "Apps". -->
-<PageHeaderContent
-	item={{ kind: 'app', path }}
-	afterName={showEdit && !menuHidden ? editAction : undefined}
-/>
+{#if ownsPageHeader}
+	<PageHeaderContent
+		item={{ kind: 'app', path }}
+		afterName={showEdit && !menuHidden ? editAction : undefined}
+	/>
+{/if}
 
-<!-- With a band, Edit sits with the app's name rather than at the far end of the bar: on a page
-     whose header is only there while hovered, the far end is a journey across the window. An
-     embed has no band — it would cost the app 44px of the iframe to carry one button — so Edit
-     floats over the canvas there instead. -->
-{#if showEdit && menuHidden}
+<!-- Edit sits with the app's name when this viewer owns the band, and floats over the canvas
+     otherwise: an embed has no band — it would cost the app 44px of the iframe to carry one
+     button — and inside a session's preview panel the band belongs to the session, so an Edit
+     up there would sit beside the session's name and act on the panel below it. -->
+{#if showEdit && (menuHidden || !ownsPageHeader)}
 	<div class="absolute bottom-4 right-4 z-50">
 		{@render editAction()}
 	</div>

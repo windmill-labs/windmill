@@ -48,6 +48,10 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 		/** The path as it was when the popover opened, undefined while it is closed. See the
 		 *  component note: the caller draws its trail from this so it holds still mid-rename. */
 		snapshotPath?: string | undefined
+		/** The path field's verdict, for a host that refuses to deploy while it is non-empty.
+		 *  A host whose item has a second path field has to bind both to the same slot, or
+		 *  whichever one is unmounted leaves its last verdict standing. */
+		error?: string
 	}
 
 	let {
@@ -60,7 +64,8 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 		workspaceId,
 		onBehalfOfEmail,
 		penVisibility = 'hover',
-		snapshotPath = $bindable()
+		snapshotPath = $bindable(),
+		error = $bindable()
 	}: Props = $props()
 
 	let open = $state(false)
@@ -131,10 +136,15 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 				</Label>
 			{/if}
 			{#if own}
+				<!-- allowedExistingPath: the item already occupies its saved path, so typing it back
+				     after a rename that has not been deployed is not a collision. `initialPath`
+				     cannot say so — it is the working path, which moves with the rename. -->
 				<Path
 					autofocus
 					bind:path
+					bind:error
 					initialPath={snapshotPath ?? path ?? ''}
+					allowedExistingPath={savedPath}
 					namePlaceholder={kind}
 					{kind}
 					size="sm"
