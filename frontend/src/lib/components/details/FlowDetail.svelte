@@ -611,7 +611,7 @@
 						() => onLoadState?.('loaded'),
 						(e) => {
 							if (onLoadState && e?.status === 404) onLoadState('not_found')
-							else sendUserToast('Could not load flow: ' + (e?.body ?? e), true)
+							else sendUserToast('Could not load flow: ' + (e?.body ?? e?.message ?? e), true)
 						}
 					)
 					loadTriggersCount()

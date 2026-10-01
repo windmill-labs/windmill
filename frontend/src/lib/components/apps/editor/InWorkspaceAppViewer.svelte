@@ -142,7 +142,7 @@
 				notExists = true
 				// Only a 404 is "nothing deployed here"; anything else is a failure to say so.
 				if (e.status == 404) onLoadState?.('not_found')
-				else sendUserToast('Could not load app: ' + (e.body ?? e), true)
+				else sendUserToast('Could not load app: ' + (e.body ?? e.message ?? e), true)
 			}
 		}
 	}
