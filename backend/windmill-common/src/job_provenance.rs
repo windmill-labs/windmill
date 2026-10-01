@@ -61,6 +61,7 @@ struct LineageJob {
     permissioned_as: String,
     origin_verified: bool,
     current_version: bool,
+    restarted: bool,
     app_stamped: bool,
     args_modules: bool,
 }
@@ -93,49 +94,19 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
             END AS "origin_verified!",
             -- What `run/f` and `run/p` resolve the path to now; for scripts the predicate of
             -- `get_latest_deployed_script_hash`.
-            COALESCE(CASE
-                WHEN kind = 'flow' THEN runnable_id = (SELECT f.versions[array_upper(f.versions, 1)]
+            COALESCE(CASE kind
+                WHEN 'flow' THEN runnable_id = (SELECT f.versions[array_upper(f.versions, 1)]
                     FROM flow f WHERE f.path = runnable_path AND f.workspace_id = $2)
-                WHEN kind = 'script' THEN runnable_id = (SELECT s.hash FROM script s
+                WHEN 'script' THEN runnable_id = (SELECT s.hash FROM script s
                     WHERE s.path = runnable_path AND s.workspace_id = $2 AND NOT s.deleted
                         AND s.lock IS NOT NULL AND s.lock_error_logs IS NULL
                     ORDER BY s.created_at DESC LIMIT 1)
-                -- Flow nodes are shared by every version that has the same content, and a
-                -- restarted node keeps its id with or without a flow above it: it is current
-                -- only if the flow's current version still reaches it. A loop or branch body
-                -- that is not a single simple step is itself stored as a node, referenced by
-                -- `modules_node`/`default_node`, so the bodies are followed down.
-                WHEN kind IN ('flowscript', 'flownode') THEN EXISTS (
-                    WITH RECURSIVE body(value) AS (
-                        SELECT l.value FROM flow_node n
-                        JOIN flow f ON f.path = n.path AND f.workspace_id = n.workspace_id
-                        JOIN flow_version_lite l ON l.id = f.versions[array_upper(f.versions, 1)]
-                        WHERE n.id = runnable_id AND n.workspace_id = $2
-                      UNION
-                        SELECT c.flow FROM body b
-                        -- Numbers only: the same keys can be a step's argument names.
-                        CROSS JOIN LATERAL (
-                            SELECT jsonb_path_query(b.value,
-                                '$.**.modules_node ? (@.type() == "number")')
-                            UNION ALL SELECT jsonb_path_query(b.value,
-                                '$.**.default_node ? (@.type() == "number")')
-                        ) AS r(node)
-                        JOIN flow_node c ON c.id = (r.node #>> '{}')::bigint
-                            AND c.workspace_id = $2
-                        WHERE c.flow IS NOT NULL
-                    )
-                    -- A node is shared by every step of the flow with the same content, so a
-                    -- step is current only if a step of its own id (the last segment of its
-                    -- path) still uses it.
-                    SELECT 1 FROM body WHERE jsonb_path_exists(body.value,
-                        CASE kind
-                            WHEN 'flowscript' THEN '$.** ? (@.id == $step
-                                && @.value.type == "flowscript" && @.value.id == $node)'::jsonpath
-                            ELSE '$.** ? (@.modules_node == $node || @.default_node == $node)'::jsonpath
-                        END,
-                        jsonb_build_object('node', runnable_id,
-                            'step', substring(runnable_path from '[^/]+$'))))
             END, false) AS "current_version!",
+            EXISTS (SELECT 1 FROM v2_job_status st WHERE st.id = lineage.id
+                    AND jsonb_typeof(st.flow_status->'restarted_from') = 'object')
+                OR EXISTS (SELECT 1 FROM v2_job_completed c WHERE c.id = lineage.id
+                    AND jsonb_typeof(c.flow_status->'restarted_from') = 'object')
+                AS "restarted!",
             -- Only deployed-app runs are stamped with their app; an app editor preview
             -- runs app code at an app path it does not have to own.
             COALESCE(trigger_kind = 'app' AND starts_with(runnable_path, trigger || '/'), false)
@@ -204,17 +175,20 @@ fn version(job: &LineageJob) -> Option<String> {
 /// request-supplied code.
 fn runs_current_version(job: &LineageJob) -> bool {
     match job.kind {
-        JobKind::Script | JobKind::Flow | JobKind::FlowScript | JobKind::FlowNode => {
-            job.current_version
-        }
+        JobKind::Script | JobKind::Flow => job.current_version,
+        // A flow node is a loop or branch body taken from the version of the flow above
+        // it, which is checked itself. Only a restart rebuilds one from a past run instead,
+        // under a current flow or with nothing above it.
+        JobKind::FlowNode => !job.restarted && job.parent_job.is_some(),
         // An app script is keyed by its content, not by an app version, so a past
         // deployment's script cannot be told apart from the current one's.
         JobKind::AppScript => false,
         JobKind::Preview if job.app_stamped => false,
-        // They run no code of their own beyond what checked jobs around them define, or
+        // They run no code of their own beyond what checked jobs above them define, or
         // (hub) the path names the version.
         JobKind::Script_Hub
         | JobKind::SingleStepFlow
+        | JobKind::FlowScript
         | JobKind::AIAgent
         | JobKind::Preview
         | JobKind::FlowPreview

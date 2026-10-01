@@ -123,22 +123,20 @@ async fn only_current_versions_are_latest(db: Pool<Postgres>) {
     assert!(!deployed(&db, "3bb0c0de-0000-4000-8000-000000000104").await);
 }
 
-/// A restart rebuilds a flow node from its old id, under the current flow version or
-/// with no flow above it at all. Steps of a loop body stored as its own node, at any
-/// depth, are reached through that node. A node is shared by steps with the same code,
-/// so a removed step is not current just because another step still uses its node.
+/// Flow steps run what the version of the flow above them defines, except under a
+/// restart, which rebuilds a body from a past run, under the current flow version or with
+/// no flow above it at all.
 #[sqlx::test(fixtures("base", "job_provenance", "job_provenance_versions"))]
-async fn only_flow_nodes_of_the_current_version_are_latest(db: Pool<Postgres>) {
+async fn flow_steps_are_latest_only_under_a_current_unrestarted_flow(db: Pool<Postgres>) {
     for (job, latest) in [
         ("105", true),
-        ("106", false),
+        ("106", true),
         ("107", true),
         ("108", false),
-        ("109", true),
-        ("110", true),
-        ("111", true),
+        ("109", false),
+        ("110", false),
+        ("111", false),
         ("112", false),
-        ("113", false),
     ] {
         let p = provenance(&db, &format!("3bb0c0de-0000-4000-8000-000000000{job}")).await;
         assert!(p.deployed, "job {job}");
