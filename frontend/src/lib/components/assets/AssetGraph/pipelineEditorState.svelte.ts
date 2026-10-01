@@ -138,6 +138,9 @@ export class PipelineEditorState {
 		// The pane unmounts on the next flush; its save-back commits a microtask later.
 		await tick()
 		await new Promise<void>((resolve) => queueMicrotask(resolve))
+		// Its buffer now lives in the draft; left here, autosave would serialize it
+		// again once that draft is deployed or discarded.
+		this.clearLiveOverlays()
 		return path
 	}
 

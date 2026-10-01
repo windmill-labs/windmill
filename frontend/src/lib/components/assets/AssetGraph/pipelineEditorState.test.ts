@@ -160,3 +160,16 @@ describe('PipelineEditorState.liveEditPath', () => {
 		expect(pe.liveEditPath).toBeUndefined()
 	})
 })
+
+describe('PipelineEditorState.closePane', () => {
+	it("leaves no open buffer behind for autosave to bring back once the draft is gone", async () => {
+		const pe = new PipelineEditorState()
+		const base = { path: 'f/x/n', language: 'duckdb', content: 'SELECT 1' } as PipelineDraft['script']
+		pe.selection = { kind: 'runnable', runnable_kind: 'script', path: 'f/x/n' }
+		pe.liveContent = { scriptPath: 'f/x/n', content: 'SELECT 2', base }
+		expect(await pe.closePane()).toBe('f/x/n')
+		expect(pe.selection).toBeUndefined()
+		expect(pe.liveEditPath).toBeUndefined()
+		expect(pe.liveContent.scriptPath).toBeUndefined()
+	})
+})

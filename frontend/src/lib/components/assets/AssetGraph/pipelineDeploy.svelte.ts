@@ -141,20 +141,14 @@ export async function deployPipelineDrafts(
 	editor: PipelineEditorState,
 	workspace: string
 ): Promise<PipelineDeployOutcome> {
-	// An open deployed script's edits become its draft when its pane closes: close
-	// it first, and keep the user on that script, now as its draft.
-	if (editor.liveEditPath != undefined) {
-		const path = await editor.closePane()
-		if (path && editor.drafts.has(path)) editor.activeDraftPath = path
-	}
-	const live = editor.liveContent
-	const liveContentPath =
-		live.scriptPath != undefined && editor.drafts.has(live.scriptPath) ? live.scriptPath : undefined
-	const entries = [...editor.drafts.entries()].map(([path, d]): [string, PipelineDraft] =>
-		path !== liveContentPath || d.script.content === live.content
-			? [path, d]
-			: [path, { ...d, script: { ...d.script, content: live.content } }]
-	)
+	// The pane stays closed while deploying: closing it lands an open deployed
+	// script's edits as its draft, and nothing can be typed into a draft whose
+	// deploy is in flight. It reopens on that script once the deploy is done.
+	const reopen =
+		editor.liveEditPath != undefined || editor.activeDraftPath != undefined
+			? await editor.closePane()
+			: undefined
+	const entries = [...editor.drafts.entries()]
 	const errors = new Map<string, string>()
 	const savedPaths: string[] = []
 	// Parallel: every createScript is independent, and one bad body must not block
@@ -201,11 +195,10 @@ export async function deployPipelineDrafts(
 
 	if (savedPaths.length > 0) {
 		editor.drafts = new Map([...editor.drafts].filter(([k]) => !savedPaths.includes(k)))
-		// Keep the pane on the script the user was editing, now deployed.
-		if (editor.activeDraftPath && savedPaths.includes(editor.activeDraftPath)) {
-			editor.selection = { kind: 'runnable', runnable_kind: 'script', path: editor.activeDraftPath }
-			editor.activeDraftPath = undefined
-		}
+	}
+	if (reopen) {
+		if (editor.drafts.has(reopen)) editor.activeDraftPath = reopen
+		else editor.selection = { kind: 'runnable', runnable_kind: 'script', path: reopen }
 	}
 	return { savedPaths, savedTriggers, errors }
 }
