@@ -2,6 +2,7 @@
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import { base } from '$lib/base'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -98,7 +99,6 @@
 		FolderSearch,
 		History,
 		Loader2,
-		NetworkIcon,
 		Play,
 		RefreshCw,
 		Save,
@@ -2386,203 +2386,209 @@
 	<title>Pipeline · {folder} — Windmill</title>
 </svelte:head>
 
-<div class="flex flex-col h-full">
-	<div
-		class="border-b flex flex-row justify-between gap-2 px-2 py-1 items-center overflow-y-visible overflow-x-auto min-h-12 shrink-0 whitespace-nowrap"
-	>
-		<div class="flex flex-row items-center gap-2 flex-1 min-w-0">
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				href="{base}/pipeline"
-				startIcon={{ icon: ArrowLeft }}
-				iconOnly
-				title="Back to pipelines"
-			/>
-			<NetworkIcon size={16} class="text-tertiary shrink-0" />
-			<h1 class="text-sm font-semibold">{mode === 'edit' ? 'Pipeline editor' : 'Pipeline'}</h1>
-			<span class="text-tertiary text-sm">·</span>
-			{#if otherPipelineFolders.length === 0}
-				<button
-					type="button"
-					onclick={() => (pickerModalOpen = true)}
+<!-- The page header names the pipeline and carries its controls: the folder it is open on sits
+     with that name, and the mode switch and the graph's own actions are the bar's actions. -->
+<PageHeaderContent
+	section={{ label: mode === 'edit' ? 'Pipeline editor' : 'Pipeline' }}
+	afterName={pipelineFolder}
+	actions={pipelineActions}
+	actionsFlexible
+/>
+
+{#snippet pipelineFolder()}
+	<!-- Which folder the pipeline is open on, beside the name of what this page is: switching it is
+	     switching pipelines, so it belongs to the name rather than to the actions. The arrow leads
+	     back to the list, which nothing else on the page points to. -->
+	<Button
+		variant="subtle"
+		unifiedSize="sm"
+		href="{base}/pipeline"
+		startIcon={{ icon: ArrowLeft }}
+		iconOnly
+		title="Back to pipelines"
+	/>
+	{#if otherPipelineFolders.length === 0}
+		<button
+			type="button"
+			onclick={() => (pickerModalOpen = true)}
+			class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
+			title="Switch pipeline folder"
+		>
+			<Folder size={14} class="text-tertiary shrink-0" />
+			<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
+			<ChevronDown size={12} class="text-tertiary" />
+		</button>
+	{:else}
+		<DropdownV2 size="sm" items={folderSwitcherItems}>
+			{#snippet buttonReplacement()}
+				<span
 					class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
 					title="Switch pipeline folder"
 				>
 					<Folder size={14} class="text-tertiary shrink-0" />
 					<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
 					<ChevronDown size={12} class="text-tertiary" />
-				</button>
-			{:else}
-				<DropdownV2 size="sm" items={folderSwitcherItems}>
-					{#snippet buttonReplacement()}
-						<span
-							class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
-							title="Switch pipeline folder"
-						>
-							<Folder size={14} class="text-tertiary shrink-0" />
-							<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
-							<ChevronDown size={12} class="text-tertiary" />
-						</span>
-					{/snippet}
-				</DropdownV2>
-			{/if}
-			{#if summary.length > 0}
-				<span class="text-xs text-tertiary">· {summary.join(' · ')}</span>
-			{/if}
-		</div>
-		{#if !isOperator}
-			<!-- Center group: the mode toggle is the page's primary control —
-			     anchored between the two flex-1 side groups so it stays
-			     centered, with breathing room on both sides. -->
-			<div class="flex flex-row items-center gap-2 shrink-0 px-6">
-				<PipelineModeToggle {mode} draftCount={pe.drafts.size} onModeChange={(m) => setMode(m)} />
-				{#if mode === 'view' && pe.drafts.size > 0}
-					<!-- View variant: overlay the unsaved drafts onto the deployed
-					     graph — "what View will show once they're deployed". -->
-					<button
-						type="button"
-						onclick={() => (includeDrafts = !includeDrafts)}
-						class={twMerge(
-							'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors',
-							includeDrafts
-								? 'bg-amber-50 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400'
-								: 'bg-surface border-gray-300 dark:border-gray-600 text-secondary hover:bg-surface-hover'
-						)}
-						title={includeDrafts
-							? 'Showing undeployed drafts overlaid on the deployed pipeline — click to hide them'
-							: 'Overlay your undeployed drafts to see what the pipeline will look like once deployed'}
-					>
-						<Telescope size={14} />
-						{includeDrafts ? 'Showing' : 'Show'}
-						{pe.drafts.size} draft{pe.drafts.size === 1 ? '' : 's'}
-					</button>
-				{/if}
-			</div>
-		{/if}
-		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
-			{#if !isOperator && allPipelineScripts.length > 0}
-				<!-- Only the armed state surfaces on the bar (arming lives in the ⋮
-				     menu) — a compact disarm pill. -->
-				{#if recordingMode}
-					<button
-						type="button"
-						onclick={() => (recordingMode = false)}
-						disabled={!!cascadeRunningRoot}
-						class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors disabled:opacity-50 bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-700 dark:text-red-400"
-						title={RECORDING_ARMED_HINT}
-					>
-						<Circle size={12} class="fill-red-600 text-red-600 animate-pulse" />
-						Recording
-					</button>
-				{/if}
-				<!-- Pipeline-level run: always visible in both View and Edit so a
-				     run never requires hunting for a specific node's play button
-				     (dbt `build` / Dagster "Materialize all"). Runs every script in
-				     dependency order (roots first, cascading downstream) over the
-				     displayed graph — deployed in View, draft-overlaid in Edit. -->
-				<Button
-					variant="accent-secondary"
-					unifiedSize="sm"
-					startIcon={{
-						icon: cascadeRunningRoot ? Loader2 : Play,
-						classes: cascadeRunningRoot ? 'animate-spin' : undefined
-					}}
-					onclick={runWholePipeline}
-					disabled={!!cascadeRunningRoot}
-					title={cascadeRunningRoot
-						? 'A pipeline run is already in progress'
-						: `Run all ${allPipelineScripts.length} script${
-								allPipelineScripts.length === 1 ? '' : 's'
-							} in dependency order (roots first, cascading downstream)`}
-				>
-					{cascadeRunningRoot ? 'Running…' : 'Run pipeline'}
-				</Button>
-			{/if}
-			{#if mode === 'edit' && saveErrors.size > 0}
-				<!-- Compact errors popover anchored next to Save all so users
-				     can see exactly which drafts failed and why without losing
-				     the editor context. Drafts that succeed disappear from
-				     the map; the ones still listed here are the unresolved
-				     failures. -->
-				<Popover placement="bottom-end" contentClasses="p-3 max-w-[480px]" usePointerDownOutside>
-					{#snippet trigger()}
-						<button
-							type="button"
-							class="flex items-center gap-1.5 px-2 py-1 rounded-md text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-xs font-medium"
-							title="View save errors"
-						>
-							<AlertTriangle size={14} />
-							<span>{saveErrors.size} failed</span>
-						</button>
-					{/snippet}
-					{#snippet content()}
-						<div class="flex flex-col gap-2">
-							<span class="text-xs font-semibold text-emphasis">Save errors</span>
-							<div class="flex flex-col gap-2 max-h-72 overflow-y-auto">
-								{#each [...saveErrors.entries()] as [path, message]}
-									<div class="flex flex-col gap-0.5 border-l-2 border-red-400 pl-2">
-										<span class="text-2xs font-mono text-emphasis">{path}</span>
-										<span class="text-2xs text-red-600 dark:text-red-400 break-words">
-											{message}
-										</span>
-									</div>
-								{/each}
-							</div>
-						</div>
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if mode === 'edit' && pe.drafts.size > 0}
-				<!-- Draft autosave status for the whole pipeline bundle. Distinct
-				     from "Save all", which DEPLOYS the drafts — this only reflects
-				     that in-flight edits are persisted to the per-user server draft. -->
-				{#if $workspaceStore}
-					<AutosaveIndicator
-						workspace={$workspaceStore}
-						itemKind={PIPELINE_DRAFT_KIND}
-						path={pipelineDraftPath}
-						draftOnly
-						loadedFromDraft={pe.loadedFromDbDraft}
-					/>
-				{/if}
-				<Button
-					variant="accent"
-					unifiedSize="sm"
-					startIcon={{ icon: savingAll ? Loader2 : Save }}
-					onclick={saveAllDrafts}
-					disabled={savingAll}
-					title={savingAll ? 'Saving drafts…' : `Deploy all ${pe.drafts.size} drafts`}
-				>
-					{savingAll ? 'Saving…' : `Save all (${pe.drafts.size})`}
-				</Button>
-			{/if}
-			{#if mode === 'view'}
-				<Button
-					variant={activityShowing ? 'accent-secondary' : 'subtle'}
-					unifiedSize="sm"
-					startIcon={{ icon: History }}
-					onclick={toggleActivity}
-					title={activityShowing
-						? 'Hide the activity panel'
-						: 'Show the pipeline activity feed (recent and live runs)'}
-				>
-					Activity
-				</Button>
-			{/if}
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				startIcon={{ icon: RefreshCw }}
-				onclick={() => graphRes.refetch()}
-				disabled={graphRes.loading}
-				iconOnly
-				title="Refresh"
-			/>
-			<DropdownV2 size="sm" items={overflowMenuItems} />
-		</div>
-	</div>
+				</span>
+			{/snippet}
+		</DropdownV2>
+	{/if}
+	{#if summary.length > 0}
+		<span class="text-xs text-tertiary">· {summary.join(' · ')}</span>
+	{/if}
+{/snippet}
 
+{#snippet pipelineActions()}
+	{#if !isOperator}
+		<!-- Center group: the mode toggle is the page's primary control —
+		     anchored between the two flex-1 side groups so it stays
+		     centered, with breathing room on both sides. -->
+		<div class="flex flex-row items-center gap-2 shrink-0 px-6">
+			<PipelineModeToggle {mode} draftCount={pe.drafts.size} onModeChange={(m) => setMode(m)} />
+			{#if mode === 'view' && pe.drafts.size > 0}
+				<!-- View variant: overlay the unsaved drafts onto the deployed
+				     graph — "what View will show once they're deployed". -->
+				<button
+					type="button"
+					onclick={() => (includeDrafts = !includeDrafts)}
+					class={twMerge(
+						'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors',
+						includeDrafts
+							? 'bg-amber-50 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400'
+							: 'bg-surface border-gray-300 dark:border-gray-600 text-secondary hover:bg-surface-hover'
+					)}
+					title={includeDrafts
+						? 'Showing undeployed drafts overlaid on the deployed pipeline — click to hide them'
+						: 'Overlay your undeployed drafts to see what the pipeline will look like once deployed'}
+				>
+					<Telescope size={14} />
+					{includeDrafts ? 'Showing' : 'Show'}
+					{pe.drafts.size} draft{pe.drafts.size === 1 ? '' : 's'}
+				</button>
+			{/if}
+		</div>
+	{/if}
+	{#if !isOperator && allPipelineScripts.length > 0}
+		<!-- Only the armed state surfaces on the bar (arming lives in the ⋮
+		     menu) — a compact disarm pill. -->
+		{#if recordingMode}
+			<button
+				type="button"
+				onclick={() => (recordingMode = false)}
+				disabled={!!cascadeRunningRoot}
+				class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors disabled:opacity-50 bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-700 dark:text-red-400"
+				title={RECORDING_ARMED_HINT}
+			>
+				<Circle size={12} class="fill-red-600 text-red-600 animate-pulse" />
+				Recording
+			</button>
+		{/if}
+		<!-- Pipeline-level run: always visible in both View and Edit so a
+		     run never requires hunting for a specific node's play button
+		     (dbt `build` / Dagster "Materialize all"). Runs every script in
+		     dependency order (roots first, cascading downstream) over the
+		     displayed graph — deployed in View, draft-overlaid in Edit. -->
+		<Button
+			variant="accent-secondary"
+			unifiedSize="sm"
+			startIcon={{
+				icon: cascadeRunningRoot ? Loader2 : Play,
+				classes: cascadeRunningRoot ? 'animate-spin' : undefined
+			}}
+			onclick={runWholePipeline}
+			disabled={!!cascadeRunningRoot}
+			title={cascadeRunningRoot
+				? 'A pipeline run is already in progress'
+				: `Run all ${allPipelineScripts.length} script${
+						allPipelineScripts.length === 1 ? '' : 's'
+					} in dependency order (roots first, cascading downstream)`}
+		>
+			{cascadeRunningRoot ? 'Running…' : 'Run pipeline'}
+		</Button>
+	{/if}
+	{#if mode === 'edit' && saveErrors.size > 0}
+		<!-- Compact errors popover anchored next to Save all so users
+		     can see exactly which drafts failed and why without losing
+		     the editor context. Drafts that succeed disappear from
+		     the map; the ones still listed here are the unresolved
+		     failures. -->
+		<Popover placement="bottom-end" contentClasses="p-3 max-w-[480px]" usePointerDownOutside>
+			{#snippet trigger()}
+				<button
+					type="button"
+					class="flex items-center gap-1.5 px-2 py-1 rounded-md text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-xs font-medium"
+					title="View save errors"
+				>
+					<AlertTriangle size={14} />
+					<span>{saveErrors.size} failed</span>
+				</button>
+			{/snippet}
+			{#snippet content()}
+				<div class="flex flex-col gap-2">
+					<span class="text-xs font-semibold text-emphasis">Save errors</span>
+					<div class="flex flex-col gap-2 max-h-72 overflow-y-auto">
+						{#each [...saveErrors.entries()] as [path, message]}
+							<div class="flex flex-col gap-0.5 border-l-2 border-red-400 pl-2">
+								<span class="text-2xs font-mono text-emphasis">{path}</span>
+								<span class="text-2xs text-red-600 dark:text-red-400 break-words">
+									{message}
+								</span>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/snippet}
+		</Popover>
+	{/if}
+	{#if mode === 'edit' && pe.drafts.size > 0}
+		<!-- Draft autosave status for the whole pipeline bundle. Distinct
+		     from "Save all", which DEPLOYS the drafts — this only reflects
+		     that in-flight edits are persisted to the per-user server draft. -->
+		{#if $workspaceStore}
+			<AutosaveIndicator
+				workspace={$workspaceStore}
+				itemKind={PIPELINE_DRAFT_KIND}
+				path={pipelineDraftPath}
+				draftOnly
+				loadedFromDraft={pe.loadedFromDbDraft}
+			/>
+		{/if}
+		<Button
+			variant="accent"
+			unifiedSize="sm"
+			startIcon={{ icon: savingAll ? Loader2 : Save }}
+			onclick={saveAllDrafts}
+			disabled={savingAll}
+			title={savingAll ? 'Saving drafts…' : `Deploy all ${pe.drafts.size} drafts`}
+		>
+			{savingAll ? 'Saving…' : `Save all (${pe.drafts.size})`}
+		</Button>
+	{/if}
+	{#if mode === 'view'}
+		<Button
+			variant={activityShowing ? 'accent-secondary' : 'subtle'}
+			unifiedSize="sm"
+			startIcon={{ icon: History }}
+			onclick={toggleActivity}
+			title={activityShowing
+				? 'Hide the activity panel'
+				: 'Show the pipeline activity feed (recent and live runs)'}
+		>
+			Activity
+		</Button>
+	{/if}
+	<Button
+		variant="subtle"
+		unifiedSize="sm"
+		startIcon={{ icon: RefreshCw }}
+		onclick={() => graphRes.refetch()}
+		disabled={graphRes.loading}
+		iconOnly
+		title="Refresh"
+	/>
+	<DropdownV2 size="sm" items={overflowMenuItems} />
+{/snippet}
+
+<div class="flex flex-col h-full">
 	<div class="flex-1 min-h-0">
 		{#if graphRes.loading && !graphRes.current}
 			<div class="h-full flex items-center justify-center gap-2 text-tertiary">
