@@ -113,21 +113,28 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
                         WHERE n.id = runnable_id AND n.workspace_id = $2
                       UNION
                         SELECT c.flow FROM body b
+                        -- Numbers only: the same keys can be a step's argument names.
                         CROSS JOIN LATERAL (
-                            SELECT jsonb_path_query(b.value, '$.**.modules_node')
-                            UNION ALL SELECT jsonb_path_query(b.value, '$.**.default_node')
+                            SELECT jsonb_path_query(b.value,
+                                '$.**.modules_node ? (@.type() == "number")')
+                            UNION ALL SELECT jsonb_path_query(b.value,
+                                '$.**.default_node ? (@.type() == "number")')
                         ) AS r(node)
                         JOIN flow_node c ON c.id = (r.node #>> '{}')::bigint
                             AND c.workspace_id = $2
                         WHERE c.flow IS NOT NULL
                     )
+                    -- A node is shared by every step of the flow with the same content, so a
+                    -- step is current only if a step of its own id (the last segment of its
+                    -- path) still uses it.
                     SELECT 1 FROM body WHERE jsonb_path_exists(body.value,
                         CASE kind
-                            WHEN 'flowscript'
-                                THEN '$.** ? (@.type == "flowscript" && @.id == $node)'::jsonpath
+                            WHEN 'flowscript' THEN '$.** ? (@.id == $step
+                                && @.value.type == "flowscript" && @.value.id == $node)'::jsonpath
                             ELSE '$.** ? (@.modules_node == $node || @.default_node == $node)'::jsonpath
                         END,
-                        jsonb_build_object('node', runnable_id)))
+                        jsonb_build_object('node', runnable_id,
+                            'step', substring(runnable_path from '[^/]+$'))))
             END, false) AS "current_version!",
             -- Only deployed-app runs are stamped with their app; an app editor preview
             -- runs app code at an app path it does not have to own.
