@@ -48,8 +48,9 @@ export function forkDiffKindToUserDraftKind(kind: ForkDiffKind): UserDraftItemKi
 
 // A pipeline the chat edited is masked as its folder's draft bundle, and each
 // script that bundle deploys is masked too, so a fork review selects exactly
-// those. The session's changes list shows them as the pipeline's one row, not
-// as rows of their own.
+// those. The session's changes list shows deployed scripts of a masked
+// pipeline's folder as that pipeline's one row — any of them, since a script's
+// mask entry does not say whether a pipeline deploy or the chat put it there.
 export function foldedIntoPipelineRow(
 	mask: ReadonlySet<string>,
 	kind: UserDraftItemKind,

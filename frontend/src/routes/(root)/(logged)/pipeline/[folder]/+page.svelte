@@ -540,7 +540,9 @@
 		}
 		const sync = UserDraftDbSyncer.getState(draft)
 		if (sync.state === 'failed') {
-			throw new Error(`The pipeline drafts could not be saved: ${sync.failureMessage ?? 'unknown error'}`)
+			throw new Error(
+				`The pipeline drafts could not be saved: ${sync.failureMessage ?? 'unknown error'}`
+			)
 		}
 		// The drafts go with the pipeline into the session, so leaving for it is
 		// not leaving them behind.

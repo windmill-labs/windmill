@@ -451,8 +451,8 @@
 					fromServer = true
 				}
 			}
-			// A folder retarget during the await (the route-page header switcher, or a
-			// session retarget) changed the target and reset hydratedFromDb. Don't
+			// A folder switch during the await (the route page's header switcher)
+			// changed the target and reset hydratedFromDb. Don't
 			// apply this now-stale folder's bundle or mark the new folder hydrated —
 			// otherwise the stale result blocks the new folder's hydrate and its
 			// drafts bleed across folders.

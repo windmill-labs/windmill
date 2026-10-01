@@ -366,8 +366,9 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 			const { path } = removePipelineNodeSchema.parse(args)
 			const pipeline = pipelineForPath(helpers, path)
 			toolCallbacks.setToolStatus(toolId, { content: `Discarding draft '${path}'...` })
+			// Not recorded: undoing a draft changes nothing to deploy, and the last
+			// one gone would leave the pipeline listed as this chat's change.
 			await pipeline.removeProposedNode(path)
-			recordPipelineModified(toolCallbacks, pipeline)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Discarded draft '${path}'`,
 				result: 'Success'

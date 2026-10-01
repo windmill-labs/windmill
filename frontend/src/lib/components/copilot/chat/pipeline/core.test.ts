@@ -198,6 +198,22 @@ describe('pipeline tools', () => {
 		).rejects.toThrow(/No pipeline editor is open/)
 	})
 
+	it('remove_pipeline_node records no change: undoing a draft leaves nothing to deploy', async () => {
+		const { helpers } = makeHelpers()
+		const modified: string[] = []
+		await toolByName('remove_pipeline_node').fn({
+			args: { path: 'f/analytics/clean' },
+			workspace: 'w',
+			helpers,
+			toolCallbacks: {
+				...noopCallbacks(),
+				onItemModified: (kind, path) => modified.push(`${kind}:${path}`)
+			},
+			toolId: 't'
+		})
+		expect(modified).toEqual([])
+	})
+
 	it('test_pipeline_node requires confirmation', () => {
 		expect(toolByName('test_pipeline_node').requiresConfirmation).toBe(true)
 	})

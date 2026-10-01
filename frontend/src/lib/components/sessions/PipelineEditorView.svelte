@@ -354,12 +354,22 @@
 			// The session's changes list re-reads the draft once this resolves, so
 			// what is left of it has to be saved by then.
 			await tick()
-			await UserDraftDbSyncer.flush({
+			const draft = {
 				workspace: workspaceId,
 				itemKind: PIPELINE_DRAFT_KIND,
 				path: pipelineBundlePath(path)
-			})
+			}
+			await UserDraftDbSyncer.flush(draft)
 			deployErrors = errors
+			// A flush resolves even when the save failed: the server would keep the
+			// deployed drafts, and deploying them again would recreate their triggers.
+			const sync = UserDraftDbSyncer.getState(draft)
+			if (UserDraftDbSyncer.getConflict(draft).conflict || sync.state === 'failed') {
+				return {
+					success: false,
+					error: `Deployed, but the remaining drafts could not be saved: ${sync.failureMessage ?? 'they conflict with a newer version'}.`
+				}
+			}
 			if (errors.size > 0) {
 				deployErrorsOpen = true
 				return {
