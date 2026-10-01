@@ -8,6 +8,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 -->
 <script lang="ts">
 	import { PanelLeft } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
@@ -100,13 +101,14 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		>
 			<!-- No tooltip: hovering here already slides the sidebar in, which says what the button
 			     does better than a label popping up over it. -->
-			<button
-				class="flex items-center p-1.5 rounded hover:bg-surface-hover"
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				iconOnly
+				startIcon={{ icon: PanelLeft }}
 				aria-label="Show sidebar"
 				onclick={() => navHandleSlot.open()}
-			>
-				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
-			</button>
+			/>
 		</div>
 	{/if}
 

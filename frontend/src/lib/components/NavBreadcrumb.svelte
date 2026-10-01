@@ -10,7 +10,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	import { Building, ChevronDown, Folder, GitFork, User } from 'lucide-svelte'
 	import WorkspaceItemKindIcon from './WorkspaceItemKindIcon.svelte'
 	import { Menu, Menubar } from '$lib/components/meltComponents'
-	import NavBreadcrumbTrigger from './NavBreadcrumbTrigger.svelte'
+	import MeltButton from '$lib/components/meltComponents/MeltButton.svelte'
 	import BreadcrumbItemContent from './BreadcrumbItemContent.svelte'
 	import WorkspacePickerBody from '$lib/components/sidebar/WorkspacePickerBody.svelte'
 	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
@@ -241,13 +241,13 @@ same weight, size and icon size, so the line reads as one control rather than fo
 					contentStyle="margin-left: {-nameWidth}px"
 				>
 					{#snippet triggr({ trigger })}
-						<NavBreadcrumbTrigger
-							{trigger}
+						<MeltButton
+							meltElement={trigger}
 							class="flex items-center p-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
 							title="Switch workspace"
 						>
 							<ChevronDown size={ICON} class="flex-shrink-0" />
-						</NavBreadcrumbTrigger>
+						</MeltButton>
 					{/snippet}
 					{#snippet children({ item: menuItem })}
 						<WorkspacePickerBody item={menuItem} closeMenu={() => workspaceMenu?.close()} />

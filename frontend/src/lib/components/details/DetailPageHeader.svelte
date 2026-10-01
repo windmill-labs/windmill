@@ -177,7 +177,9 @@
 	/>
 {/snippet}
 
-{#snippet actions()}
+<!-- The two halves of the row, rendered side by side in the band and in the two groups of the
+     row below. One copy each: a button added to one placement belongs in both. -->
+{#snippet badges(size: 'sm' | 'md')}
 	{#if tag}
 		<Badge>tag: {tag}</Badge>
 	{/if}
@@ -188,7 +190,7 @@
 			btnClasses="inline-flex"
 			startIcon={{ icon: Calendar }}
 			variant="default"
-			unifiedSize="sm"
+			unifiedSize={size}
 			on:click={async () => {
 				dispatch('seeTriggers')
 				await tick()
@@ -199,10 +201,13 @@
 		</Button>
 	{/if}
 	{@render trigger_badges?.()}
+{/snippet}
+
+{#snippet controls(size: 'sm' | 'md')}
 	{@render leading_actions?.()}
 	{#if allMenuItems.length > 0}
 		{#key allMenuItems}
-			<DropdownV2 items={allMenuItems} placement="bottom-end" size="sm" />
+			<DropdownV2 items={allMenuItems} placement="bottom-end" {size} />
 		{/key}
 	{/if}
 	{#if wideRow && errorHandlerKind && scriptOrFlowPath}
@@ -210,7 +215,7 @@
 			kind={errorHandlerKind}
 			{scriptOrFlowPath}
 			bind:errorHandlerMuted
-			unifiedSize="sm"
+			unifiedSize={size}
 		/>
 	{/if}
 	{#each barButtons as btn (btn.label)}
@@ -218,7 +223,7 @@
 		<Button
 			{...btn.buttonProps}
 			startIcon={{ icon: btn.buttonProps.startIcon }}
-			unifiedSize="sm"
+			unifiedSize={size}
 			{dropdownItems}
 			dropdownWidth={dropdownItems?.some((i) => i.description) ? 288 : undefined}
 			btnClasses="flex items-center gap-1 whitespace-nowrap"
@@ -226,6 +231,11 @@
 			{btn.label}
 		</Button>
 	{/each}
+{/snippet}
+
+{#snippet actions()}
+	{@render badges('sm')}
+	{@render controls('sm')}
 {/snippet}
 
 {#if ownsPageHeader}
@@ -256,57 +266,10 @@
 							kind={errorHandlerKind}
 						/>
 					</div>
-					{#if tag}
-						<Badge>tag: {tag}</Badge>
-					{/if}
-					{@render children?.()}
-					{#if triggersState?.triggers?.some((t) => t.isPrimary && !t.isDraft)}
-						{@const primarySchedule = triggersState.triggers.findIndex(
-							(t) => t.isPrimary && !t.isDraft
-						)}
-						<Button
-							btnClasses="inline-flex"
-							startIcon={{ icon: Calendar }}
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={async () => {
-								dispatch('seeTriggers')
-								await tick()
-								triggersState.selectedTriggerIndex = primarySchedule
-							}}
-						>
-							{$triggersCount?.primary_schedule?.schedule ?? ''}
-						</Button>
-					{/if}
-					{@render trigger_badges?.()}
+					{@render badges('md')}
 				</div>
 				<div class="flex gap-1 items-center pr-4">
-					{@render leading_actions?.()}
-					{#if allMenuItems.length > 0}
-						{#key allMenuItems}
-							<DropdownV2 items={allMenuItems} placement="bottom-end" size="md" />
-						{/key}
-					{/if}
-					{#if wideRow && errorHandlerKind && scriptOrFlowPath}
-						<ErrorHandlerToggleButton
-							kind={errorHandlerKind}
-							{scriptOrFlowPath}
-							bind:errorHandlerMuted
-						/>
-					{/if}
-					{#each barButtons as btn (btn.label)}
-						{@const dropdownItems = dropdownItemsOf(btn)}
-						<Button
-							{...btn.buttonProps}
-							startIcon={{ icon: btn.buttonProps.startIcon }}
-							{dropdownItems}
-							dropdownWidth={dropdownItems?.some((i) => i.description) ? 288 : undefined}
-							btnClasses="flex items-center gap-1 whitespace-nowrap"
-						>
-							{btn.label}
-						</Button>
-					{/each}
+					{@render controls('md')}
 				</div>
 			</div>
 		</div>
