@@ -218,7 +218,11 @@
 		onRunFormArgsChange?: (path: string, args: Record<string, any>, isValid: boolean) => void
 		/** See AssetGraphDetailsPane's `inputsOnly`. */
 		inputsOnly?: boolean
-		onRunInputs?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		onRunInputs?: (
+			path: string,
+			args: Record<string, any>,
+			content?: string
+		) => Promise<string | undefined>
 		onShowScript?: () => void
 		// Data-upload entry scripts whose staged upload is ready (green node).
 		readyDataUploadPaths?: Set<string>

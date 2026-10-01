@@ -263,10 +263,12 @@
 	let runsRefreshKey = $state(0)
 	let runsPendingJobId = $state<string | undefined>(undefined)
 
+	// `content` overrides the stored draft body with a newer one (an open editor's).
 	async function runNode(
 		nodePath: string,
 		args: Record<string, any> = {},
-		cascade = false
+		cascade = false,
+		content?: string
 	): Promise<string | undefined> {
 		const draft = pe.drafts.get(nodePath)
 		activeRunnables.arm(`script:${nodePath}`)
@@ -278,7 +280,7 @@
 					workspace: workspaceId,
 					requestBody: {
 						path: nodePath,
-						content: draft.script.content,
+						content: content ?? draft.script.content,
 						language: draft.script.language,
 						args
 					}
@@ -511,7 +513,7 @@
 				onRunByPath={(path, args) => runNode(path, args)}
 				inputsOnly={uploadInputsPath !== undefined &&
 					(pe.openScriptPath === undefined || uploadInputsPath === pe.openScriptPath)}
-				onRunInputs={(path, args) => runNode(path, args)}
+				onRunInputs={(path, args, content) => runNode(path, args, false, content)}
 				onShowScript={() => (uploadInputsPath = undefined)}
 				canRunByPath
 				onTestStateChange={(running) => {

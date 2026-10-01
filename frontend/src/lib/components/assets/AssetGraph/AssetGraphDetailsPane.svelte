@@ -143,7 +143,8 @@
 				writes: { kind: AssetWithAltAccessType['kind']; path: string }[]
 				// Body-inferred reads, so the parent's draft keeps its input
 				// lineage while inactive (no live inference runs for it).
-				reads: { kind: AssetWithAltAccessType['kind']; path: string }[]
+				// Undefined when nothing was inferred: keep what the draft has.
+				reads?: { kind: AssetWithAltAccessType['kind']; path: string }[]
 				// Full edited script — set when the source is a persisted
 				// script (needed to seed a brand-new draft entry).
 				script?: Script
@@ -303,7 +304,13 @@
 		// its editor. `onRunInputs` runs it with them, drafts included, and
 		// `onShowScript` leaves this view for the script.
 		inputsOnly?: boolean
-		onRunInputs?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		/** `content` is the pane's live buffer, newer than the stored draft when it was
+		 * edited before switching to the inputs view. */
+		onRunInputs?: (
+			path: string,
+			args: Record<string, any>,
+			content?: string
+		) => Promise<string | undefined>
 		onShowScript?: () => void
 	}
 	let {
@@ -518,6 +525,15 @@
 	// alongside `liveBodyAssets` and forwarded so the live graph can show
 	// inferred column lineage on the edited script before it deploys.
 	let liveColumnLineage = $state<ColumnLineage[] | undefined>(undefined)
+	// The script `liveBodyAssets` was inferred for: they stay bound after its editor
+	// unmounts, so a script with no editor of its own (the inputs-only view) must
+	// not report or persist them as its lineage. Not reset on a switch: the
+	// previous script's save-on-switch cleanup still reads its own.
+	let liveAssetsOwner: string | undefined = undefined
+	$effect.pre(() => {
+		const assets = liveBodyAssets
+		untrack(() => (liveAssetsOwner = assets === undefined ? undefined : script?.path))
+	})
 
 	// Bumped when the runs panel reports a watched job has reached a
 	// terminal state. Drives S3FilePreview's refreshKey so the preview
@@ -633,18 +649,25 @@
 			b: Array<{ kind: string; path: string }>
 		) => a.length === b.length && a.every((x, i) => x.kind === b[i]?.kind && x.path === b[i]?.path)
 		return () => {
-			const writes = (liveBodyAssets ?? [])
+			// No editor inferred this script (the inputs-only view): keep its stored
+			// lineage rather than persisting it as empty.
+			const inferred = liveBodyAssets !== undefined && liveAssetsOwner === captured.path
+			const writes = !inferred
+				? (writesAtRegister ?? [])
+				: (liveBodyAssets ?? [])
 				.filter((a) => {
 					const t = a.access_type ?? a.alt_access_type
 					return t === 'w' || t === 'rw'
 				})
 				.map((a) => ({ kind: a.kind, path: a.path }))
-			const reads = (liveBodyAssets ?? [])
-				.filter((a) => {
-					const t = a.access_type ?? a.alt_access_type
-					return t === 'r' || t === 'rw'
-				})
-				.map((a) => ({ kind: a.kind, path: a.path }))
+			const reads = !inferred
+				? readsAtRegister
+				: (liveBodyAssets ?? [])
+						.filter((a) => {
+							const t = a.access_type ?? a.alt_access_type
+							return t === 'r' || t === 'rw'
+						})
+						.map((a) => ({ kind: a.kind, path: a.path }))
 			// Draft runs: emit only when content or lineage changed in THIS clone.
 			// An unconditional emit ping-pongs forever when the entry is rewritten
 			// externally while the pane stays mounted (rename rekey, AI edit):
@@ -654,6 +677,7 @@
 				(captured.content ?? '') === contentAtRegister &&
 				refsEq(writesAtRegister ?? [], writes) &&
 				readsAtRegister != undefined &&
+				reads != undefined &&
 				refsEq(readsAtRegister, reads)
 			)
 				return
@@ -694,6 +718,25 @@
 	// variable: only read inside the untracked cleanup).
 	let deployedFromPane: { path: string; content: string } | undefined = undefined
 	let isDraft = $derived(draftScript != undefined)
+	// A draft's stored schema is empty until an editor infers it, and the inputs
+	// view mounts none: infer from the body here so its fields (the file picker)
+	// show up.
+	const inputsSchema = resource(
+		[() => (inputsOnly && isDraft ? script?.content : undefined), () => script?.language],
+		async ([content, language]) => {
+			if (content === undefined || !language) return undefined
+			const schema = emptySchema()
+			try {
+				await inferArgs(language, content, schema as Schema)
+			} catch {
+				return undefined
+			}
+			return schema
+		}
+	)
+	let inputsScript = $derived(
+		script && inputsSchema.current ? { ...script, schema: inputsSchema.current } : undefined
+	)
 
 	// Single trash-bin button opens one modal that exposes both Archive
 	// (always available) and Delete permanently (admin-only). Archive is
@@ -800,7 +843,7 @@
 		onAnnotationsChange?.(script?.path, liveAnnotations)
 	})
 	$effect(() => {
-		if (readOnly) return
+		if (readOnly || (inputsOnly && liveAssetsOwner !== script?.path)) return
 		onAssetsChange?.(script?.path, liveBodyAssets ?? [], liveColumnLineage)
 	})
 	$effect(() => {
@@ -1348,13 +1391,13 @@
 		{:else if script && inputsOnly}
 			{#key script.path}
 				<PipelineScriptView
-					{script}
 					{isDraft}
 					canRun
 					runsDrafts
 					inputsOnly
 					{onShowScript}
-					onRun={onRunInputs}
+					onRun={onRunInputs && ((path, args) => onRunInputs(path, args, script?.content))}
+					script={inputsScript ?? script}
 					{runsRefreshKey}
 					{runsPendingJobId}
 					initialArgs={runFormInitialArgs}

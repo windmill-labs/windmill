@@ -2504,19 +2504,23 @@
 	let uploadInputsPath = $state<string | undefined>(undefined)
 	// Runs the open node with its form inputs: a draft previews its own content, a
 	// deployed script runs for real (in view mode, cascading like any legit run).
+	// `content` is the pane's live buffer, newer than the stored draft when it was
+	// edited before switching to the inputs view.
 	async function runUploadInputs(
 		path: string,
-		args: Record<string, any>
+		args: Record<string, any>,
+		content?: string
 	): Promise<string | undefined> {
 		const draft = mode === 'edit' ? pe.drafts.get(path) : undefined
 		if (!draft) return mode === 'edit' ? runDeployedWithArgs(path, args) : runByPathLegit(path, args)
-		if (!$workspaceStore || !draft.script.content || !draft.script.language) return undefined
+		const body = content ?? draft.script.content
+		if (!$workspaceStore || !body || !draft.script.language) return undefined
 		activeRunnables.arm(`script:${path}`)
 		try {
 			const jobId = await JobService.runScriptPreview({
 				workspace: $workspaceStore,
 				requestBody: {
-					content: draft.script.content,
+					content: body,
 					language: draft.script.language,
 					path,
 					args: { ...args, _wmill_skip_asset_dispatch: true }
