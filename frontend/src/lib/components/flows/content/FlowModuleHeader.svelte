@@ -87,9 +87,8 @@
 			variant="subtle"
 			startIcon={{ icon: Save }}
 			on:click={() => dispatch('createScriptFromInlineScript')}
-			iconOnly={false}
-		>
-			Save to workspace
-		</Button>
+			iconOnly={true}
+			title="Save to workspace"
+		/>
 	{/if}
 </div>
