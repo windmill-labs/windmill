@@ -3,8 +3,9 @@
 
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
-use windmill_common::job_provenance::{
-    job_provenance, ClaimedItem, ClaimedPath, JobProvenance,
+use windmill_common::{
+    job_provenance::{job_provenance, ClaimedItem, ClaimedPath, JobProvenance},
+    scripts::ScriptHash,
 };
 
 async fn provenance(db: &Pool<Postgres>, job: &str) -> JobProvenance {
@@ -100,4 +101,24 @@ async fn claimed_paths_are_the_request_supplied_origins(db: Pool<Postgres>) {
         claims(&db, "3bb0c0de-0000-4000-8000-000000000013").await,
         [claim("f/prod/deploy", ClaimedItem::Script)]
     );
+}
+
+/// Any past version can be run by hash or flow version id: it stays deployed, but only
+/// the versions the paths currently resolve to are latest.
+#[sqlx::test(fixtures("base", "job_provenance", "job_provenance_versions"))]
+async fn only_current_versions_are_latest(db: Pool<Postgres>) {
+    let current = provenance(&db, "3bb0c0de-0000-4000-8000-000000000002").await;
+    assert!(current.deployed && current.latest);
+    let current_hash = ScriptHash(1111111111).to_string();
+    assert_eq!(current.version.as_deref(), Some(current_hash.as_str()));
+    assert_eq!(current.root_version.as_deref(), Some("2222222222"));
+
+    let past_tool = provenance(&db, "3bb0c0de-0000-4000-8000-000000000101").await;
+    assert!(past_tool.deployed && !past_tool.latest);
+
+    let under_past_flow = provenance(&db, "3bb0c0de-0000-4000-8000-000000000103").await;
+    assert!(under_past_flow.deployed && !under_past_flow.latest);
+    assert_eq!(under_past_flow.root_version.as_deref(), Some("2222222221"));
+
+    assert!(!deployed(&db, "3bb0c0de-0000-4000-8000-000000000104").await);
 }

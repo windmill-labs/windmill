@@ -1,12 +1,19 @@
 use uuid::Uuid;
 
-use crate::{db::DB, error::Result, jobs::JobKind};
+use crate::{db::DB, error::Result, jobs::JobKind, scripts::ScriptHash};
 
 /// Where a job's code comes from, as far as its chain of parents can prove it.
 pub struct JobProvenance {
     /// True only when the job and every ancestor run code at a path taken from a
     /// deployed version, never from the request that created the job.
     pub deployed: bool,
+    /// Deployed, and every script and flow in the chain runs the version its path
+    /// currently resolves to. Any past version still counts as deployed, and a run started
+    /// before a redeploy stops being latest once the redeploy lands. App runs never count:
+    /// app scripts are not tied to an app version.
+    pub latest: bool,
+    /// The job's own script hash (hex) or flow version id; `None` for other kinds.
+    pub version: Option<String>,
     /// The chain reached a parent it cannot read (other workspace, depth cap), so
     /// nothing above that point is known.
     pub unproven_ancestry: bool,
@@ -21,6 +28,7 @@ pub struct JobProvenance {
     pub root_path: Option<String>,
     pub root_kind: JobKind,
     pub root_trigger_kind: Option<String>,
+    pub root_version: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -48,9 +56,11 @@ struct LineageJob {
     parent_job: Option<Uuid>,
     kind: JobKind,
     runnable_path: Option<String>,
+    runnable_id: Option<i64>,
     trigger_kind: Option<String>,
     permissioned_as: String,
     origin_verified: bool,
+    current_version: bool,
     app_stamped: bool,
     args_modules: bool,
 }
@@ -69,7 +79,7 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
             FROM v2_job p JOIN lineage l ON p.id = l.parent_job
             WHERE p.workspace_id = $2 AND l.depth < 100
         )
-        SELECT id AS "id!", parent_job, kind AS "kind!: JobKind", runnable_path,
+        SELECT id AS "id!", parent_job, kind AS "kind!: JobKind", runnable_path, runnable_id,
             trigger_kind::text AS trigger_kind, permissioned_as AS "permissioned_as!",
             -- A restart takes its flow version from the request, so a trusted flow path
             -- can carry another flow's code: the version must belong to that path.
@@ -77,9 +87,20 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
                 WHEN 'flow' THEN EXISTS (SELECT 1 FROM flow_version fv
                     WHERE fv.id = runnable_id AND fv.path = runnable_path AND fv.workspace_id = $2)
                 WHEN 'script' THEN EXISTS (SELECT 1 FROM script s
-                    WHERE s.hash = runnable_id AND s.path = runnable_path AND s.workspace_id = $2)
+                    WHERE s.hash = runnable_id AND s.path = runnable_path AND s.workspace_id = $2
+                        AND NOT s.deleted)
                 ELSE true
             END AS "origin_verified!",
+            -- What `run/f` and `run/p` resolve the path to now; for scripts the predicate of
+            -- `get_latest_deployed_script_hash`.
+            COALESCE(CASE kind
+                WHEN 'flow' THEN runnable_id = (SELECT f.versions[array_upper(f.versions, 1)]
+                    FROM flow f WHERE f.path = runnable_path AND f.workspace_id = $2)
+                WHEN 'script' THEN runnable_id = (SELECT s.hash FROM script s
+                    WHERE s.path = runnable_path AND s.workspace_id = $2 AND NOT s.deleted
+                        AND s.lock IS NOT NULL AND s.lock_error_logs IS NULL
+                    ORDER BY s.created_at DESC LIMIT 1)
+            END, false) AS "current_version!",
             -- Only deployed-app runs are stamped with their app; an app editor preview
             -- runs app code at an app path it does not have to own.
             COALESCE(trigger_kind = 'app' AND starts_with(runnable_path, trigger || '/'), false)
@@ -103,8 +124,10 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
     // Walk from the root down: whether a job runs stored code can depend on its parent.
     let mut claimed_paths = vec![];
     let mut all_stored = true;
+    let mut all_current = true;
     let mut parent: Option<(&LineageJob, bool)> = None;
     for job in lineage.iter().rev() {
+        all_current &= runs_current_version(job);
         let stored = runs_stored_code(job, parent);
         if !stored {
             all_stored = false;
@@ -117,8 +140,11 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         parent = Some((job, stored));
     }
 
+    let deployed = !unproven_ancestry && all_stored;
     Ok(Some(JobProvenance {
-        deployed: !unproven_ancestry && all_stored,
+        deployed,
+        latest: deployed && all_current,
+        version: version(&lineage[0]),
         unproven_ancestry,
         claimed_paths,
         permissioned_as: lineage[0].permissioned_as.clone(),
@@ -127,7 +153,46 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         root_path: root.runnable_path.clone(),
         root_kind: root.kind,
         root_trigger_kind: root.trigger_kind.clone(),
+        root_version: version(root),
     }))
+}
+
+fn version(job: &LineageJob) -> Option<String> {
+    match job.kind {
+        JobKind::Script => job.runnable_id.map(|h| ScriptHash(h).to_string()),
+        JobKind::Flow => job.runnable_id.map(|v| v.to_string()),
+        _ => None,
+    }
+}
+
+/// Only meaningful under `deployed`, which already excludes every kind that runs
+/// request-supplied code.
+fn runs_current_version(job: &LineageJob) -> bool {
+    match job.kind {
+        JobKind::Script | JobKind::Flow => job.current_version,
+        // An app script is keyed by its content, not by an app version, so a past
+        // deployment's script cannot be told apart from the current one's.
+        JobKind::AppScript => false,
+        JobKind::Preview if job.app_stamped => false,
+        // Their code comes from the flow above them, which is checked itself, or (hub)
+        // the path names the version.
+        JobKind::Script_Hub
+        | JobKind::SingleStepFlow
+        | JobKind::FlowScript
+        | JobKind::FlowNode
+        | JobKind::AIAgent
+        | JobKind::Preview
+        | JobKind::FlowPreview
+        | JobKind::Dependencies
+        | JobKind::FlowDependencies
+        | JobKind::AppDependencies
+        | JobKind::Identity
+        | JobKind::Noop
+        | JobKind::DeploymentCallback
+        | JobKind::UnassignedScript
+        | JobKind::UnassignedFlow
+        | JobKind::UnassignedSinglestepFlow => true,
+    }
 }
 
 /// Whether the job's code and its path are both fixed by what was deployed (or, for a
