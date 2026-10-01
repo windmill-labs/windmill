@@ -507,6 +507,11 @@ export class AIChatManager implements ChatViewHost {
 	// awaits this so the model's next build_pipeline_node call can't race ahead of
 	// the async canvas mount and hit "Unknown tool call".
 	#pipelineHelpersWaiters = new Set<(helpers: PipelineAIChatHelpers) => void>()
+	// A session's pipeline editor unmounts whenever another tab takes the preview
+	// panel. Its tools stay offered for every folder the session opened, and a call
+	// reopens the tab through this, so a page shown in between costs no failed call.
+	#pipelineReopener: ((folder: string) => void) | undefined = undefined
+	#openedPipelineFolders = new Set<string>()
 	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
@@ -2504,8 +2509,27 @@ export class AIChatManager implements ChatViewHost {
 
 	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
 	// fires the three network refreshes.
+	setPipelineReopener = (reopen: (folder: string) => void) => {
+		this.#pipelineReopener = reopen
+	}
+
+	#pipelineFolders = (): string[] => [
+		...new Set([
+			...[...this.#pipelineEditors].map((p) => p.getFolder()),
+			...(this.#pipelineReopener ? this.#openedPipelineFolders : [])
+		])
+	]
+
+	#ensurePipeline = async (folder: string): Promise<PipelineAIChatHelpers | undefined> => {
+		const find = () => [...this.#pipelineEditors].find((p) => p.getFolder() === folder)
+		const live = find()
+		if (live || !this.#pipelineReopener) return live
+		this.#pipelineReopener(folder)
+		return (await this.waitForPipelineHelpers(folder)) ? find() : undefined
+	}
+
 	configureGlobalMode = () => {
-		const hasPipelines = this.#pipelineEditors.size > 0
+		const hasPipelines = this.#pipelineFolders().length > 0
 		const opts = this.globalAssemblyOpts()
 		const baseHelpers: GlobalToolHelpers = {
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
@@ -2538,7 +2562,12 @@ export class AIChatManager implements ChatViewHost {
 		}
 		this.#assembledTools = assembleGlobalTools(opts)
 		this.helpers = hasPipelines
-			? { ...baseHelpers, pipelines: () => [...this.#pipelineEditors] }
+			? {
+					...baseHelpers,
+					pipelines: () => [...this.#pipelineEditors],
+					pipelineFolders: this.#pipelineFolders,
+					ensurePipeline: this.#ensurePipeline
+				}
 			: baseHelpers
 		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
 		this.syncArtifactsSession()
@@ -2552,7 +2581,7 @@ export class AIChatManager implements ChatViewHost {
 		mcpServers: this.mcpServers,
 		access: this.sessionAccess,
 		sessionContext: this.sessionContextResolver?.(),
-		pipelineFolders: [...new Set([...this.#pipelineEditors].map((p) => p.getFolder()))]
+		pipelineFolders: this.#pipelineFolders()
 	})
 
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
@@ -4885,6 +4914,7 @@ export class AIChatManager implements ChatViewHost {
 	// Returns a cleanup that tears the registration back down.
 	setPipelineHelpers = (pipelineHelpers: PipelineAIChatHelpers) => {
 		this.#pipelineEditors.add(pipelineHelpers)
+		this.#openedPipelineFolders.add(pipelineHelpers.getFolder())
 		untrack(() => {
 			if (this.mode === AIMode.GLOBAL) {
 				this.configureGlobalMode()

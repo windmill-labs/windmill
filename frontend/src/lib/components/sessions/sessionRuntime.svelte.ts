@@ -634,6 +634,10 @@ function createRuntime(session: Session): SessionRuntime {
 			waiters.add(notify)
 		})
 	}
+	manager.setPipelineReopener((folder) => {
+		const target = previewTargetForSessionTarget('pipeline', folder)
+		if (target) previewTabs.open(target)
+	})
 	async function deployPipeline(folder: string): Promise<DeployResult> {
 		const key = normalizePipelineFolder(folder)
 		const target = previewTargetForSessionTarget('pipeline', key)
