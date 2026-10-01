@@ -36405,10 +36405,7 @@ components:
             saved a per-user draft on top of the deployed row.
         draft_only:
           type: boolean
-          description: |
-            Nothing is deployed at this path. Only ever true on the rows
-            `include_draft_only=true` synthesizes from a draft, so a caller
-            that did not ask for those never sees it.
+          description: No deployed counterpart exists at this path — the draft is the whole item.
         draft_path:
           type: string
           description: |
