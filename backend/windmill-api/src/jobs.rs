@@ -5433,8 +5433,8 @@ async fn resume_suspended_job_internal(
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     // Get flow info - works for step-level, flow-level, and WAC approval. This locks the
-    // queue row until commit, so concurrent resumes serialize and each sees the suspend
-    // counter and flow status left by the previous one.
+    // queue row until commit, so resumes serialize with each other and with the worker
+    // entering the suspend.
     let (flow_info, is_flow_level, is_wac) =
         get_flow_info_for_resume(job_id, &w_id, &mut tx).await?;
 
@@ -5667,7 +5667,7 @@ async fn get_flow_info_for_resume(
     tx: &mut Transaction<'_, Postgres>,
 ) -> error::Result<(FlowInfo, bool, bool)> {
     // Single query that determines if job_id is a flow, step, or WAC job,
-    // and fetches the appropriate suspended job info.
+    // and locks the appropriate suspended job's queue row.
     // For WAC jobs (no parent, not a flow), the job itself is the suspended target.
     let result = sqlx::query!(
         r#"
@@ -5678,7 +5678,6 @@ async fn get_flow_info_for_resume(
         )
         SELECT
             q.id AS "id!",
-            s.flow_status,
             q.suspend AS "suspend!",
             j.runnable_path AS script_path,
             j.permissioned_as_email AS email,
@@ -5690,7 +5689,6 @@ async fn get_flow_info_for_resume(
             ELSE COALESCE(ji.parent_job, ji.id)
         END
         JOIN v2_job j ON j.id = q.id
-        LEFT JOIN v2_job_status s ON s.id = q.id
         FOR UPDATE OF q
         "#,
         job_id,
@@ -5704,9 +5702,18 @@ async fn get_flow_info_for_resume(
         ))
     })?;
 
+    // Read in its own statement: a statement that waited on the queue-row lock above re-reads
+    // only the locked row, so a status joined into it could predate the worker's commit.
+    let flow_status: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT flow_status FROM v2_job_status WHERE id = $1")
+            .bind(result.id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+
     let flow_info = FlowInfo {
         id: result.id,
-        flow_status: result.flow_status,
+        flow_status,
         suspend: result.suspend,
         script_path: result.script_path,
         email: Some(result.email),
@@ -5719,13 +5726,19 @@ async fn get_suspended_flow_info<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<(FlowInfo, Uuid, bool)> {
+    // Lock before reading: a single statement that waited on this lock would re-read only
+    // the queue row, pairing a fresh suspend counter with a stale flow status.
+    sqlx::query("SELECT 1 FROM v2_job_queue WHERE id = $1 FOR UPDATE")
+        .bind(job_id)
+        .execute(&mut **tx)
+        .await?;
+
     let flow = sqlx::query_as!(
             FlowInfo,
             r#"
             SELECT j.id AS "id!", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS "suspend!", j.runnable_path as script_path, j.permissioned_as_email as email
             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)
             WHERE j.id = $1
-            FOR UPDATE OF q
             "#,
             job_id,
         )
