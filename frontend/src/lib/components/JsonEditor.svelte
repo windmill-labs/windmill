@@ -40,7 +40,12 @@
 	// Identity for this editor's entry in the unparseable registry, so a caller about to
 	// persist what is on screen can refuse rather than save the last value that parsed.
 	const unparseableKey = {}
-	onDestroy(() => setEditorUnparseable(unparseableKey, false))
+	// Also clears a bound `error`: a parent gating validity on it would otherwise stay invalid
+	// after the editor that reported the error is gone.
+	onDestroy(() => {
+		error = ''
+		setEditorUnparseable(unparseableKey, false)
+	})
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
