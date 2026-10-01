@@ -3000,7 +3000,8 @@
 				readyDataUploadPaths={dataUploads.readyPaths}
 				runFormInitialArgs={openScriptPath ? dataUploads.argsFor(openScriptPath) : undefined}
 				onRunFormArgsChange={dataUploads.stage}
-				inputsOnly={uploadInputsPath !== undefined && uploadInputsPath === openScriptPath}
+				inputsOnly={uploadInputsPath !== undefined &&
+					(openScriptPath === undefined || uploadInputsPath === openScriptPath)}
 				onRunInputs={runUploadInputs}
 				onShowScript={() => (uploadInputsPath = undefined)}
 				onSelect={handleCanvasSelect}

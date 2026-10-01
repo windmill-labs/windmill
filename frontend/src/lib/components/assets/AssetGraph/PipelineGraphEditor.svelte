@@ -332,6 +332,11 @@
 	function openPanelModalFromGraph(e: MouseEvent) {
 		if (selectableNodeAt(e)) panelModalOpen = true
 	}
+	// A button in the pane that ends it closes the modal in the same update: left to
+	// the effect above, the modal would first render the pane without its selection.
+	function closePanelModal() {
+		if (panelMode === 'modal') panelModalOpen = false
+	}
 	function handleCanvasSelect(s: AssetGraphSelection | undefined, opts?: { open?: boolean }) {
 		onSelect(s)
 		if (opts?.open && s && panelMode === 'modal') panelModalOpen = true
@@ -714,8 +719,15 @@
 			onAssetsChange={editor.handleAssetsChange}
 			onContentChange={editor.handleContentChange}
 			onDraftPersist={editor.handleDraftPersist}
-			onclose={onClose}
-			onHide={onTogglePanelHidden}
+			onclose={() => {
+				closePanelModal()
+				onClose()
+			}}
+			onHide={onTogglePanelHidden &&
+				(() => {
+					closePanelModal()
+					onTogglePanelHidden()
+				})}
 			{onDiscard}
 			{onDraftSaved}
 			{onPersistedSaved}

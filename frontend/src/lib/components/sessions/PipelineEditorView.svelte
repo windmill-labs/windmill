@@ -509,7 +509,8 @@
 				eventLogEvents={activeRunnables.events}
 				onRunProducer={runProducer}
 				onRunByPath={(path, args) => runNode(path, args)}
-				inputsOnly={uploadInputsPath !== undefined && uploadInputsPath === pe.openScriptPath}
+				inputsOnly={uploadInputsPath !== undefined &&
+					(pe.openScriptPath === undefined || uploadInputsPath === pe.openScriptPath)}
 				onRunInputs={(path, args) => runNode(path, args)}
 				onShowScript={() => (uploadInputsPath = undefined)}
 				canRunByPath
