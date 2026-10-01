@@ -2220,7 +2220,13 @@ pub enum RegistryAuth {
 /// Credentials follow npm's precedence for a registry: `_authToken`, then `_auth`, then
 /// `username` with a base64 encoded `_password`.
 pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<RegistryAuth>)> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
+    use base64::{
+        alphabet,
+        engine::{
+            general_purpose::STANDARD, DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig,
+        },
+        Engine,
+    };
 
     let mut registry_url: Option<String> = None;
     let mut scoped_keys: Vec<(String, String, String)> = Vec::new();
@@ -2253,28 +2259,51 @@ pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<Regis
     let url_without_protocol = url.trim_start_matches("https:").trim_start_matches("http:");
     let url_prefix = url_without_protocol.trim_end_matches('/');
 
-    let get = |key: &str| {
+    // Later lines override earlier ones and an empty value is unset, as in npm's config.
+    let get = |prefix: &str, key: &str| {
         scoped_keys
             .iter()
-            .find(|(prefix, k, _)| prefix == url_prefix && k == key)
+            .rev()
+            .find(|(p, k, v)| p == prefix && k == key && !v.is_empty())
             .map(|(_, _, value)| value.clone())
     };
+    let auth_at = |prefix: &str| {
+        if let Some(token) = get(prefix, "_authToken") {
+            Some(RegistryAuth::Bearer(token))
+        } else if let Some(auth) = get(prefix, "_auth") {
+            Some(RegistryAuth::Basic(auth))
+        } else if let (Some(username), Some(password)) =
+            (get(prefix, "username"), get(prefix, "_password"))
+        {
+            let lenient = GeneralPurpose::new(
+                &alphabet::STANDARD,
+                GeneralPurposeConfig::new()
+                    .with_decode_padding_mode(DecodePaddingMode::Indifferent),
+            );
+            let password = lenient
+                .decode(&password)
+                .ok()
+                .and_then(|p| String::from_utf8(p).ok())
+                .unwrap_or(password);
+            Some(RegistryAuth::Basic(
+                STANDARD.encode(format!("{username}:{password}")),
+            ))
+        } else {
+            None
+        }
+    };
 
-    let auth = if let Some(token) = get("_authToken") {
-        Some(RegistryAuth::Bearer(token))
-    } else if let Some(auth) = get("_auth") {
-        Some(RegistryAuth::Basic(auth))
-    } else if let (Some(username), Some(password)) = (get("username"), get("_password")) {
-        let password = STANDARD
-            .decode(&password)
-            .ok()
-            .and_then(|p| String::from_utf8(p).ok())
-            .unwrap_or(password);
-        Some(RegistryAuth::Basic(
-            STANDARD.encode(format!("{username}:{password}")),
-        ))
-    } else {
-        None
+    // Like npm, the deepest path of the registry URL that carries credentials supplies them,
+    // walking up to the bare host.
+    let mut prefix = url_prefix;
+    let auth = loop {
+        if let Some(auth) = auth_at(prefix) {
+            break Some(auth);
+        }
+        match prefix.rfind('/') {
+            Some(i) if i > 1 => prefix = &prefix[..i],
+            _ => break None,
+        }
     };
 
     Some((url, auth))
@@ -2361,6 +2390,24 @@ mod npmrc_tests {
         );
         // Credentials for another registry are not sent to the default one
         assert_eq!(parse(format!("{base}//other.example.com/:_auth=x\n")), None);
+        // An empty value is unset, and a later line overrides an earlier one
+        assert_eq!(
+            parse(format!(
+                "{base}//r.example.com/:_authToken=\n{auth}//r.example.com/:_auth=y\n"
+            )),
+            Some(RegistryAuth::Basic("y".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_auth_from_parent_path() {
+        let npmrc = "registry=https://r.example.com:4873/npm/feed/\n\
+            //r.example.com:4873/:_authToken=host\n\
+            //r.example.com:4873/npm/:username=user\n\
+            //r.example.com:4873/npm/:_password=cGFzcw\n";
+        // The deepest path with credentials wins; the unpadded password still decodes
+        let (_, auth) = parse_npmrc_registry(npmrc).unwrap();
+        assert_eq!(auth, Some(RegistryAuth::Basic("dXNlcjpwYXNz".to_string())));
     }
 
     #[test]
