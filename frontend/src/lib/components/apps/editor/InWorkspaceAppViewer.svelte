@@ -28,7 +28,8 @@
 		workspace,
 		path,
 		onEdit,
-		onLoadState
+		onLoadState,
+		syncHashToUrl = true
 	}: {
 		workspace: string
 		path: string
@@ -39,6 +40,8 @@
 		/** How the load ended, for a host that renders its own state around this viewer.
 		 * A 403 is deliberately neither: the app exists, this member just cannot open it. */
 		onLoadState?: (state: 'loaded' | 'not_found') => void
+		/** Whether a raw app's route lives in the page URL's hash; see `RawAppPreview`. */
+		syncHashToUrl?: boolean
 	} = $props()
 
 	// The app, its permission check and everything this viewer renders belong to `workspace`,
@@ -177,6 +180,7 @@
 			jwtError={false}
 			inWorkspace
 			{hideRefreshBar}
+			{syncHashToUrl}
 			onLoginSuccess={() => loadApp()}
 		></PublicApp>
 	{/snippet}

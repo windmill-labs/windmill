@@ -207,6 +207,7 @@
 				{path}
 				onEdit={() => onNavigate(`/apps_raw/edit/${path}`)}
 				onLoadState={setLoadState}
+				syncHashToUrl={false}
 			/>
 		{/if}
 	{/key}

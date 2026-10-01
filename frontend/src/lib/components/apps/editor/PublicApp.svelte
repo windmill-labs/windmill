@@ -34,7 +34,8 @@
 		workspace,
 		user = undefined,
 		inWorkspace = false,
-		hideRefreshBar = false
+		hideRefreshBar = false,
+		syncHashToUrl = true
 	}: {
 		notExists: boolean
 		noPermission: boolean
@@ -57,6 +58,8 @@
 		 */
 		inWorkspace?: boolean
 		hideRefreshBar?: boolean
+		/** Whether a raw app's route lives in the page URL's hash; see `RawAppPreview`. */
+		syncHashToUrl?: boolean
 	} = $props()
 
 	// Use workspace from props or from app.workspace_id (for custom path responses)
@@ -166,6 +169,7 @@
 				secret={app.bundle_secret}
 				path={app.path}
 				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
+				{syncHashToUrl}
 			/>
 		{:else if app.raw_app && !effectiveWorkspace}
 			<div class="px-4 mt-20">
