@@ -61,9 +61,9 @@ function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
 			calls.proposeNode = [...(calls.proposeNode ?? []), [input]]
 			return { path: input.path, detectedReads: [], detectedWrites: [] }
 		},
-		editNode: async (path, content) => {
-			calls.editNode = [...(calls.editNode ?? []), [path, content]]
-			return { detectedReads: [], detectedWrites: [] }
+		editNode: async (path, content, summary) => {
+			calls.editNode = [...(calls.editNode ?? []), [path, content, summary]]
+			return { summary: summary ?? 'Existing summary', detectedReads: [], detectedWrites: [] }
 		},
 		removeProposedNode: record('removeProposedNode'),
 		unconfiguredTriggers: async () => [],
@@ -109,6 +109,7 @@ describe('pipeline tools', () => {
 			args: {
 				path: 'f/analytics/clean',
 				language: 'bun',
+				summary: 'Test node',
 				content: '// pipeline\nexport async function main() {}',
 				output_kind: 'ducklake'
 			},
@@ -136,6 +137,7 @@ describe('pipeline tools', () => {
 			args: {
 				path: 'f/analytics/ingest',
 				language: 'python3',
+				summary: 'Test node',
 				content: '# pipeline\n# on schedule\n# on kafka\ndef main():\n    return 1',
 				triggers: [{ kind: 'schedule', config: { schedule: '0 0 6 * * *', timezone: 'UTC' } }]
 			},
@@ -161,6 +163,7 @@ describe('pipeline tools', () => {
 				args: {
 					path: 'f/analytics/ingest',
 					language: 'python3',
+					summary: 'Test node',
 					content: '# pipeline\n# on schedule\ndef main():\n    return 1',
 					triggers: [{ kind: 'schedule', config: { timezone: 'UTC' } }]
 				},
@@ -182,7 +185,12 @@ describe('pipeline tools', () => {
 			})
 		})
 		const out = await toolByName('build_pipeline_node').fn({
-			args: { path: 'f/analytics/clean', language: 'duckdb', content: '-- pipeline' },
+			args: {
+				path: 'f/analytics/clean',
+				language: 'duckdb',
+				content: '-- pipeline',
+				summary: 'Test node'
+			},
 			workspace: 'w',
 			helpers,
 			toolCallbacks: noopCallbacks(),
@@ -197,7 +205,12 @@ describe('pipeline tools', () => {
 			proposeNode: async (input) => ({ path: input.path, detectedReads: [], detectedWrites: [] })
 		})
 		const out = await toolByName('build_pipeline_node').fn({
-			args: { path: 'f/analytics/clean', language: 'duckdb', content: '-- pipeline' },
+			args: {
+				path: 'f/analytics/clean',
+				language: 'duckdb',
+				content: '-- pipeline',
+				summary: 'Test node'
+			},
 			workspace: 'w',
 			helpers,
 			toolCallbacks: noopCallbacks(),
@@ -221,6 +234,34 @@ describe('pipeline tools', () => {
 		expect(calls.editNode?.[0]?.[1]).toContain('const x = 42')
 	})
 
+	it('edit_pipeline_node renames a node by summary alone, and asks for one when missing', async () => {
+		const body = { language: 'bun' as const, content: 'const x = 1\n' }
+		const { helpers, calls } = makeHelpers({ getNodeBody: async () => body })
+		const run = (args: Record<string, unknown>) =>
+			toolByName('edit_pipeline_node').fn({
+				args: { path: 'f/analytics/orders', ...args },
+				workspace: 'w',
+				helpers,
+				toolCallbacks: noopCallbacks(),
+				toolId: 't'
+			})
+		await run({ summary: 'Clean orders' })
+		expect(calls.editNode?.[0]).toEqual(['f/analytics/orders', body.content, 'Clean orders'])
+
+		const bare = makeHelpers({
+			getNodeBody: async () => body,
+			editNode: async () => ({ summary: '', detectedReads: [], detectedWrites: [] })
+		})
+		const out = await toolByName('edit_pipeline_node').fn({
+			args: { path: 'f/analytics/orders', old_string: 'x = 1', new_string: 'x = 2' },
+			workspace: 'w',
+			helpers: bare.helpers,
+			toolCallbacks: noopCallbacks(),
+			toolId: 't'
+		})
+		expect(out).toContain('has no summary')
+	})
+
 	it('edit_pipeline_node surfaces a clear error when old_string is absent', async () => {
 		const { helpers } = makeHelpers({
 			getNodeBody: async () => ({ language: 'bun', content: 'const x = 1\n' })
@@ -239,7 +280,7 @@ describe('pipeline tools', () => {
 	it('mutation tools fail clearly when no pipeline editor is registered', async () => {
 		await expect(
 			toolByName('build_pipeline_node').fn({
-				args: { path: 'f/a/b', language: 'bun', content: 'x' },
+				args: { path: 'f/a/b', language: 'bun', content: 'x', summary: 'Test node' },
 				workspace: 'w',
 				helpers: {},
 				toolCallbacks: noopCallbacks(),
@@ -295,19 +336,47 @@ describe('pipeline tools with several editors open', () => {
 			toolId: 't'
 		})
 
+	it('remounts an opened folder whose editor another tab replaced', async () => {
+		const built: string[] = []
+		const mounted: PipelineAIChatHelpers[] = []
+		const ensured: string[] = []
+		await toolByName('build_pipeline_node').fn({
+			args: {
+				path: 'f/sales/clean',
+				language: 'bun',
+				content: '// pipeline',
+				summary: 'Test node'
+			},
+			workspace: 'w',
+			helpers: {
+				pipelines: () => mounted,
+				pipelineFolders: () => ['sales'],
+				ensurePipeline: async (folder: string) => {
+					ensured.push(folder)
+					mounted.push(editorFor(folder, built))
+					return mounted[0]
+				}
+			},
+			toolCallbacks: noopCallbacks(),
+			toolId: 't'
+		})
+		expect(ensured).toEqual(['sales'])
+		expect(built).toEqual(['sales:f/sales/clean'])
+	})
+
 	it('routes a node to the editor of its folder', async () => {
 		const built: string[] = []
 		const editors = [editorFor('crm', built), editorFor('sales', built)]
 		await call(
 			'build_pipeline_node',
-			{ path: 'f/sales/clean', language: 'bun', content: '// pipeline' },
+			{ path: 'f/sales/clean', language: 'bun', content: '// pipeline', summary: 'Test node' },
 			editors
 		)
 		expect(built).toEqual(['sales:f/sales/clean'])
 		await expect(
 			call(
 				'build_pipeline_node',
-				{ path: 'f/other/clean', language: 'bun', content: '// pipeline' },
+				{ path: 'f/other/clean', language: 'bun', content: '// pipeline', summary: 'Test node' },
 				editors
 			)
 		).rejects.toThrow(/open_preview\(kind="pipeline", path="other"\)/)

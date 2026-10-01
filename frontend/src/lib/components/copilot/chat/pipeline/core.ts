@@ -77,13 +77,15 @@ export interface PipelineAIChatHelpers {
 		language: ScriptLang
 		content: string
 		outputKind?: PipelineOutputKind
+		summary?: string
 	}) => Promise<{ path: string; detectedReads: string[]; detectedWrites: string[] }>
 	/** Replace an existing node's body, applied as an unsaved draft. Returns the
 	 * re-inferred asset lineage (URIs) so the caller sees the effect of the edit. */
 	editNode: (
 		path: string,
-		content: string
-	) => Promise<{ detectedReads: string[]; detectedWrites: string[] }>
+		content: string,
+		summary?: string
+	) => Promise<{ summary: string; detectedReads: string[]; detectedWrites: string[] }>
 	/** Discard the unsaved draft at a path (undo a build_pipeline_node). */
 	removeProposedNode: (path: string) => Promise<void>
 	/** Trigger kinds the node declares (`on <kind>`) that no trigger row or draft fills. */
@@ -101,7 +103,25 @@ export interface PipelineAIChatHelpers {
 
 /** Helper bag the pipeline tools receive from the manager in global mode: every
  * pipeline editor currently open, one per folder. */
-export type PipelineToolHelpers = { pipelines?: () => readonly PipelineAIChatHelpers[] }
+export type PipelineToolHelpers = {
+	pipelines?: () => readonly PipelineAIChatHelpers[]
+	/** Folders the chat may work on, including ones whose editor is not mounted now. */
+	pipelineFolders?: () => readonly string[]
+	/** Remounts the folder's editor (a session reopens its preview tab) and resolves
+	 * to it, or `undefined` when it cannot be brought back. */
+	ensurePipeline?: (folder: string) => Promise<PipelineAIChatHelpers | undefined>
+}
+
+/** The folder's editor, remounted when the chat opened it before and something else
+ * has taken its tab since. */
+async function remount(
+	helpers: PipelineToolHelpers,
+	folder: string | undefined
+): Promise<PipelineAIChatHelpers | undefined> {
+	if (!folder || !helpers?.ensurePipeline) return undefined
+	if (!(helpers.pipelineFolders?.() ?? []).includes(folder)) return undefined
+	return helpers.ensurePipeline(folder)
+}
 
 function openPipelines(helpers: PipelineToolHelpers): readonly PipelineAIChatHelpers[] {
 	const open = helpers?.pipelines?.() ?? []
@@ -123,11 +143,15 @@ function notOpenError(folder: string, open: readonly PipelineAIChatHelpers[]): E
 /** The editor of the pipeline a node path belongs to (`f/<folder>/<node>`). With a
  * single editor open, a path outside it still goes to that editor, whose own check
  * names the corrected path. */
-function pipelineForPath(helpers: PipelineToolHelpers, path: string): PipelineAIChatHelpers {
-	const open = openPipelines(helpers)
+async function pipelineForPath(
+	helpers: PipelineToolHelpers,
+	path: string
+): Promise<PipelineAIChatHelpers> {
 	const folder = path.match(/^f\/([^/]+)\//)?.[1]
-	const match = folder ? open.find((p) => p.getFolder() === folder) : undefined
+	const live = folder ? helpers?.pipelines?.().find((p) => p.getFolder() === folder) : undefined
+	const match = live ?? (await remount(helpers, folder))
 	if (match) return match
+	const open = openPipelines(helpers)
 	if (open.length === 1) return open[0]
 	throw folder
 		? notOpenError(folder, open)
@@ -136,15 +160,19 @@ function pipelineForPath(helpers: PipelineToolHelpers, path: string): PipelineAI
 			)
 }
 
-function pipelineForFolder(
+async function pipelineForFolder(
 	helpers: PipelineToolHelpers,
 	folder: string | undefined
-): PipelineAIChatHelpers {
+): Promise<PipelineAIChatHelpers> {
+	const known = helpers?.pipelineFolders?.() ?? []
+	const name = folder ? normalizePipelineFolder(folder) : known.length === 1 ? known[0] : undefined
+	const live = name ? helpers?.pipelines?.().find((p) => p.getFolder() === name) : undefined
+	const remounted = live ?? (await remount(helpers, name))
+	if (remounted) return remounted
 	const open = openPipelines(helpers)
 	if (folder) {
-		const name = normalizePipelineFolder(folder)
 		const match = open.find((p) => p.getFolder() === name)
-		if (!match) throw notOpenError(name, open)
+		if (!match) throw notOpenError(normalizePipelineFolder(folder), open)
 		return match
 	}
 	if (open.length === 1) return open[0]
@@ -250,6 +278,15 @@ function unconfiguredTriggersNote(path: string, kinds: readonly string[]): strin
 	return ` ACTION REQUIRED: '${path}' declares \`on ${kinds.join('`, `on ')}\` but has no ${kinds.join('/')} trigger yet, so nothing would start it once deployed. Call set_pipeline_trigger for it now (a schedule needs its cron and timezone; ask the user only if the cadence cannot be inferred).`
 }
 
+const summaryField = z
+	.string()
+	.trim()
+	.min(1)
+	.max(80)
+	.describe(
+		'Succinct summary of what the node does, a few words in sentence case with no trailing period (e.g. "Ingest Stripe charges", "Daily revenue by region"). It is the title the node shows in the workspace.'
+	)
+
 const buildPipelineNodeSchema = z.object({
 	path: z
 		.string()
@@ -264,6 +301,7 @@ const buildPipelineNodeSchema = z.object({
 		.describe(
 			"Full script source. Start it with the `pipeline` annotation as a top-of-file comment in the LANGUAGE'S comment syntax — `-- pipeline` for SQL (duckdb/postgresql), `# pipeline` for python3/bash, `// pipeline` for bun/TS — to mark it a pipeline member; declare inputs the same way (e.g. `-- on <asset-uri|schedule|webhook|...>`), and write outputs via the wmill SDK / SQL so the lineage edges are inferred. A `// pipeline` line in a SQL node is a syntax error. Read existing node bodies first to match conventions."
 		),
+	summary: summaryField,
 	output_kind: outputKindSchema.optional(),
 	triggers: z
 		.array(nodeTriggerSchema)
@@ -282,8 +320,17 @@ const buildPipelineNodeToolDef = createToolDef(
 
 const editPipelineNodeSchema = z.object({
 	path: z.string().describe('Workspace path of the node to edit.'),
-	old_string: z.string().min(1).describe("Exact text to find in the node's current source."),
-	new_string: z.string().describe('Replacement text.'),
+	old_string: z
+		.string()
+		.min(1)
+		.optional()
+		.describe("Exact text to find in the node's current source. Omit to change only the summary."),
+	new_string: z.string().optional().describe('Replacement text.'),
+	summary: summaryField
+		.optional()
+		.describe(
+			'New succinct summary (a few words, no trailing period). Pass it whenever the node has none or the edit changes what the node does.'
+		),
 	replace_all: z
 		.boolean()
 		.optional()
@@ -354,7 +401,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		planModeSafe: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const { folder } = getPipelineGraphSchema.parse(args ?? {})
-			const pipeline = pipelineForFolder(helpers, folder)
+			const pipeline = await pipelineForFolder(helpers, folder)
 			toolCallbacks.setToolStatus(toolId, { content: 'Reading pipeline graph...' })
 			const ctx = pipeline.getPipelineContext()
 			toolCallbacks.setToolStatus(toolId, {
@@ -370,7 +417,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		planModeSafe: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const { path } = readPipelineNodeSchema.parse(args)
-			const pipeline = pipelineForPath(helpers, path)
+			const pipeline = await pipelineForPath(helpers, path)
 			toolCallbacks.setToolStatus(toolId, { content: `Reading node '${path}'...` })
 			const node = await pipeline.getNodeBody(path)
 			if (!node) {
@@ -387,9 +434,9 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		showDetails: true,
 		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const { path, language, content, output_kind, triggers } =
+			const { path, language, content, summary, output_kind, triggers } =
 				buildPipelineNodeSchema.parse(args)
-			const pipeline = pipelineForPath(helpers, path)
+			const pipeline = await pipelineForPath(helpers, path)
 			// Validated before the node is staged, so a bad config leaves nothing half-built.
 			const configs = (triggers ?? []).map((t) => ({
 				kind: t.kind,
@@ -400,6 +447,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 				path,
 				language: language as ScriptLang,
 				content,
+				summary,
 				outputKind: output_kind as PipelineOutputKind | undefined
 			})
 			const attached: string[] = []
@@ -425,27 +473,38 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		showDetails: true,
 		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const { path, old_string, new_string, replace_all } = editPipelineNodeSchema.parse(args)
-			const pipeline = pipelineForPath(helpers, path)
+			const { path, old_string, new_string, replace_all, summary } =
+				editPipelineNodeSchema.parse(args)
+			if (old_string === undefined && summary === undefined) {
+				throw new Error('Pass old_string/new_string to change the source, summary to rename it, or both.')
+			}
+			const pipeline = await pipelineForPath(helpers, path)
 			const node = await pipeline.getNodeBody(path)
 			if (!node) {
 				return `No pipeline node found at '${path}'. Call get_pipeline_graph to list the available nodes.`
 			}
 			toolCallbacks.setToolStatus(toolId, { content: `Editing node '${path}'...` })
-			const updated = findAndReplace(
-				node.content,
-				old_string,
-				new_string,
-				replace_all ?? false,
-				'node source'
-			)
-			const { detectedReads, detectedWrites } = await pipeline.editNode(path, updated)
+			const updated =
+				old_string === undefined
+					? node.content
+					: findAndReplace(
+							node.content,
+							old_string,
+							new_string ?? '',
+							replace_all ?? false,
+							'node source'
+						)
+			const edited = await pipeline.editNode(path, updated, summary)
+			const { detectedReads, detectedWrites } = edited
+			const summaryNote = edited.summary.trim()
+				? ''
+				: ` '${path}' has no summary: call edit_pipeline_node with just \`summary\` (a few words saying what it does).`
 			recordPipelineModified(toolCallbacks, pipeline)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Edited draft '${path}'`,
 				result: 'Success'
 			})
-			return `Pipeline node '${path}' updated as an unsaved draft on the canvas (not deployed).${inferredLineageNote(detectedReads, detectedWrites)}${unconfiguredTriggersNote(path, await pipeline.unconfiguredTriggers(path))}`
+			return `Pipeline node '${path}' updated as an unsaved draft on the canvas (not deployed).${inferredLineageNote(detectedReads, detectedWrites)}${summaryNote}${unconfiguredTriggersNote(path, await pipeline.unconfiguredTriggers(path))}`
 		}
 	},
 	{
@@ -454,7 +513,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		showDetails: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const { path, kind, config } = setPipelineTriggerSchema.parse(args)
-			const pipeline = pipelineForPath(helpers, path)
+			const pipeline = await pipelineForPath(helpers, path)
 			toolCallbacks.setToolStatus(toolId, { content: `Setting the ${kind} trigger of '${path}'...` })
 			const valid = validateTriggerConfig(kind, config, path)
 			const { path: triggerPath, replaced } = await pipeline.setNodeTrigger(path, kind, valid)
@@ -471,7 +530,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		def: removePipelineNodeToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const { path } = removePipelineNodeSchema.parse(args)
-			const pipeline = pipelineForPath(helpers, path)
+			const pipeline = await pipelineForPath(helpers, path)
 			toolCallbacks.setToolStatus(toolId, { content: `Discarding draft '${path}'...` })
 			await pipeline.removeProposedNode(path)
 			// With the last draft gone there is nothing left to deploy: the pipeline
@@ -498,7 +557,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		autoCollapseDetails: false,
 		fn: async ({ args, workspace, helpers, toolId, toolCallbacks }) => {
 			const { path, args: runArgs } = testPipelineNodeSchema.parse(args)
-			const pipeline = pipelineForPath(helpers, path)
+			const pipeline = await pipelineForPath(helpers, path)
 			return executeTestRun({
 				jobStarter: async () => {
 					const jobId = await pipeline.testNode(path, runArgs ?? undefined)
@@ -554,7 +613,7 @@ Data Pipeline editor (ACTIVE):
 - ${pathLine}${
 		canWriteDraft
 			? `
-- Build new nodes with build_pipeline_node and edit existing ones with edit_pipeline_node. These apply directly as unsaved drafts on the canvas (like the flow/script editor applies AI edits) — they DO NOT deploy. There is no separate Accept/Reject step. Prefer these over the generic write_script/edit_script draft tools while a pipeline is open.
+- Build new nodes with build_pipeline_node and edit existing ones with edit_pipeline_node. Give every node a succinct \`summary\` (a few words saying what it does, e.g. "Ingest Stripe charges"), and update it when an edit changes what the node does. These apply directly as unsaved drafts on the canvas (like the flow/script editor applies AI edits) — they DO NOT deploy. There is no separate Accept/Reject step. Prefer these over the generic write_script/edit_script draft tools while a pipeline is open.
 - Reuse existing asset paths from the graph when wiring a downstream node to an upstream one (read the upstream's write asset, then \`// on\` that same URI).
 - TRIGGERS: an ingestion node (one with no upstream asset to react to) must declare how it starts, e.g. \`// on schedule\`, and every \`on <schedule|email|kafka|mqtt|amqp|nats|postgres|sqs|gcp>\` line needs its trigger: pass it in build_pipeline_node's \`triggers\` (or call set_pipeline_trigger) in the same step you build the node. A schedule needs a 6-field cron and an IANA timezone — pick a sensible cadence from the request (e.g. daily at 06:00 UTC for a daily sync) rather than leaving it empty; for the other kinds call get_trigger_schema(kind) for the config fields and ask the user for any connection/resource you cannot find. Never leave a declared trigger without one: the node would deploy with nothing to start it. \`webhook\` and \`data_upload\` need no trigger.
 - Only deploy when the user explicitly asks; the user deploys drafts from the canvas.`

@@ -78,14 +78,15 @@ export function makePipelineScript(
 	language: ScriptLang,
 	scriptPath: string,
 	content: string,
-	createdAt: string
+	createdAt: string,
+	summary = ''
 ): Script {
 	// Cast through unknown: a local draft only needs path/language/content/schema;
 	// the many readonly deployment fields on Script don't matter until createScript.
 	return {
 		hash: '',
 		path: scriptPath,
-		summary: '',
+		summary,
 		description: '',
 		content,
 		schema: emptySchema(),
@@ -209,7 +210,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 					path: r.path,
 					language: draft?.script.language,
 					unsaved: r.unsaved ?? false,
-					summary: draft?.script.summary || undefined,
+					summary: (draft ? draft.script.summary : r.summary) || undefined,
 					writes: [...new Set(writes)],
 					reads: [...new Set(reads)],
 					triggers: [...new Set(triggers)]
@@ -262,7 +263,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				return undefined
 			}
 		},
-		proposeNode: async ({ path, language, content, outputKind }) => {
+		proposeNode: async ({ path, language, content, outputKind, summary }) => {
 			deps.ensureEditable?.()
 			// build_pipeline_node creates a NEW node in the OPEN folder. Reject a path
 			// outside the folder (it would silently stage into this folder's bundle)
@@ -318,7 +319,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: deps.newDraftLocalId(),
-				script: makePipelineScript(language, path, content, new Date().toISOString()),
+				script: makePipelineScript(language, path, content, new Date().toISOString(), summary),
 				outputAssets,
 				inputAssets: inferred.reads
 			})
@@ -336,7 +337,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				)
 			}
 		},
-		editNode: async (path, content) => {
+		editNode: async (path, content, summary) => {
 			deps.ensureEditable?.()
 			assertInFolder(path)
 			assertPipelineAnnotation(content)
@@ -369,7 +370,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: existing?.localId ?? deps.newDraftLocalId(),
-				script: { ...baseScript, content },
+				script: { ...baseScript, content, ...(summary !== undefined ? { summary } : {}) },
 				outputAssets,
 				inputAssets: inferred.reads
 			})
@@ -378,6 +379,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			deps.onProposeNode?.(path)
 			// Deployable lineage only (see proposeNode): body writes + materialize target.
 			return {
+				summary: summary ?? baseScript.summary ?? '',
 				detectedReads: inferred.reads.map(assetUri),
 				detectedWrites: dedupeAssets([...inferred.writes, ...materializeWrites(content)]).map(
 					assetUri
