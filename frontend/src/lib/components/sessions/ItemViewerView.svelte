@@ -16,7 +16,12 @@
 	import { Pen } from 'lucide-svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import type { SessionTargetKind } from './sessionRuntime.svelte'
-	import { parsePreviewItemRoute, previewLocationLabel, stripBase } from './previewRouter'
+	import {
+		parseHistoricalScriptEdit,
+		parsePreviewItemRoute,
+		previewLocationLabel,
+		stripBase
+	} from './previewRouter'
 
 	let {
 		runtime,
@@ -64,18 +69,15 @@
 
 	const searchParams = $derived(version ? new URLSearchParams({ version }) : undefined)
 
-	// Nothing deployed at this path. Reset per remount key so a refetch after a deploy is
-	// not answered from the previous load's verdict.
-	let loadState: 'loaded' | 'not_found' | undefined = $state(undefined)
-	const notDeployed = $derived(loadState === 'not_found')
-	function setLoadState(state: 'loaded' | 'not_found') {
-		loadState = state
+	// Remounts the detail page below, which loads on mount.
+	const loadKey = $derived(`${workspaceId}/${kind}/${path}/${version ?? ''}/${reloadKey}`)
+	// Nothing deployed at this path. Stamped with the load it answers, so a refetch or a
+	// re-pointed tab is never answered from an earlier load's verdict.
+	let notFoundFor: string | undefined = $state(undefined)
+	const notDeployed = $derived(notFoundFor === loadKey)
+	function onLoadState(key: string, state: 'loaded' | 'not_found') {
+		notFoundFor = state === 'not_found' ? key : undefined
 	}
-	$effect(() => {
-		reloadKey
-		version
-		untrack(() => (loadState = undefined))
-	})
 
 	function toEditSide() {
 		onNavigate(
@@ -99,13 +101,14 @@
 			runtime.manager.openRunInPreview?.({
 				jobId,
 				workspace: query.get('workspace') || workspaceId,
-				label: `Run ${jobId.slice(0, 8)}`
+				label: previewLocationLabel(`/run/${jobId}`)
 			})
 			return
 		}
 		const route = parsePreviewItemRoute(url)
-		// Legacy drag-and-drop apps have no in-panel host, so they fall through to a page tab.
-		if (route && (route.kind !== 'app' || route.raw_app)) {
+		// Legacy drag-and-drop apps and historical script edits have no in-panel host, so they
+		// fall through to a page tab.
+		if (route && (route.kind !== 'app' || route.raw_app) && !parseHistoricalScriptEdit(url)) {
 			// A script's version history addresses a version by putting its hash where the
 			// path goes. Every real script path is `u/<user>/…` or `f/<folder>/…`, so a
 			// segment with no slash is a hash — pinned in the query instead, or this tab's
@@ -140,7 +143,9 @@
 
 <!-- Remount to refetch: both detail components load on mount, so a deploy lands here
      rather than as a refresh path of their own. -->
-{#key `${workspaceId}/${path}/${version ?? ''}/${reloadKey}`}
+{#key loadKey}
+	{@const mountedKey = loadKey}
+	{@const setLoadState = (state: 'loaded' | 'not_found') => onLoadState(mountedKey, state)}
 	{#if notDeployed}
 		<!-- This side shows the DEPLOYED item, and there isn't one. Without this the detail
 		     page renders nothing and the panel is simply blank, which reads as a failure

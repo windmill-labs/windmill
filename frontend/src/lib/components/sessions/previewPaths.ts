@@ -176,3 +176,13 @@ export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null
 	if (m[1] === 'apps_raw') return { kind: 'app', raw_app: true, itemPath, mode }
 	return { kind: 'app', raw_app: false, itemPath, mode }
 }
+
+/** The script and hash of an editor opened on a historical version (`/scripts/edit/<path>?hash=`),
+ * or null. The session's live editor holds only the current draft, so this route is the
+ * standalone editor — which writes no draft in that mode — and never that editor's tab. */
+export function parseHistoricalScriptEdit(url: string): { path: string; hash: string } | null {
+	const route = parsePreviewItemRoute(url)
+	if (route?.kind !== 'script' || route.mode !== 'edit') return null
+	const hash = new URL(url, 'http://x').searchParams.get('hash')
+	return hash ? { path: route.itemPath, hash } : null
+}

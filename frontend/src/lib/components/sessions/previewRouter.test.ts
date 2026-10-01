@@ -335,6 +335,15 @@ describe('resolvePreviewTab', () => {
 		})
 	})
 
+	it('leaves an edit of a historical script version to the standalone editor', () => {
+		const historical = '/scripts/edit/f/foo/bar?hash=abc123&topHash=def456'
+		expect(resolvePreviewTab(historical)).toEqual({ kind: 'iframe' })
+		// Sharing the live editor's identity would let opening it re-point that editor's tab.
+		expect(describeLocation(historical).identity).not.toBe(
+			describeLocation('/scripts/edit/f/foo/bar').identity
+		)
+	})
+
 	it('routes any flow item to a live editor', () => {
 		expect(resolvePreviewTab('/flows/edit/f/foo/bar')).toEqual({
 			kind: 'editor',

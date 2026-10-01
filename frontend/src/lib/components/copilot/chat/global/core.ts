@@ -4808,7 +4808,7 @@ async function openSessionPreview(
 	// `write_draft` is a workspace capability and says nothing about this path, so an
 	// edit that survived it is still checked against the item's own permissions.
 	if (mode === 'edit' && workspace) {
-		const verdict = await canEditItemPath(workspace, args.path)
+		const verdict = await canEditItemPath(workspace, args.kind, args.path)
 		if (verdict !== 'allowed') {
 			const opened = await openPreviewHandler({ ...args, mode: 'view', sessionId })
 			// "Couldn't check" is not "denied" — reporting the lookup failure as a denial
@@ -4828,16 +4828,28 @@ async function openSessionPreview(
  * (it answers false for an unknown user). */
 async function canEditItemPath(
 	workspace: string,
+	kind: 'script' | 'flow' | 'raw_app',
 	path: string
 ): Promise<'allowed' | 'denied' | 'unverified'> {
 	const role = await roleForWorkspace(workspace)
 	if (role.kind === 'not_a_member') return 'denied'
 	if (role.kind !== 'resolved' || !role.user) return 'unverified'
 	if (role.user.operator) return 'denied'
-	// Folder and ownership rules are all `canWrite` needs for a path-shaped check; an
-	// item's own `extra_perms` can only widen this, and fetching it would cost a request
-	// per call on the path that is meant to be free.
-	return canWrite(path, {}, role.user) ? 'allowed' : 'denied'
+	// Folder and ownership rules answer most calls without a request. An item's own
+	// `extra_perms` can only widen them, so the item is fetched only to overturn a denial.
+	if (canWrite(path, {}, role.user)) return 'allowed'
+	try {
+		const extraPerms =
+			kind === 'script'
+				? (await ScriptService.getScriptByPath({ workspace, path })).extra_perms
+				: kind === 'flow'
+					? (await FlowService.getFlowByPath({ workspace, path })).extra_perms
+					: (await AppService.getAppByPath({ workspace, path })).extra_perms
+		return canWrite(path, extraPerms ?? {}, role.user) ? 'allowed' : 'denied'
+	} catch (e) {
+		// Nothing deployed means no sharing to widen the folder rules with.
+		return (e as { status?: number } | null | undefined)?.status === 404 ? 'denied' : 'unverified'
+	}
 }
 
 // Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's

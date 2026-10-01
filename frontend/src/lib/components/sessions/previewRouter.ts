@@ -11,6 +11,7 @@ import {
 	pageKey,
 	pageHref,
 	parsePageItemRoute,
+	parseHistoricalScriptEdit,
 	parsePreviewItemRoute,
 	RESOURCES_PATH,
 	RUNS_PATH,
@@ -32,6 +33,7 @@ export {
 	pageItemUrl,
 	pageKey,
 	pageHref,
+	parseHistoricalScriptEdit,
 	parsePageItemRoute,
 	parsePreviewItemRoute,
 	stripBase,
@@ -254,6 +256,11 @@ export function describeLocation(loc: string): PreviewLocation {
 	if (runForm) return { identity: `runform:${runForm.toolCallId}`, view: '', anchor: '' }
 	const pageItem = parsePageItemRoute(loc)
 	if (pageItem) return { identity: pageItemUrl(pageItem), view: '', anchor: '' }
+	// Keyed by its hash: as a bare path it would claim the live editor's tab on the same script.
+	const historical = parseHistoricalScriptEdit(loc)
+	if (historical) {
+		return { identity: `/scripts/edit/${historical.path}@${historical.hash}`, view: '', anchor: '' }
+	}
 	const canonical = canonicalizeObservedLoc(loc)
 	const path = stripBase(canonical)
 	const bare = canonical.split('#')[0]
@@ -439,9 +446,15 @@ export function previewLocationLabel(url: string): string {
 	const trigger = triggerLabelForPath(url)
 	if (trigger) return trigger
 	const run = stripBase(url).match(/^\/run\/([^/?#]+)/)
-	if (run) return `Run ${decodeURIComponent(run[1]).slice(0, 8)}`
+	// Job ids are time-ordered, so runs started moments apart share their head.
+	if (run) return `Run ${decodeURIComponent(run[1]).slice(-8)}`
+	// The runs of one item, as a detail page's Runs button links them.
+	const itemRuns = stripBase(url).match(/^\/runs\/(.+)$/)
+	if (itemRuns) return `Runs · ${decodeURIComponent(itemRuns[1]).split('/').pop()}`
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) return pipelineFolder
+	const historical = parseHistoricalScriptEdit(url)
+	if (historical) return `${historical.path.split('/').pop()} @ ${historical.hash.slice(0, 8)}`
 	const parsed = parsePreviewItemRoute(url)
 	if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
 	return stripBase(url)
@@ -584,7 +597,7 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
 	}
 	const item = parsePreviewItemRoute(url)
-	if (!item) return { kind: 'iframe' }
+	if (!item || parseHistoricalScriptEdit(url)) return { kind: 'iframe' }
 	const itemKind: SessionTargetKind | undefined =
 		item.kind === 'script'
 			? 'script'
