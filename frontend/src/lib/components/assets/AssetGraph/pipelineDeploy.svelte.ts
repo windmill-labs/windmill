@@ -13,8 +13,11 @@ import { deployTriggerDraft } from './pipelineTriggerDraftDeploy'
 // script is now deployed. Shared by the pipeline page's "Save all" and the AI
 // session's "Deploy pipeline", so both deploy exactly the same way.
 
-/** Deploy one pipeline script draft. */
-export async function deployPipelineScript(draft: PipelineDraft, workspace: string): Promise<void> {
+/** Deploy one pipeline script draft; resolves to the new version's hash. */
+export async function deployPipelineScript(
+	draft: PipelineDraft,
+	workspace: string
+): Promise<string> {
 	const script = structuredClone($state.snapshot(draft.script) as Script)
 	script.schema = script.schema ?? emptySchema()
 	try {
@@ -35,7 +38,7 @@ export async function deployPipelineScript(draft: PipelineDraft, workspace: stri
 	} catch {
 		// An unparsable body deploys with no lineage rather than the stale snapshot.
 	}
-	await ScriptService.createScript({
+	return await ScriptService.createScript({
 		workspace,
 		requestBody: {
 			...script,
@@ -141,9 +144,9 @@ export async function deployPipelineDrafts(
 	editor: PipelineEditorState,
 	workspace: string
 ): Promise<PipelineDeployOutcome> {
-	// The pane stays closed while deploying: closing it lands an open deployed
-	// script's edits as its draft, and nothing can be typed into a draft whose
-	// deploy is in flight. It reopens on that script once the deploy is done.
+	// Closing the pane lands an open deployed script's edits as its draft, so they
+	// deploy too. It reopens on that script once the deploy is done, unless another
+	// one was opened meanwhile.
 	const reopen =
 		editor.liveEditPath != undefined || editor.activeDraftPath != undefined
 			? await editor.closePane()
@@ -151,6 +154,7 @@ export async function deployPipelineDrafts(
 	const entries = [...editor.drafts.entries()]
 	const errors = new Map<string, string>()
 	const savedPaths: string[] = []
+	const hashes = new Map<string, string>()
 	// Parallel: every createScript is independent, and one bad body must not block
 	// the others.
 	const results = await Promise.allSettled(
@@ -161,6 +165,7 @@ export async function deployPipelineDrafts(
 		const [path, d] = entries[i]
 		if (r.status === 'fulfilled') {
 			savedPaths.push(path)
+			if (r.value) hashes.set(path, r.value)
 			continue
 		}
 		// A refused draft that equals the deployed script has nothing left to deploy.
@@ -194,9 +199,24 @@ export async function deployPipelineDrafts(
 	for (const key of savedTriggers) editor.discardTriggerDraft(key)
 
 	if (savedPaths.length > 0) {
-		editor.drafts = new Map([...editor.drafts].filter(([k]) => !savedPaths.includes(k)))
+		// A draft edited again while it deployed (its node reopened from the canvas)
+		// keeps the newer edits, now on top of the version just deployed; only a draft
+		// still holding exactly what was sent is done.
+		const sent = new Map(entries.map(([p, d]) => [p, d.script.content]))
+		const next = new Map<string, PipelineDraft>()
+		for (const [k, d] of editor.drafts) {
+			if (!savedPaths.includes(k)) {
+				next.set(k, d)
+				continue
+			}
+			const open = editor.liveContent.scriptPath === k ? editor.liveContent.content : undefined
+			if ((open ?? d.script.content) === sent.get(k)) continue
+			const hash = hashes.get(k)
+			next.set(k, hash ? { ...d, script: { ...d.script, hash } } : d)
+		}
+		editor.drafts = next
 	}
-	if (reopen) {
+	if (reopen && editor.activeDraftPath === undefined && editor.selection === undefined) {
 		if (editor.drafts.has(reopen)) editor.activeDraftPath = reopen
 		else editor.selection = { kind: 'runnable', runnable_kind: 'script', path: reopen }
 	}
