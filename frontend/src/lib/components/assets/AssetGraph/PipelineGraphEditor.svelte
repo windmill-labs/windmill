@@ -225,7 +225,7 @@
 		) => Promise<string | undefined>
 		onShowScript?: () => void
 		// Data-upload entry scripts whose staged upload is ready (green node).
-		readyDataUploadPaths?: Set<string>
+		readyDataUploadPaths?: ReadonlySet<string>
 		/** Local-dev (`/pipeline_dev`): resolve a node to its working-tree content
 		 * so the details pane skips the (nonexistent) deployed-script fetch. May
 		 * be async (to infer the args schema for the run form). */
