@@ -69,9 +69,7 @@
 	// any editable item (script/flow/raw app) or a pipeline folder mounts its own
 	// live editor.
 	const slot = $derived(resolvePreviewTab(tab.url))
-	// The item this tab is on and the side of it currently addressed. Both sides are
-	// one tab, so these are read apart from `slot`: the editor keeps rendering from
-	// `itemKind`/`itemPath` while the URL names the viewer, and vice versa.
+	// The item this tab is on and the side of it its URL addresses, whichever side that is.
 	const itemKind = $derived(
 		slot.kind === 'editor' ? slot.editorKind : slot.kind === 'viewer' ? slot.viewerKind : undefined
 	)
@@ -87,35 +85,6 @@
 			: undefined
 	)
 
-	// Once a side has been shown it stays mounted and hidden, so flipping back neither
-	// remounts a whole editor nor refetches the viewer, and neither side loses what was
-	// typed into it. Moving the tab to a different item resets both — what is mounted
-	// belongs to the item it was mounted for.
-	//
-	// Eviction resets them too. The page's MRU budget counts tabs, not sides, so a tab
-	// holding both would otherwise come back from an eviction still holding both and cost
-	// two heavy trees against one slot — the eviction it just went through would have
-	// reclaimed nothing.
-	let sidesFor: string | undefined = $state(undefined)
-	let editVisited = $state(false)
-	let viewVisited = $state(false)
-	$effect(() => {
-		if (!mounted) {
-			sidesFor = undefined
-			editVisited = false
-			viewVisited = false
-			return
-		}
-		const key = itemKind && itemPath ? `${itemKind}:${itemPath}` : undefined
-		if (key !== sidesFor) {
-			sidesFor = key
-			editVisited = false
-			viewVisited = false
-		}
-		if (slot.kind === 'editor') editVisited = true
-		else if (slot.kind === 'viewer') viewVisited = true
-	})
-
 	// The path an editor reports is its deployed one, which a staged rename can make
 	// differ from this tab's — so the view opens on what actually exists.
 	const seeDetails = (e: { path: string }) =>
@@ -126,8 +95,6 @@
 			raw_app: itemKind === 'raw_app'
 		})
 
-	const sideVisibility = (shown: boolean) =>
-		shown ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
 	// Where inside the editor the tab was opened on ("open this flow step in a
 	// session"). Only the in-process editors need it handed over — an iframe tab
 	// loads the URL whole, params included.
@@ -340,11 +307,11 @@
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
 	>
-		{#if editVisited}
-			<div
-				class="absolute inset-0 flex flex-col min-h-0 bg-surface {sideVisibility(mode === 'edit')}"
-				aria-hidden={mode !== 'edit'}
-			>
+		<!-- Only the side the tab shows is mounted. A hidden editor would be a second editor on
+		     the item's one cell that tab dedupe, reading URLs, cannot see; a hidden side's drawers
+		     portal into this shared host and would stay over the other. -->
+		{#if mode === 'edit'}
+			<div class="absolute inset-0 flex flex-col min-h-0 bg-surface">
 				<!-- Dynamic imports: the live editors pull in the heaviest module graphs in
 				     the app (FlowBuilder, ScriptBuilder/Monaco, the raw-app editor, the
 				     pipeline graph). Loading them only when an editor tab first mounts keeps
@@ -360,7 +327,7 @@
 							{onNavigate}
 							onSeeDetails={seeDetails}
 							{isActiveSession}
-							active={active && mode === 'edit'}
+							{active}
 							initialSelectedId={selectedId}
 						/>
 					{/await}
@@ -375,7 +342,7 @@
 							{onNavigate}
 							onSeeDetails={seeDetails}
 							{isActiveSession}
-							active={active && mode === 'edit'}
+							{active}
 							{fullscreen}
 						/>
 					{/await}
@@ -383,13 +350,7 @@
 					{#await import('./PipelineEditorView.svelte')}
 						{@render editorLoading()}
 					{:then Module}
-						<Module.default
-							{runtime}
-							path={itemPath}
-							{workspaceId}
-							{isActiveSession}
-							active={active && mode === 'edit'}
-						/>
+						<Module.default {runtime} path={itemPath} {workspaceId} {isActiveSession} {active} />
 					{/await}
 				{:else}
 					{#await import('./RawAppEditorView.svelte')}
@@ -401,17 +362,13 @@
 							{workspaceId}
 							{onNavigate}
 							{isActiveSession}
-							active={active && mode === 'edit'}
+							{active}
 						/>
 					{/await}
 				{/if}
 			</div>
-		{/if}
-		{#if viewVisited && itemKind !== 'pipeline'}
-			<div
-				class="absolute inset-0 flex flex-col min-h-0 bg-surface {sideVisibility(mode === 'view')}"
-				aria-hidden={mode !== 'view'}
-			>
+		{:else if itemKind !== 'pipeline'}
+			<div class="absolute inset-0 flex flex-col min-h-0 bg-surface">
 				{#await import('./ItemViewerView.svelte')}
 					{@render editorLoading()}
 				{:then Module}
@@ -423,7 +380,7 @@
 						version={pinnedVersion}
 						{workspaceId}
 						tabId={tab.id}
-						active={active && !collapsed && mode === 'view'}
+						active={active && !collapsed}
 					/>
 				{/await}
 			</div>
