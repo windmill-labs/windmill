@@ -20,7 +20,9 @@ function makeHandle(
 		getDrafts: () => drafts,
 		setDrafts: (next) => (drafts = next),
 		newDraftLocalId: () => 'id',
-		onForgetPath: (p) => forgotten.push(p)
+		onForgetPath: (p) => forgotten.push(p),
+		getTriggerDrafts: () => new Map(),
+		setTriggerDraft: () => true
 	})
 	return { handle, drafts: () => drafts, forgotten: () => forgotten }
 }
@@ -153,6 +155,30 @@ describe('pipeline AI direct-draft helpers', () => {
 			outputKind: 'ducklake' as any
 		})
 		expect(res.detectedWrites).toEqual(['ducklake://main/out'])
+	})
+
+	// The canvas draws an inactive draft's stored outputs beside its materialize
+	// target, so a seeded default left on a materialize node shows a phantom asset.
+	it('keeps no seeded or stale output on a node with a materialize target', async () => {
+		vi.spyOn(ScriptService, 'getScriptByPath').mockRejectedValue(new Error('404'))
+		const { handle, drafts } = makeHandle()
+		await handle.proposeNode({
+			path: 'f/x/mat',
+			language: 'duckdb' as any,
+			content: '-- pipeline\n-- materialize ducklake://main/abc\nSELECT 1',
+			outputKind: 'ducklake' as any
+		})
+		expect(drafts().get('f/x/mat')?.outputAssets).toBeUndefined()
+
+		await handle.proposeNode({
+			path: 'f/x/later',
+			language: 'duckdb' as any,
+			content: '-- pipeline\nSELECT 1',
+			outputKind: 'ducklake' as any
+		})
+		expect(drafts().get('f/x/later')?.outputAssets?.length).toBeGreaterThan(0)
+		await handle.editNode('f/x/later', '-- pipeline\n-- materialize ducklake://main/abc\nSELECT 1')
+		expect(drafts().get('f/x/later')?.outputAssets).toBeUndefined()
 	})
 
 	it('editNode rejects a path outside the open folder', async () => {

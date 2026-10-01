@@ -109,7 +109,8 @@
 			liveAnnotations: pe.liveAnnotations,
 			inferredWritesByPath: assetPrefetch.inferredWritesByPath,
 			inferredReadsByPath: assetPrefetch.inferredReadsByPath,
-			annotatedNativeKindsByPath: assetPrefetch.annotatedNativeKindsByPath
+			annotatedNativeKindsByPath: assetPrefetch.annotatedNativeKindsByPath,
+			triggerDrafts: pe.triggerDrafts.values()
 		})
 	)
 
@@ -121,6 +122,8 @@
 		setDrafts: (next) => (pe.drafts = next),
 		newDraftLocalId: pe.newDraftLocalId,
 		hasTriggerDrafts: () => pe.triggerDrafts.size > 0,
+		getTriggerDrafts: () => pe.triggerDrafts,
+		setTriggerDraft: pe.setTriggerDraft,
 		onForgetPath: (p) => {
 			pe.forgetPath(p)
 			pe.discardTriggerDraftsFor(p)

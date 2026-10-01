@@ -498,6 +498,8 @@
 		getWorkspace: () => $workspaceStore,
 		getResolvedGraph: () => graphWithDraft,
 		hasTriggerDrafts: () => pe.triggerDrafts.size > 0,
+		getTriggerDrafts: () => pe.triggerDrafts,
+		setTriggerDraft: pe.setTriggerDraft,
 		getDrafts: () => pe.drafts,
 		setDrafts: (next) => (pe.drafts = next),
 		newDraftLocalId: pe.newDraftLocalId,

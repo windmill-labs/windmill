@@ -4336,6 +4336,8 @@ describe('AIChatManager.waitForPipelineHelpers', () => {
 			proposeNode: async () => ({ path: '', detectedReads: [], detectedWrites: [] }),
 			editNode: async () => ({ detectedReads: [], detectedWrites: [] }),
 			removeProposedNode: async () => {},
+			unconfiguredTriggers: async () => [],
+			setNodeTrigger: async () => ({ path: '', replaced: false }),
 			testNode: async () => undefined
 		}
 	}

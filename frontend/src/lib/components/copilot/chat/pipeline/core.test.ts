@@ -66,6 +66,11 @@ function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
 			return { detectedReads: [], detectedWrites: [] }
 		},
 		removeProposedNode: record('removeProposedNode'),
+		unconfiguredTriggers: async () => [],
+		setNodeTrigger: async (path, kind, config) => {
+			calls.setNodeTrigger = [...(calls.setNodeTrigger ?? []), [path, kind, config]]
+			return { path: `${path}_${kind}`, replaced: false }
+		},
 		testNode: async () => 'job-123',
 		...overrides
 	}
@@ -80,6 +85,7 @@ describe('pipeline tools', () => {
 			'get_pipeline_graph',
 			'read_pipeline_node',
 			'remove_pipeline_node',
+			'set_pipeline_trigger',
 			'test_pipeline_node'
 		])
 	})
@@ -122,6 +128,49 @@ describe('pipeline tools', () => {
 			outputKind: 'ducklake'
 		})
 		expect(out).toContain('not deployed')
+	})
+
+	it('build_pipeline_node attaches declared triggers, and flags one left unset', async () => {
+		const { helpers, calls } = makeHelpers({ unconfiguredTriggers: async () => ['kafka'] })
+		const out = await toolByName('build_pipeline_node').fn({
+			args: {
+				path: 'f/analytics/ingest',
+				language: 'python3',
+				content: '# pipeline\n# on schedule\n# on kafka\ndef main():\n    return 1',
+				triggers: [{ kind: 'schedule', config: { schedule: '0 0 6 * * *', timezone: 'UTC' } }]
+			},
+			workspace: 'w',
+			helpers,
+			toolCallbacks: noopCallbacks(),
+			toolId: 't'
+		})
+		expect(calls.setNodeTrigger?.[0]).toEqual([
+			'f/analytics/ingest',
+			'schedule',
+			{ args: {}, enabled: true, schedule: '0 0 6 * * *', timezone: 'UTC' }
+		])
+		expect(out).toContain("schedule 'f/analytics/ingest_schedule'")
+		expect(out).toContain('ACTION REQUIRED')
+		expect(out).toContain('set_pipeline_trigger')
+	})
+
+	it('build_pipeline_node rejects an invalid trigger config before staging the node', async () => {
+		const { helpers, calls } = makeHelpers()
+		await expect(
+			toolByName('build_pipeline_node').fn({
+				args: {
+					path: 'f/analytics/ingest',
+					language: 'python3',
+					content: '# pipeline\n# on schedule\ndef main():\n    return 1',
+					triggers: [{ kind: 'schedule', config: { timezone: 'UTC' } }]
+				},
+				workspace: 'w',
+				helpers,
+				toolCallbacks: noopCallbacks(),
+				toolId: 't'
+			})
+		).rejects.toThrow(/schedule/)
+		expect(calls.proposeNode).toBeUndefined()
 	})
 
 	it('build_pipeline_node reports the inferred asset lineage', async () => {
