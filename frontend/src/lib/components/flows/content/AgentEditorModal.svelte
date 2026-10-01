@@ -1,13 +1,5 @@
 <script lang="ts">
-	import {
-		ChevronRight,
-		FlaskConical,
-		Settings,
-		FormInput,
-		History,
-		MessageSquare,
-		Save
-	} from 'lucide-svelte'
+	import { FlaskConical, Settings, FormInput, History, MessageSquare, Save } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { onDestroy, untrack } from 'svelte'
@@ -39,6 +31,8 @@
 	import AgentSettings from './AgentSettings.svelte'
 	import AgentEvalsModal from './AgentEvalsModal.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -312,34 +306,15 @@
 				{@render body()}
 			</Modal>
 		{:else}
+			<!-- On its own route the editor's header is the page header: the agent's path is the
+			     breadcrumb, the level it is on reads after that name, and its controls are the band's
+			     actions. -->
+			<PageHeaderContent
+				item={{ path: shownPath, summaryContent: agentBadges }}
+				afterName={agentHint}
+				actions={settings}
+			/>
 			<div class="h-full min-h-0 flex flex-col">
-				<div class="flex items-center gap-2 px-4 py-2 border-b shrink-0">
-					<div class="min-w-0 flex flex-col">
-						<div class="flex items-center gap-1 min-w-0">
-							{#each trail as segment, i (i)}
-								{#if i > 0}
-									<ChevronRight size={14} class="text-tertiary shrink-0" />
-								{/if}
-								{#if segment.onclick}
-									<Button variant="subtle" unifiedSize="sm" onClick={segment.onclick}>
-										{segment.label}
-									</Button>
-								{:else}
-									<span class="text-sm font-semibold text-emphasis truncate">{segment.label}</span>
-								{/if}
-								{#if i === 0}
-									{@render titleBadge()}
-								{/if}
-							{/each}
-							{@render levelBadge()}
-						</div>
-						{#if description}
-							<span class="text-2xs text-tertiary truncate">{description}</span>
-						{/if}
-					</div>
-					<div class="grow"></div>
-					{@render settings()}
-				</div>
 				<div class="flex-1 min-h-0 px-4 sm:px-6">
 					{@render body()}
 				</div>
@@ -347,6 +322,17 @@
 		{/if}
 	{/key}
 
+	{#snippet agentBadges()}
+		<!-- The version rides with the agent's name, as the linked-agent card in the step panel has
+		     it. The trail's levels are not here: this layout opens settings in a drawer and evals
+		     over the page, so it never stands on one. -->
+		{@render titleBadge()}
+	{/snippet}
+	{#snippet agentHint()}
+		{#if description}
+			<Tooltip>{description}</Tooltip>
+		{/if}
+	{/snippet}
 	{#snippet titleBadge()}
 		<!-- Against the agent's own name wherever it appears, as the linked-agent card in the
 				     step panel has it. -->
