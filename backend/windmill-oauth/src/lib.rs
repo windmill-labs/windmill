@@ -92,8 +92,9 @@ pub struct OAuthConfig {
     /// The registry JSON may also carry frontend-only keys for the connect
     /// dialog, deliberately not modelled here: `scope_options`, a scope pick
     /// list, `resource_fields`, the fields of the resource type the dialog
-    /// asks for once the token is in (Snowflake's database and warehouse), and
-    /// `user_scopes`, Slack's user-token scopes, sent as `user_scope`.
+    /// asks for once the token is in (Snowflake's database and warehouse),
+    /// `user_scopes`, Slack's user-token scopes, sent as `user_scope`, and
+    /// `user_scope_options`, the pick list offered alongside `user_scopes`.
     pub scopes: Option<Vec<String>>,
     /// Default scopes for the client-credentials (2-legged) flow. These differ
     /// from the authorization-code `scopes` for most providers (member/consent

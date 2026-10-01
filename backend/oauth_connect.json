@@ -43,6 +43,22 @@
       "mpim:read",
       "files:read"
     ],
+    "scope_options": [
+      { "value": "reactions:write", "label": "Add emoji reactions" },
+      { "value": "channels:manage", "label": "Create, archive and manage public channels, invite members, set topics" },
+      { "value": "groups:write", "label": "Create and manage private channels the app is in" },
+      { "value": "usergroups:write", "label": "Edit user groups (workspace settings often block bots)" }
+    ],
+    "user_scope_options": [
+      { "value": "reactions:write", "label": "Add emoji reactions" },
+      { "value": "channels:write", "label": "Create, archive and manage public channels" },
+      { "value": "channels:write.invites", "label": "Invite members to public channels" },
+      { "value": "channels:write.topic", "label": "Set public channel topics" },
+      { "value": "groups:write", "label": "Create and manage private channels" },
+      { "value": "users.profile:write", "label": "Set your status and edit your profile" },
+      { "value": "reminders:write", "label": "Create reminders for yourself" },
+      { "value": "usergroups:write", "label": "Edit user groups" }
+    ],
     "token_response_path": "authed_user"
   },
   "supabase_wizard": {
