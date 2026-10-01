@@ -937,7 +937,7 @@
 		item={{
 			// The path being edited, not the stored one: a brand-new app is parked at a
 			// `draft_<uuid>` placeholder, and the trail would name that instead of the path Deploy
-			// will create — which is why `newEditedPath` refuses the placeholder above.
+			// will create — which is why `newEditedPath` refuses the placeholder.
 			kind: 'app',
 			path: newEditedPath || appPath || newPath || undefined,
 			summaryContent: appSummary

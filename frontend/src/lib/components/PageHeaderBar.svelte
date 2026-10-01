@@ -64,12 +64,19 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		if (!el || el.nodeType !== 1) return
 		const box = document.getElementById('content')
 		if (!box || !box.contains(el)) return
+		// The answer this event would give, before measuring anything. While it matches what the
+		// band already draws there is nothing to decide — which is the steady state of a scroll,
+		// and the two rects below each force a synchronous layout. This listener captures every
+		// scroller in the app (Monaco, the audit table, a run's logs), about once a frame while any
+		// of them moves, so the common path has to stay off the layout.
+		const next = el.scrollTop > 0
+		if (next === scrolledUnder) return
 		// Only a box that starts where the content does has anything passing under the band. The
 		// audit page's list begins 285px lower, behind its own chart and column headers, and a
 		// select's option list floats wherever it opens: neither moves anything under the header.
 		const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top
 		if (top > AT_THE_TOP_PX) return
-		scrolledUnder = el.scrollTop > 0
+		scrolledUnder = next
 	}
 	// A page left while scrolled would otherwise hand its edge to the next one, which may have
 	// nothing to scroll at all.

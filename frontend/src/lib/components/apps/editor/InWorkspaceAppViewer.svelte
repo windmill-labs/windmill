@@ -166,7 +166,7 @@
 <!-- With a band, Edit sits with the app's name rather than at the far end of the bar: on a page
      whose header is only there while hovered, the far end is a journey across the window. An
      embed has no band — it would cost the app 44px of the iframe to carry one button — so Edit
-     floats over the canvas there, which is where it sat before the band existed. -->
+     floats over the canvas there instead. -->
 {#if showEdit && menuHidden}
 	<div class="absolute bottom-4 right-4 z-50">
 		{@render editAction()}

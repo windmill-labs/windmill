@@ -946,7 +946,7 @@
 		item={{
 			// The path being edited, not the stored one: a brand-new app is parked at a
 			// `draft_<uuid>` placeholder, and the trail would name that instead of the path Deploy
-			// will create. Same chain the rename sites read, and what the editor's own bar showed.
+			// will create. Same fallback chain the rename sites read.
 			kind: 'app',
 			path: newEditedPath || $appPath || newPath || undefined,
 			summaryContent: appSummary

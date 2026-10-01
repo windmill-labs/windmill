@@ -819,8 +819,8 @@
 			1.5
 		]}
 	/>
-	<!-- The row this page drew above its card now belongs to the layout: the run's own name is the
-	     breadcrumb's last part, and the buttons that acted on it are the bar's actions. -->
+	<!-- `section`, not an item: a run is not a workspace item the picker can open, so the trail
+	     ends with its id as a plain name. -->
 	<PageHeaderContent section={{ label: `run/${page.params.run}` }} actions={runActions} />
 
 	{#snippet runActions()}

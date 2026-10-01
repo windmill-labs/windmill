@@ -110,9 +110,8 @@
 	</div>
 {:else}
 	<div class="flex flex-col w-full h-full">
-		<!-- The title row this page drew now belongs to the layout: the page names itself in the
-		     breadcrumb, its documentation hint sits with that name, and the filters are the bar's
-		     actions. -->
+		<!-- `afterName`, not an action: the hint explains what audit logs are, so it belongs beside
+		     the page's name rather than at the far end of the bar with the filters. -->
 		<PageHeaderContent afterName={auditHint} actions={auditActions} />
 
 		{#snippet auditHint()}

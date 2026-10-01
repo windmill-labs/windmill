@@ -212,9 +212,8 @@
 	{/each}
 {/snippet}
 
-<!-- The bar this page's header used to draw now belongs to the layout: the path becomes the
-     breadcrumb, the summary keeps its rename-and-labels popover, and everything else rides along
-     as the bar's actions. -->
+<!-- The summary keeps its rename-and-labels popover here rather than becoming plain text in
+     the breadcrumb: renaming a script or flow is done from this page, not from the trail. -->
 <PageHeaderContent
 	item={{ kind: errorHandlerKind, path, summaryContent }}
 	{actions}
