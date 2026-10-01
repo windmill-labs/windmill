@@ -30,7 +30,7 @@
 		PIPELINE_NODE_HEADER,
 		PIPELINE_NODE_HEADER_CARD_PAD
 	} from './assetGraphLayout'
-	import { detourLane, routeAssetGraphEdges } from './assetGraphEdgeRouting'
+	import { detourLane, routeAssetGraphEdges, type EdgeRoute } from './assetGraphEdgeRouting'
 	import {
 		assetsOnlyView,
 		upstreamDeletion,
@@ -1877,23 +1877,33 @@
 		return s && t ? detourLane(s, t, routeNodes, ROUTE_PAD) : undefined
 	}
 
-	let edgeRoutes = $derived(
-		routeAssetGraphEdges(
-			routeNodes,
-			view.edges
-				.filter((e) => e.kind !== 'add-anchor')
-				.map((e) => ({
-					id: e.id,
-					source: e.source,
-					target: e.target,
-					laneX: detourForEdge(e.source, e.target),
-					// What sets how an edge is drawn (see the styling below): only
-					// edges that look the same may share a segment.
-					style: `${e.kind}:${e.reactive ? 1 : 0}:${e.missing ? 1 : 0}`
-				})),
+	// Routing depends on geometry and edges only. The nodes are rebuilt on every
+	// selection or run update, so the routes are kept until either really changes.
+	let routeInput = $derived.by(() => {
+		const edges = view.edges
+			.filter((e) => e.kind !== 'add-anchor')
+			.map((e) => ({
+				id: e.id,
+				source: e.source,
+				target: e.target,
+				// What sets how an edge is drawn (see the styling below): only
+				// edges that look the same may share a segment.
+				style: `${e.kind}:${e.reactive ? 1 : 0}:${e.missing ? 1 : 0}`
+			}))
+		return { nodes: routeNodes, edges, key: JSON.stringify([routeNodes, edges]) }
+	})
+	let routedFor: { key: string; routes: Map<string, EdgeRoute> } | undefined
+	let edgeRoutes = $derived.by(() => {
+		const { nodes, edges, key } = routeInput
+		if (routedFor?.key === key) return routedFor.routes
+		const routes = routeAssetGraphEdges(
+			nodes,
+			edges.map((e) => ({ ...e, laneX: detourForEdge(e.source, e.target) })),
 			LAYER_GAP
 		)
-	)
+		routedFor = { key, routes }
+		return routes
+	})
 
 	let flowEdges = $derived.by(() =>
 		view.edges

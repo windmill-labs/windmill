@@ -497,6 +497,7 @@
 		getFolder: () => folder,
 		getWorkspace: () => $workspaceStore,
 		getResolvedGraph: () => graphWithDraft,
+		hasTriggerDrafts: () => pe.triggerDrafts.size > 0,
 		getDrafts: () => pe.drafts,
 		setDrafts: (next) => (pe.drafts = next),
 		newDraftLocalId: pe.newDraftLocalId,

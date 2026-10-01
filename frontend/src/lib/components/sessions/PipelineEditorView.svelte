@@ -120,6 +120,7 @@
 		getDrafts: () => pe.drafts,
 		setDrafts: (next) => (pe.drafts = next),
 		newDraftLocalId: pe.newDraftLocalId,
+		hasTriggerDrafts: () => pe.triggerDrafts.size > 0,
 		onForgetPath: (p) => {
 			pe.forgetPath(p)
 			pe.discardTriggerDraftsFor(p)
@@ -328,7 +329,12 @@
 		deploying = true
 		try {
 			if (!(await hydrated())) return { success: false, error: 'The pipeline drafts did not load.' }
-			if (pendingCount === 0) return { success: true }
+			if (pendingCount === 0) {
+				// Nothing left to deploy, but an earlier deploy may have failed to save
+				// that: the server would still hold the deployed drafts.
+				const unsaved = await saveRemaining()
+				return unsaved ? { success: false, error: unsaved } : { success: true }
+			}
 			if (pe.triggerDrafts.size > 0 && !(await confirmTriggers())) {
 				return { success: false, error: 'Deploy cancelled.' }
 			}
@@ -353,23 +359,9 @@
 			}
 			// The session's changes list re-reads the draft once this resolves, so
 			// what is left of it has to be saved by then.
-			await tick()
-			const draft = {
-				workspace: workspaceId,
-				itemKind: PIPELINE_DRAFT_KIND,
-				path: pipelineBundlePath(path)
-			}
-			await UserDraftDbSyncer.flush(draft)
+			const unsaved = await saveRemaining()
 			deployErrors = errors
-			// A flush resolves even when the save failed: the server would keep the
-			// deployed drafts, and deploying them again would recreate their triggers.
-			const sync = UserDraftDbSyncer.getState(draft)
-			if (UserDraftDbSyncer.getConflict(draft).conflict || sync.state === 'failed') {
-				return {
-					success: false,
-					error: `Deployed, but the remaining drafts could not be saved: ${sync.failureMessage ?? 'they conflict with a newer version'}.`
-				}
-			}
+			if (unsaved) return { success: false, error: `Deployed, but ${unsaved}` }
 			if (errors.size > 0) {
 				deployErrorsOpen = true
 				return {
@@ -381,6 +373,31 @@
 		} finally {
 			deploying = false
 		}
+	}
+
+	// Saves what is left of the folder's draft and says why if that failed. A
+	// flush resolves even when the save failed, and the server would then keep
+	// drafts already deployed — deploying them again would recreate their
+	// triggers. After a failed save there may be nothing queued to flush, so an
+	// emptied draft is sent again.
+	async function saveRemaining(): Promise<string | undefined> {
+		await tick()
+		const draft = {
+			workspace: workspaceId,
+			itemKind: PIPELINE_DRAFT_KIND,
+			path: pipelineBundlePath(path)
+		}
+		if (pendingCount === 0 && UserDraftDbSyncer.getState(draft).state === 'failed') {
+			await UserDraftDbSyncer.save({ ...draft, value: null, immediate: true })
+		} else {
+			await UserDraftDbSyncer.flush(draft)
+		}
+		if (UserDraftDbSyncer.getConflict(draft).conflict)
+			return 'the remaining drafts conflict with a newer version.'
+		const sync = UserDraftDbSyncer.getState(draft)
+		if (sync.state === 'failed')
+			return `the remaining drafts could not be saved: ${sync.failureMessage ?? 'unknown error'}.`
+		return undefined
 	}
 
 	async function deployAllFromButton() {

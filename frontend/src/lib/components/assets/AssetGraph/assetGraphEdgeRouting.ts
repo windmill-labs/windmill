@@ -518,33 +518,37 @@ function assignTracks(list: Net[]): number[] {
 					b.topPins.filter((x) => spans(a, x)).length
 		)
 	)
-	const total = (order: number[]) => {
-		let sum = 0
-		for (let i = 0; i < order.length; i++)
-			for (let j = i + 1; j < order.length; j++) sum += cost[order[i]][order[j]]
-		return sum
-	}
 	// Start from the order each pair prefers on its own, then move one line at a
-	// time to wherever it removes crossings, until no move helps.
+	// time to wherever it removes the most crossings. Moving a line only changes
+	// the pairs it is part of, so every position is scored in one sweep: linear
+	// per line, quadratic per pass — a graph of hundreds of lines routes at once.
 	let order = list
 		.map((_, i) => i)
 		.sort((i, j) => cost[i][j] - cost[j][i] || list[i].from - list[j].from)
-	for (let improved = true; improved; ) {
+	const MAX_PASSES = 8
+	for (let pass = 0, improved = true; improved && pass < MAX_PASSES; pass++) {
 		improved = false
 		for (let k = 0; k < order.length; k++) {
+			const v = order[k]
 			const rest = order.filter((_, i) => i !== k)
-			let best = order
-			let bestCost = total(order)
-			for (let pos = 0; pos <= rest.length; pos++) {
-				const tried = [...rest.slice(0, pos), order[k], ...rest.slice(pos)]
-				const c = total(tried)
+			// Crossings involving v with v first: v above every other line.
+			let c = 0
+			for (const j of rest) c += cost[v][j]
+			let best = 0
+			let bestCost = c
+			let current = c
+			for (let pos = 0; pos < rest.length; pos++) {
+				// Moving v below rest[pos] swaps that one pair.
+				c += cost[rest[pos]][v] - cost[v][rest[pos]]
+				if (pos + 1 === k) current = c
 				if (c < bestCost) {
-					best = tried
+					best = pos + 1
 					bestCost = c
 				}
 			}
-			if (best !== order) {
-				order = best
+			if (k === 0) current = rest.reduce((a, j) => a + cost[v][j], 0)
+			if (bestCost < current) {
+				order = [...rest.slice(0, best), v, ...rest.slice(best)]
 				improved = true
 			}
 		}

@@ -51,6 +51,7 @@ function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
 		}
 	const pipeline: PipelineAIChatHelpers = {
 		getFolder: () => sampleContext.folder,
+		hasDrafts: () => false,
 		getPipelineContext: () => sampleContext,
 		getNodeBody: async (path: string) => {
 			calls.getNodeBody = [...(calls.getNodeBody ?? []), [path]]
@@ -198,20 +199,25 @@ describe('pipeline tools', () => {
 		).rejects.toThrow(/No pipeline editor is open/)
 	})
 
-	it('remove_pipeline_node records no change: undoing a draft leaves nothing to deploy', async () => {
-		const { helpers } = makeHelpers()
-		const modified: string[] = []
-		await toolByName('remove_pipeline_node').fn({
-			args: { path: 'f/analytics/clean' },
-			workspace: 'w',
-			helpers,
-			toolCallbacks: {
-				...noopCallbacks(),
-				onItemModified: (kind, path) => modified.push(`${kind}:${path}`)
-			},
-			toolId: 't'
-		})
-		expect(modified).toEqual([])
+	it('remove_pipeline_node drops the pipeline from the changes once its last draft goes', async () => {
+		const run = async (hasDrafts: boolean) => {
+			const { helpers } = makeHelpers({ hasDrafts: () => hasDrafts })
+			const log: string[] = []
+			await toolByName('remove_pipeline_node').fn({
+				args: { path: 'f/analytics/clean' },
+				workspace: 'w',
+				helpers,
+				toolCallbacks: {
+					...noopCallbacks(),
+					onItemModified: (kind, path) => log.push(`modified ${kind}:${path}`),
+					onItemDiscarded: (kind, path) => log.push(`discarded ${kind}:${path}`)
+				},
+				toolId: 't'
+			})
+			return log
+		}
+		expect(await run(false)).toEqual(['discarded data_pipeline:f/analytics/data_pipeline'])
+		expect(await run(true)).toEqual(['modified data_pipeline:f/analytics/data_pipeline'])
 	})
 
 	it('test_pipeline_node requires confirmation', () => {

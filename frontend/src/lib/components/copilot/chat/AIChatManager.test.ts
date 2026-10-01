@@ -4330,6 +4330,7 @@ describe('AIChatManager.waitForPipelineHelpers', () => {
 	function fakePipelineHelpers(): PipelineAIChatHelpers {
 		return {
 			getFolder: () => 'f',
+			hasDrafts: () => false,
 			getPipelineContext: () => ({ folder: 'f', mode: 'edit', nodes: [], assets: [] }),
 			getNodeBody: async () => undefined,
 			proposeNode: async () => ({ path: '', detectedReads: [], detectedWrites: [] }),

@@ -61,6 +61,8 @@ export type PipelineContext = {
 export interface PipelineAIChatHelpers {
 	/** Folder name (no `f/` prefix) of the pipeline this editor shows. */
 	getFolder: () => string
+	/** Whether the folder has any script or trigger draft left. */
+	hasDrafts: () => boolean
 	getPipelineContext: () => PipelineContext
 	/** Read a node's source (the in-flight draft body if one exists, else deployed). */
 	getNodeBody: (path: string) => Promise<{ language: ScriptLang; content: string } | undefined>
@@ -366,9 +368,15 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 			const { path } = removePipelineNodeSchema.parse(args)
 			const pipeline = pipelineForPath(helpers, path)
 			toolCallbacks.setToolStatus(toolId, { content: `Discarding draft '${path}'...` })
-			// Not recorded: undoing a draft changes nothing to deploy, and the last
-			// one gone would leave the pipeline listed as this chat's change.
 			await pipeline.removeProposedNode(path)
+			// With the last draft gone there is nothing left to deploy: the pipeline
+			// is no longer this chat's change, and listing it would show it deployed.
+			if (pipeline.hasDrafts()) recordPipelineModified(toolCallbacks, pipeline)
+			else
+				toolCallbacks.onItemDiscarded?.(
+					PIPELINE_DRAFT_KIND,
+					pipelineBundlePath(pipeline.getFolder())
+				)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Discarded draft '${path}'`,
 				result: 'Success'

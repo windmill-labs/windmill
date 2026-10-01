@@ -62,6 +62,8 @@ export type PipelineAiHelperDeps = {
 	onForgetPath?: (path: string) => void
 	/** Notify the caller a test run started so it can light up its run UI. */
 	onRunStarted?: (jobId: string, path: string) => void
+	/** Whether the folder has trigger drafts, which live beside the script drafts. */
+	hasTriggerDrafts?: () => boolean
 }
 
 export function makePipelineScript(
@@ -215,6 +217,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 
 	const helpers: PipelineAIChatHelpers = {
 		getFolder: folderName,
+		hasDrafts: () => deps.getDrafts().size > 0 || (deps.hasTriggerDrafts?.() ?? false),
 		getPipelineContext: buildContext,
 		getNodeBody: async (path) => {
 			const draft = deps.getDrafts().get(path)
