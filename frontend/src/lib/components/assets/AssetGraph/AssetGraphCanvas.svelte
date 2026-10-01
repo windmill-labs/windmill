@@ -23,11 +23,13 @@
 	import PanToNode from './PanToNode.svelte'
 	import InitialFitView from './InitialFitView.svelte'
 	import {
+		LAYER_GAP,
 		layoutAssetGraph,
 		PIPELINE_NODE_EXTRA_ROW,
 		PIPELINE_NODE_HEADER,
 		PIPELINE_NODE_HEADER_CARD_PAD
 	} from './assetGraphLayout'
+	import { routeAssetGraphEdges } from './assetGraphEdgeRouting'
 	import {
 		assetsOnlyView,
 		upstreamDeletion,
@@ -1889,6 +1891,21 @@
 		return lane
 	}
 
+	let edgeRoutes = $derived(
+		routeAssetGraphEdges(
+			nodeCenters.map((n) => ({ id: n.id, cx: n.cx, top: n.cy, halfW: n.halfW })),
+			view.edges
+				.filter((e) => e.kind !== 'add-anchor')
+				.map((e) => ({
+					id: e.id,
+					source: e.source,
+					target: e.target,
+					laneX: detourForEdge(e.source, e.target)
+				})),
+			LAYER_GAP
+		)
+	)
+
 	let flowEdges = $derived.by(() =>
 		view.edges
 			// Anchor edges are layout-only.
@@ -2035,7 +2052,7 @@
 					target: e.target,
 					type: 'asset',
 					data: {
-						detourX: detourForEdge(e.source, e.target),
+						route: edgeRoutes.get(e.id),
 						// Data-test badge on the producer→asset write-edge. The
 						// producer's last-run status (the script fails if any test
 						// fails) tints it green/red; neutral until it has run.
