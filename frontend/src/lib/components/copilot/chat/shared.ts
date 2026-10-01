@@ -1420,8 +1420,13 @@ export interface ToolCallbacks {
 	markRunFormStarted?: (toolId: string) => void
 	/** Show a DEPLOYED run on the item's own page, with these arguments in the run form that
 	 * is already there, and end the call: the reader runs it from that page rather than
-	 * confirming a form the tool would then run itself. Returns whether the host took it.
-	 * Wired only where that page can be shown — a session's preview panel. */
+	 * confirming a form the tool would then run itself. Wired only where that page can be
+	 * shown — a session's preview panel.
+	 *
+	 * False means it did not open, and the caller must fall through to its own form: there is
+	 * no session to show it in, or the turn was stopped while this tool read the item's
+	 * schema. The form path settles a stopped turn correctly; this one has no card left to
+	 * settle. */
 	openDeployedRunPage?: (a: {
 		kind: 'script' | 'flow'
 		path: string

@@ -616,10 +616,11 @@ function createRuntime(session: Session): SessionRuntime {
 	// into the run form that is already there. Nothing waits on it: the tool call ends at the
 	// open, and the run is the reader's, started from that page as it would be with no chat
 	// open. `seq` rather than a flag, so a second request for a page already open re-seeds it.
-	manager.openDeployedRunPage = ({ kind, path, summary, args }) => {
+	manager.openDeployedRunPageHandler = ({ kind, path, summary, args }) => {
 		// Through the shared adapter rather than building the item here: a session target
 		// spells a code-based app `raw_app` and a workspace item spells it `app` with a
-		// flag, and one place should know that.
+		// flag, and one place should know that. A script and a flow both resolve to an item,
+		// so this guard is the adapter's contract rather than a case that happens.
 		const target = previewTargetForSessionTarget(kind, path)
 		if (target?.type !== 'item') return false
 		seededRunArgs.set(seededKey(kind, path), { args, seq: ++seededRunSeq })

@@ -374,28 +374,22 @@
 	$effect(() => {
 		if (!seededRun || seededSeq === seededRun.seq) return
 		if (chatInputEnabled) {
-			const message = seededRun.args?.user_message
-			// Nothing to offer is settled, not pending: latch it so a flow whose schema has no
-			// `user_message` does not re-ask on every flush.
-			if (typeof message !== 'string' || !message) {
-				seededSeq = seededRun.seq
-				return
-			}
 			// The composer mounts a flush or two after the panel does, so until it is there this
 			// effect waits — it reads the host's registration through `composerReady`, and runs
 			// again when that lands. Not latching is what keeps the proposal alive across those
 			// flushes.
 			if (!flowChat?.composerReady()) return
-			// Past that point the answer is final either way. The rest of the proposal goes with
-			// the message: a chat flow's schema can declare more than `user_message`, and sending
-			// the message alone would run on saved values or schema defaults — a different run
-			// from the one being offered. A composer already holding a draft declines, and the
-			// proposal is dropped rather than held: injecting it whenever the reader happens to
-			// clear their draft would put words in the box long after they were proposed. The
-			// card still shows what was asked for.
-			const { user_message: _m, ...inputs } = seededRun.args ?? {}
 			seededSeq = seededRun.seq
-			flowChat.offerMessage(message, inputs)
+			// A chat flow's schema can declare more than `user_message`, and a message sent
+			// without the rest would run on saved values or schema defaults — a different run
+			// from the one proposed. These land whether or not the message does.
+			const { user_message: message, ...inputs } = seededRun.args ?? {}
+			flowChat.applyInputs(inputs)
+			// A composer already holding a draft declines, and the message is then dropped
+			// rather than held: injecting it whenever the reader happens to clear their draft
+			// would put words in the box long after they were proposed. The card still shows
+			// what was asked for.
+			if (typeof message === 'string' && message) flowChat.offerMessage(message)
 		} else if (runForm) {
 			seededSeq = seededRun.seq
 			runForm.setArgs(seededRun.args)

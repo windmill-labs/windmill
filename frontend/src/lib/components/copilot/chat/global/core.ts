@@ -6045,7 +6045,7 @@ async function testRunScriptByPath(
  * same reason as the cancelled one below — a re-proposal would reopen the page the reader is
  * already looking at. */
 const deployedPageOpened = (path: string, noun: string, toolName: string) =>
-	`Opened the deployed page for "${path}" in the preview panel, with these arguments filled into its run form. The ${noun} has NOT run: the user starts it from that page, where they can also edit the arguments, schedule it, override the tag or pick a version. Do not call ${toolName} again for this. Tell the user it is ready to run; if you need the result afterwards, ask them or call get_run once they say it has run.`
+	`Opened the deployed page for "${path}" in the preview panel, with these arguments put in front of the user there. The ${noun} has NOT run: the user starts it from that page, where they can also edit the arguments, schedule it, override the tag or pick a version. Do not call ${toolName} again for this. Tell the user it is ready to run; if you need the result afterwards, ask them or call get_run once they say it has run.`
 
 /** The "do not call again" half is load-bearing: without it the model re-proposes the
  * call, which re-opens the form the user just dismissed, and Stop becomes their only
@@ -6208,8 +6208,11 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 				content: `Opened the deployed page for "${spec.path}"`,
 				// Carried without `isLoading`, so `isActiveRunForm` reads it as settled: the card
 				// shows what was proposed and offers to reopen the page, rather than mounting a
-				// second form for a call that is already over.
-				runForm: persisted,
+				// second form for a call that is already over. Without the schema for the same
+				// reason a submitted or cancelled form drops it — no form will mount from this,
+				// so keeping it would persist the script's declarations, password and file
+				// defaults included, for the life of the chat.
+				runForm: { ...persisted, schema: undefined, code: undefined, lang: undefined },
 				// The card settles on what the page opened with, as it would on what a form
 				// opened with: it is the record of what this call proposed.
 				parameters: persisted.args,

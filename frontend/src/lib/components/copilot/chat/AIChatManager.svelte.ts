@@ -570,12 +570,10 @@ export class AIChatManager implements ChatViewHost {
 	 * chat card holds. Unset outside a session: a chat-bound form has nowhere else to go,
 	 * so the card hides the control rather than offering a tab that cannot run. */
 	openRunForm?: (a: { toolCallId: string; label: string }) => void
-	/** A DEPLOYED run shows the item's own page instead, with the model's arguments in the
-	 * run form already there. The tool call ends at the open — the run belongs to the reader,
-	 * who starts it from that page with its scheduling, tag and version controls in reach.
-	 * Returns whether the panel took it; false (a legacy app has no in-panel page) leaves the
-	 * tool to fall back on its own form. */
-	openDeployedRunPage?: (a: {
+	/** Set by a host that can show a deployed page — a session's preview panel. Tools reach it
+	 * through {@link openDeployedRunPage}, never directly: the stop check belongs to the
+	 * manager, which owns the turn. */
+	openDeployedRunPageHandler?: (a: {
 		kind: 'script' | 'flow'
 		path: string
 		summary: string
@@ -2100,6 +2098,25 @@ export class AIChatManager implements ChatViewHost {
 
 	/** False when the form is no longer pending, so the caller can say so instead of
 	 * leaving its submit button spinning on a run that will never start. */
+	/** A DEPLOYED run shows the item's own page instead, with the model's arguments in the run
+	 * form already there. The tool call ends at the open — the run belongs to the reader, who
+	 * starts it from that page with its scheduling, tag and version controls in reach.
+	 *
+	 * False where there is no page to show (no session host) and where the turn was stopped
+	 * while the tool read the item's schema: opening then would act on a turn the reader
+	 * ended, and would write a form onto a card the stop already settled, which the card would
+	 * read as `Opened`. Declining hands the call on to `requestRunArgs`, whose own stop guard
+	 * settles it as cancelled. */
+	openDeployedRunPage = (a: {
+		kind: 'script' | 'flow'
+		path: string
+		summary: string
+		args: Record<string, any>
+	}): boolean => {
+		if (this.abortController?.signal.aborted) return false
+		return this.openDeployedRunPageHandler?.(a) ?? false
+	}
+
 	handleRunFormSubmit = (toolId: string, args: Record<string, any>): boolean => {
 		if (!this.isRunFormPending(toolId)) return false
 		this.#settleRunForm(toolId, args)

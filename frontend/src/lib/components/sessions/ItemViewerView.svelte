@@ -72,13 +72,20 @@
 	// Taken from the runtime once and held here: the request belongs to the turn that made it,
 	// so leaving it in the map would re-apply a stale proposal — and reannounce it — to every
 	// later open of this item's deployed page.
-	let seededRun = $state<{ args: Record<string, any>; seq: number } | undefined>(undefined)
+	// Carries the item it was filed under: this tab re-points to another item in place rather
+	// than remounting, so a seed held without its key would be pushed into the next item's
+	// form — replacing its own defaults — under a note crediting the agent for them.
+	let held = $state<
+		{ kind: SessionTargetKind; path: string; args: Record<string, any>; seq: number } | undefined
+	>(undefined)
+	const seededRun = $derived(held?.kind === kind && held.path === path ? held : undefined)
 	$effect(() => {
 		const pending = runtime.seededRunArgsFor(kind, path)
 		if (!pending) return
+		const [k, p] = [kind, path]
 		untrack(() => {
-			seededRun = pending
-			runtime.clearSeededRunArgs(kind, path)
+			held = { kind: k, path: p, ...pending }
+			runtime.clearSeededRunArgs(k, p)
 		})
 	})
 
@@ -221,7 +228,7 @@
 			{active}
 			embedded
 			{seededRun}
-			onClearSeededRun={() => (seededRun = undefined)}
+			onClearSeededRun={() => (held = undefined)}
 			onLoadState={setLoadState}
 		/>
 	{:else if kind === 'flow'}
@@ -233,7 +240,7 @@
 			{active}
 			embedded
 			{seededRun}
-			onClearSeededRun={() => (seededRun = undefined)}
+			onClearSeededRun={() => (held = undefined)}
 			onLoadState={setLoadState}
 		/>
 	{:else}

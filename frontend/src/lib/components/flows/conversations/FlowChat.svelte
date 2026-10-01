@@ -186,11 +186,17 @@
 	 * `user_message`, and a message sent without them would run on saved values or schema
 	 * defaults — a different run from the one being offered. Applied only alongside a message
 	 * the composer took, so a declined offer leaves the reader's settings alone. */
-	export function offerMessage(text: string, inputs?: Record<string, any>): boolean {
+	export function offerMessage(text: string): boolean {
 		const panel = shownKey ? pool?.get(shownKey) : undefined
-		if (!panel?.host.offerMessage(text)) return false
-		if (inputs) inputValues = { ...inputValues, ...inputs }
-		return true
+		return panel?.host.offerMessage(text) ?? false
+	}
+
+	/** Set the flow's non-message inputs for the run a chat tool proposed. Separate from the
+	 * message because the two can land apart: a composer the reader is typing in declines the
+	 * message, and the inputs still belong to the proposal they can send afterwards. */
+	export function applyInputs(inputs: Record<string, any>): void {
+		if (Object.keys(inputs).length === 0) return
+		inputValues = { ...inputValues, ...inputs }
 	}
 
 	/** Whether the conversation on screen has a composer to offer a message to. A caller that
