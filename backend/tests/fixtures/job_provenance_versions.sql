@@ -59,3 +59,34 @@ VALUES
 INSERT INTO v2_job_completed (id, workspace_id, duration_ms, status, flow_status)
 VALUES ('3bb0c0de-0000-4000-8000-000000000109', 'test-workspace', 0, 'success',
     '{"restarted_from": {"flow_job_id": "3bb0c0de-0000-4000-8000-0000000000fe", "step_id": "l"}}');
+
+-- Loop bodies restarted on their own from completed runs: one of the current flow version,
+-- one of the past version, and one that was itself a restart; with a step of the first.
+INSERT INTO v2_job (id, workspace_id, kind, runnable_path, runnable_id, parent_job, created_by, permissioned_as, permissioned_as_email)
+VALUES
+    ('3bb0c0de-0000-4000-8000-000000000115', 'test-workspace', 'flownode', 'f/t/agent/loop-0', 4444444444, '3bb0c0de-0000-4000-8000-000000000001', 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000116', 'test-workspace', 'flownode', 'f/t/agent/loop-0', 4444444444, NULL, 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000117', 'test-workspace', 'flowscript', 'f/t/agent/loop-0/b', 4444444446, '3bb0c0de-0000-4000-8000-000000000116', 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000118', 'test-workspace', 'flownode', 'f/t/agent/loop-0', 4444444443, '3bb0c0de-0000-4000-8000-000000000102', 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000119', 'test-workspace', 'flownode', 'f/t/agent/loop-0', 4444444443, NULL, 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000120', 'test-workspace', 'flownode', 'f/t/agent/loop-0', 4444444443, NULL, 'test-user', 'u/test-user', 'test@windmill.dev');
+
+INSERT INTO v2_job_completed (id, workspace_id, duration_ms, status)
+VALUES
+    ('3bb0c0de-0000-4000-8000-000000000115', 'test-workspace', 0, 'success'),
+    ('3bb0c0de-0000-4000-8000-000000000118', 'test-workspace', 0, 'success');
+
+INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running)
+VALUES
+    ('3bb0c0de-0000-4000-8000-000000000116', 'test-workspace', NOW(), true),
+    ('3bb0c0de-0000-4000-8000-000000000119', 'test-workspace', NOW(), true),
+    ('3bb0c0de-0000-4000-8000-000000000120', 'test-workspace', NOW(), true);
+
+INSERT INTO v2_job_status (id, flow_status)
+VALUES
+    ('3bb0c0de-0000-4000-8000-000000000116',
+        '{"restarted_from": {"flow_job_id": "3bb0c0de-0000-4000-8000-000000000115", "step_id": "b"}}'),
+    ('3bb0c0de-0000-4000-8000-000000000119',
+        '{"restarted_from": {"flow_job_id": "3bb0c0de-0000-4000-8000-000000000118", "step_id": "b"}}'),
+    ('3bb0c0de-0000-4000-8000-000000000120',
+        '{"restarted_from": {"flow_job_id": "3bb0c0de-0000-4000-8000-000000000109", "step_id": "b"}}');
