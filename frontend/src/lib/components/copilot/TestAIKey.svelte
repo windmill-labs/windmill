@@ -28,14 +28,18 @@
 	}: Props = $props()
 
 	let loading = $state(false)
-	// Without a model from the caller the default is only a guess: deployment-named
-	// providers (Azure, Bedrock, custom endpoints) reject a model the account lacks,
-	// which would read as an invalid key, so the guess stays editable.
-	let typedModel = $state(untrack(() => AI_PROVIDERS[aiProvider]?.defaultModels[0] ?? ''))
+	// For an unsaved resource, or without a model from the caller, the model is only a
+	// guess: deployment-named providers (Azure, Bedrock, custom endpoints) reject a model
+	// the account lacks, which would read as an invalid key, so the guess stays editable.
+	let typedModel = $state(
+		untrack(() => model ?? AI_PROVIDERS[aiProvider]?.defaultModels[0] ?? '')
+	)
+	let modelEditable = $derived(!!resourceValue || !model)
+	let testedModel = $derived(modelEditable ? typedModel.trim() : model)
 </script>
 
 <div class="flex flex-row items-center gap-1">
-	{#if !model}
+	{#if modelEditable}
 		<TextInput
 			bind:value={typedModel}
 			size="md"
@@ -45,7 +49,7 @@
 	<Button
 		unifiedSize="md"
 		variant="default"
-		disabled={disabled || (!model && !typedModel.trim())}
+		disabled={disabled || !testedModel}
 		{loading}
 		onClick={async () => {
 			loading = true
@@ -68,7 +72,7 @@
 					],
 					abortController,
 					aiProvider,
-					model: model ?? typedModel.trim()
+					model: testedModel
 				})
 				sendUserToast('Valid key')
 			} catch (err) {
