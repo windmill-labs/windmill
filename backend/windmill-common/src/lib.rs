@@ -2481,50 +2481,60 @@ pub fn invalidate_deployed_script_hash_cache(w_id: &str, script_path: &str) {
 
 pub const SCRIPT_VERSION_DELETED_CHANNEL: &str = "notify_script_version_deleted";
 
-/// Tell every replica to drop these deleted versions from its caches, in the transaction
-/// that deletes them. Each process then calls [`evict_deleted_script_version`].
-/// Authorization is the caller's: only call it for versions the caller was allowed to delete.
-pub async fn notify_script_versions_deleted<'e, E: sqlx::PgExecutor<'e>>(
-    db: E,
-    w_id: &str,
-    hashes: &[i64],
-) -> error::Result<()> {
-    sqlx::query!(
-        "INSERT INTO notify_event (channel, payload)
-        SELECT $1, $2 || ':' || h FROM unnest($3::bigint[]) AS h",
-        SCRIPT_VERSION_DELETED_CHANNEL,
-        w_id,
-        hashes
-    )
-    .execute(db)
-    .await?;
-    Ok(())
+/// The payload of a [`SCRIPT_VERSION_DELETED_CHANNEL`] event: one per deleting call, so a
+/// call deleting every version of many paths stays one row.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DeletedScriptVersions {
+    pub workspace_id: String,
+    pub paths: Vec<String>,
+    pub hashes: Vec<i64>,
 }
 
-/// The `(workspace, hash)` of a [`SCRIPT_VERSION_DELETED_CHANNEL`] payload.
-pub fn parse_script_version_deleted(payload: &str) -> Option<(&str, i64)> {
-    let (w_id, hash) = payload.rsplit_once(':')?;
-    Some((w_id, hash.parse().ok()?))
-}
+impl DeletedScriptVersions {
+    pub fn new(workspace_id: &str, deleted: impl IntoIterator<Item = (String, i64)>) -> Self {
+        let (mut paths, hashes): (Vec<String>, Vec<i64>) = deleted.into_iter().unzip();
+        paths.sort();
+        paths.dedup();
+        Self { workspace_id: workspace_id.to_string(), paths, hashes }
+    }
 
-/// Script data is cached by hash, memory and disk, with no expiry: without this, a process
-/// that ran a version before its deletion keeps running that version's code. Needs no
-/// authorization: it only drops cache entries, and the next fetch reads the database again.
-pub fn evict_deleted_script_version(w_id: &str, hash: i64) {
-    let evict = {
-        let key = (w_id.to_string(), hash);
-        move || {
-            cache::script::invalidate(ScriptHash(hash));
-            DEPLOYED_SCRIPT_INFO_CACHE.remove(&key);
+    /// Tell every replica to drop these versions from its caches, in the transaction that
+    /// deletes them. Authorization is the caller's: only call it for versions the caller was
+    /// allowed to delete.
+    pub async fn notify<'e, E: sqlx::PgExecutor<'e>>(&self, db: E) -> error::Result<()> {
+        if self.hashes.is_empty() {
+            return Ok(());
         }
-    };
-    evict();
-    // A fill that read the row before the deletion committed can still be writing it to
-    // the cache: a second pass, once such a fill has had time to finish, removes it.
-    spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        sqlx::query("INSERT INTO notify_event (channel, payload) VALUES ($1, $2)")
+            .bind(SCRIPT_VERSION_DELETED_CHANNEL)
+            .bind(serde_json::to_string(self)?)
+            .execute(db)
+            .await?;
+        Ok(())
+    }
+
+    /// Script data is cached by hash, memory and disk, with no expiry: without this, a
+    /// process that ran a version before its deletion keeps running that version's code,
+    /// and a path keeps resolving to its deleted latest version until its cache expires.
+    /// Needs no authorization: it only drops cache entries, refilled from the database.
+    pub fn evict(self) {
+        let evict = move || {
+            for hash in &self.hashes {
+                cache::script::invalidate(ScriptHash(*hash));
+                DEPLOYED_SCRIPT_INFO_CACHE.remove(&(self.workspace_id.clone(), *hash));
+            }
+            for path in &self.paths {
+                invalidate_latest_script_hash_caches(&self.workspace_id, path);
+            }
+        };
         evict();
-    });
+        // A fill that read a row before the deletion committed can still be writing it to
+        // the cache: a second pass, once such a fill has had time to finish, removes it.
+        spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            evict();
+        });
+    }
 }
 
 /// Same, for a new version row, which also moves the import-side answer (that one has no lock
