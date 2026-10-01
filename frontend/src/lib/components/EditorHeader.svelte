@@ -156,6 +156,8 @@
 							onPick={handlePickerSelect}
 						/>
 					{/each}
+				{/if}
+				{#if segments?.leaf}
 					{@const leafKey = leafKeyFor(kind, segments.leaf.fullPath)}
 					{@const leafParent = segments.dirs[segments.dirs.length - 1]?.fullPath}
 					<ChevronRight size={10} class="shrink-0" />

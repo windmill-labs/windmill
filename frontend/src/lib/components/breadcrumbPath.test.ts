@@ -12,9 +12,16 @@ describe('splitItemPath', () => {
 		})
 	})
 
-	it('gives up on a path that names nothing yet, trailing separator included', () => {
-		// The editor binds the path live, so every keystroke reaches the breadcrumb.
+	it('gives up before there is a scope', () => {
 		expect(splitItemPath('f/demo')).toBeUndefined()
-		expect(splitItemPath('f/demo/')).toBeUndefined()
+	})
+
+	it('keeps the folders while the name is still being typed', () => {
+		// The editor binds the path live, so every keystroke reaches the breadcrumb: the trail must
+		// not drop out and come back on the first character of the name.
+		expect(splitItemPath('f/demo/')).toEqual({
+			dirs: [{ name: 'f/demo', fullPath: 'f/demo' }],
+			leaf: undefined
+		})
 	})
 })
