@@ -240,7 +240,11 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				.getResolvedGraph()
 				.triggers.filter(
 					(t) =>
-						t.trigger_kind !== 'asset' && t.runnable_path === path && t.path && !t.missing
+						t.trigger_kind !== 'asset' &&
+						t.runnable_kind === 'script' &&
+						t.runnable_path === path &&
+						t.path &&
+						!t.missing
 				)
 				.map((t) => t.trigger_kind)
 		)
@@ -406,6 +410,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				.triggers.find(
 					(t) =>
 						t.trigger_kind === kind &&
+						t.runnable_kind === 'script' &&
 						t.runnable_path === path &&
 						t.path &&
 						!t.missing &&

@@ -8,7 +8,8 @@ import type { AssetGraphResponse } from './types'
 function makeHandle(
 	initial: Array<[string, PipelineDraft]> = [],
 	runnables: Array<{ path: string }> = [],
-	folder = 'x'
+	folder = 'x',
+	triggers: unknown[] = []
 ) {
 	let drafts = new Map(initial)
 	let forgotten: string[] = []
@@ -16,7 +17,7 @@ function makeHandle(
 		getFolder: () => folder,
 		getWorkspace: () => 'w',
 		getResolvedGraph: () =>
-			({ assets: [], runnables, edges: [], triggers: [] }) as unknown as AssetGraphResponse,
+			({ assets: [], runnables, edges: [], triggers }) as unknown as AssetGraphResponse,
 		getDrafts: () => drafts,
 		setDrafts: (next) => (drafts = next),
 		newDraftLocalId: () => 'id',
@@ -206,5 +207,25 @@ describe('pipeline AI direct-draft helpers', () => {
 		expect(d?.script.description).toBe('desc')
 		expect(d?.script.tag).toBe('custom')
 		expect(d?.script.content).toBe('-- pipeline\nSELECT 2')
+	})
+
+	it("does not take a flow's schedule at the same path for the script's", async () => {
+		const flowSchedule = {
+			trigger_kind: 'schedule',
+			runnable_kind: 'flow',
+			runnable_path: 'f/x/ingest',
+			path: 'f/x/flow_schedule'
+		}
+		const content = '# pipeline\n# on schedule\ndef main():\n    return 1'
+		const { handle } = makeHandle(
+			[['f/x/ingest', draft({ script: { content, language: 'python3' } as any })]],
+			[],
+			'x',
+			[flowSchedule]
+		)
+		expect(await handle.unconfiguredTriggers('f/x/ingest')).toEqual(['schedule'])
+		await expect(
+			handle.setNodeTrigger('f/x/ingest', 'schedule', { schedule: '0 0 6 * * *', timezone: 'UTC' })
+		).resolves.toMatchObject({ path: 'f/x/ingest_schedule' })
 	})
 })

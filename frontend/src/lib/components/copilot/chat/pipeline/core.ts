@@ -15,6 +15,7 @@ import type { PipelineTriggerDraftKind } from '$lib/components/assets/AssetGraph
 import { DRAFTABLE_TRIGGER_KINDS } from '$lib/components/assets/AssetGraph/pipelineTriggerDrafts'
 import { scheduleRequestSchema, triggerRequestSchemas } from '../workspaceToolsZod.gen'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
+import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 
 // ============================================================================
 // Pipeline AI chat tools.
@@ -437,11 +438,16 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 			const { path, language, content, summary, output_kind, triggers } =
 				buildPipelineNodeSchema.parse(args)
 			const pipeline = await pipelineForPath(helpers, path)
-			// Validated before the node is staged, so a bad config leaves nothing half-built.
-			const configs = (triggers ?? []).map((t) => ({
-				kind: t.kind,
-				config: validateTriggerConfig(t.kind, t.config, path)
-			}))
+			// Checked before the node is staged, so a bad trigger leaves nothing half-built.
+			const declared = new Set(parsePipelineAnnotations(content).nativeTriggers.map((n) => n.kind))
+			const configs = (triggers ?? []).map((t) => {
+				if (!declared.has(t.kind)) {
+					throw new Error(
+						`The content declares no \`on ${t.kind}\`, so a ${t.kind} trigger has nothing to bind to. Add the annotation line or drop that trigger. Nothing was built.`
+					)
+				}
+				return { kind: t.kind, config: validateTriggerConfig(t.kind, t.config, path) }
+			})
 			toolCallbacks.setToolStatus(toolId, { content: `Building node '${path}'...` })
 			const { detectedReads, detectedWrites } = await pipeline.proposeNode({
 				path,
@@ -450,19 +456,29 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 				summary,
 				outputKind: output_kind as PipelineOutputKind | undefined
 			})
-			const attached: string[] = []
-			for (const t of configs) {
-				const { path: triggerPath } = await pipeline.setNodeTrigger(path, t.kind, t.config)
-				attached.push(`${t.kind} '${triggerPath}'`)
-			}
+			// Recorded as soon as it is staged: a trigger that fails below leaves the node.
 			recordPipelineModified(toolCallbacks, pipeline)
+			const attached: string[] = []
+			const failed: string[] = []
+			for (const t of configs) {
+				try {
+					const { path: triggerPath } = await pipeline.setNodeTrigger(path, t.kind, t.config)
+					attached.push(`${t.kind} '${triggerPath}'`)
+				} catch (e) {
+					failed.push(`${t.kind}: ${e instanceof Error ? e.message : String(e)}`)
+				}
+			}
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Added draft node '${path}'`,
 				result: 'Success'
 			})
-			const attachedNote = attached.length
-				? ` Attached trigger draft${attached.length > 1 ? 's' : ''}: ${attached.join(', ')}.`
-				: ''
+			const attachedNote =
+				(attached.length
+					? ` Attached trigger draft${attached.length > 1 ? 's' : ''}: ${attached.join(', ')}.`
+					: '') +
+				(failed.length
+					? ` The node was built, but these triggers were not attached — fix them with set_pipeline_trigger: ${failed.join('; ')}.`
+					: '')
 			return `Pipeline node '${path}' added as an unsaved draft on the canvas. It is not deployed — the user deploys it.${attachedNote}${inferredLineageNote(detectedReads, detectedWrites)}${unconfiguredTriggersNote(path, await pipeline.unconfiguredTriggers(path))}`
 		}
 	},

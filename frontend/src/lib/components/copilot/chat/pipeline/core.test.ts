@@ -176,6 +176,54 @@ describe('pipeline tools', () => {
 		expect(calls.proposeNode).toBeUndefined()
 	})
 
+	it('build_pipeline_node keeps and records the node when a trigger fails to attach', async () => {
+		const { helpers, calls } = makeHelpers({
+			setNodeTrigger: async () => {
+				throw new Error('path taken')
+			}
+		})
+		const modified: string[] = []
+		const out = await toolByName('build_pipeline_node').fn({
+			args: {
+				path: 'f/analytics/ingest',
+				language: 'python3',
+				content: '# pipeline\n# on schedule\ndef main():\n    return 1',
+				summary: 'Ingest',
+				triggers: [{ kind: 'schedule', config: { schedule: '0 0 6 * * *', timezone: 'UTC' } }]
+			},
+			workspace: 'w',
+			helpers,
+			toolCallbacks: {
+				...noopCallbacks(),
+				onItemModified: (kind, path) => modified.push(`${kind}:${path}`)
+			},
+			toolId: 't'
+		})
+		expect(calls.proposeNode).toHaveLength(1)
+		expect(modified).toEqual(['data_pipeline:f/analytics/data_pipeline'])
+		expect(out).toContain('path taken')
+	})
+
+	it('build_pipeline_node refuses a trigger the content does not declare, before staging', async () => {
+		const { helpers, calls } = makeHelpers()
+		await expect(
+			toolByName('build_pipeline_node').fn({
+				args: {
+					path: 'f/analytics/ingest',
+					language: 'python3',
+					content: '# pipeline\ndef main():\n    return 1',
+					summary: 'Ingest',
+					triggers: [{ kind: 'schedule', config: { schedule: '0 0 6 * * *', timezone: 'UTC' } }]
+				},
+				workspace: 'w',
+				helpers,
+				toolCallbacks: noopCallbacks(),
+				toolId: 't'
+			})
+		).rejects.toThrow(/on schedule/)
+		expect(calls.proposeNode).toBeUndefined()
+	})
+
 	it('build_pipeline_node reports the inferred asset lineage', async () => {
 		const { helpers } = makeHelpers({
 			proposeNode: async (input) => ({
