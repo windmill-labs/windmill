@@ -191,7 +191,14 @@
 	async function deleteFlow(): Promise<void> {
 		await FlowService.deleteFlowByPath({ workspace: workspace!, path })
 		sendUserToast('Flow deleted')
-		onNavigate('/')
+		// Embedded, the host owns the tab: reloading lets it show that nothing is deployed
+		// here, rather than opening Home beside a tab still showing the deleted flow.
+		if (embedded) {
+			loadFlow().then(
+				() => onLoadState?.('loaded'),
+				(e) => e?.status === 404 && onLoadState?.('not_found')
+			)
+		} else onNavigate('/')
 	}
 
 	async function loadTriggersCount() {
