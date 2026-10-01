@@ -4547,6 +4547,18 @@ export async function main(url: string) {
 }
 \`\`\`
 
+## Pure computation: \`//no_network\`
+
+A native script that only transforms its inputs can declare \`//no_network\` in its leading comment block (right after \`//native\`). The runtime then refuses every connection the script attempts: \`fetch\` to any host, the Windmill API (so \`windmill-client\` calls fail too), raw sockets and unix sockets, and \`WM_TOKEN\` is not set. It only takes effect on native scripts: without \`//native\` it is ignored. Use it only when the script needs no external data beyond its arguments:
+
+\`\`\`typescript
+//native
+//no_network
+export async function main(items: { price: number; qty: number }[]) {
+  return items.reduce((sum, i) => sum + i.price * i.qty, 0);
+}
+\`\`\`
+
 ## Windmill Client
 
 \`windmill-client\` works on the native worker (its calls go over \`fetch\`), so use it as the **preferred way to talk to Windmill** — reading resources/variables/states, running scripts and flows, and the S3 helpers below (\`loadS3File\`, \`loadS3FileStream\`, \`writeS3File\`, \`S3Object\`). It handles auth, the workspace, and the base URL for you. Reserve raw \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
