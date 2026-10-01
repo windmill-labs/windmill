@@ -1303,7 +1303,7 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 		// off the owner path twice over) is rejected by build_pipeline_node.
 		return `${
 			result.status === 'focused' ? 'Focused the' : 'Opened the'
-		} pipeline editor for folder "${folder}" in the side panel. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
+		} pipeline editor for folder "${folder}" in the side panel. build_pipeline_node, edit_pipeline_node and the other pipeline tools are now in your tool list: call them in your next step. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
 	}
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`

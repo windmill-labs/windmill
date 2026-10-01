@@ -66,6 +66,7 @@ import {
 	stripFileArgs
 } from '$lib/components/job_args'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
+import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
@@ -1471,7 +1472,7 @@ ${pipelineBullet}`
 					canWriteDraft,
 					`
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
-- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty ${when(canCreateFolder, 'or not-yet-created ')}folder is fine${when(canCreateFolder, ' (create_folder first if needed, then open it)')}. Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
+- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty ${when(canCreateFolder, 'or not-yet-created ')}folder is fine${when(canCreateFolder, ' (create_folder first if needed, then open it)')}. Opening it adds build_pipeline_node / edit_pipeline_node to your tools from the next step on — they are not in your tool list before open_preview returns, so call open_preview on its own, wait for its result, then build. Use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
 				)}
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - Writing an app file does not compile it: the open preview rebuilds it afterwards. After editing a raw app's frontend files with its preview open, call get_app_runtime_logs to check the build — when it failed, it returns the build errors (e.g. syntax or import errors) and bundler logs to fix.
@@ -4254,7 +4255,7 @@ export const globalTools: SessionTool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Found ${results.length} resource type(s) for "${parsed.query}"`
 			})
-			return JSON.stringify(
+			const listing = JSON.stringify(
 				results.map((rt) => ({
 					name: rt.name,
 					schema: rt.schema
@@ -4262,6 +4263,15 @@ export const globalTools: SessionTool<{}>[] = [
 				null,
 				2
 			)
+			// The search is semantic and always returns its closest types, so a miss reads
+			// like a hit unless the absence is spelled out.
+			const words = (parsed.query.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
+				(w) => w.length >= 3
+			)
+			const named = results.some((rt) => words.some((w) => rt.name.toLowerCase().includes(w)))
+			return named || words.length === 0
+				? listing
+				: `${listing}\n\nNo resource type name contains "${parsed.query}": these are only the nearest matches, so no dedicated type exists. Searching again with synonyms will not find one — use a fitting generic type above, or create a custom c_<name> type.`
 		}
 	},
 	createDbSchemaTool<{}>({
@@ -5355,6 +5365,17 @@ function writeScriptDraft(
 	ctx: WriteDraftCtx,
 	codeDiff?: ToolCodeDiff
 ): Promise<string> {
+	// A session builds pipeline nodes into the folder's pipeline draft; a script draft
+	// written here never reaches the pipeline graph, and saving the pipeline drops it.
+	if (
+		(ctx.sessionId ?? sessionIdFromCtx(ctx)) &&
+		parsePipelineAnnotations(args.content).inPipeline
+	) {
+		const folder = args.path.match(/^f\/([^/]+)\//)?.[1] ?? '<folder>'
+		throw new Error(
+			`"${args.path}" is a data pipeline node (its source starts with the pipeline annotation). In a session, pipeline nodes are not script drafts: call open_preview(kind="pipeline", path="${folder}") if that folder's pipeline editor is not open yet, then use build_pipeline_node (new node) or edit_pipeline_node (existing node). Nothing was written.`
+		)
+	}
 	return writeDraft(SCRIPT_SPEC, 'script', args.path, args, ctx, {
 		override: args.override,
 		codeDiff:

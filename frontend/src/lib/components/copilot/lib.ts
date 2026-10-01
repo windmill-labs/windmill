@@ -30,6 +30,7 @@ import { formatResourceTypes } from './utils'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	type LiveToolSet,
 	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks
@@ -1223,6 +1224,7 @@ export async function parseOpenAICompletion(
 		workspace?: string
 		provider?: string
 		onTokenUsage?: (usage: ChatTokenUsage) => void
+		live?: LiveToolSet
 	}
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
@@ -1434,7 +1436,8 @@ export async function parseOpenAICompletion(
 				helpers,
 				toolCallbacks: callbacks,
 				workspace: options?.workspace,
-				messages
+				messages,
+				live: options?.live
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)

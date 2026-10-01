@@ -16,6 +16,7 @@ import { applyReasoningToConfig } from '../reasoningRegistry'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	type LiveToolSet,
 	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks,
@@ -395,7 +396,11 @@ export async function parseOpenAIResponsesCompletion(
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
 	helpers: any,
-	options?: { workspace?: string; onTokenUsage?: (usage: ChatTokenUsage) => void }
+	options?: {
+		workspace?: string
+		onTokenUsage?: (usage: ChatTokenUsage) => void
+		live?: LiveToolSet
+	}
 ): Promise<ParsedCompletionResult> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error: OpenAIError | ResponseErrorEvent | null = null
@@ -602,7 +607,8 @@ export async function parseOpenAIResponsesCompletion(
 				helpers,
 				toolCallbacks: callbacks,
 				workspace: options?.workspace,
-				messages
+				messages,
+				live: options?.live
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)

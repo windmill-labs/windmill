@@ -394,6 +394,30 @@ describe('processToolCall', () => {
 		expect(result.content).toBe(`Error while calling tool: ${expectedError}`)
 	})
 
+	it('resolves a tool registered earlier in the same batch from the live set', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('built')
+		const registered = {
+			def: createToolDef(z.object({}), 'build_pipeline_node', 'Build node'),
+			fn
+		}
+		const result = await processToolCall({
+			tools: [],
+			live: () => ({ tools: [registered], helpers: { pipelines: true } }),
+			toolCall: {
+				id: 'call_live',
+				type: 'function',
+				function: { name: 'build_pipeline_node', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+		})
+
+		expect(result.content).toBe('built')
+		expect(fn).toHaveBeenCalledWith(expect.objectContaining({ helpers: { pipelines: true } }))
+	})
+
 	it('continues to confirmation when pre-confirmation validation passes', async () => {
 		const { createToolDef, processToolCall } = await import('./shared')
 		const fn = vi.fn().mockResolvedValue('ok')
