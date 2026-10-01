@@ -266,3 +266,36 @@ export function hoverLineage(
 			(downstream.has(e.source) && downstream.has(e.target))
 	}
 }
+
+/** Ids of the edges another path already implies: an edge A → C when C can be
+ * reached from A through at least one other node (A → B → … → C). Edges joining
+ * the same two nodes don't make each other redundant. */
+export function transitivelyImpliedEdges(
+	edges: ReadonlyArray<{ id: string; source: string; target: string }>
+): Set<string> {
+	const next = new Map<string, Set<string>>()
+	for (const e of edges) {
+		if (e.source === e.target) continue
+		next.set(e.source, (next.get(e.source) ?? new Set()).add(e.target))
+	}
+	// Whether `to` is reachable from `from` without taking the direct step.
+	const reachableAround = (from: string, to: string) => {
+		const seen = new Set<string>([from])
+		const stack = [...(next.get(from) ?? [])].filter((n) => n !== to)
+		for (const n of stack) seen.add(n)
+		while (stack.length) {
+			const cur = stack.pop()!
+			for (const n of next.get(cur) ?? []) {
+				if (n === to) return true
+				if (!seen.has(n)) {
+					seen.add(n)
+					stack.push(n)
+				}
+			}
+		}
+		return false
+	}
+	const implied = new Set<string>()
+	for (const e of edges) if (e.source !== e.target && reachableAround(e.source, e.target)) implied.add(e.id)
+	return implied
+}

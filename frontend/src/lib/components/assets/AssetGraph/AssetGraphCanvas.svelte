@@ -56,7 +56,7 @@
 		CONTEXT_MENU_ITEM_HOVER_CLASS
 	} from '$lib/components/common/contextmenu/contextMenuStyles'
 	import { computeMutedReadKeys, dbtAssociations } from './resolveGraph'
-	import { buildDownstreamMap, hoverLineage } from './graphTraversal'
+	import { buildDownstreamMap, hoverLineage, transitivelyImpliedEdges } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
 	import type {
 		AssetGraphResponse,
@@ -1620,6 +1620,23 @@
 	// it, recursively — at full strength and fades the rest. Off while a bounded
 	// pick or a subscribe drag owns the graph's dimming.
 	let hoveredNodeId = $state<string | undefined>(undefined)
+	// A click re-renders the graph under the cursor (the selection rebuilds the
+	// nodes, the details pane resizes or covers the canvas), which fires bursts of
+	// leave/enter. The fade waits for the pointer to settle on a node, outlives a
+	// brief leave, and stays off on a node just clicked until another is hovered.
+	let hoverTimer: ReturnType<typeof setTimeout> | undefined
+	let clickedNodeId: string | undefined
+	function onNodePointerEnter(id: string) {
+		clearTimeout(hoverTimer)
+		if (id === clickedNodeId) return
+		clickedNodeId = undefined
+		hoverTimer = setTimeout(() => (hoveredNodeId = id), 120)
+	}
+	function onNodePointerLeave() {
+		clearTimeout(hoverTimer)
+		hoverTimer = setTimeout(() => (hoveredNodeId = undefined), 80)
+	}
+	$effect(() => () => clearTimeout(hoverTimer))
 	let lineage = $derived(
 		hoveredNodeId && hoveredNodeId !== ADD_NODE_ID && !boundPick && !onDrag
 			? hoverLineage(
@@ -1643,10 +1660,17 @@
 			.filter((e) => e.kind !== 'add-anchor' && !lineage!.hasEdge(e))
 			.map((e) => `${scope} .svelte-flow__edge[data-id="${CSS.escape(e.id)}"]`)
 		return [
-			nodes.length ? `${nodes.join(',')}{opacity:0.25}` : '',
-			edges.length ? `${edges.join(',')}{opacity:0.15}` : ''
+			nodes.length ? `${nodes.join(',')}{opacity:0.5}` : '',
+			edges.length ? `${edges.join(',')}{opacity:0.35}` : ''
 		].join('')
 	})
+	// Assets-only: a trigger edge A → C that A → B → … → C already implies says
+	// nothing new, so it recedes; the chain carries the cascade.
+	let impliedTriggerEdges = $derived(
+		assetsOnly
+			? transitivelyImpliedEdges(view.edges.filter((e) => e.kind === 'asset-flow' && e.reactive))
+			: new Set<string>()
+	)
 	let lineageSheet = $state<HTMLStyleElement | undefined>(undefined)
 	onMount(() => {
 		const sheet = document.createElement('style')
@@ -1972,7 +1996,7 @@
 						// Assets-only: a write upstream reruns what builds the target
 						// (solid, like a trigger), or the target only reads it (dashed gray).
 						if (e.reactive) {
-							style = 'stroke: rgb(59 130 246); stroke-width: 1.5px;'
+							style = `stroke: rgb(59 130 246); stroke-width: 1.5px;${impliedTriggerEdges.has(e.id) ? ' opacity: 0.35;' : ''}`
 							markerColor = 'rgb(59 130 246)'
 						} else {
 							style = 'stroke: rgb(156 163 175); stroke-width: 1px;'
@@ -2135,6 +2159,9 @@
 	}
 
 	function handleNodeClick({ node }: { node: Node }) {
+		clearTimeout(hoverTimer)
+		hoveredNodeId = undefined
+		clickedNodeId = node.id
 		// Bounded-run pick mode intercepts clicks: an eligible (downstream)
 		// node toggles as an end bound; the start, dimmed nodes, and
 		// triggers/+ are inert. Selection (details pane) is suppressed so the
@@ -2209,8 +2236,8 @@
 		defaultEdgeOptions={{ type: 'asset' }}
 		proOptions={{ hideAttribution: true }}
 		onnodeclick={handleNodeClick}
-		onnodepointerenter={({ node }) => (hoveredNodeId = node.id)}
-		onnodepointerleave={() => (hoveredNodeId = undefined)}
+		onnodepointerenter={({ node }) => onNodePointerEnter(node.id)}
+		onnodepointerleave={onNodePointerLeave}
 		onedgepointerenter={onEdgeEnter}
 		onedgepointerleave={onEdgeLeave}
 		--background-color={false}

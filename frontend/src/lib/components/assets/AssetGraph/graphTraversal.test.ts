@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AssetGraphResponse } from './types'
 import {
 	hoverLineage,
+	transitivelyImpliedEdges,
 	buildDownstreamMap,
 	computeDownstreamClosure,
 	computeInducedSchedule
@@ -252,5 +253,18 @@ describe('hoverLineage', () => {
 			{ source: 'c', target: 'd' },
 			{ source: 'c', target: 'y' }
 		])
+	})
+})
+
+describe('transitivelyImpliedEdges', () => {
+	it('flags an edge another path already implies, and only that one', () => {
+		const edges = [
+			{ id: 'ab', source: 'a', target: 'b' },
+			{ id: 'bc', source: 'b', target: 'c' },
+			{ id: 'ac', source: 'a', target: 'c' },
+			{ id: 'ad', source: 'a', target: 'd' },
+			{ id: 'ad2', source: 'a', target: 'd' }
+		]
+		expect([...transitivelyImpliedEdges(edges)]).toEqual(['ac'])
 	})
 })
