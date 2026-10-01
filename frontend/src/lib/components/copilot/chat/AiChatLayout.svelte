@@ -77,7 +77,6 @@
 		aiChatManager.cancel('aiChatLayout destroyed')
 		historyManager.close()
 	})
-
 </script>
 
 {#if !disableAi}

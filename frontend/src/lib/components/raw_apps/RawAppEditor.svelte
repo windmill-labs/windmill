@@ -187,6 +187,8 @@
 		// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
 		// session preview to save vertical room.
 		condensedHeader?: boolean
+		/** True for the route's own editor: its top bar becomes the page header. */
+		ownsPageHeader?: boolean
 	}
 
 	let {
@@ -226,6 +228,7 @@
 		onRestore,
 		onSavedNewAppPath,
 		condensedHeader = false,
+		ownsPageHeader = false,
 		version = undefined,
 		onTakeLatest = undefined,
 		draftBaseVersion = undefined
@@ -2454,6 +2457,7 @@
 		sidebarCollapsed={sidebarCollapsed.val}
 		onToggleSidebar={() => (sidebarCollapsed.val = !sidebarCollapsed.val)}
 		{condensedHeader}
+		{ownsPageHeader}
 	/>
 
 	<RawAppYamlEditor

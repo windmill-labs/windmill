@@ -28,7 +28,8 @@
 		userPathPrefix,
 		type Item,
 		type StateStore,
-		type Value
+		type Value,
+		emptyString
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -38,6 +39,7 @@
 
 	import { getContext, onDestroy, setContext, untrack } from 'svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
@@ -70,7 +72,6 @@
 	import FlowHistory from './flows/FlowHistory.svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
-	import EditableInput from './common/EditableInput.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
@@ -109,12 +110,13 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -222,8 +224,19 @@
 	// Top-bar responsive collapse. Measured via bind:clientWidth — we can't
 	// rely on viewport `md:` because the editor lives inside other panes
 	// (session pane, drawer, etc.) where the viewport stays wide.
+	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
+
 	let topbarWidth = $state(0)
-	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+	// In the page header the buttons share the row with the breadcrumb, so they collapse sooner:
+	// the trail and the summary take ~560px before either truncates, and the full group — the
+	// dropdown, Diff, the preview trio and Deploy — is ~610px.
+	const compactBelow = $derived(ownsPageHeader ? 1200 : 720)
+	const compactTopbar = $derived.by(() => {
+		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
+		return w > 0 && w < compactBelow
+	})
 	// A phone's bar holds the trail and Deploy: the diff joins the menu and the preview buttons
 	// stand down, since there is no room to run a flow beside its own name.
 	const phoneTopbar = $derived(
@@ -1541,7 +1554,7 @@
 <AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
 
 {#key renderCount}
-	{#if !actingUser?.operator}
+	{#if !actingUser?.operator || $operatorBuilderFlows}
 		{#if $pathStore}
 			<FlowHistory bind:this={flowHistory} path={$pathStore} {onHistoryRestore} />
 		{/if}
@@ -1556,7 +1569,12 @@
 				<!-- The editor's own top bar is the page header on this route: its breadcrumb and
 				     summary are the header's, and its buttons are the header's actions. -->
 				<PageHeaderContent
-					item={{ kind: 'flow', path: $pathStore, summaryContent: flowSummary }}
+					item={{
+						// Frozen while the pen's popover is open so the trail holds still as the user types.
+						kind: 'flow',
+						path: pathSnapshot ?? $pathStore,
+						summaryContent: flowSummary
+					}}
 					actions={flowHeaderActions}
 					contexts={headerContexts}
 				/>
@@ -1636,18 +1654,31 @@
 			{/if}
 
 			{#snippet flowSummary()}
-				<!-- The summary stays editable where the editor's own bar had it: the breadcrumb
-				     beside it is the path, which this editor renames from its settings tab. -->
-				<EditableInput
-					value={flowStore.val.summary ?? ''}
-					placeholder="Add a summary..."
-					editable={customUi?.topBar?.editableSummary != false}
-					commitOnInput
-					size="sm"
-					onSave={(v) => (flowStore.val.summary = v)}
-					textClass="text-xs font-medium text-emphasis leading-tight"
-					class="max-w-full min-w-0"
-				/>
+				<!-- Not edited in place: the pen beside it opens the summary and the path together,
+		     so the band reads as a name rather than a form. `title` for one it truncates. -->
+				<div class="group flex items-center gap-1 min-w-0">
+					<span
+						class="min-w-0 truncate text-xs {emptyString(flowStore.val.summary)
+							? 'text-tertiary italic font-normal'
+							: 'font-medium text-emphasis'}"
+						title={flowStore.val.summary}
+						>{emptyString(flowStore.val.summary) ? 'Add a summary...' : flowStore.val.summary}</span
+					>
+					{#if customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false}
+						<PathEditPopover
+							penVisibility={emptyString(flowStore.val.summary) ? 'always' : 'hover'}
+							bind:summary={flowStore.val.summary}
+							summaryEditable={customUi?.topBar?.editableSummary != false}
+							pathEditable={customUi?.topBar?.editablePath != false}
+							bind:path={$pathStore}
+							bind:snapshotPath={pathSnapshot}
+							savedPath={initialPath}
+							kind="flow"
+							onBehalfOfEmail={$savedOnBehalfOfEmail}
+							workspaceId={autosaveWorkspace}
+						/>
+					{/if}
+				</div>
 			{/snippet}
 
 			{#snippet flowHeaderActions()}
@@ -1701,9 +1732,11 @@
 				/>
 			{/snippet}
 
-			<!-- Rendered either inline in the top bar (wide) or as a graph overlay
-			     (compactTopbar). Crossing the 720px threshold remounts
-			     FlowPreviewButtons; any open preview state will reset. -->
+			<!-- Rendered either inline in the top bar (wide) or as a graph overlay. The two
+			     conditions are exact complements: testing the flow is reachable at every width,
+			     and FlowPreviewButtons — which owns the preview state and the handles the graph
+			     calls into — is mounted exactly once. Crossing a threshold remounts it, so any
+			     open preview resets. -->
 			{#snippet previewButtons()}
 				<FlowPreviewButtons
 					{suspendStatus}
@@ -1733,7 +1766,7 @@
 			{#if flowStateStore.val}
 				<FlowEditor
 					bind:this={flowEditor}
-					graphOverlay={compactTopbar ? previewButtons : undefined}
+					graphOverlay={compactTopbar || phoneTopbar ? previewButtons : undefined}
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
@@ -1772,7 +1805,9 @@
 					{forceTestTab}
 					{highlightArg}
 					aiChatOpen={aiChatManager.open}
-					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
+					showFlowAiButton={!disableAi &&
+						customUi?.topBar?.aiBuilder != false &&
+						!$operatorBuilderFlows}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}
@@ -1801,7 +1836,9 @@
 			{/if}
 		</div>
 	{:else}
-		Flow Builder not available to operators
+		<div class="h-full w-full center-center text-sm text-secondary">
+			Flow builder not available to operators
+		</div>
 	{/if}
 {/key}
 

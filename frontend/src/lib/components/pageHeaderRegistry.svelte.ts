@@ -3,7 +3,9 @@ import type { WorkspaceItemKind } from './workspacePicker'
 
 /** An item the page is working on: the breadcrumb walks its path and ends with its summary. */
 export type PageHeaderItem = {
-	kind: WorkspaceItemKind
+	/** Absent for an item the picker does not file under a kind — an agent's detail page. The
+	 *  breadcrumb then names the item without claiming it is one of the three. */
+	kind?: WorkspaceItemKind
 	/** Shown whole, and copied on click. */
 	path: string | undefined
 	summary?: string
@@ -29,9 +31,11 @@ export type PageHeaderContent = {
 	/** Orders these buttons among the other registrations', ascending; registration order breaks a
 	 *  tie. For a menu that must stay at the far end however many pages register before it. */
 	actionsOrder?: number
-	/** These actions include something that can give width back — a search field rather than a row
-	 *  of buttons. On a phone the bar then lets their box shrink; without it the box holds its
-	 *  content width, because squeezing a row of buttons only pushes them out of the bar. */
+	/** These actions can give width back under pressure, so the bar lets their box shrink on a
+	 *  phone. Two ways to earn it: a control that is narrower when it has to be (the Runs filter
+	 *  row, whose search field yields), or a set that scrolls inside its own box (the app and
+	 *  pipeline editors, whose rows are too wide for any bar). Without it the box holds its content
+	 *  width, because squeezing a plain row of buttons only pushes them out of the bar. */
 	actionsFlexible?: boolean
 	/** Rendered right after the page's name in the breadcrumb: a mark that belongs to the name,
 	 *  like a documentation tooltip, or a control that acts on the thing named — an app's Edit,
@@ -48,8 +52,9 @@ export type PageHeaderContent = {
 	 *  session's side panel. The band stops there instead of running over it, and the band floats
 	 *  above the page rather than pushing it down, so that column starts at the top. */
 	barRightInset?: number
-	/** Contexts those buttons look up. They render under the header, not under the page that
-	 *  wrote them, so anything the page's tree provides has to travel with them. */
+	/** Contexts this registration's snippets look up — its actions, what it hangs after the name,
+	 *  and its summary. They all render under the header rather than under the page that wrote
+	 *  them, so anything the page's tree provides has to travel with them. */
 	contexts?: Map<any, any>
 }
 

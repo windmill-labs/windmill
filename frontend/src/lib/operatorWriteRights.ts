@@ -1,5 +1,5 @@
-import { derived } from 'svelte/store'
-import { userWorkspaces } from '$lib/stores'
+import { derived, type Readable } from 'svelte/store'
+import { userWorkspaces, workspaceStore } from '$lib/stores'
 import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 /**
@@ -24,3 +24,25 @@ function writeLock(key: 'manage_schedules' | 'manage_triggers', noun: string) {
 export const useScheduleLock = () => writeLock('manage_schedules', 'schedules')
 /** Reads context: call during component initialisation. */
 export const useTriggerLock = () => writeLock('manage_triggers', 'triggers')
+
+/**
+ * True when the user is an operator of `workspace` and it granted operators the right to compose
+ * flows out of runnables that are already deployed. They still author no code, and everywhere else
+ * `operator` keeps meaning read-only, so a gate on the operator role has to consult this before
+ * refusing. `operator_settings` is null for a non-operator, so this is false for them.
+ */
+function builderFlows(workspace: Readable<string | undefined>): Readable<boolean> {
+	return derived(
+		[userWorkspaces, workspace],
+		([$userWorkspaces, $workspace]) =>
+			$userWorkspaces.find((w) => w.id === $workspace)?.operator_settings?.builder_flows === true
+	)
+}
+
+/** Builder rights in the operating workspace. Reads context: call during component
+ * initialisation. */
+export const useOperatorBuilderFlows = () => builderFlows(useOperatingWorkspace())
+
+/** Builder rights in the navigation workspace, for code outside any component: the legacy AI
+ * chat is one instance for the whole app and acts on the workspace the nav is on. */
+export const navigationOperatorBuilderFlows = builderFlows(workspaceStore)

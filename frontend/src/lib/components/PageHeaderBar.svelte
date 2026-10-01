@@ -7,7 +7,7 @@ section name — and the route's own buttons at the far end.
 The row's height matches the sidebar's own header row, so the two read as one band.
 -->
 <script lang="ts">
-	import { PanelLeft, PanelTopDashed } from 'lucide-svelte'
+	import { PanelLeft, PanelTop, PanelTopDashed } from 'lucide-svelte'
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
@@ -20,6 +20,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		navHidden = false,
 		hideNavHandle = false,
 		panelled = false,
+		onPin,
 		onUnpin
 	}: {
 		navHidden?: boolean
@@ -29,6 +30,10 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		/** The sidebar is a panel over the page rather than a rail beside it — detached, or a
 		 *  window too narrow to seat one. Either way this bar carries the switch that opens it. */
 		panelled?: boolean
+		/** Keeps the band on a page that owns the viewport. The corner handle that called the band
+		 *  down is underneath it by the time the pointer arrives, so this bar has to carry the pin
+		 *  itself — it lands on the same pixels, in place of the sidebar handle it hides. */
+		onPin?: () => void
 		/** Sends the band back behind its handle, on a page that owns the viewport. */
 		onUnpin?: () => void
 	} = $props()
@@ -59,12 +64,19 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		if (!el || el.nodeType !== 1) return
 		const box = document.getElementById('content')
 		if (!box || !box.contains(el)) return
+		// The answer this event would give, before measuring anything. While it matches what the
+		// band already draws there is nothing to decide — which is the steady state of a scroll,
+		// and the two rects below each force a synchronous layout. This listener captures every
+		// scroller in the app (Monaco, the audit table, a run's logs), about once a frame while any
+		// of them moves, so the common path has to stay off the layout.
+		const next = el.scrollTop > 0
+		if (next === scrolledUnder) return
 		// Only a box that starts where the content does has anything passing under the band. The
 		// audit page's list begins 285px lower, behind its own chart and column headers, and a
 		// select's option list floats wherever it opens: neither moves anything under the header.
 		const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top
 		if (top > AT_THE_TOP_PX) return
-		scrolledUnder = el.scrollTop > 0
+		scrolledUnder = next
 	}
 	// A page left while scrolled would otherwise hand its edge to the next one, which may have
 	// nothing to scroll at all.
@@ -87,6 +99,36 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			'shadow-[inset_0_-1px_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_0_-1px_0_0_#374151] [html.github-dark_&]:shadow-[inset_0_-1px_0_0_rgb(var(--color-border-light))]'
 	)}
 >
+	<!-- Pin before the sidebar's handle, so it holds the first slot whether or not the handle is
+	     there. Pinning brings the handle back — the band is no longer hidden — and from behind the
+	     handle the unpin button would sit one slot over from where the pin was just clicked, which
+	     for an operator (detached by default) means the second click opens the sidebar instead. -->
+	{#if onPin}
+		<!-- Same box and offsets as the corner handle it comes to rest over, so the pointer that
+		     called the band down is already on this button. -->
+		<button
+			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
+			aria-label="Pin the header on deployed apps"
+			title="Pin the header on deployed apps"
+			onclick={() => onPin?.()}
+		>
+			<PanelTop size={16} class="flex-shrink-0 text-hint" />
+		</button>
+	{/if}
+
+	{#if onUnpin}
+		<button
+			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
+			aria-label="Unpin the header from deployed apps"
+			title="Unpin the header from deployed apps"
+			onclick={() => onUnpin?.()}
+		>
+			<!-- Dashed while the band is shown, solid while it is away: the pair the sidebar's own
+			     toggle uses, so the two controls read as one idea. -->
+			<PanelTopDashed size={16} class="flex-shrink-0 text-hint" />
+		</button>
+	{/if}
+
 	{#if (navDetached.val || panelled) && !navHidden && !hideNavHandle}
 		<!-- Reveals the hidden sidebar, and only that: hovering slides the card in, clicking holds
 		     it there. Attaching it for good belongs to the toggle in the sidebar's own footer, where
@@ -110,20 +152,6 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		</div>
 	{/if}
 
-	{#if onUnpin}
-		<!-- After the sidebar's handle: the sidebar is the outer thing, the band sits inside it. -->
-		<button
-			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
-			aria-label="Unpin the header from deployed apps"
-			title="Unpin the header from deployed apps"
-			onclick={() => onUnpin?.()}
-		>
-			<!-- Dashed while the band is shown, solid while it is away: the pair the sidebar's own
-			     toggle uses, so the two controls read as one idea. -->
-			<PanelTopDashed size={16} class="flex-shrink-0 text-hint" />
-		</button>
-	{/if}
-
 	<!-- The breadcrumb yields width grudgingly (shrink-[0.1]): when a page fills the bar with
 	     controls, they are what should narrow, not the name of where the user is. It still gives
 	     way rather than pushing them off the bar once there is nothing left to take.
@@ -134,13 +162,20 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	     navigate the host's workspace. -->
 	{#if !navHidden}
 		<div class={twMerge('flex min-w-0', phone ? 'shrink min-w-[10rem]' : 'shrink-[0.1]')}>
-			<NavBreadcrumb
-				{item}
-				{section}
-				{narrow}
-				afterName={content?.afterName}
-				actingWorkspaceId={content?.actingWorkspaceId}
-			/>
+			<!-- Bridged like the actions below: what a page hangs off its own name renders here, out
+			     of the tree that named it, and the pen in there asks that tree who the acting user is
+			     before it offers to rename anything. -->
+			{#key content?.contexts}
+				<ContextBridge contexts={content?.contexts}>
+					<NavBreadcrumb
+						{item}
+						{section}
+						{narrow}
+						afterName={content?.afterName}
+						actingWorkspaceId={content?.actingWorkspaceId}
+					/>
+				</ContextBridge>
+			{/key}
 		</div>
 	{/if}
 
@@ -153,7 +188,11 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			     carries it down with the summary instead of stranding it on the line above. -->
 			<span class="shrink-0 text-hint/40 text-xs px-0.5" aria-hidden="true">·</span>
 			{#if item.summaryContent}
-				{@render item.summaryContent()}
+				{#key content?.contexts}
+					<ContextBridge contexts={content?.contexts}>
+						{@render item.summaryContent()}
+					</ContextBridge>
+				{/key}
 			{:else}
 				<span class="min-w-0 truncate text-xs font-medium text-emphasis">{item.summary}</span>
 			{/if}

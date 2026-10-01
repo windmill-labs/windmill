@@ -41,7 +41,12 @@
 	     On a phone the sentence goes and the badge becomes the button: the count is the part that
 	     has to be seen, and the bar has room for one thing. -->
 	{#if phone}
-		<Button variant="subtle" unifiedSize="sm" onclick={openDraftCompare} title="Review & deploy drafts">
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			onclick={openDraftCompare}
+			title="Review & deploy drafts"
+		>
 			<Badge color="blue" small>{draftCount}</Badge>
 		</Button>
 	{:else}

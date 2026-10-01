@@ -875,8 +875,8 @@
 	</div>
 {:else}
 	<div class="w-full h-full flex flex-col" bind:clientWidth={innerWidth}>
-		<!-- Everything that used to sit in a row above the graph — the page's name, its queue, the
-		     filters and the timeframe — is in the page header. -->
+		<!-- `actionsFlexible`: the filter row holds a search field that can give width back, so the
+		     bar lets this box shrink on a phone instead of holding its content width. -->
 		<PageHeaderContent afterName={runsHint} actions={headerActions} actionsFlexible />
 
 		<!-- Graph -->

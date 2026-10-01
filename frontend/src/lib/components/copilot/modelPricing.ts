@@ -69,6 +69,8 @@ const MODEL_PRICES: [name: string, price: PriceEntry | null][] = [
 	// fallback sits below the explicit entries rather than covering them.
 	['claude-fable-5', { input: 10, output: 50 }],
 	['claude-mythos-5', { input: 10, output: 50 }],
+	['claude-opus-5-5', { input: 4, output: 20, cacheRead: 0.2 }],
+	['claude-sonnet-5-5', { input: 2, output: 10, cacheRead: 0.2 }],
 	['claude-opus-5', { input: 5, output: 25 }],
 	['claude-opus-4-8', { input: 5, output: 25 }],
 	['claude-opus-4-7', { input: 5, output: 25 }],
@@ -98,6 +100,9 @@ const MODEL_PRICES: [name: string, price: PriceEntry | null][] = [
 	// Revisions past gpt-5 are priced separately by OpenAI and are not tracked here.
 	// The matcher's revision guard already keeps them off the family rate; these
 	// entries stay so a revision the guard admits still resolves to no rate.
+	// gpt-6 bills the whole request at a higher rate above 272K input tokens, which a
+	// per-model rate cannot express.
+	['gpt-6', null],
 	['gpt-5.6', null],
 	['gpt-5.5', null],
 	['gpt-5.4', null],

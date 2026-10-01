@@ -14,6 +14,130 @@ use std::time::{Duration, Instant};
 /// its `thinking` param, Gemini to a zero budget or the model's floor).
 pub(crate) const REASONING_OFF_SENTINEL: &str = "none";
 
+/// The effort to send for a model, dropping the off sentinel on a model that rejects every
+/// disable: the model then reasons at its default instead of failing the request. The UI
+/// never offers off on these, so this guards an agent step saved before it stopped, or an
+/// effort passed in as a flow input.
+pub fn effective_reasoning_effort<'a>(model: &str, effort: Option<&'a str>) -> Option<&'a str> {
+    match effort {
+        Some(effort)
+            if effort == REASONING_OFF_SENTINEL
+                && reasoning_rule(model).is_some_and(|rule| !rule.can_disable) =>
+        {
+            None
+        }
+        effort => effort,
+    }
+}
+
+/// Whether a request with function tools must send the off sentinel on Chat Completions:
+/// the model refuses tools there while it reasons, and does accept being turned off.
+pub(crate) fn completions_tools_need_reasoning_off(model: &str) -> bool {
+    reasoning_rule(model).is_some_and(|rule| rule.completions_tools_need_off && rule.can_disable)
+}
+
+/// What the backend needs to know about a model's reasoning: the rows of `REASONING_RULES`
+/// in the frontend's `reasoningRegistry.ts`, cut down to the two facts the wire needs.
+/// `reasoningParity.json` next to that file is checked by both sides' tests.
+struct ReasoningRule {
+    matches: fn(&str) -> bool,
+    /// False when the provider rejects every disable, so the off sentinel must not be sent.
+    can_disable: bool,
+    /// Chat Completions refuses function tools while the model reasons, even with the
+    /// effort omitted (live-verified); the Responses API has no such limit.
+    completions_tools_need_off: bool,
+}
+
+/// Matched in order against the lowercased model id, first match wins. A model no row
+/// matches keeps whatever effort it was given.
+const REASONING_RULES: &[ReasoningRule] = &[
+    // Live-verified: Fable, Mythos and the 5.x point releases reject `thinking: disabled`.
+    ReasoningRule {
+        matches: |m| m.contains("claude-fable") || m.contains("claude-mythos"),
+        can_disable: false,
+        completions_tools_need_off: false,
+    },
+    ReasoningRule {
+        matches: is_claude_5_point_release,
+        can_disable: false,
+        completions_tools_need_off: false,
+    },
+    // Live-verified: astra takes low..max only, where sol and luna also take `none`.
+    ReasoningRule {
+        matches: |m| base_id(m).starts_with("gpt-6-astra"),
+        can_disable: false,
+        completions_tools_need_off: true,
+    },
+    ReasoningRule {
+        matches: |m| gpt_version(m).is_some_and(|(major, _)| major >= 6),
+        can_disable: true,
+        completions_tools_need_off: true,
+    },
+    ReasoningRule {
+        matches: |m| matches!(gpt_version(m), Some((5, Some(minor))) if minor >= 5),
+        can_disable: true,
+        completions_tools_need_off: true,
+    },
+    ReasoningRule {
+        matches: |m| matches!(gpt_version(m), Some((5, Some(_)))),
+        can_disable: true,
+        completions_tools_need_off: false,
+    },
+    // gpt-5 and the o-series reject `none`.
+    ReasoningRule {
+        matches: |m| matches!(gpt_version(m), Some((5, None))),
+        can_disable: false,
+        completions_tools_need_off: false,
+    },
+    ReasoningRule {
+        matches: |m| {
+            let base = base_id(m);
+            base.starts_with('o') && base[1..].starts_with(|c: char| c.is_ascii_digit())
+        },
+        can_disable: false,
+        completions_tools_need_off: false,
+    },
+];
+
+fn reasoning_rule(model: &str) -> Option<&'static ReasoningRule> {
+    let model = model.to_lowercase();
+    REASONING_RULES.iter().find(|rule| (rule.matches)(&model))
+}
+
+/// The id after a gateway's `vendor/` and before a `:variant`.
+fn base_id(model: &str) -> &str {
+    let last = model.rsplit('/').next().unwrap_or(model);
+    last.split(':').next().unwrap_or(last)
+}
+
+/// `(major, minor)` of a `gpt-` id. The major is one digit then a separator or the end,
+/// since Azure names gpt-3.5 `gpt-35-turbo`.
+fn gpt_version(model: &str) -> Option<(u32, Option<u32>)> {
+    let rest = base_id(model).strip_prefix("gpt-")?;
+    let mut chars = rest.chars();
+    let major = chars.next()?.to_digit(10)?;
+    match chars.next() {
+        None | Some('-') => Some((major, None)),
+        Some('.') => {
+            let minor: String = chars.take_while(char::is_ascii_digit).collect();
+            Some((major, minor.parse().ok()))
+        }
+        _ => None,
+    }
+}
+
+/// Sonnet or Opus 5.x with x >= 1. The version match stops at one digit so a dated id
+/// (`claude-sonnet-5-20260101`) stays Sonnet 5.
+fn is_claude_5_point_release(model: &str) -> bool {
+    let model = model.replace('.', "-");
+    ["claude-opus-5-", "claude-sonnet-5-"].iter().any(|prefix| {
+        model.split(prefix).skip(1).any(|rest| {
+            let mut chars = rest.chars();
+            matches!(chars.next(), Some('1'..='9')) && !matches!(chars.next(), Some('0'..='9'))
+        })
+    })
+}
+
 /// Whether a Claude model removed the sampling params (`temperature`, `top_p`,
 /// `top_k`). On these, any value is a hard 400 — `temperature is deprecated for
 /// this model` — whatever the thinking mode, so the param has to be dropped on
@@ -117,6 +241,46 @@ pub fn is_chat_completions_only(base_url: &str, model: &str) -> bool {
 /// Record that this deployment rejected the endpoint its provider prefers.
 pub fn remember_chat_completions_only(base_url: &str, model: &str) {
     CHAT_COMPLETIONS_ONLY.insert((base_url.to_string(), model.to_string()), Instant::now());
+}
+
+#[cfg(test)]
+mod reasoning_rule_tests {
+    use super::*;
+
+    /// The frontend registry's test reads the same file. These rules see the model id
+    /// alone, so it holds only rows whose answer doesn't depend on the provider.
+    #[test]
+    fn agrees_with_the_frontend_registry() {
+        let rows: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../frontend/src/lib/components/copilot/reasoningParity.json"
+        ))
+        .unwrap();
+        for row in rows {
+            let model = row["model"].as_str().unwrap();
+            let can_disable = row["canDisable"].as_bool().unwrap();
+            let tools_need_off = row["completionsToolsNeedOff"].as_bool().unwrap();
+            let sent = effective_reasoning_effort(model, Some(REASONING_OFF_SENTINEL));
+            assert_eq!(sent.is_some(), can_disable, "{model}");
+            assert_eq!(
+                effective_reasoning_effort(model, Some("low")),
+                Some("low"),
+                "{model}"
+            );
+            assert_eq!(
+                completions_tools_need_reasoning_off(model),
+                tools_need_off && can_disable,
+                "{model}"
+            );
+        }
+    }
+
+    #[test]
+    fn reads_ids_the_frontend_resolves_first() {
+        // Azure's gpt-3.5 is not major 35, and a gateway prefix is not part of the id.
+        assert_eq!(gpt_version("gpt-35-turbo"), None);
+        assert!(completions_tools_need_reasoning_off("openai/gpt-6-sol"));
+        assert_eq!(effective_reasoning_effort("openai/o3", Some("none")), None);
+    }
 }
 
 #[cfg(test)]

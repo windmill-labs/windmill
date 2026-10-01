@@ -150,13 +150,18 @@
 {:else if app}
 	{#key app}
 		{#if app.raw_app && effectiveWorkspace}
-			<RawAppPreview
-				workspace={effectiveWorkspace}
-				user={$userStore}
-				secret={app.bundle_secret}
-				path={app.path}
-				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
-			/>
+			<!-- The bundle's iframe is `h-full`, so something has to give it a height to resolve
+			     against. In the workspace the layout hands one down; the share, embed and custom-path
+			     routes have nothing above them, and an unfloored iframe falls back to 150px. -->
+			<div class={inWorkspace ? 'h-full w-full' : 'h-screen w-full'}>
+				<RawAppPreview
+					workspace={effectiveWorkspace}
+					user={$userStore}
+					secret={app.bundle_secret}
+					path={app.path}
+					runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
+				/>
+			</div>
 		{:else if app.raw_app && !effectiveWorkspace}
 			<div class="px-4 mt-20">
 				<Alert type="error" title="Configuration error">
