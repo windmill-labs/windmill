@@ -28,7 +28,9 @@ use crate::utils::StripPath;
 /// `push`'s default (the language tag). Every relock of a script must use this, or a relock
 /// lands on a worker pool other than the one its deploy locked on and resolves packages
 /// differently.
-/// Dedicated workers are handled by `push`, which gives `dedicated_worker` precedence.
+/// Dedicated workers are handled by `push`, which gives `dedicated_worker` precedence. Below
+/// that, `push` replaces this result with the instance's `dependency_job_tag` setting when it is
+/// set, except for bunnative.
 pub fn dependency_job_tag(tag: Option<String>, language: &ScriptLang) -> Option<String> {
     if tag.as_ref().is_some_and(|x| x.contains("$args[")) {
         None

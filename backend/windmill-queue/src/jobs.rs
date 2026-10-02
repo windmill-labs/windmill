@@ -81,9 +81,9 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
-        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, PREVIEW_TAGS_OVERRIDE,
-        WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS, WORKER_SUSPENDED_PULL_QUERY,
-        WORKSPACE_FAIRNESS_OVERLOADED,
+        to_raw_value, CLOUD_HOSTED, DEPENDENCY_JOB_TAG, DISABLE_FLOW_SCRIPT, NO_LOGS,
+        PREVIEW_TAGS_OVERRIDE, WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS,
+        WORKER_SUSPENDED_PULL_QUERY, WORKSPACE_FAIRNESS_OVERLOADED,
     },
     DB, METRICS_ENABLED,
 };
@@ -4611,15 +4611,27 @@ pub async fn pull(
                         && !(job.kind.is_preview()
                             && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed))
                     {
-                        let effective_ws = per_workspace_tag(&job.workspace_id, db).await;
-                        let base_tag = if job.is_flow() {
-                            "flow".to_string()
-                        } else {
-                            "dependency".to_string()
-                        };
-                        let tag = match &effective_ws {
-                            Some(ws) => format!("{}-{}", base_tag, ws),
-                            None => base_tag,
+                        let tag = match configured_dependency_job_tag(
+                            &job.kind,
+                            job.script_lang.as_ref(),
+                            &job.workspace_id,
+                            db,
+                        )
+                        .await
+                        {
+                            Some(tag) => tag,
+                            None => {
+                                let effective_ws = per_workspace_tag(&job.workspace_id, db).await;
+                                let base_tag = if job.is_flow() {
+                                    "flow".to_string()
+                                } else {
+                                    "dependency".to_string()
+                                };
+                                match &effective_ws {
+                                    Some(ws) => format!("{}-{}", base_tag, ws),
+                                    None => base_tag,
+                                }
+                            }
                         };
                         sqlx::query!(
                             "UPDATE v2_job_queue SET tag = $1, running = false WHERE id = $2",
@@ -5265,6 +5277,24 @@ pub async fn resolve_push_tag(
         workspace_id.to_string()
     };
     Some(interpolate_args(tag.to_string(), args, &tag_ws))
+}
+
+/// The tag a dependency job is routed to when the instance's `dependency_job_tag` setting is
+/// set, whatever tag the script, flow or app itself runs on. `None` for any other job kind, for
+/// bunnative (its bundle must be built on a worker with the bun tag), or when the setting is
+/// unset.
+pub async fn configured_dependency_job_tag(
+    job_kind: &JobKind,
+    language: Option<&ScriptLang>,
+    workspace_id: &str,
+    db: &DB,
+) -> Option<String> {
+    if !job_kind.is_dependency() || language == Some(&ScriptLang::Bunnative) {
+        return None;
+    }
+    let tag = DEPENDENCY_JOB_TAG.load_full();
+    let tag = tag.as_deref()?;
+    resolve_push_tag(tag, &PushArgs::from(&HashMap::new()), workspace_id, db).await
 }
 
 /// Refuses a `tag` the caller chose that the instance's custom tags do not let `w_id` use,
@@ -7183,6 +7213,10 @@ async fn push_inner<'c, 'd>(
             runnable_path.clone().expect("dedicated script has a path")
         );
         windmill_common::worker::dedicated_worker_tag(workspace_id, &full_path)
+    } else if let Some(tag) =
+        configured_dependency_job_tag(&job_kind, language.as_ref(), workspace_id, db).await
+    {
+        tag
     } else {
         let interpolated_tag = match tag {
             Some(x) => resolve_push_tag(&x, &args, workspace_id, db).await,
