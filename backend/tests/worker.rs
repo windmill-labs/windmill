@@ -1723,6 +1723,78 @@ async fn test_postgresql_cached_connection_resets_session(
     Ok(())
 }
 
+/// The idle cached connection must not hold the server slot a job's own
+/// connection needs. A role limited to one connection stands in for a
+/// session-mode pooler with one slot, where the second job would wait forever
+/// instead of failing.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_cached_connection_released_for_other_key(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_worker::pg_executor::clear_pg_cache;
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    sqlx::query(
+        "DO $$ BEGIN
+           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wm_pg_cache_one_conn') THEN
+             CREATE ROLE wm_pg_cache_one_conn LOGIN PASSWORD 'changeme' CONNECTION LIMIT 1;
+           END IF;
+         END $$",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Two cache keys for the same role: only the sslmode differs.
+    let run = |sslmode: &str| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content: "SELECT 1 as n;".into(),
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+            tag: None,
+        }))
+        .arg(
+            "database",
+            json!({"host": "localhost", "port": 5432, "dbname": "windmill",
+                   "user": "wm_pg_cache_one_conn", "password": "changeme", "sslmode": sslmode}),
+        )
+        .run_until_complete(&db, false, port)
+    };
+
+    // The evicted connection's backend exits asynchronously, so a fresh
+    // connection can briefly still count it. Retrying absorbs that; without the
+    // eviction the cached connection stays open for 60s and every retry fails.
+    for sslmode in ["disable", "prefer", "disable"] {
+        let mut result = json!(null);
+        for _ in 0..5 {
+            result = run(sslmode).await.json_result().unwrap();
+            if result == json!([{"n": 1}]) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+        assert_eq!(result, json!([{"n": 1}]), "sslmode={sslmode}");
+    }
+
+    clear_pg_cache().await;
+    Ok(())
+}
+
 /// Runs multiple PG jobs through a SINGLE worker (like production) to verify
 /// that SET ROLE / search_path changes do not leak across jobs.
 #[sqlx::test(fixtures("base"))]

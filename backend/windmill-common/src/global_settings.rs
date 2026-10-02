@@ -431,8 +431,9 @@ pub const CANCEL_STRANDED_JOBS_AFTER_DAYS_SETTING: &str = "cancel_stranded_jobs_
 /// server keeps to itself, add it here.
 pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     // Instance identity / auth secrets — disclosure enables privilege escalation
-    // or impersonation.
+    // or impersonation. `rsa_keys` signs job OIDC tokens; only the server mints them.
     JWT_SECRET_SETTING,
+    "rsa_keys",
     OAUTH_SETTING,
     SMTP_SETTING,
     SCIM_TOKEN_SETTING,
@@ -1144,6 +1145,7 @@ mod tests {
         // secrets. They must never be served by the agent-worker endpoint.
         for key in [
             JWT_SECRET_SETTING,
+            "rsa_keys",
             OAUTH_SETTING,
             SMTP_SETTING,
             SCIM_TOKEN_SETTING,

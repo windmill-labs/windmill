@@ -13,7 +13,7 @@ use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::Value;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tokio_postgres::Client;
 use tokio_postgres::{types::ToSql, Row};
 use tokio_postgres::{
@@ -54,11 +54,8 @@ use windmill_common::client::AuthedClient;
 use windmill_types::s3::S3Object;
 
 lazy_static! {
-    pub static ref CONNECTION_CACHE: Arc<Mutex<Option<(String, tokio_postgres::Client)>>> =
-        Arc::new(Mutex::new(None));
     pub static ref CONNECTION_COUNTER: Arc<RwLock<HashMap<String, u64>>> =
         Arc::new(RwLock::new(HashMap::new()));
-    pub static ref LAST_QUERY: AtomicU64 = AtomicU64::new(0);
     pub static ref CACHE_HITS: AtomicU64 = AtomicU64::new(0);
 }
 
@@ -152,8 +149,171 @@ async fn warn_on_stalled_statement(
     }
 }
 
+/// One reusable connection per worker process, checked out by a job for the
+/// duration of its query and checked back in afterwards.
+///
+/// Invariant: the process never keeps an idle connection while one of its jobs
+/// runs on a connection of its own. Behind a session-mode pooler (PgBouncer,
+/// RDS Proxy pinning, …) the idle connection holds a server slot, and the job
+/// on its own connection waits for that slot with no timeout, forever if the
+/// idle connection keeps being reused by other jobs.
+static PG_CONNECTION_CACHE: std::sync::Mutex<PgConnectionCache> =
+    std::sync::Mutex::new(PgConnectionCache { idle: None, checked_out: false, uncached: 0 });
+static PG_CONNECTION_CACHE_SWEEPER: std::sync::Once = std::sync::Once::new();
+const PG_CONNECTION_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+
+struct PgConnectionCache {
+    idle: Option<PgConnection>,
+    /// The cached connection is out with a running job.
+    checked_out: bool,
+    /// Jobs of this process running on a connection that is not the cached one.
+    uncached: usize,
+}
+
+fn pg_connection_cache() -> std::sync::MutexGuard<'static, PgConnectionCache> {
+    PG_CONNECTION_CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+struct PgConnection {
+    key: String,
+    client: Client,
+    connection_task: tokio::task::JoinHandle<()>,
+    last_used: std::time::Instant,
+}
+
+impl Drop for PgConnection {
+    fn drop(&mut self) {
+        self.connection_task.abort();
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum PgLeaseSlot {
+    CheckedOut,
+    Uncached,
+}
+
+/// A job's claim on a connection. Dropping it checks the connection back in,
+/// or closes it when keeping it would break the cache invariant.
+struct PgConnectionLease {
+    slot: PgLeaseSlot,
+    conn: Option<PgConnection>,
+    /// Cache this job's own connection on release.
+    cache_on_release: bool,
+}
+
+impl PgConnectionLease {
+    /// Takes the cached connection when it matches `key`. Otherwise registers
+    /// the job as uncached and closes the idle connection, whatever its key, so
+    /// it cannot hold the server slot the job's own connection is about to need.
+    fn checkout(key: &str) -> Self {
+        let (lease, evicted) = {
+            let mut cache = pg_connection_cache();
+            match cache.idle.take() {
+                Some(conn) if conn.key == key => {
+                    cache.checked_out = true;
+                    (Self::new(PgLeaseSlot::CheckedOut, Some(conn)), None)
+                }
+                other => {
+                    cache.uncached += 1;
+                    (Self::new(PgLeaseSlot::Uncached, None), other)
+                }
+            }
+        };
+        drop(evicted);
+        lease
+    }
+
+    fn uncached() -> Self {
+        pg_connection_cache().uncached += 1;
+        Self::new(PgLeaseSlot::Uncached, None)
+    }
+
+    fn new(slot: PgLeaseSlot, conn: Option<PgConnection>) -> Self {
+        Self { slot, conn, cache_on_release: false }
+    }
+
+    /// Gives up a cached connection that failed its probe; the job then
+    /// connects on its own.
+    fn discard(&mut self) {
+        let conn = self.conn.take();
+        if self.slot == PgLeaseSlot::CheckedOut {
+            let mut cache = pg_connection_cache();
+            cache.checked_out = false;
+            cache.uncached += 1;
+            self.slot = PgLeaseSlot::Uncached;
+        }
+        drop(conn);
+    }
+
+    fn client(&self) -> &Client {
+        &self.conn.as_ref().expect("lease holds a connection").client
+    }
+}
+
+impl Drop for PgConnectionLease {
+    fn drop(&mut self) {
+        let Some(mut conn) = self.conn.take() else {
+            if self.slot == PgLeaseSlot::Uncached {
+                pg_connection_cache().uncached -= 1;
+            }
+            return;
+        };
+        let kept = {
+            let mut cache = pg_connection_cache();
+            let wants_cache = match self.slot {
+                PgLeaseSlot::CheckedOut => {
+                    cache.checked_out = false;
+                    true
+                }
+                PgLeaseSlot::Uncached => {
+                    cache.uncached -= 1;
+                    self.cache_on_release
+                }
+            };
+            if wants_cache && cache.uncached == 0 && !cache.checked_out && cache.idle.is_none() {
+                conn.last_used = std::time::Instant::now();
+                cache.idle = Some(conn);
+                None
+            } else {
+                Some(conn)
+            }
+        };
+        match kept {
+            None => PG_CONNECTION_CACHE_SWEEPER.call_once(|| {
+                tokio::spawn(sweep_idle_pg_connection());
+            }),
+            Some(conn) => drop(conn),
+        }
+    }
+}
+
+async fn sweep_idle_pg_connection() {
+    loop {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let expired = {
+            let mut cache = pg_connection_cache();
+            if cache
+                .idle
+                .as_ref()
+                .is_some_and(|c| c.last_used.elapsed() > PG_CONNECTION_IDLE_TIMEOUT)
+            {
+                cache.idle.take()
+            } else {
+                None
+            }
+        };
+        if expired.is_some() {
+            tracing::info!("Closing cache pg executor connection due to inactivity");
+        }
+    }
+}
+
 pub async fn clear_pg_cache() {
-    *CONNECTION_CACHE.lock().await = None;
+    let idle = pg_connection_cache().idle.take();
+    drop(idle);
     CONNECTION_COUNTER.write().await.clear();
 }
 
@@ -248,8 +408,6 @@ async fn new_pg_connection(
     };
     let handle = tokio::spawn(async move {
         if let Err(e) = connection.await {
-            let mut mtex = CONNECTION_CACHE.lock().await;
-            *mtex = None;
             tracing::error!("connection error: {}", e);
         }
     });
@@ -963,103 +1121,89 @@ pub async fn do_postgresql(
         database.to_uri(),
         auth_mode.cache_key_segment()
     );
-    let database_string_clone = database_string.clone();
 
     let connect_started = std::time::Instant::now();
     let mut cached_connection_failed_reset = false;
-    let cached_client;
-    let new_client;
-    if !*CLOUD_HOSTED {
-        let mut guard = CONNECTION_CACHE.try_lock().ok();
+    let mut lease = if *CLOUD_HOSTED {
+        PgConnectionLease::uncached()
+    } else {
         increment_connection_counter(&database_string).await;
+        PgConnectionLease::checkout(&database_string)
+    };
 
-        if guard
-            .as_ref()
-            .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string))
-        {
-            // Probe the cached connection with a curated session reset before
-            // reusing it. Each statement targets a specific class of state:
-            //
-            //   RESET ALL                     — GUC parameters (search_path,
-            //                                   application_name, statement_
-            //                                   timeout, transaction_*…). Note
-            //                                   that this does NOT reset SET
-            //                                   ROLE or SET SESSION
-            //                                   AUTHORIZATION (security!).
-            //   RESET SESSION AUTHORIZATION   — undoes both `SET SESSION
-            //                                   AUTHORIZATION` and `SET ROLE`,
-            //                                   restoring the connecting user.
-            //                                   Without this a previous job
-            //                                   leaving an elevated role
-            //                                   active would silently leak
-            //                                   permissions into the next.
-            //   UNLISTEN *                    — drops LISTEN registrations.
-            //   CLOSE ALL                     — closes open cursors.
-            //   pg_advisory_unlock_all()      — releases any session-scoped
-            //                                   advisory locks. Without this
-            //                                   a job that called
-            //                                   pg_advisory_lock and exited
-            //                                   without unlocking would block
-            //                                   later jobs holding the same
-            //                                   key (DISCARD ALL covered this
-            //                                   too).
-            //
-            // We deliberately do NOT use `DISCARD ALL`. DISCARD includes
-            // `DEALLOCATE ALL`, which deallocates *all* prepared statements
-            // server-side — including the typeinfo statements that
-            // tokio_postgres caches per-Client to resolve custom enum/domain
-            // Oids. After DISCARD, tokio_postgres still holds Statement
-            // objects whose names the server has forgotten, so the next
-            // custom-type query fails with `prepared statement "sN" does not
-            // exist`. The trade-off: temp tables and user-PREPARE statements
-            // may persist across cached-connection reuse (rare in datatable /
-            // script workloads).
-            //
-            // Doubles as a liveness probe — if the connection is broken any
-            // statement in the chain fails and we replace it.
-            let probe_client = &guard.as_ref().unwrap().as_ref().unwrap().1;
-            if probe_client
-                .batch_execute(
-                    "RESET ALL; \
+    if lease.conn.is_some() {
+        // Probe the cached connection with a curated session reset before
+        // reusing it. Each statement targets a specific class of state:
+        //
+        //   RESET ALL                     — GUC parameters (search_path,
+        //                                   application_name, statement_
+        //                                   timeout, transaction_*…). Note
+        //                                   that this does NOT reset SET
+        //                                   ROLE or SET SESSION
+        //                                   AUTHORIZATION (security!).
+        //   RESET SESSION AUTHORIZATION   — undoes both `SET SESSION
+        //                                   AUTHORIZATION` and `SET ROLE`,
+        //                                   restoring the connecting user.
+        //                                   Without this a previous job
+        //                                   leaving an elevated role
+        //                                   active would silently leak
+        //                                   permissions into the next.
+        //   UNLISTEN *                    — drops LISTEN registrations.
+        //   CLOSE ALL                     — closes open cursors.
+        //   pg_advisory_unlock_all()      — releases any session-scoped
+        //                                   advisory locks. Without this
+        //                                   a job that called
+        //                                   pg_advisory_lock and exited
+        //                                   without unlocking would block
+        //                                   later jobs holding the same
+        //                                   key (DISCARD ALL covered this
+        //                                   too).
+        //
+        // We deliberately do NOT use `DISCARD ALL`. DISCARD includes
+        // `DEALLOCATE ALL`, which deallocates *all* prepared statements
+        // server-side — including the typeinfo statements that
+        // tokio_postgres caches per-Client to resolve custom enum/domain
+        // Oids. After DISCARD, tokio_postgres still holds Statement
+        // objects whose names the server has forgotten, so the next
+        // custom-type query fails with `prepared statement "sN" does not
+        // exist`. The trade-off: temp tables and user-PREPARE statements
+        // may persist across cached-connection reuse (rare in datatable /
+        // script workloads).
+        //
+        // Doubles as a liveness probe — if the connection is broken any
+        // statement in the chain fails and we replace it.
+        if lease
+            .client()
+            .batch_execute(
+                "RESET ALL; \
                      RESET SESSION AUTHORIZATION; \
                      UNLISTEN *; \
                      CLOSE ALL; \
                      SELECT pg_advisory_unlock_all();",
-                )
-                .await
-                .is_ok()
-            {
-                tracing::info!("Using cached connection");
-                CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                LAST_QUERY.store(
-                    chrono::Utc::now().timestamp().try_into().unwrap_or(0),
-                    std::sync::atomic::Ordering::Relaxed,
-                );
-                cached_client = guard;
-                new_client = None;
-            } else {
-                tracing::info!("Cached connection is stale, creating new one");
-                cached_connection_failed_reset = true;
-                if let Some(ref mut g) = guard {
-                    **g = None;
-                }
-                drop(guard);
-                cached_client = None;
-                new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
-            }
+            )
+            .await
+            .is_ok()
+        {
+            tracing::info!("Using cached connection");
+            CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         } else {
-            // Release the lock before connecting so the post-query caching
-            // code can re-acquire it.
-            drop(guard);
-            cached_client = None;
-            new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
+            tracing::info!("Cached connection is stale, creating new one");
+            cached_connection_failed_reset = true;
+            lease.discard();
         }
-    } else {
-        cached_client = None;
-        new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
+    }
+    if lease.conn.is_none() {
+        let (client, connection_task) =
+            new_pg_connection(&database, auth_mode, conn.as_sql()).await?;
+        lease.conn = Some(PgConnection {
+            key: database_string.clone(),
+            client,
+            connection_task,
+            last_used: std::time::Instant::now(),
+        });
     }
 
-    let fresh_connection = new_client.is_some();
+    let fresh_connection = lease.slot == PgLeaseSlot::Uncached;
     let log_progress = !run_inline && !annotations.prepare;
     let connect_time = connect_started.elapsed();
     if log_progress && connect_time >= PG_SLOW_STEP {
@@ -1104,12 +1248,7 @@ pub async fn do_postgresql(
 
     let queries = parse_sql_blocks(query, true);
 
-    let (client, handle) = if let Some((client, handle)) = new_client.as_ref() {
-        (client, Some(handle))
-    } else {
-        let (_, client) = cached_client.as_ref().unwrap().as_ref().unwrap();
-        (client, None)
-    };
+    let client = lease.client();
 
     let param_idx_to_arg_and_value = sig
         .args
@@ -1243,80 +1382,13 @@ pub async fn do_postgresql(
     }
     .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input))?;
 
-    // Release the cache lock now that we have the result — allows the
-    // post-query caching code below to re-acquire it if needed.
-    drop(cached_client);
-
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
-    if let Some(handle) = handle {
-        if !*CLOUD_HOSTED {
-            if let Ok(mut mtex) = CONNECTION_CACHE.try_lock() {
-                if mtex.as_ref().is_none_or(|x| x.0 != database_string) {
-                    let abort_handler = handle.abort_handle();
-
-                    let mut cache_new_con = false;
-                    if let Some(new_client) = new_client {
-                        cache_new_con = is_most_used_conn(&database_string).await;
-                        if cache_new_con {
-                            *mtex = Some((database_string, new_client.0));
-                        } else {
-                            new_client.1.abort();
-                        }
-                    } else {
-                        handle.abort();
-                    }
-
-                    if cache_new_con {
-                        LAST_QUERY.store(
-                            chrono::Utc::now().timestamp().try_into().unwrap_or(0),
-                            std::sync::atomic::Ordering::Relaxed,
-                        );
-                        tokio::spawn(async move {
-                            loop {
-                                tokio::time::sleep(Duration::from_secs(5)).await;
-                                let last_query =
-                                    LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
-                                let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
-
-                                //we cache connection for 5 minutes at most
-                                if last_query + 60 * 1 < now {
-                                    // tracing::error!("Closing cache connection due to inactivity");
-                                    tracing::info!(
-                                        "Closing cache pg executor connection due to inactivity"
-                                    );
-                                    break;
-                                }
-                                let mtex = CONNECTION_CACHE.lock().await;
-                                if mtex.is_none() {
-                                    // connection is not in the mutex anymore
-                                    break;
-                                } else if let Some(mtex) = mtex.as_ref() {
-                                    if mtex.0.as_str() != &database_string_clone {
-                                        // connection is not the latest one
-                                        break;
-                                    }
-                                }
-
-                                tracing::debug!(
-                                    "Keeping cached pg executor connection alive due to activity"
-                                )
-                            }
-                            let mut mtex = CONNECTION_CACHE.lock().await;
-                            *mtex = None;
-                            abort_handler.abort();
-                        });
-                    }
-                } else {
-                    handle.abort();
-                }
-            } else {
-                handle.abort();
-            }
-        } else {
-            handle.abort();
-        }
+    if !*CLOUD_HOSTED && lease.slot == PgLeaseSlot::Uncached {
+        lease.cache_on_release = is_most_used_conn(&database_string).await;
     }
+    drop(lease);
+
     *mem_peak = (result.get().len() / 1000) as i32;
     // And then check that we got back the same string we sent over.
     return Ok(result);
