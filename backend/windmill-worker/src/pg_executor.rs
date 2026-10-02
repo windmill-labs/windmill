@@ -362,6 +362,43 @@ fn wrap_param_encoding_error(
     to_anyhow(err).into()
 }
 
+/// Whether a statement may return a row stream, and so needs its column types described
+/// before it runs. Anything not recognised as returning at most a row counts as a stream:
+/// a wrong guess only costs a round trip, while a missed stream can hang the job.
+fn can_stream_rows(query: &str) -> bool {
+    let stmt = remove_comments(query).to_ascii_lowercase();
+    let keyword = stmt
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .next()
+        .unwrap_or_default();
+    let rowless = matches!(
+        keyword,
+        "insert"
+            | "update"
+            | "delete"
+            | "merge"
+            | "create"
+            | "alter"
+            | "drop"
+            | "truncate"
+            | "grant"
+            | "revoke"
+            | "comment"
+            | "set"
+            | "reset"
+            | "call"
+            | "do"
+            | "begin"
+            | "commit"
+            | "rollback"
+            | "lock"
+            | "vacuum"
+            | "analyze"
+            | "refresh"
+    );
+    !rowless || stmt.contains("returning")
+}
+
 fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
     let base = otyp.trim_end_matches("[]");
     let is_array = otyp.ends_with("[]");
@@ -524,8 +561,10 @@ fn do_postgresql_inner<'a>(
             // (enums, domains, extension types) while the rows already stream, and on a
             // large result that lookup waits behind them forever. Describing first resolves
             // them up front, still without a named statement.
-            if let Err(e) = client.describe_typed(&query, &param_types).await {
-                return Err(wrap_param_encoding_error(e, &param_meta, &param_types));
+            if can_stream_rows(&query) {
+                if let Err(e) = client.describe_typed(&query, &param_types).await {
+                    return Err(wrap_param_encoding_error(e, &param_meta, &param_types));
+                }
             }
             let typed_params = query_params
                 .iter()
@@ -2478,6 +2517,32 @@ mod tests {
 
     fn typ_for(arg_t: &str) -> Typ {
         windmill_parser_sql::parse_pg_typ(arg_t)
+    }
+
+    #[test]
+    fn only_rowless_statements_skip_the_describe() {
+        for q in [
+            "SELECT * FROM t",
+            "-- $1 n (int)\nselect $1",
+            "WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x",
+            "INSERT INTO t VALUES (1) RETURNING id",
+            "/* c */ UPDATE t SET a = 1\nreturning *",
+            "TABLE t",
+            "VALUES (1)",
+            "EXPLAIN SELECT 1",
+        ] {
+            assert!(can_stream_rows(q), "{q}");
+        }
+        for q in [
+            "INSERT INTO t VALUES (1)",
+            "-- $1 n (int)\nUPDATE t SET a = $1",
+            "delete from t",
+            "CREATE TABLE t (a int)",
+            "SET search_path TO x",
+            "CALL p()",
+        ] {
+            assert!(!can_stream_rows(q), "{q}");
+        }
     }
 
     #[test]
