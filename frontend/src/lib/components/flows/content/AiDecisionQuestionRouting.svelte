@@ -17,6 +17,9 @@
 	import { findModuleInFlow } from '../flowTree'
 	import { branchOnQuestion } from '../aiDecisionInsert'
 	import StepIdBadge from './StepIdBadge.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { graphBranchIndex, removeBranch } from '../branchOps'
+	import { dfs } from '../dfs'
 
 	interface Props {
 		decisionId: string
@@ -26,7 +29,7 @@
 	let { decisionId, question }: Props = $props()
 
 	const ctx = getContext<FlowEditorContext>('FlowEditorContext')
-	const { flowStore, history, selectionManager } = ctx
+	const { flowStore, flowStateStore, history, selectionManager } = ctx
 
 	// Read from the stored step, so what this offers matches what the branches are checked against.
 	let options = $derived.by(() => {
@@ -45,6 +48,26 @@
 				)?.stale ?? [])
 			: []
 	)
+
+	// Steps inside the stale branches, which removing them deletes along with them.
+	let staleSteps = $derived.by(() => {
+		if (routing?.value.type !== 'branchone') return 0
+		const branches = routing.value.branches
+		return stale.reduce((n, s) => n + dfs(branches[s.index]?.modules ?? [], (m) => m.id).length, 0)
+	})
+	let confirmingRemoval = $state(false)
+
+	function removeStale(target: FlowModule) {
+		// From the last, so each index still points at its branch once the ones after it are gone.
+		for (const { index } of [...stale].sort((a, b) => b.index - a.index)) {
+			removeBranch(target.id, graphBranchIndex('branchone', index), {
+				flowStore,
+				flowStateStore,
+				history
+			})
+		}
+		refreshStateStore(flowStore)
+	}
 
 	function addMissing(target: FlowModule) {
 		push(history, flowStore.val)
@@ -105,7 +128,29 @@
 				: 'Branches handle options'} this question no longer has: {quoteOptions(
 				stale.map((s) => s.option)
 			)}"
-			actions={[{ label: 'Open to remove', onClick: () => selectionManager.selectId(target.id) }]}
+			actions={[
+				{
+					label: stale.length === 1 ? 'Remove branch' : 'Remove branches',
+					onClick: () => (staleSteps > 0 ? (confirmingRemoval = true) : removeStale(target))
+				}
+			]}
 		/>
+		{@const one = stale.length === 1}
+		{@const steps = staleSteps === 1 ? '1 step' : `${staleSteps} steps`}
+		<ConfirmationModal
+			open={confirmingRemoval}
+			title="Remove the {one ? 'branch' : 'branches'} and {steps}?"
+			confirmationText="Remove"
+			onCanceled={() => (confirmingRemoval = false)}
+			onConfirmed={() => {
+				confirmingRemoval = false
+				removeStale(target)
+			}}
+		>
+			The {one ? 'branch' : 'branches'} for {quoteOptions(stale.map((s) => s.option))} in
+			<StepIdBadge id={target.id} />
+			{one ? 'contains' : 'contain'}
+			{steps}, which will be deleted too.
+		</ConfirmationModal>
 	{/if}
 {/if}
