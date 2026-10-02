@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -1188,7 +1188,7 @@ pub async fn do_postgresql(
 
     let size = AtomicUsize::new(0);
     let size_ref = &size;
-    let result_f = async move {
+    let query_f = async move {
         let mut results = vec![];
         // Session reset (DISCARD ALL) is now handled eagerly when validating
         // the cached connection — no per-query reset needed here.
@@ -1260,6 +1260,13 @@ pub async fn do_postgresql(
             collection_strategy.collect(results)
         }
     };
+    let query_done = AtomicBool::new(false);
+    let query_done_ref = &query_done;
+    let result_f = async move {
+        let result = query_f.await;
+        query_done_ref.store(true, Ordering::Relaxed);
+        result
+    };
 
     let result = if run_inline {
         result_f.await
@@ -1278,7 +1285,14 @@ pub async fn do_postgresql(
         )
         .await
     }
-    .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input))?;
+    .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input));
+
+    // A query cut off by a timeout or cancel keeps running server-side, and the
+    // next job's reset probe on this connection would wait for it.
+    if !query_done.load(Ordering::Relaxed) {
+        lease.cacheable = false;
+    }
+    let result = result?;
 
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
