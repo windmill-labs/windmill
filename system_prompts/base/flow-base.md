@@ -256,6 +256,9 @@ each `expr` reading the decision by id:
 }
 ```
 
+For a yes/no question, one branch with `"expr": "results.triage.output.angry.noul >= 0.5"` (tune the
+threshold as needed) and the `default` as the "no" path.
+
 ### As an Agent Tool
 
 An `aidecision` can be a `flowmodule` tool of an `aiagent` (`"tool_type": "flowmodule", "type":

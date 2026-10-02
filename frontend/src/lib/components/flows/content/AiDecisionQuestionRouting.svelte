@@ -32,13 +32,11 @@
 	const { flowStore, flowStateStore, history, selectionManager } = ctx
 
 	// Read from the stored step, so what this offers matches what the branches are checked against.
-	let options = $derived.by(() => {
+	let asked = $derived.by(() => {
 		const decision = findModuleInFlow(flowStore.val.value, decisionId)
-		return (
-			(decision && decisionChoiceQuestions(decision).find((q) => q.name === question)?.options) ??
-			[]
-		)
+		return decision && decisionChoiceQuestions(decision).find((q) => q.name === question)
 	})
+	let options = $derived(asked?.options ?? [])
 	let routing = $derived(findRouting(flowStore.val, decisionId, question))
 	let missing = $derived(routing ? missingOptions(routing, decisionId, question, options) : options)
 	let stale = $derived(
@@ -71,20 +69,21 @@
 
 	function addMissing(target: FlowModule) {
 		push(history, flowStore.val)
-		addChoiceBranches(target, decisionId, question, missing)
+		addChoiceBranches(target, decisionId, question, asked?.kind ?? 'choice', missing)
 		refreshStateStore(flowStore)
 	}
 </script>
 
 {#if !routing}
-	{#if options.length > 0}
+	{#if asked && options.length > 0}
+		{@const kind = asked.kind}
 		<Button
 			unifiedSize="sm"
 			variant="default"
 			wrapperClasses="self-start"
 			startIcon={{ icon: Split }}
 			title="Add a Branch to one after this step, with one branch per option"
-			onClick={() => branchOnQuestion(ctx, decisionId, question, options)}
+			onClick={() => branchOnQuestion(ctx, decisionId, question, kind, options)}
 		>
 			Branch on this question
 		</Button>

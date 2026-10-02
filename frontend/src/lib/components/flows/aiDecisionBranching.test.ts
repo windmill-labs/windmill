@@ -40,11 +40,17 @@ function flow(branches: { expr: string; modules: FlowModule[] }[]): OpenFlow {
 	} as OpenFlow
 }
 
+function withBranches(branches: { expr: string; modules: FlowModule[] }[]): [OpenFlow, FlowModule] {
+	const f = flow(branches)
+	return [f, f.value.modules[1]]
+}
+
 describe('choice conditions', () => {
 	it('reads back the conditions it writes, even for names that are not identifiers', () => {
 		for (const c of [
-			{ decisionId: 'd', question: 'intent', option: 'refund' },
-			{ decisionId: 'd', question: 'the intent', option: `it's "odd"` }
+			{ decisionId: 'd', question: 'intent', kind: 'choice' as const, option: 'refund' },
+			{ decisionId: 'd', question: 'the intent', kind: 'choice' as const, option: `it's "odd"` },
+			{ decisionId: 'd', question: 'angry', kind: 'noul' as const, option: 'yes' }
 		]) {
 			expect(parseChoiceCondition(choiceConditionExpr(c))).toEqual(c)
 		}
@@ -52,19 +58,28 @@ describe('choice conditions', () => {
 		expect(parseChoiceCondition("results.d.output.intent.choice === 'it\\'s'")).toEqual({
 			decisionId: 'd',
 			question: 'intent',
+			kind: 'choice',
 			option: "it's"
+		})
+		// A tuned threshold still reads as the question's yes branch.
+		expect(parseChoiceCondition('results.d.output.angry.noul > 0.75')).toEqual({
+			decisionId: 'd',
+			question: 'angry',
+			kind: 'noul',
+			option: 'yes'
 		})
 	})
 
 	it('flags the options a branch is missing and the branches whose option is gone', () => {
 		const f = flow([
-			...choiceBranches('d', 'intent', ['refund', 'cancel']),
+			...choiceBranches('d', 'intent', 'choice', ['refund', 'cancel']),
 			{ expr: 'flow_input.x', modules: [] }
 		])
 		expect(checkRouting(f, f.value.modules[1])).toEqual([
 			{
 				decisionId: 'd',
 				question: 'intent',
+				kind: 'choice',
 				missing: ['bug'],
 				stale: [{ index: 1, option: 'cancel' }]
 			}
@@ -74,9 +89,28 @@ describe('choice conditions', () => {
 
 describe('a removed question', () => {
 	it('leaves every branch routing on it stale', () => {
-		const f = flow(choiceBranches('d', 'gone', ['refund']))
+		const f = flow(choiceBranches('d', 'gone', 'choice', ['refund']))
 		expect(checkRouting(f, f.value.modules[1])).toEqual([
-			{ decisionId: 'd', question: 'gone', missing: [], stale: [{ index: 0, option: 'refund' }] }
+			{
+				decisionId: 'd',
+				question: 'gone',
+				kind: 'choice',
+				missing: [],
+				stale: [{ index: 0, option: 'refund' }]
+			}
+		])
+	})
+
+	it('leaves a yes branch stale once its question is no longer a yes/no', () => {
+		expect(checkRouting(...withBranches(choiceBranches('d', 'angry', 'noul', ['yes'])))).toEqual([])
+		expect(checkRouting(...withBranches(choiceBranches('d', 'intent', 'noul', ['yes'])))).toEqual([
+			{
+				decisionId: 'd',
+				question: 'intent',
+				kind: 'choice',
+				missing: ['refund', 'bug'],
+				stale: [{ index: 0, option: 'yes' }]
+			}
 		])
 	})
 })

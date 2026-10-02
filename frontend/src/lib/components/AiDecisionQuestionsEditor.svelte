@@ -249,9 +249,6 @@
 								Add option
 							</Button>
 						</div>
-						{#if decisionStep?.id && row.name.trim()}
-							<AiDecisionQuestionRouting decisionId={decisionStep.id} question={row.name.trim()} />
-						{/if}
 					{:else if row.type === 'score'}
 						<div class="flex flex-col gap-1">
 							{@render label('Levels')}
@@ -299,6 +296,9 @@
 								<span class="text-2xs text-hint">Optional</span>
 							</div>
 						</div>
+					{/if}
+					{#if decisionStep?.id && row.type !== 'score' && row.name.trim()}
+						<AiDecisionQuestionRouting decisionId={decisionStep.id} question={row.name.trim()} />
 					{/if}
 				</div>
 			{/each}

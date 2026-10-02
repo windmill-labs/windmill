@@ -16,7 +16,7 @@
 	// Absent in graphs drawn outside the flow editor, which have nothing to insert into.
 	const ctx = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 
-	// The first choice question nothing branches on yet; the step's question cards offer the rest.
+	// The first question nothing branches on yet; the step's question cards offer the rest.
 	let question = $derived.by(() => {
 		if (!ctx) return undefined
 		const decision = findModuleInFlow(ctx.flowStore.val.value, moduleId)
@@ -36,7 +36,7 @@
 			iconOnly
 			startIcon={{ icon: Split }}
 			title="Branch on {q.name}"
-			onClick={() => branchOnQuestion(ctx, moduleId, q.name, q.options)}
+			onClick={() => branchOnQuestion(ctx, moduleId, q.name, q.kind, q.options)}
 		/>
 	</div>
 {/if}

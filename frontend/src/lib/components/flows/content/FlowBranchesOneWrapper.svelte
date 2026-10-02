@@ -23,7 +23,12 @@
 	import FlowRunSettings from './FlowRunSettings.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 	import { push } from '$lib/history.svelte'
-	import { addChoiceBranches, checkRouting, quoteOptions } from '../aiDecisionBranching'
+	import {
+		addChoiceBranches,
+		checkRouting,
+		quoteOptions,
+		type RoutingCheck
+	} from '../aiDecisionBranching'
 	import StepIdBadge from './StepIdBadge.svelte'
 
 	interface Props {
@@ -108,9 +113,9 @@
 	// Kept in step with the AI decision questions its branches were generated from.
 	let routingChecks = $derived(checkRouting(flowStore.val, flowModule))
 
-	function addMissing(decisionId: string, question: string, missing: string[]) {
+	function addMissing(check: RoutingCheck) {
 		push(history, flowStore.val)
-		addChoiceBranches(flowModule, decisionId, question, missing)
+		addChoiceBranches(flowModule, check.decisionId, check.question, check.kind, check.missing)
 		refreshStateStore(flowStore)
 	}
 
@@ -163,7 +168,7 @@
 										actions={[
 											{
 												label: check.missing.length === 1 ? 'Add branch' : 'Add branches',
-												onClick: () => addMissing(check.decisionId, check.question, check.missing)
+												onClick: () => addMissing(check)
 											}
 										]}
 									>

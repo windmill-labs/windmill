@@ -122,12 +122,22 @@ export function questionsFitRows(value: unknown): boolean {
 	return canonical(rowsToQuestions(questionsToRows(value))) === canonical(value)
 }
 
-/** The options of each statically set choice question, in order. */
-export function choiceQuestionOptions(value: unknown): { name: string; options: string[] }[] {
-	return questionsToRows(value)
-		.filter((r) => r.type === 'choice')
-		.map((r) => ({
-			name: r.name,
-			options: r.options.map((o) => o.name.trim()).filter(Boolean)
-		}))
+/** How a Branch to one routes on a question: one branch per option of a choice, or one `yes`
+ *  branch for a yes/no question. Scores take a threshold the user picks, so the helper leaves them. */
+export type BranchKind = 'choice' | 'noul'
+
+/** The questions a Branch to one can route on, in order, with the branches each one gets. */
+export function branchableQuestions(
+	value: unknown
+): { name: string; kind: BranchKind; options: string[] }[] {
+	const branchable: { name: string; kind: BranchKind; options: string[] }[] = []
+	for (const r of questionsToRows(value)) {
+		if (r.type === 'choice') {
+			const options = r.options.map((o) => o.name.trim()).filter(Boolean)
+			branchable.push({ name: r.name, kind: 'choice', options })
+		} else if (r.type === 'noul') {
+			branchable.push({ name: r.name, kind: 'noul', options: ['yes'] })
+		}
+	}
+	return branchable
 }
