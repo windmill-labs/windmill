@@ -210,9 +210,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Refused are the values a flow produces when it forgot the input (no key, `null`, a blank
-    /// string from an empty expression) and the scalars TypeSafe rejects. A text, an object or an
-    /// array is a state, whatever it holds.
     /// The account id goes into the URL path, so anything that could leave its segment is refused.
     #[test]
     fn cloudflare_account_id_stays_in_its_segment() {
@@ -226,6 +223,9 @@ mod tests {
         }
     }
 
+    /// Refused are the values a flow produces when it forgot the input (no key, `null`, a blank
+    /// string from an empty expression) and the scalars TypeSafe rejects. A text, an object or an
+    /// array is a state, whatever it holds.
     #[test]
     fn decision_inputs_refuse_what_typesafe_would() {
         let questions = json!({"urgent": {"type": "noul", "instructions": "Is it urgent?"}});
