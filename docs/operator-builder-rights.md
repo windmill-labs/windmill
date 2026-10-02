@@ -103,8 +103,11 @@ can no more switch the sandbox off there than on deploy.
 
 The sandbox does not cover the raw-app editor: its preview runs the bundle same-origin with the
 session of whoever opens it, so an operator's app opened by an admin acts as that admin. Until
-sandboxed apps also preview isolated, `RawAppEditor` holds the preview of an app an operator last
-deployed until the viewer runs it. That is a speed bump, not a boundary.
+sandboxed apps also preview isolated, `RawAppEditor` holds the preview until the viewer runs it
+unless the code's author is a known developer: the last deployer, or for a draft loaded from
+another user's, its owner. The draft records that owner (`loaded_from`) until its preview is run or
+it is deployed, since loading it saves it as the viewer's own. An author no longer in the workspace
+counts as unknown. That is a speed bump, not a boundary.
 
 ## Billing
 

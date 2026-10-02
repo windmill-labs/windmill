@@ -47,6 +47,9 @@
 		/** The app_version the draft forked from; the server derives `draft.base`
 		 *  from it. */
 		parent_version?: number
+		/** Whose draft this one was loaded from, until its preview is run or it is deployed:
+		 *  the editor previews it as that user's code, not as the viewer's. */
+		loaded_from?: string
 	}
 
 	let files: Record<string, string> | undefined = $state(undefined)
@@ -125,6 +128,7 @@
 			policy,
 			custom_path: savedApp?.custom_path,
 			parent_version: parentVersion,
+			loaded_from: loadedDraftOwner,
 			// Persist the typed path as `draft_path` only when it actually differs
 			// from the current path — a `draft_path` equal to the baseline is a
 			// no-op that would block the draft from deduping against the deployed
@@ -165,6 +169,7 @@
 	let isNewApp = $state(false)
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 	let loadedFromDraft = $state(false)
+	let loadedDraftOwner = $state<string | undefined>(undefined)
 	let othersModalOpen = $state(false)
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
@@ -361,6 +366,7 @@
 					policy?: any
 					custom_path?: string
 					draft_path?: string
+					loaded_from?: string
 			  }
 			| undefined
 		// Surface the saved `draft_path` on `backendApp` so `extractRawApp` seeds
@@ -411,6 +417,7 @@
 		const pendingLoad = getDraft
 			? OtherUserDraftLoad.takePending($workspaceStore!, 'raw_app', path)
 			: undefined
+		loadedDraftOwner = pendingLoad?.ownerLabel ?? savedRawAppDraft?.loaded_from
 		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
 		// lock so editing our own draft works again. See /scripts/edit's loader.
 		if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'raw_app', path)) {
@@ -445,6 +452,7 @@
 						policy,
 						custom_path: savedApp?.custom_path,
 						parent_version: parentVersion,
+						loaded_from: loadedDraftOwner,
 						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
 					} as RawAppDraft,
 					onResetToOwnDraft: () => loadApp({ getDraft: true })
@@ -634,6 +642,7 @@
 				bind:savedApp
 				{diffDrawer}
 				newApp={isNewApp}
+				bind:loadedDraftOwner
 				version={parentVersion ??
 					(deployedHeadVersion != null ? Number(deployedHeadVersion) : undefined)}
 				{draftBaseVersion}
@@ -672,6 +681,7 @@
 					// pair would then differ and open the prompt on a draft that is gone.
 					draftBaseVersion = version != null && version === head ? String(version) : undefined
 					draftSavedAt = undefined
+					loadedDraftOwner = undefined
 					if (head != null) {
 						// Named by whoever deployed the head, not by the page load's author.
 						deployedHeadVersion = String(head)
