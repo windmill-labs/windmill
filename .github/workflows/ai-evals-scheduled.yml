@@ -35,7 +35,8 @@ env:
   GLOBAL_EXTRA_MODELS: ${{ inputs.global_extra_models || 'gpt-6-astra gemini-3.8-flash' }}
   RUNS: ${{ inputs.runs || '3' }}
   REASONING: ${{ inputs.reasoning }}
-  INGEST_URL: https://app.windmill.dev/api/r/f/ai/ingest_ai_eval_run
+  # Routes on the cloud instance are prefixed with their workspace.
+  INGEST_URL: https://app.windmill.dev/api/r/windmill-prod/f/ai/ingest_ai_eval_run
 
 jobs:
   setup:
@@ -156,7 +157,7 @@ jobs:
                 | .cases[].attempts[] |= {attempt, passed, durationMs, toolCallCount, judgeScore,
                     judgeSummary, error, tokenUsage, checks: [.checks[]? | {name, passed}]}),
                git_ref: $ref, trigger: $trigger, run_url: $url}' "$f" \
-            | curl -sf --retry 3 -X POST "$INGEST_URL" \
+            | curl -sS --fail-with-body --retry 3 -X POST "$INGEST_URL" \
                 -H "Authorization: Bearer $INGEST_TOKEN" -H 'content-type: application/json' \
                 --data-binary @- && echo " <- $f" || echo "::warning::failed to post $f"
           done

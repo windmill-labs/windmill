@@ -278,7 +278,9 @@
 	let scopeOptions = $derived(
 		useClientCredentials
 			? defaultCcScopes()
-			: [...(registryEntry()?.scope_options ?? []), ...instanceScopes]
+			: useUserToken
+				? [...(registryEntry()?.user_scope_options ?? []), ...(registryEntry()?.user_scopes ?? [])]
+				: [...(registryEntry()?.scope_options ?? []), ...instanceScopes]
 	)
 
 	/** Their slice of the resource type's schema, so they render with the type's own
@@ -334,6 +336,10 @@
 		ccInstance = ''
 		tokenUrl = ''
 		scopes = []
+		if (description === generatedDescription) {
+			description = ''
+		}
+		generatedDescription = ''
 	}
 
 	/** Default scopes for the client-credentials grant. Registry providers use
