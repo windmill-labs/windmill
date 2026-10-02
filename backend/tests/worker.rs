@@ -1795,6 +1795,61 @@ async fn test_postgresql_cached_connection_released_for_other_key(
     Ok(())
 }
 
+/// A worker alternating between two databases keeps a connection for each.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_cache_keeps_a_connection_per_database(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use std::sync::atomic::Ordering;
+    use windmill_worker::pg_executor::{clear_pg_cache, CACHE_HITS};
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let run = |dbname: &str| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content: "SELECT current_database() as d;".into(),
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+            tag: None,
+        }))
+        .arg(
+            "database",
+            json!({"host": "localhost", "port": 5432, "dbname": dbname,
+                   "user": "postgres", "password": "changeme"}),
+        )
+        .run_until_complete(&db, false, port)
+    };
+
+    let hits_before = CACHE_HITS.load(Ordering::Relaxed);
+    for dbname in ["windmill", "postgres", "windmill", "postgres"] {
+        let result = run(dbname).await.json_result().unwrap();
+        assert_eq!(result, json!([{"d": dbname}]));
+    }
+    let hits = CACHE_HITS.load(Ordering::Relaxed) - hits_before;
+    assert_eq!(
+        hits, 2,
+        "the last two jobs should reuse a cached connection"
+    );
+
+    clear_pg_cache().await;
+    Ok(())
+}
+
 /// Runs multiple PG jobs through a SINGLE worker (like production) to verify
 /// that SET ROLE / search_path changes do not leak across jobs.
 #[sqlx::test(fixtures("base"))]

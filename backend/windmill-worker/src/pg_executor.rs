@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use base64::{engine, Engine as _};
@@ -13,7 +12,6 @@ use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::Value;
-use tokio::sync::RwLock;
 use tokio_postgres::Client;
 use tokio_postgres::{types::ToSql, Row};
 use tokio_postgres::{
@@ -54,30 +52,68 @@ use windmill_common::client::AuthedClient;
 use windmill_types::s3::S3Object;
 
 lazy_static! {
-    pub static ref CONNECTION_COUNTER: Arc<RwLock<HashMap<String, u64>>> =
-        Arc::new(RwLock::new(HashMap::new()));
     pub static ref CACHE_HITS: AtomicU64 = AtomicU64::new(0);
 }
 
-/// One reusable connection per worker process, checked out by a job for the
-/// duration of its query and checked back in afterwards.
+/// Idle connections kept per cache key, checked out by a job for the duration
+/// of its query and checked back in afterwards.
 ///
-/// Invariant: the process never keeps an idle connection while one of its jobs
-/// runs on a connection of its own. Behind a session-mode pooler (PgBouncer,
-/// RDS Proxy pinning, …) the idle connection holds a server slot, and the job
-/// on its own connection waits for that slot with no timeout, forever if the
-/// idle connection keeps being reused by other jobs.
+/// Invariant: the process never keeps an idle connection in a pool scope
+/// ([`pg_pool_scope`]) while one of its jobs runs on a connection of its own in
+/// that scope. Behind a session-mode pooler (PgBouncer, RDS Proxy pinning, …)
+/// an idle connection holds a server slot, and the job on its own connection
+/// waits for that slot with no timeout, forever if other jobs keep reusing the
+/// idle connection.
 static PG_CONNECTION_CACHE: std::sync::Mutex<PgConnectionCache> =
-    std::sync::Mutex::new(PgConnectionCache { idle: None, checked_out: false, uncached: 0 });
+    std::sync::Mutex::new(PgConnectionCache { idle: Vec::new(), own: Vec::new(), next_own_id: 0 });
 static PG_CONNECTION_CACHE_SWEEPER: std::sync::Once = std::sync::Once::new();
 const PG_CONNECTION_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+/// Across all keys. Native mode runs 8 jobs at once in one process.
+const PG_MAX_IDLE_CONNECTIONS: usize = 8;
+/// A pooler can also share slots across pool scopes: two host names for one
+/// pooler, or a per-database or per-user limit. A job on its own connection for
+/// longer than this may be waiting on such a slot, so no idle connection is
+/// kept, in any scope, until it finishes.
+const PG_OWN_CONNECTION_STALL: Duration = Duration::from_secs(5);
 
 struct PgConnectionCache {
-    idle: Option<PgConnection>,
-    /// The cached connection is out with a running job.
-    checked_out: bool,
-    /// Jobs of this process running on a connection that is not the cached one.
-    uncached: usize,
+    /// Least recently used first.
+    idle: Vec<PgConnection>,
+    /// Jobs of this process running on a connection of their own.
+    own: Vec<OwnConnection>,
+    next_own_id: u64,
+}
+
+struct OwnConnection {
+    id: u64,
+    scope: String,
+    since: Instant,
+}
+
+impl PgConnectionCache {
+    /// Registers a job on its own connection. Returns the idle connections of
+    /// its scope, to be closed before it connects.
+    fn register_own(&mut self, scope: &str) -> (u64, Vec<PgConnection>) {
+        let id = self.next_own_id;
+        self.next_own_id += 1;
+        self.own
+            .push(OwnConnection { id, scope: scope.to_string(), since: Instant::now() });
+        let (evicted, kept) = std::mem::take(&mut self.idle)
+            .into_iter()
+            .partition(|c| c.scope == scope);
+        self.idle = kept;
+        (id, evicted)
+    }
+
+    fn stalled(&self) -> bool {
+        self.own
+            .iter()
+            .any(|o| o.since.elapsed() >= PG_OWN_CONNECTION_STALL)
+    }
+
+    fn may_keep(&self, scope: &str) -> bool {
+        !self.stalled() && self.own.iter().all(|o| o.scope != scope)
+    }
 }
 
 fn pg_connection_cache() -> std::sync::MutexGuard<'static, PgConnectionCache> {
@@ -86,11 +122,27 @@ fn pg_connection_cache() -> std::sync::MutexGuard<'static, PgConnectionCache> {
         .unwrap_or_else(|e| e.into_inner())
 }
 
+/// What a session pooler shares server slots across: PgBouncer pools by
+/// database and user. Keys differing only in sslmode, TLS inputs, auth mode or
+/// options share a scope. Hosts are compared by name, not address.
+fn pg_pool_scope(database: &PgDatabase) -> String {
+    format!(
+        "{:?}",
+        (
+            database.host.trim().to_ascii_lowercase(),
+            database.port.unwrap_or(5432),
+            &database.dbname,
+            database.login_name().trim(),
+        )
+    )
+}
+
 struct PgConnection {
     key: String,
+    scope: String,
     client: Client,
     connection_task: tokio::task::JoinHandle<()>,
-    last_used: std::time::Instant,
+    last_used: Instant,
 }
 
 impl Drop for PgConnection {
@@ -99,36 +151,39 @@ impl Drop for PgConnection {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum PgLeaseSlot {
-    CheckedOut,
-    Uncached,
-}
-
 /// A job's claim on a connection. Dropping it checks the connection back in,
 /// or closes it when keeping it would break the cache invariant.
 struct PgConnectionLease {
-    slot: PgLeaseSlot,
+    scope: String,
+    /// Set while the job is on a connection of its own.
+    own: Option<u64>,
     conn: Option<PgConnection>,
-    /// Cache this job's own connection on release.
-    cache_on_release: bool,
+    /// False where connections are never cached.
+    cacheable: bool,
 }
 
 impl PgConnectionLease {
-    /// Takes the cached connection when it matches `key`. Otherwise registers
-    /// the job as uncached and closes the idle connection, whatever its key, so
-    /// it cannot hold the server slot the job's own connection is about to need.
-    fn checkout(key: &str) -> Self {
+    /// Takes the most recently used idle connection for `key`. Otherwise
+    /// registers the job as on its own connection and closes the idle
+    /// connections of its scope, so they cannot hold the server slot its own
+    /// connection is about to need.
+    fn checkout(key: &str, scope: String) -> Self {
         let (lease, evicted) = {
             let mut cache = pg_connection_cache();
-            match cache.idle.take() {
-                Some(conn) if conn.key == key => {
-                    cache.checked_out = true;
-                    (Self::new(PgLeaseSlot::CheckedOut, Some(conn)), None)
+            match cache.idle.iter().rposition(|c| c.key == key) {
+                Some(i) => {
+                    let conn = cache.idle.remove(i);
+                    (
+                        Self { scope, own: None, conn: Some(conn), cacheable: true },
+                        vec![],
+                    )
                 }
-                other => {
-                    cache.uncached += 1;
-                    (Self::new(PgLeaseSlot::Uncached, None), other)
+                None => {
+                    let (id, evicted) = cache.register_own(&scope);
+                    (
+                        Self { scope, own: Some(id), conn: None, cacheable: true },
+                        evicted,
+                    )
                 }
             }
         };
@@ -137,25 +192,22 @@ impl PgConnectionLease {
     }
 
     fn uncached() -> Self {
-        pg_connection_cache().uncached += 1;
-        Self::new(PgLeaseSlot::Uncached, None)
-    }
-
-    fn new(slot: PgLeaseSlot, conn: Option<PgConnection>) -> Self {
-        Self { slot, conn, cache_on_release: false }
+        Self { scope: String::new(), own: None, conn: None, cacheable: false }
     }
 
     /// Gives up a cached connection that failed its probe; the job then
     /// connects on its own.
     fn discard(&mut self) {
         let conn = self.conn.take();
-        if self.slot == PgLeaseSlot::CheckedOut {
-            let mut cache = pg_connection_cache();
-            cache.checked_out = false;
-            cache.uncached += 1;
-            self.slot = PgLeaseSlot::Uncached;
-        }
+        let evicted = if self.cacheable && self.own.is_none() {
+            let (id, evicted) = pg_connection_cache().register_own(&self.scope);
+            self.own = Some(id);
+            evicted
+        } else {
+            vec![]
+        };
         drop(conn);
+        drop(evicted);
     }
 
     fn client(&self) -> &Client {
@@ -165,66 +217,63 @@ impl PgConnectionLease {
 
 impl Drop for PgConnectionLease {
     fn drop(&mut self) {
-        let Some(mut conn) = self.conn.take() else {
-            if self.slot == PgLeaseSlot::Uncached {
-                pg_connection_cache().uncached -= 1;
-            }
-            return;
-        };
-        let kept = {
+        let conn = self.conn.take();
+        let (kept, closed) = {
             let mut cache = pg_connection_cache();
-            let wants_cache = match self.slot {
-                PgLeaseSlot::CheckedOut => {
-                    cache.checked_out = false;
-                    true
+            if let Some(id) = self.own {
+                cache.own.retain(|o| o.id != id);
+            }
+            match conn {
+                Some(mut conn) if self.cacheable && cache.may_keep(&self.scope) => {
+                    conn.last_used = Instant::now();
+                    cache.idle.push(conn);
+                    let over = cache.idle.len().saturating_sub(PG_MAX_IDLE_CONNECTIONS);
+                    (true, cache.idle.drain(..over).collect::<Vec<_>>())
                 }
-                PgLeaseSlot::Uncached => {
-                    cache.uncached -= 1;
-                    self.cache_on_release
-                }
-            };
-            if wants_cache && cache.uncached == 0 && !cache.checked_out && cache.idle.is_none() {
-                conn.last_used = std::time::Instant::now();
-                cache.idle = Some(conn);
-                None
-            } else {
-                Some(conn)
+                conn => (false, conn.into_iter().collect()),
             }
         };
-        match kept {
-            None => PG_CONNECTION_CACHE_SWEEPER.call_once(|| {
-                tokio::spawn(sweep_idle_pg_connection());
-            }),
-            Some(conn) => drop(conn),
+        drop(closed);
+        if kept {
+            PG_CONNECTION_CACHE_SWEEPER.call_once(|| {
+                tokio::spawn(sweep_idle_pg_connections());
+            });
         }
     }
 }
 
-async fn sweep_idle_pg_connection() {
+async fn sweep_idle_pg_connections() {
     loop {
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        let expired = {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let (stalled, closed) = {
             let mut cache = pg_connection_cache();
-            if cache
-                .idle
-                .as_ref()
-                .is_some_and(|c| c.last_used.elapsed() > PG_CONNECTION_IDLE_TIMEOUT)
-            {
-                cache.idle.take()
-            } else {
-                None
-            }
+            let stalled = cache.stalled();
+            let (closed, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut cache.idle)
+                .into_iter()
+                .partition(|c| stalled || c.last_used.elapsed() > PG_CONNECTION_IDLE_TIMEOUT);
+            cache.idle = kept;
+            (stalled, closed)
         };
-        if expired.is_some() {
-            tracing::info!("Closing cache pg executor connection due to inactivity");
+        if !closed.is_empty() {
+            if stalled {
+                tracing::info!(
+                    "Closing {} cached pg executor connection(s): a job has been on its own connection for over {}s",
+                    closed.len(),
+                    PG_OWN_CONNECTION_STALL.as_secs()
+                );
+            } else {
+                tracing::info!(
+                    "Closing {} cached pg executor connection(s) due to inactivity",
+                    closed.len()
+                );
+            }
         }
     }
 }
 
 pub async fn clear_pg_cache() {
-    let idle = pg_connection_cache().idle.take();
+    let idle = std::mem::take(&mut pg_connection_cache().idle);
     drop(idle);
-    CONNECTION_COUNTER.write().await.clear();
 }
 
 /// How the connection authenticates, which also keys the connection cache: a
@@ -1030,8 +1079,7 @@ pub async fn do_postgresql(
     let mut lease = if *CLOUD_HOSTED {
         PgConnectionLease::uncached()
     } else {
-        increment_connection_counter(&database_string).await;
-        PgConnectionLease::checkout(&database_string)
+        PgConnectionLease::checkout(&database_string, pg_pool_scope(&database))
     };
 
     if lease.conn.is_some() {
@@ -1099,9 +1147,10 @@ pub async fn do_postgresql(
             new_pg_connection(&database, auth_mode, conn.as_sql()).await?;
         lease.conn = Some(PgConnection {
             key: database_string.clone(),
+            scope: lease.scope.clone(),
             client,
             connection_task,
-            last_used: std::time::Instant::now(),
+            last_used: Instant::now(),
         });
     }
 
@@ -1233,26 +1282,11 @@ pub async fn do_postgresql(
 
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
-    if !*CLOUD_HOSTED && lease.slot == PgLeaseSlot::Uncached {
-        lease.cache_on_release = is_most_used_conn(&database_string).await;
-    }
     drop(lease);
 
     *mem_peak = (result.get().len() / 1000) as i32;
     // And then check that we got back the same string we sent over.
     return Ok(result);
-}
-
-async fn is_most_used_conn(database_string: &str) -> bool {
-    let counter_map = CONNECTION_COUNTER.read().await;
-    let current_count = counter_map.get(database_string).copied().unwrap_or(0);
-    let max_count = counter_map.values().copied().max().unwrap_or(0);
-    current_count >= max_count
-}
-
-async fn increment_connection_counter(database_string: &str) {
-    let mut counter_map = CONNECTION_COUNTER.write().await;
-    *counter_map.entry(database_string.to_string()).or_insert(0) += 1;
 }
 
 /// For each `(s3object)` arg in `sig_args`: download the referenced file, decode it
