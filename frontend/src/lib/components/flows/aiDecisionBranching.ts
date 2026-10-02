@@ -156,3 +156,8 @@ export function setAiDecisionStep(step: AiDecisionStepContext): void {
 export function getAiDecisionStep(): AiDecisionStepContext | undefined {
 	return getContext(DECISION_STEP)
 }
+
+/** Option names as the editor cites them in a sentence: quoted, so a name reads as a value. */
+export function quoteOptions(options: string[]): string {
+	return options.map((o) => `“${o}”`).join(', ')
+}

@@ -9,6 +9,7 @@
 	import {
 		addChoiceBranches,
 		checkRouting,
+		quoteOptions,
 		decisionChoiceQuestions,
 		findRouting,
 		missingOptions
@@ -84,8 +85,8 @@
 		<Alert
 			type="info"
 			size="xs"
-			title="{missing.length === 1 ? 'An option has' : 'Options have'} no branch yet: {missing.join(
-				', '
+			title="{missing.length === 1 ? 'An option has' : 'Options have'} no branch yet: {quoteOptions(
+				missing
 			)}"
 			actions={[
 				{
@@ -101,9 +102,9 @@
 			size="xs"
 			title="{stale.length === 1
 				? 'A branch handles an option'
-				: 'Branches handle options'} this question no longer has: {stale
-				.map((s) => s.option)
-				.join(', ')}"
+				: 'Branches handle options'} this question no longer has: {quoteOptions(
+				stale.map((s) => s.option)
+			)}"
 			actions={[{ label: 'Open to remove', onClick: () => selectionManager.selectId(target.id) }]}
 		/>
 	{/if}
