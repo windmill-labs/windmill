@@ -7954,7 +7954,7 @@ Watch local file changes and live-reload the dev page for preview. Does NOT depl
 
 ### digest
 
-Compute the content digest of local scripts and flows, as the \`digest\` and \`root_digest\` claims of job OIDC tokens carry it. Run from the root of a sync checkout. A flow also lists the digest of each inline step, as \`<flow path>/<step id>\`.
+Compute the content digest of local scripts and flows, as the \`digest\` and \`root_digest\` claims of job OIDC tokens carry it. Run from the root of a sync checkout, pulled after the deployment's dependency jobs completed: they write the lockfiles the digest covers. A flow also lists the digest of each inline step, as \`<flow path>/<step id>\`.
 
 **Arguments:** \`<paths...:string>\`
 

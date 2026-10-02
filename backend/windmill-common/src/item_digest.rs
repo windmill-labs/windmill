@@ -1,6 +1,9 @@
-//! Content digests of deployed scripts and flows, reproducible from a `wmill sync` checkout
-//! with `wmill digest` (`cli/src/commands/digest/digest.ts`). The two implementations must
-//! hash the same bytes: change one only together with the other.
+//! Content digests of deployed scripts and flows, reproducible with `wmill digest`
+//! (`cli/src/commands/digest/digest.ts`) from a `wmill sync` checkout pulled after the
+//! deployment's dependency jobs: they write the locks, and store loops and branches with
+//! their defaults filled in. The two implementations must hash the same bytes: change one
+//! only together with the other. Numbers hash as the doubles they parse to, which needs
+//! serde_json's `float_roundtrip` to parse them as exactly as JavaScript does.
 //!
 //! A digest is the lowercase hex SHA-256 of the canonical JSON (RFC 8785) of the item, with
 //! every object member whose value is null removed:

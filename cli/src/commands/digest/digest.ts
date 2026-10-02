@@ -11,6 +11,8 @@ import {
   readModulesFromDisk,
 } from "../script/script.ts";
 import { replaceLock } from "../../utils/metadata.ts";
+import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
+import { findCodebase } from "../sync/sync.ts";
 import {
   extractFolderPath,
   getModuleFolderSuffix,
@@ -89,7 +91,8 @@ export async function flowDigest(folder: string): Promise<ItemDigest> {
 
 export async function scriptDigest(
   contentFile: string,
-  defaultTs?: "bun" | "deno"
+  defaultTs?: "bun" | "deno",
+  codebases: SyncCodebase[] = []
 ): Promise<ItemDigest> {
   const moduleEntry = isModuleEntryPoint(contentFile);
   const remotePath = scriptPathToRemotePath(contentFile);
@@ -110,6 +113,14 @@ export async function scriptDigest(
   } catch (e) {
     if (!isMissingDbtDescriptor(contentFile, e)) throw e;
   }
+  // What `wmill sync push` sends: the codebase is derived from wmill.yaml, never read
+  // from the metadata file. Only bundling tells whether push adds `.tar`, so a pulled
+  // value that is this digest plus `.tar` is taken as is.
+  const codebase = language == "bun" ? findCodebase(contentFile, codebases) : undefined;
+  let codebaseDigest = codebase ? await codebase.getDigest() : undefined;
+  if (codebaseDigest && meta?.codebase === codebaseDigest + ".tar") {
+    codebaseDigest = meta.codebase;
+  }
   const isDbt = language === "dbt";
   const modules = await readModulesFromDisk(
     base + getModuleFolderSuffix(language),
@@ -120,7 +131,7 @@ export async function scriptDigest(
   const digest = digestOf({
     content,
     lock: meta?.lock,
-    codebase: meta?.codebase,
+    codebase: codebaseDigest,
     modules: modules
       ? Object.fromEntries(
           Object.entries(modules).map(([p, m]) => [p, { content: m.content, lock: m.lock }])
@@ -135,16 +146,17 @@ export async function scriptDigest(
  * checkout's root, as for `wmill sync push`. */
 export async function itemDigest(
   localPath: string,
-  defaultTs?: "bun" | "deno"
+  defaultTs?: "bun" | "deno",
+  codebases: SyncCodebase[] = []
 ): Promise<ItemDigest> {
   const folderPath = localPath.endsWith(SEP) ? localPath : localPath + SEP;
   if (isFlowPath(folderPath)) {
     return flowDigest(extractFolderPath(folderPath, "flow")!);
   }
   if (/\.script\.(yaml|json)$/.test(localPath) || /script\.(yaml|json)$/.test(localPath)) {
-    return scriptDigest(await findContentFile(localPath), defaultTs);
+    return scriptDigest(await findContentFile(localPath), defaultTs, codebases);
   }
-  return scriptDigest(localPath, defaultTs);
+  return scriptDigest(localPath, defaultTs, codebases);
 }
 
 async function digest(
@@ -152,9 +164,10 @@ async function digest(
   ...paths: string[]
 ) {
   const merged = await mergeConfigWithConfigFile(opts);
+  const codebases = listSyncCodebases(merged);
   const results: ItemDigest[] = [];
   for (const p of paths) {
-    results.push(await itemDigest(p, merged.defaultTs));
+    results.push(await itemDigest(p, merged.defaultTs, codebases));
   }
   if (opts.json) {
     console.log(JSON.stringify(results, null, 2));
@@ -170,7 +183,7 @@ async function digest(
 
 const command = new Command()
   .description(
-    "Compute the content digest of local scripts and flows, as the `digest` and `root_digest` claims of job OIDC tokens carry it. Run from the root of a sync checkout. A flow also lists the digest of each inline step, as `<flow path>/<step id>`."
+    "Compute the content digest of local scripts and flows, as the `digest` and `root_digest` claims of job OIDC tokens carry it. Run from the root of a sync checkout, pulled after the deployment's dependency jobs completed: they write the lockfiles the digest covers. A flow also lists the digest of each inline step, as `<flow path>/<step id>`."
   )
   .arguments("<paths...:string>")
   .option("--json", "Output the digests as JSON")
