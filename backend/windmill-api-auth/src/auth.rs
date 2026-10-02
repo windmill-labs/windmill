@@ -104,6 +104,32 @@ pub struct ExpiringAuthCache {
     pub job_id: Option<uuid::Uuid>,
 }
 
+/// Whether `target` belongs to the flow run of the job `job_id`: the job itself, one of its
+/// ancestors, or a job whose parent or root is one of them (a sibling step, a loop or branch
+/// iteration). A lookup that fails reads as no.
+async fn job_in_same_flow_run(db: &DB, job_id: uuid::Uuid, target: uuid::Uuid) -> bool {
+    if job_id == target {
+        return true;
+    }
+    sqlx::query_scalar!(
+        "SELECT EXISTS (
+            SELECT 1 FROM v2_job o, v2_job t,
+                LATERAL (SELECT ARRAY_REMOVE(ARRAY[o.id, o.parent_job, o.root_job,
+                    o.flow_innermost_root_job], NULL) AS run) l
+            WHERE o.id = $1 AND t.id = $2 AND t.workspace_id = o.workspace_id
+                AND (t.id = ANY(l.run) OR t.parent_job = ANY(l.run)
+                    OR t.root_job = ANY(l.run) OR t.flow_innermost_root_job = ANY(l.run))
+        )",
+        job_id,
+        target
+    )
+    .fetch_one(db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(false)
+}
+
 pub struct AuthCache {
     db: DB,
     superadmin_secret: Option<String>,
@@ -1131,9 +1157,18 @@ pub async fn resolve_opt_job_authed(
                         return Err((err, parts));
                     }
                 }
-                let own_job_runtime_route = opt_job_authed.job_id.is_some_and(|job_id| {
-                    crate::scopes::is_own_job_runtime_route(path, method, job_id)
-                });
+                let own_job_runtime_route = match opt_job_authed.job_id {
+                    Some(job_id) if opt_job_authed.authed.scopes.is_some() => {
+                        crate::scopes::is_own_job_runtime_route(path, method, job_id)
+                            || match crate::scopes::flow_run_read_route_job(path, method) {
+                                Some(target) => {
+                                    job_in_same_flow_run(&cache.db, job_id, target).await
+                                }
+                                None => false,
+                            }
+                    }
+                    _ => false,
+                };
                 let authed = &mut opt_job_authed.authed;
                 if authed.scopes.is_some() && !own_job_runtime_route {
                     transform_old_scope_to_new_scope(authed.scopes.as_mut());

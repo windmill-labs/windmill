@@ -10,15 +10,22 @@ use windmill_test_utils::*;
 
 const OIDC_JOB: &str = "b0000000-0000-0000-0000-000000000001";
 const RUN_JOB: &str = "b0000000-0000-0000-0000-000000000002";
+const FLOW_JOB: &str = "b0000000-0000-0000-0000-000000000003";
 
-async fn insert_job(db: &Pool<Postgres>, id: &str, scopes: &[&str]) -> anyhow::Result<()> {
+async fn insert_job(
+    db: &Pool<Postgres>,
+    id: &str,
+    parent: Option<&str>,
+    scopes: &[&str],
+) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
-            kind, script_lang, runnable_path, tag, job_token_scopes)
+            kind, script_lang, runnable_path, tag, parent_job, job_token_scopes)
         VALUES ($1, 'test-workspace', 'test-user-3', 'u/test-user-3', 'test3@windmill.dev',
-            'script', 'deno', 'u/test-user-3/agent', 'deno', $2)",
+            'script', 'deno', 'u/test-user-3/agent', 'deno', $2, $3)",
     )
     .bind(Uuid::parse_str(id)?)
+    .bind(parent.map(Uuid::parse_str).transpose()?)
     .bind(scopes)
     .execute(db)
     .await?;
@@ -71,8 +78,9 @@ async fn test_restricted_job_token_is_confined(db: Pool<Postgres>) -> anyhow::Re
         Some(&["oidc:write"]),
     )
     .await?;
-    insert_job(&db, OIDC_JOB, &["oidc:write"]).await?;
-    insert_job(&db, RUN_JOB, &["jobs:run"]).await?;
+    insert_job(&db, FLOW_JOB, None, &["oidc:write"]).await?;
+    insert_job(&db, OIDC_JOB, Some(FLOW_JOB), &["oidc:write"]).await?;
+    insert_job(&db, RUN_JOB, None, &["jobs:run"]).await?;
 
     let server = ApiServer::start(db.clone()).await?;
     set_jwt_secret().await;
@@ -110,6 +118,15 @@ async fn test_restricted_job_token_is_confined(db: Pool<Postgres>) -> anyhow::Re
         .send()
         .await?;
     assert_eq!(own.status(), StatusCode::OK, "{}", own.text().await?);
+    // The orchestrator reads a flow's step results with the token of the step that just ran.
+    for (job, refused) in [(FLOW_JOB, false), (RUN_JOB, true)] {
+        let resp = client
+            .get(format!("{base}/jobs/result_by_id/{job}/a"))
+            .bearer_auth(&oidc_token)
+            .send()
+            .await?;
+        assert_eq!(resp.status() == StatusCode::FORBIDDEN, refused, "{job}");
+    }
 
     // A job it starts is capped at its own scopes, intersected with the target's setting.
     let run_token = job_token(&db, RUN_JOB).await?;

@@ -749,10 +749,9 @@ pub fn scope_for_route(method: &str, path: &str) -> Option<String> {
 
 /// Helper function to check if scopes allow access to a route
 /// Routes the runtime of a job calls about that job alone: progress, its root id, its
-/// resume and approval urls, a workflow-as-code checkpoint or task, and the results its own
-/// flow's input transforms read. A job token restricted by `job_token_scopes` keeps these
-/// whatever its scopes, or the job could not run at all, but only for its own job: the job
-/// id in the path must be the token's.
+/// resume and approval urls, a workflow-as-code checkpoint or task. A job token restricted
+/// by `job_token_scopes` keeps these whatever its scopes, or the job could not run at all,
+/// but only for its own job: the job id in the path must be the token's.
 pub fn is_own_job_runtime_route(route_path: &str, http_method: &str, job_id: uuid::Uuid) -> bool {
     let Some(rest) = route_path.strip_prefix("/api/w/") else {
         return false;
@@ -765,9 +764,7 @@ pub fn is_own_job_runtime_route(route_path: &str, http_method: &str, job_id: uui
         ["jobs_u", "get" | "get_root_job_id", ..] => (http_method == "GET", 2),
         ["job_metrics", "set_progress", ..] => (http_method == "POST", 2),
         ["job_metrics", "get_progress", ..] => (http_method == "GET", 2),
-        ["jobs" | "jobs_u", "resume_urls" | "wac_approval_urls" | "result_by_id", ..] => {
-            (http_method == "GET", 2)
-        }
+        ["jobs" | "jobs_u", "resume_urls" | "wac_approval_urls", ..] => (http_method == "GET", 2),
         ["jobs", "wac", "inline_checkpoint", ..] => (http_method == "POST", 3),
         ["jobs", "run", "workflow_as_code", ..] => (http_method == "POST", 3),
         _ => return false,
@@ -777,6 +774,32 @@ pub fn is_own_job_runtime_route(route_path: &str, http_method: &str, job_id: uui
             .get(id_index)
             .and_then(|id| uuid::Uuid::parse_str(id).ok())
             .is_some_and(|id| id == job_id)
+}
+
+/// Routes reading the state of a flow run: step results (`results.x` in input transforms,
+/// loop and branch results) and the run's user state. The flow orchestrator evaluates a
+/// step's inputs with the token of the step that just finished, and the SDK reads user state
+/// at the root job, so a restricted job token keeps these for every job of its own run.
+/// Returns the job id the path names; the caller checks it against the token's lineage.
+pub fn flow_run_read_route_job(route_path: &str, http_method: &str) -> Option<uuid::Uuid> {
+    let rest = route_path.strip_prefix("/api/w/")?;
+    let (_workspace, rest) = rest.split_once('/')?;
+    let segments: Vec<&str> = rest.split('/').collect();
+    let id = match segments.as_slice() {
+        ["jobs" | "jobs_u", "result_by_id", id, ..] if http_method == "GET" => id,
+        ["jobs_u", "completed", "get_result" | "get_result_maybe", id, ..]
+            if http_method == "GET" =>
+        {
+            id
+        }
+        ["jobs" | "jobs_u", "flow", "user_states", id, ..]
+            if http_method == "GET" || http_method == "POST" =>
+        {
+            id
+        }
+        _ => return None,
+    };
+    uuid::Uuid::parse_str(id).ok()
 }
 
 pub fn check_scopes_for_route(
@@ -826,6 +849,11 @@ mod tests {
         assert!(!ok(&format!("/api/w/ws/jobs_u/get/{own}"), "POST"));
         assert!(!ok(&format!("/api/w/ws/jobs/run/p/{own}"), "POST"));
         assert!(!ok("/api/w/ws/variables/get_value/u/admin/secret", "GET"));
+        let run = |path: &str, method: &str| flow_run_read_route_job(path, method);
+        assert_eq!(run(&format!("/api/w/ws/jobs/result_by_id/{other}/b"), "GET"), Some(other));
+        assert_eq!(run(&format!("/api/w/ws/jobs_u/completed/get_result/{other}"), "GET"), Some(other));
+        assert_eq!(run(&format!("/api/w/ws/jobs/flow/user_states/{other}/k"), "POST"), Some(other));
+        assert_eq!(run(&format!("/api/w/ws/jobs_u/completed/delete/{other}"), "POST"), None);
     }
 
     #[test]

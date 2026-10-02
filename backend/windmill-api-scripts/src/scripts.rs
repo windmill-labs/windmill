@@ -1379,12 +1379,25 @@ async fn create_script_internal<'c>(
         &db,
     )
     .await?;
-    // Absent keeps what the path already has: a client unaware of the setting must not drop a
-    // restriction by redeploying.
-    let resolved_job_token_scopes = match &ns.job_token_scopes {
-        Some(Some(scopes)) => Some(windmill_common::scopes::validate_job_token_scopes(scopes)?),
-        Some(None) => None,
-        None => sqlx::query_scalar!(
+    // Absent keeps what the previous version has (the parent, or else the latest at the path):
+    // a client unaware of the setting must not drop a restriction by redeploying or renaming.
+    let resolved_job_token_scopes = match (&ns.job_token_scopes, &ns.parent_hash) {
+        (Some(Some(scopes)), _) => {
+            windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+                .assert()
+                .await?;
+            Some(windmill_common::scopes::validate_job_token_scopes(scopes)?)
+        }
+        (Some(None), _) => None,
+        (None, Some(parent_hash)) => sqlx::query_scalar!(
+            "SELECT job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
+            parent_hash.0,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten(),
+        (None, None) => sqlx::query_scalar!(
             "SELECT job_token_scopes FROM script WHERE path = $1 AND workspace_id = $2 \
              AND deleted = false ORDER BY created_at DESC LIMIT 1",
             &ns.path,

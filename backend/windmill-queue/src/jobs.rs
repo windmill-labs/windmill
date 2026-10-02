@@ -7207,7 +7207,14 @@ async fn push_inner<'c, 'd>(
         .map(|e| (Some(e.0), e.1))
         .unwrap_or_else(|| (None, None));
 
-    let tag = if dedicated_worker.is_some_and(|x| x) {
+    let job_token_scopes = windmill_common::scopes::intersect_job_token_scopes(
+        scope_ceiling,
+        job_token_scopes.as_deref(),
+    );
+
+    // A dedicated worker runs every job it serves with its own unscoped worker token, so a
+    // job with a restricted token runs on the regular workers of its language instead.
+    let tag = if dedicated_worker.is_some_and(|x| x) && job_token_scopes.is_none() {
         let flow_prefix = if job_kind == JobKind::Flow || job_kind == JobKind::FlowDependencies {
             "flow/"
         } else {
@@ -7411,11 +7418,6 @@ async fn push_inner<'c, 'd>(
             })?
         }
     };
-
-    let job_token_scopes = windmill_common::scopes::intersect_job_token_scopes(
-        scope_ceiling,
-        job_token_scopes.as_deref(),
-    );
 
     let folders = job_authed
         .folders

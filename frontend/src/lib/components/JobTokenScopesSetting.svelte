@@ -22,13 +22,15 @@
 		return 'custom'
 	}
 
-	// Kept apart from `value`: a custom list can hold exactly what a preset holds.
-	let mode = $state<Mode>(modeOf(value ?? OIDC_ONLY))
-	let customScopes = $state<string[]>(value && modeOf(value) === 'custom' ? [...value] : [])
+	// Derived from `value` so an edit made elsewhere (the flow YAML) shows here; the flag only
+	// keeps "Custom" selected while a custom list happens to equal a preset.
+	let customPicked = $state(false)
+	const mode: Mode = $derived(customPicked ? 'custom' : modeOf(value ?? OIDC_ONLY))
 
 	function setMode(next: Mode) {
-		mode = next
-		value = next === 'oidc_only' ? [...OIDC_ONLY] : next === 'no_api' ? [] : [...customScopes]
+		customPicked = next === 'custom'
+		value =
+			next === 'oidc_only' ? [...OIDC_ONLY] : next === 'no_api' ? [] : [...(value ?? [])]
 	}
 </script>
 
@@ -40,7 +42,7 @@
 			if (value != null) {
 				value = null
 			} else {
-				setMode(mode)
+				setMode('oidc_only')
 			}
 		}}
 		options={{ right: 'Restrict the job token' }}
@@ -55,13 +57,7 @@
 		</ToggleButtonGroup>
 		{#if mode === 'custom'}
 			<ScopeSelector
-				bind:selectedScopes={
-					() => customScopes,
-					(scopes) => {
-						customScopes = scopes
-						value = [...scopes]
-					}
-				}
+				bind:selectedScopes={() => value ?? [], (scopes) => (value = [...scopes])}
 				emptyLabel="No scopes selected. The job token can only reach its own job."
 			/>
 		{/if}
@@ -70,7 +66,8 @@
 			it starts, {kind === 'flow' ? 'its steps, ' : ''}and AI agent tools inherit the restriction.
 			Variables and resources passed as <code>$var:</code>/<code>$res:</code> inputs, an AI agent's provider
 			resource, relative imports and object storage each need a read scope. Write scopes on scripts,
-			flows, schedules or triggers let a job escape the restriction.
+			flows, schedules or triggers let a job escape the restriction. Jobs with a restricted token never
+			run on dedicated workers.
 		</p>
 	{/if}
 </div>

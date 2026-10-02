@@ -60,12 +60,18 @@ Symbols, not line numbers, are cited: they drift less.
   WAC children their parent's, retries and restarts the run they replace, and API pushes the
   calling job's (`caller_scope_ceiling`) — a scoped user or webhook token caps nothing. Schedules,
   triggers and error/success handlers start from the target's own setting. A restricted token
-  keeps only the runtime routes about its own job (`is_own_job_runtime_route`); a route that
+  keeps only the runtime routes about its own job (`is_own_job_runtime_route`) and the reads of
+  its own flow run (`flow_run_read_route_job`, checked against its lineage: the orchestrator
+  evaluates a step's `results.x` with the token of the step that just finished); a route that
   authenticates a token itself instead of through the route layer must call
-  `check_job_token_scope`. `$var:`/`$res:` args are resolved through the API with the job's own
-  token, so they need read scopes. A deploy that omits the setting keeps the deployed value and
-  `null` clears it, so an unaware client cannot drop a restriction. Write scopes on scripts,
-  flows, schedules or triggers let a job escape its restriction.
+  `check_job_token_scope`. A restricted job never runs on a dedicated worker, which uses its own
+  unscoped token for every job. `$var:`/`$res:` args are resolved through the API with the job's
+  own token, so they need read scopes. A deploy that omits the setting keeps the deployed value
+  and `null` clears it, so an unaware client cannot drop a restriction; setting one is refused
+  until every worker supports it, since an older worker mints without it. The setting belongs to
+  the deployed version: an older script hash run by hash runs with that version's setting (a
+  restricted caller still caps it). Write scopes on scripts, flows, schedules or triggers let a
+  job escape its restriction.
 - **A remote deploy token is a credential for another instance**, held per account and workspace
   (`remote_deploy_token`, encrypted under the workspace key, re-keyed by `set_encryption_key`).
   Its `email` references `password(email)` with `ON DELETE/UPDATE CASCADE`, so whatever deletes or

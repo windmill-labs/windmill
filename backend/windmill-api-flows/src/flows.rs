@@ -809,6 +809,11 @@ async fn create_flow(
         .and_then(|scopes| scopes.as_deref())
         .map(windmill_common::scopes::validate_job_token_scopes)
         .transpose()?;
+    if job_token_scopes.is_some() {
+        windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+            .assert()
+            .await?;
+    }
     let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
         nf.on_behalf_of_email.as_deref(),
         nf.on_behalf_of.as_deref(),
@@ -1386,6 +1391,11 @@ async fn update_flow(
         .and_then(|scopes| scopes.as_deref())
         .map(windmill_common::scopes::validate_job_token_scopes)
         .transpose()?;
+    if job_token_scopes.is_some() {
+        windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+            .assert()
+            .await?;
+    }
     let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
         nf.on_behalf_of_email.as_deref(),
         nf.on_behalf_of.as_deref(),
