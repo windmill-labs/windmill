@@ -1776,8 +1776,18 @@ async fn test_postgresql_cached_connection_released_for_other_key(
         .run_until_complete(&db, false, port)
     };
 
+    // The evicted connection's backend exits asynchronously, so a fresh
+    // connection can briefly still count it. Retrying absorbs that; without the
+    // eviction the cached connection stays open for 60s and every retry fails.
     for sslmode in ["disable", "prefer", "disable"] {
-        let result = run(sslmode).await.json_result().unwrap();
+        let mut result = json!(null);
+        for _ in 0..5 {
+            result = run(sslmode).await.json_result().unwrap();
+            if result == json!([{"n": 1}]) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
         assert_eq!(result, json!([{"n": 1}]), "sslmode={sslmode}");
     }
 
