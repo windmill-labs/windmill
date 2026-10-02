@@ -15674,6 +15674,7 @@ dependencies = [
  "rsa",
  "rustls 0.23.35",
  "rustls-native-certs 0.8.4",
+ "ryu-js",
  "schemars 0.8.22",
  "semver 1.0.28",
  "serde",

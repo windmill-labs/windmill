@@ -7952,6 +7952,15 @@ Watch local file changes and live-reload the dev page for preview. Does NOT depl
 - \`--path <path:string>\` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
 - \`--no-open\` - Do not open the browser automatically
 
+### digest
+
+Compute the content digest of local scripts and flows, as the \`digest\` and \`root_digest\` claims of job OIDC tokens carry it. Run from the root of a sync checkout. A flow also lists the digest of each inline step, as \`<flow path>/<step id>\`.
+
+**Arguments:** \`<paths...:string>\`
+
+**Options:**
+- \`--json\` - Output the digests as JSON
+
 ### docs
 
 Search Windmill documentation.

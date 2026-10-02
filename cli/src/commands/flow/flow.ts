@@ -170,28 +170,10 @@ function collectStepPaths(flowValue: any): string[] {
   return paths;
 }
 
-export async function pushFlow(
-  workspace: string,
-  remotePath: string,
-  localPath: string,
-  message?: string,
-  permissionedAsContext?: PermissionedAsContext
-): Promise<void> {
-  if (alreadySynced.includes(localPath)) {
-    return;
-  }
-  alreadySynced.push(localPath);
-  remotePath = remotePath.replaceAll(SEP, "/");
-  let flow: Flow | undefined = undefined;
-  try {
-    flow = await wmill.getFlowByPath({
-      workspace: workspace,
-      path: remotePath,
-    });
-  } catch {
-    // flow doesn't exist
-  }
-
+/** The flow in the folder `localPath`, with its inline scripts read back in. */
+export async function readLocalFlow(
+  localPath: string
+): Promise<{ flow: FlowFile; missingFiles: string[] }> {
   if (!localPath.endsWith(SEP)) {
     localPath += SEP;
   }
@@ -214,6 +196,32 @@ export async function pushFlow(
   if (localFlow.value.preprocessor_module) {
     await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP, undefined, missingFiles);
   }
+  return { flow: localFlow, missingFiles };
+}
+
+export async function pushFlow(
+  workspace: string,
+  remotePath: string,
+  localPath: string,
+  message?: string,
+  permissionedAsContext?: PermissionedAsContext
+): Promise<void> {
+  if (alreadySynced.includes(localPath)) {
+    return;
+  }
+  alreadySynced.push(localPath);
+  remotePath = remotePath.replaceAll(SEP, "/");
+  let flow: Flow | undefined = undefined;
+  try {
+    flow = await wmill.getFlowByPath({
+      workspace: workspace,
+      path: remotePath,
+    });
+  } catch {
+    // flow doesn't exist
+  }
+
+  const { flow: localFlow, missingFiles } = await readLocalFlow(localPath);
   if (missingFiles.length > 0) {
     // Hard-fail rather than push the literal `!inline path` text as
     // rawscript.content. That string would be persisted in flow_version.value
