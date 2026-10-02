@@ -1037,13 +1037,17 @@ pub const SERVER_SECRET_SETTINGS: &[&str] = &[
 /// Whether superadmin API reads (settings list, single-setting read, config export) return
 /// `SERVER_SECRET_SETTINGS`. On by default so `wmill instance get-config` and `pull` carry a
 /// full migration; `EXPORT_SERVER_SECRETS=false` withholds them from every API response, so a
-/// leaked superadmin token cannot take the signing keys. Read per call: the flag is cheap and
-/// tests flip it in-process.
+/// leaked superadmin token cannot take the signing keys. Fails closed: once set to a
+/// non-empty value, only `true`/`1`/`yes`/`on` keep exporting, so `0` or a typo withholds.
+/// Read per call: the flag is cheap and tests flip it in-process.
 pub fn server_secrets_exported() -> bool {
-    std::env::var("EXPORT_SERVER_SECRETS")
-        .ok()
-        .and_then(|v| v.trim().parse::<bool>().ok())
-        .unwrap_or(true)
+    match std::env::var("EXPORT_SERVER_SECRETS") {
+        Ok(v) if !v.trim().is_empty() => matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "true" | "1" | "yes" | "on"
+        ),
+        _ => true,
+    }
 }
 
 pub fn is_withheld_server_secret(name: &str) -> bool {

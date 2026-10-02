@@ -262,7 +262,7 @@ async fn test_server_secrets_follow_export_flag(db: Pool<Postgres>) -> anyhow::R
         );
     }
 
-    std::env::set_var("EXPORT_SERVER_SECRETS", "false");
+    std::env::set_var("EXPORT_SERVER_SECRETS", "0");
     let withheld = read_secret_surfaces(&base, &names).await;
     std::env::remove_var("EXPORT_SERVER_SECRETS");
     for (path, status, body) in withheld? {
