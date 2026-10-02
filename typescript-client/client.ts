@@ -421,7 +421,8 @@ export async function runScriptAsync(
   return _runScriptAsyncInternal(path, hash_, args, scheduledInSeconds, tag);
 }
 
-/** Options for {@link runScriptByPathAsync} and {@link runScriptByHashAsync}. */
+/** Options for {@link runScriptByPathAsync} and {@link runScriptByHashAsync}, passed in
+ *  place of `scheduledInSeconds`; a positional `tag` is then ignored. */
 export interface RunScriptAsyncOptions {
   /** Schedule execution for a future time (in seconds) */
   scheduledInSeconds?: number;

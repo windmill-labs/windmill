@@ -27624,7 +27624,7 @@ components:
         type: string
     RunRetry:
       name: retry
-      description: JSON-encoded retry policy (same shape as a schedule's retry) re-running the job when it fails. The returned id is the first attempt's; a retried job is not recorded as a child of the parent_job. Not supported for hub scripts.
+      description: JSON-encoded retry policy (same shape as a schedule's retry) re-running the job when it fails. The returned id is the first attempt's; a retried job is not recorded as a child of the parent_job. Not supported for hub scripts nor with invisible_to_owner.
       in: query
       schema:
         type: string

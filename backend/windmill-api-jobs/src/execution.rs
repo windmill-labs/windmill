@@ -136,6 +136,12 @@ pub fn with_run_retry(
     let Some(retry) = run_query.retry.as_deref() else {
         return Ok(payload);
     };
+    // Retry attempts are always pushed visible to the owner, which would leak a private run.
+    if run_query.invisible_to_owner.unwrap_or(false) {
+        return Err(Error::BadRequest(
+            "retry cannot be combined with invisible_to_owner".to_string(),
+        ));
+    }
     let retry: Retry = serde_json::from_str(retry)
         .map_err(|e| Error::BadRequest(format!("invalid retry policy: {e}")))?;
     let JobPayload::ScriptHash {
@@ -1171,6 +1177,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let has_lineage = run_query.parent_job.is_some() || run_query.root_job.is_some();
     let job_payload = with_run_retry(&mut run_query, job_payload, &push_args, &tag)?;
 
     let return_tx = tx_o.is_some();
@@ -1223,11 +1230,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         timeout,
         None,
         // If the job has a parent job, set priority to 2 as it may be ran synchronously and block a current worker until being executed. Flow steps have a priority of 1 so this is higher.
-        if run_query.parent_job.is_some() || run_query.root_job.is_some() {
-            Some(2)
-        } else {
-            None
-        },
+        if has_lineage { Some(2) } else { None },
         push_authed.as_ref(),
         false,
         None,
