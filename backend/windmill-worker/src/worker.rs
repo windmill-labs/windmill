@@ -3595,8 +3595,12 @@ pub async fn run_worker(
                     // dispatch by path and return before that check, so a job sent down them
                     // would run with whatever arguments survived the failure.
                     let fails_before_running = job.pre_run_error.is_some();
+                    // A dedicated worker or flow runner runs every job it gets with its own
+                    // unscoped worker token, so a job with a restricted token runs here, with the
+                    // token minted for it, whichever tag brought it.
+                    let restricted = job.job_token_scopes.is_some();
 
-                    if !dedicated_workers.is_empty() && !fails_before_running {
+                    if !dedicated_workers.is_empty() && !fails_before_running && !restricted {
                         let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
                             // For flow steps inside branches/loops, runnable_path includes
                             // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
@@ -3641,10 +3645,8 @@ pub async fn run_worker(
                         NextJob::Http(_) => None,
                     };
 
-                    // A flow runner runs every step it gets with its own unscoped worker token, so
-                    // a step with a restricted token runs here, with the token minted for it.
-                    if let Some(flow_runners) = flow_runners
-                        .filter(|_| !fails_before_running && job.job_token_scopes.is_none())
+                    if let Some(flow_runners) =
+                        flow_runners.filter(|_| !fails_before_running && !restricted)
                     {
                         let key_o = job.flow_step_id.as_ref().map(|x| x.to_string());
                         if let Some(key) = key_o {
