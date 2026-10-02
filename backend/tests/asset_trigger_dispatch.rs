@@ -330,6 +330,7 @@ async fn end_to_end_asset_dispatch(db: Pool<Postgres>) -> anyhow::Result<()> {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         labels: None,
+        job_token_scopes: None,
     };
     let completed = RunJob::from(job).run_until_complete(&db, false, port).await;
     assert!(
@@ -493,6 +494,7 @@ async fn partition_dynamic_resolved_persisted_and_propagated(
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         labels: None,
+        job_token_scopes: None,
     };
     let completed = RunJob::from(job)
         .arg("tenant_id", json!("acme"))

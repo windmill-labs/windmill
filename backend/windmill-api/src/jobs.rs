@@ -7193,6 +7193,7 @@ pub async fn restart_flow(
 
     let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into());
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -7230,6 +7231,7 @@ pub async fn restart_flow(
         None,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -7367,7 +7369,11 @@ pub async fn run_workflow_as_code(
     extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
     let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
     check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &args, &authed).await?;
-    check_scopes(&authed, || format!("jobs:run"))?;
+    // A job running its own task is its runtime, not a new run: a restricted job token keeps
+    // it (`is_own_job_runtime_route`), and the task inherits that job's restriction at push.
+    if authed.job_id != Some(job_id) {
+        check_scopes(&authed, || format!("jobs:run"))?;
+    }
     // The task becomes a child of `job_id`, runs its code and writes into its flow status, so
     // only that job itself (the SDK's `task` wrapper, on its `WM_TOKEN`) or an admin may push it.
     if authed.job_id != Some(job_id) && !authed.is_admin {
@@ -7512,6 +7518,7 @@ pub async fn run_workflow_as_code(
             )
         };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -7542,6 +7549,7 @@ pub async fn run_workflow_as_code(
         None,
         None,
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
 
@@ -7825,6 +7833,7 @@ pub async fn run_wait_result_job_by_path_get(
             )
         };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -7855,6 +7864,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -7973,6 +7983,7 @@ pub async fn run_wait_result_script_by_path_internal(
             )
         };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -8003,6 +8014,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -8055,6 +8067,7 @@ pub async fn run_wait_result_script_by_hash(
         timeout,
         has_preprocessor,
         labels,
+        job_token_scopes,
         runnable_settings:
             ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
         ..
@@ -8088,6 +8101,7 @@ pub async fn run_wait_result_script_by_hash(
         )
     };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -8105,6 +8119,7 @@ pub async fn run_wait_result_script_by_hash(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
             labels,
+            job_token_scopes,
         },
         push_args,
         authed.display_username(),
@@ -8131,6 +8146,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -8650,6 +8666,7 @@ async fn run_preview_script(
     let push_args = PushArgs { extra, args: &preview_args };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -8700,6 +8717,7 @@ async fn run_preview_script(
         None,
         authed.trigger_or_fallback(None),
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -8847,6 +8865,36 @@ async fn run_inline_script_inner(
     args: Option<HashMap<String, Box<JsonRawValue>>>,
     user_db: Option<UserDB>,
 ) -> error::Result<Response> {
+    // An inline run executes with the caller's own token, so it cannot honour a script's
+    // `job_token_scopes`: such a script only runs as a job.
+    let restricted = match &target {
+        InlineScriptTarget::Path(path) => {
+            sqlx::query_scalar!(
+            "SELECT job_token_scopes IS NOT NULL FROM script WHERE path = $1 AND workspace_id = $2 \
+             AND archived = false AND deleted = false ORDER BY created_at DESC LIMIT 1",
+            path,
+            &w_id
+        )
+            .fetch_optional(&db)
+            .await?
+        }
+        InlineScriptTarget::Hash(hash) => {
+            sqlx::query_scalar!(
+            "SELECT job_token_scopes IS NOT NULL FROM script WHERE hash = $1 AND workspace_id = $2",
+            hash,
+            &w_id
+        )
+            .fetch_optional(&db)
+            .await?
+        }
+    };
+    if restricted.flatten().unwrap_or(false) {
+        return Err(Error::BadRequest(
+            "This script restricts its job token (job_token_scopes) and cannot be run inline; \
+             run it as a job instead"
+                .to_string(),
+        ));
+    }
     let utils = get_worker_internal_server_inline_utils()?;
     let authed_owned: windmill_common::db::Authed = authed.clone().into();
     let result = utils.run_inline_script.as_ref()(RunInlineScriptFnParams {
@@ -9033,6 +9081,7 @@ async fn run_bundle_preview_script(
 
             // tracing::info!("is_tar 1: {is_tar}");
             // hmap.insert("")
+            let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
             let (uuid, ntx) = push(
                 &db,
                 ltx,
@@ -9079,6 +9128,7 @@ async fn run_bundle_preview_script(
                 None,
                 authed.trigger_or_fallback(None),
                 None,
+                scope_ceiling.as_deref(),
             )
             .await?;
             job_id = Some(uuid);
@@ -9198,6 +9248,7 @@ async fn push_dependencies_job(
     req.temp_script_refs
         .map(|v| hm.insert("temp_script_refs".to_owned(), to_raw_value(&v)));
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, tx) = push(
         db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
@@ -9232,6 +9283,7 @@ async fn push_dependencies_job(
         None,
         None,
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -9330,6 +9382,7 @@ async fn push_flow_dependencies_job(
     req.temp_script_refs
         .map(|v| args_map.insert("temp_script_refs".to_string(), to_raw_value(&v)));
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, tx) = push(
         db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
@@ -9360,6 +9413,7 @@ async fn push_flow_dependencies_job(
         None,
         None,
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -9414,6 +9468,7 @@ async fn add_batch_jobs(
 ) -> error::JsonResult<Vec<Uuid>> {
     require_super_admin(&db, &authed).await?;
 
+    let mut job_token_scopes: Option<Vec<String>> = None;
     let (
         hash,
         path,
@@ -9445,11 +9500,13 @@ async fn add_batch_jobs(
                         dedicated_worker,
                         timeout,
                         runnable_settings,
+                        job_token_scopes: script_job_token_scopes,
                         .. // TODO: consider on_behalf_of_email and created_by for batch jobs
                     } = get_latest_deployed_hash_for_path(Some(db_authed), db.clone(), &w_id, &path)
                     .await?
                     .prefetch_cached(&db)
                     .await?;
+                job_token_scopes = script_job_token_scopes;
                 (
                     Some(script_hash),
                     Some(path),
@@ -9496,7 +9553,7 @@ async fn add_batch_jobs(
             } else if let Some(path) = batch_info.path {
                 let mut tx = user_db.clone().begin(&authed).await?;
                 let value_json = sqlx::query!(
-                        "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow
+                        "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\", flow.job_token_scopes FROM flow
                         LEFT JOIN flow_version
                             ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
                         LEFT JOIN flow_version_lite
@@ -9507,6 +9564,7 @@ async fn add_batch_jobs(
                     .fetch_optional(&mut *tx)
                     .await?
                     .ok_or_else(|| Error::internal_err(format!("not found flow at path {:?}", path)))?;
+                job_token_scopes = value_json.job_token_scopes;
                 let value =
                     serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
                         Error::internal_err(format!(
@@ -9582,9 +9640,9 @@ async fn add_batch_jobs(
             INSERT INTO v2_job
                 (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,
                 script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,
-                concurrency_time_window_s, timeout, args)
+                concurrency_time_window_s, timeout, args, job_token_scopes)
                 (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                ('{ "uuid": "' || uuid || '" }')::jsonb FROM uuid_table)
+                ('{ "uuid": "' || uuid || '" }')::jsonb, $17 FROM uuid_table)
             RETURNING id AS "id!""#,
             w_id,
             raw_code,
@@ -9602,6 +9660,7 @@ async fn add_batch_jobs(
             concurrency_time_window_s,
             timeout,
             n,
+            job_token_scopes.as_deref() as Option<&[String]>,
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -9732,6 +9791,7 @@ async fn run_preview_flow_job(
     check_tag_available_for_workspace(&db, &w_id, &tag, &PushArgs::from(&flow_args), &authed)
         .await?;
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -9766,6 +9826,7 @@ async fn run_preview_flow_job(
         None,
         authed.trigger_or_fallback(None),
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
 
@@ -9989,6 +10050,7 @@ async fn run_dynamic_select(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -10035,6 +10097,7 @@ async fn run_dynamic_select(
         None,
         authed.trigger_or_fallback(None),
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -10110,6 +10173,7 @@ pub async fn run_job_by_hash_inner(
         delete_after_use,
         delete_after_secs,
         labels,
+        job_token_scopes,
         ..
     } = script_info;
 
@@ -10142,6 +10206,7 @@ pub async fn run_job_by_hash_inner(
         )
     };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -10159,6 +10224,7 @@ pub async fn run_job_by_hash_inner(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
             labels,
+            job_token_scopes,
         },
         push_args,
         authed.display_username(),
@@ -10185,6 +10251,7 @@ pub async fn run_job_by_hash_inner(
         None,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;

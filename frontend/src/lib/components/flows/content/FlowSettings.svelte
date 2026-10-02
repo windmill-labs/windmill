@@ -5,6 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
@@ -101,6 +102,7 @@
 		},
 		{ name: 'Error Handler Muted', active: Boolean(flowStore.val.ws_error_handler_muted) },
 		{ name: 'Invisible to Others', active: Boolean(flowStore.val.visible_to_runner_only) },
+		{ name: 'Restricted Job Token', active: flowStore.val.job_token_scopes != null },
 		{ name: 'Shared Directory', active: Boolean(flowStore.val.value.same_worker) },
 		{ name: 'Preserve Step Tags', active: Boolean(flowStore.val.value.preserve_step_tags) },
 		{ name: 'Cache Results', active: Boolean(flowStore.val.value.cache_ttl) },
@@ -457,6 +459,11 @@
 							'https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs#invisible-runs'
 					}}
 				/>
+
+				<div class="flex flex-col gap-1">
+					<span class="text-xs font-medium text-emphasis">Job token</span>
+					<JobTokenScopesSetting bind:value={flowStore.val.job_token_scopes} kind="flow" />
+				</div>
 
 				<!-- On behalf of last editor section -->
 				<span class="inline-flex gap-2">

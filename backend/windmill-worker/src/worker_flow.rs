@@ -2402,7 +2402,8 @@ async fn advance_flow_status(
             v2_job.trigger,
             v2_job.trigger_kind as \"trigger_kind: TriggerKindLabel\",
             v2_job.visible_to_owner,
-            NULL as permissioned_as_end_user_email",
+            NULL as permissioned_as_end_user_email,
+            v2_job.job_token_scopes",
         flow,
         &step_path as &[&str],
         step,
@@ -4746,6 +4747,8 @@ async fn push_next_flow_job(
             end_user_email,
             None,
             None,
+            // A step never holds a wider token than the flow running it.
+            flow_job.job_token_scopes.as_deref(),
         )
         .warn_after_seconds(2)
         .await?;
@@ -6339,13 +6342,14 @@ async fn flow_to_payload(
 ) -> Result<JobPayloadWithTag, Error> {
     let flow_info = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
     let on_behalf_of = flow_info.on_behalf_of(w_id, &db).await?;
-    let FlowVersionInfo { version, tag, .. } = flow_info;
+    let FlowVersionInfo { version, tag, job_token_scopes, .. } = flow_info;
     let payload = JobPayload::Flow {
         path,
         dedicated_worker: None,
         apply_preprocessor: false,
         version,
         labels: None,
+        job_token_scopes,
     };
     Ok(JobPayloadWithTag {
         payload,
@@ -6419,6 +6423,7 @@ pub async fn script_to_payload(
                 delete_after_use,
                 delete_after_secs,
                 timeout,
+                job_token_scopes,
                 runnable_settings:
                     ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
                 ..
@@ -6436,6 +6441,7 @@ pub async fn script_to_payload(
                     priority,
                     apply_preprocessor: apply_preprocessor.unwrap_or(false),
                     labels: None,
+                    job_token_scopes,
                 },
                 tag_override.to_owned().or(tag),
                 delete_after_use,

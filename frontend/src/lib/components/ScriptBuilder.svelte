@@ -83,6 +83,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from './Popover.svelte'
 	import Toggle from './Toggle.svelte'
+	import JobTokenScopesSetting from './JobTokenScopesSetting.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
@@ -787,7 +788,9 @@
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets,
 					modules: script.modules,
-					labels: script.labels
+					labels: script.labels,
+					// Sent explicitly: an omitted field keeps the deployed value.
+					job_token_scopes: script.job_token_scopes ?? null
 				}
 			})
 
@@ -2064,6 +2067,16 @@
 												}}
 											/>
 										</div>
+									</Section>
+									<Section label="Job token">
+										{#snippet header()}
+											<Tooltip>
+												Restrict what the token of this script's jobs (WM_TOKEN) can do through the
+												API, e.g. only mint an OIDC token. Use it for scripts that run untrusted
+												input, such as AI agents.
+											</Tooltip>
+										{/snippet}
+										<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
 									</Section>
 									<Section
 										label={canPreserve

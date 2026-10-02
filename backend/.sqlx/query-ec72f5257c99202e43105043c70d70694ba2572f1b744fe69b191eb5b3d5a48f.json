@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.email, p.username, p.is_admin, p.is_operator, p.groups, p.folders, p.end_user_email,\n            j.job_token_scopes\n        FROM job_perms p LEFT JOIN v2_job j ON j.id = p.job_id\n        WHERE p.job_id = $1 AND p.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_operator",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "groups",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 5,
+        "name": "folders",
+        "type_info": "JsonbArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "end_user_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "job_token_scopes",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "ec72f5257c99202e43105043c70d70694ba2572f1b744fe69b191eb5b3d5a48f"
+}

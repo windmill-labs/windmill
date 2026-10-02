@@ -5653,6 +5653,7 @@ async fn test_flow_tag_judged_as_written_before_preprocessor(
         apply_preprocessor: true,
         version: 1443253234253456,
         labels: None,
+        job_token_scopes: None,
     })
     .as_user("test-user-2", "test2@windmill.dev")
     .run_until_complete(&db, false, port)

@@ -181,6 +181,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
         concurrency_settings: ConcurrencySettings::default(),
         debouncing_settings: DebouncingSettings::default(),
         labels: None,
+        job_token_scopes: None,
     })
     .run_until_complete(&db, false, server.addr.port())
     .await;

@@ -126,6 +126,7 @@ pub mod runnable_settings;
 pub mod runnables;
 pub mod schedule;
 pub mod schema;
+pub mod scopes;
 pub mod scripts;
 pub mod secret_backend;
 pub mod sensitive_log_masks;
@@ -2229,6 +2230,7 @@ pub struct ScriptHashInfo<SR> {
     pub on_behalf_of: Option<String>,
     pub created_by: String,
     pub labels: Option<Vec<String>>,
+    pub job_token_scopes: Option<Vec<String>>,
     #[sqlx(flatten)]
     pub runnable_settings: SR,
 }
@@ -2322,6 +2324,7 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             on_behalf_of: self.on_behalf_of,
             created_by: self.created_by,
             labels: self.labels,
+            job_token_scopes: self.job_token_scopes,
             runnable_settings: ScriptRunnableSettingsInline {
                 concurrency_settings: concurrency_settings.maybe_fallback(
                     self.runnable_settings.concurrency_key,
@@ -2686,6 +2689,7 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 on_behalf_of,
                 created_by,
                 labels,
+                job_token_scopes,
                 path
             FROM script WHERE hash = $1 AND workspace_id = $2",
     )
@@ -2707,6 +2711,7 @@ pub struct FlowVersionInfo {
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
     pub labels: Option<Vec<String>>,
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 impl FlowVersionInfo {
@@ -2850,7 +2855,8 @@ pub fn get_flow_version_info_from_version<
                                     flow.dedicated_worker,
                                     flow.on_behalf_of,
                                     flow.edited_by,
-                                    flow.labels
+                                    flow.labels,
+                                    flow.job_token_scopes
                                 FROM
                                     flow_version
                                 INNER JOIN flow
@@ -2985,9 +2991,10 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<jobs::OnBehalfOf>,
     Option<i64>,
     Option<Vec<String>>,
+    Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels, job_token_scopes FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -3019,6 +3026,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         on_behalf_of,
         script.runnable_settings_handle,
         script.labels,
+        script.job_token_scopes,
     ))
 }
 

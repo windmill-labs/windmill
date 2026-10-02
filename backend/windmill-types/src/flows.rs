@@ -48,6 +48,10 @@ pub struct Flow {
     pub on_behalf_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Caps the scopes of the token minted for each job of this flow; `None` = unrestricted.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time. Not stored on the flow row.
     #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -145,6 +149,15 @@ pub struct NewFlow {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Absent keeps the deployed flow's value, so a client unaware of the setting cannot
+    /// drop a restriction by saving; `null` clears it.
+    #[sqlx(skip)]
+    #[serde(
+        default,
+        deserialize_with = "crate::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub job_token_scopes: Option<Option<Vec<String>>>,
     /// Caller-intent flag (set by the CLI / git sync): when true, deploying
     /// this flow must NOT delete an existing user draft at the same path.
     /// Transient — never persisted.
@@ -183,6 +196,12 @@ pub struct EditFlow {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "crate::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub job_token_scopes: Option<Option<Vec<String>>>,
     #[serde(default)]
     pub skip_draft_deletion: Option<bool>,
 }
@@ -207,6 +226,7 @@ impl EditFlow {
             preserve_on_behalf_of: self.preserve_on_behalf_of,
             ws_error_handler_muted: self.ws_error_handler_muted,
             labels: self.labels,
+            job_token_scopes: self.job_token_scopes,
             skip_draft_deletion: self.skip_draft_deletion,
         }
     }

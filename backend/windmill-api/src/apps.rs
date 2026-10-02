@@ -2755,6 +2755,7 @@ async fn create_app_internal<'a>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -3896,6 +3897,7 @@ async fn update_app_internal<'a>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -4490,6 +4492,10 @@ async fn execute_component(
     let app_trigger =
         (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
 
+    let scope_ceiling = match opt_authed.as_ref() {
+        Some(authed) => windmill_api_auth::caller_scope_ceiling(&db, authed).await?,
+        None => None,
+    };
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -4525,6 +4531,7 @@ async fn execute_component(
         end_user_email,
         app_trigger,
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
 

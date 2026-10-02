@@ -2974,6 +2974,7 @@ async fn test_flow_env_marks_sub_flows_only_without_ancestor_env(
                 apply_preprocessor: false,
                 version,
                 labels: None,
+                job_token_scopes: None,
             })
             .run_until_complete(&db, false, port)
             .await;

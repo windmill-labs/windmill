@@ -56,6 +56,7 @@ async fn get_concurrency_key(
         .get_authed(Some(job.workspace_id.clone()), &token)
         .await
         .ok_or_else(not_found)?;
+    windmill_api_auth::check_job_token_scope(&authed_in_workspace, || "jobs:read".to_string())?;
 
     require_job_read_access(
         &db,

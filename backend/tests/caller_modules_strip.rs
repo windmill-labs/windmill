@@ -54,6 +54,7 @@ async fn stored_modules(db: &Pool<Postgres>, payload: JobPayload) -> Option<serd
         None,
         None,
         None,
+        None,
     )
     .await
     .expect("push must succeed");
@@ -81,6 +82,7 @@ async fn caller_modules_never_reach_a_job(db: Pool<Postgres>) {
         concurrency_settings: ConcurrencySettings::default(),
         debouncing_settings: DebouncingSettings::default(),
         labels: None,
+        job_token_scopes: None,
     };
     assert_eq!(stored_modules(&db, deployed).await, None);
 

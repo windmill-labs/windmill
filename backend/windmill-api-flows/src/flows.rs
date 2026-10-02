@@ -803,6 +803,12 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
+    let job_token_scopes = nf
+        .job_token_scopes
+        .as_ref()
+        .and_then(|scopes| scopes.as_deref())
+        .map(windmill_common::scopes::validate_job_token_scopes)
+        .transpose()?;
     let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
         nf.on_behalf_of_email.as_deref(),
         nf.on_behalf_of.as_deref(),
@@ -823,14 +829,14 @@ async fn create_flow(
         dedicated_worker, visible_to_runner_only,
         ws_error_handler_muted,
         value, schema, edited_by, edited_at, labels,
-        on_behalf_of, on_behalf_of_email
+        on_behalf_of, on_behalf_of_email, job_token_scopes
     ) VALUES (
         $1, $2, $3, $4,
         NULL, '', $5,
         $6, $7,
         $8,
         $9, $10::text::json, $11, now(), $12,
-        $13, $14
+        $13, $14, $15
     )"#,
         w_id,
         nf.path,
@@ -846,9 +852,11 @@ async fn create_flow(
         nf.labels.as_deref() as Option<&[String]>,
         resolved_on_behalf_of,
         legacy_on_behalf_of_email,
+        job_token_scopes.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .await?;
+    windmill_common::scopes::log_job_token_scopes_deploy("flow", job_token_scopes.as_deref());
 
     let version = sqlx::query_scalar!(
         "INSERT INTO flow_version (workspace_id, path, value, schema, created_by)
@@ -970,6 +978,7 @@ async fn create_flow(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
         None,
         None,
@@ -1152,7 +1161,7 @@ async fn get_flow_version(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow = sqlx::query_as::<_, Flow>(
-        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow.job_token_scopes, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
         FROM flow
         LEFT JOIN flow_version ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
         WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
@@ -1212,6 +1221,7 @@ async fn get_flow_version_by_id(
             flow.visible_to_runner_only,
             flow.on_behalf_of,
             flow.labels,
+            flow.job_token_scopes,
             flow_version.schema,
             flow_version.value,
             flow_version.created_at as edited_at,
@@ -1367,6 +1377,15 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     let is_new_path = nf.path != flow_path;
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
+    // Absent keeps the deployed value: a client unaware of the setting must not drop a
+    // restriction by saving the flow.
+    let set_job_token_scopes = nf.job_token_scopes.is_some();
+    let job_token_scopes = nf
+        .job_token_scopes
+        .as_ref()
+        .and_then(|scopes| scopes.as_deref())
+        .map(windmill_common::scopes::validate_job_token_scopes)
+        .transpose()?;
     let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
         nf.on_behalf_of_email.as_deref(),
         nf.on_behalf_of.as_deref(),
@@ -1401,7 +1420,8 @@ async fn update_flow(
             edited_at = now(),
             labels = COALESCE($13, labels),
             on_behalf_of = $14,
-            on_behalf_of_email = $15
+            on_behalf_of_email = $15,
+            job_token_scopes = CASE WHEN $16 THEN $17 ELSE job_token_scopes END
         WHERE
             path = $11 AND workspace_id = $12",
         if is_new_path { flow_path } else { &nf.path },
@@ -1419,19 +1439,24 @@ async fn update_flow(
         nf.labels.as_deref() as Option<&[String]>,
         resolved_on_behalf_of,
         legacy_on_behalf_of_email,
+        set_job_token_scopes,
+        job_token_scopes.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .await
     .map_err(|e| {
         error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}"))
     })?;
+    if set_job_token_scopes {
+        windmill_common::scopes::log_job_token_scopes_deploy("flow", job_token_scopes.as_deref());
+    }
 
     if is_new_path {
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
             "INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
-            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, job_token_scopes)
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, job_token_scopes
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
             nf.path,
@@ -1695,6 +1720,7 @@ async fn update_flow(
         None,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -1870,6 +1896,7 @@ async fn get_flow_by_path(
             flow.visible_to_runner_only, 
             flow.on_behalf_of,
             flow.labels,
+            flow.job_token_scopes,
             folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,
@@ -1911,6 +1938,7 @@ async fn get_flow_by_path(
             flow.visible_to_runner_only, 
             flow.on_behalf_of,
             flow.labels,
+            flow.job_token_scopes,
             folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,

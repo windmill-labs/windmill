@@ -599,6 +599,8 @@ async fn enqueue_windmill_tool(
         None,
         None,
         None,
+        // A tool never holds a wider token than the agent calling it.
+        ctx.job.job_token_scopes.as_deref(),
     )
     .await?;
 

@@ -362,6 +362,9 @@ pub struct JobPerms {
     pub groups: Vec<String>,
     pub folders: Vec<serde_json::Value>,
     pub end_user_email: Option<String>,
+    /// The job's effective `v2_job.job_token_scopes`, which its token is minted with.
+    #[serde(default)]
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 impl From<JobPerms> for Authed {
@@ -654,7 +657,10 @@ pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
 ) -> sqlx::Result<Option<JobPerms>> {
     sqlx::query_as!(
         JobPerms,
-        "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+        "SELECT p.email, p.username, p.is_admin, p.is_operator, p.groups, p.folders, p.end_user_email,
+            j.job_token_scopes
+        FROM job_perms p LEFT JOIN v2_job j ON j.id = p.job_id
+        WHERE p.job_id = $1 AND p.workspace_id = $2",
         job_id,
         w_id
     )
@@ -745,17 +751,29 @@ pub async fn create_token_for_owner(
     } else {
         get_job_perms(db, job_id, w_id).await
     };
-    let job_authed = match job_perms {
-        Ok(Some(jp)) => jp.into(),
+    let (job_authed, job_token_scopes) = match job_perms {
+        Ok(Some(mut jp)) => {
+            let scopes = jp.job_token_scopes.take();
+            (jp.into(), scopes)
+        }
         _ => {
             tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
-            fetch_authed_from_permissioned_as(owner, email, w_id, db)
+            let authed = fetch_authed_from_permissioned_as(owner, email, w_id, db)
                 .await
                 .map_err(|e| {
                     Error::internal_err(format!(
                         "Could not get permissions directly for job {job_id}: {e:#}"
                     ))
-                })?
+                })?;
+            let scopes = sqlx::query_scalar!(
+                "SELECT job_token_scopes FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                job_id,
+                w_id
+            )
+            .fetch_optional(db)
+            .await?
+            .flatten();
+            (authed, scopes)
         }
     };
 
@@ -766,7 +784,7 @@ pub async fn create_token_for_owner(
         Some(*job_id),
         Some(label.to_string()),
         audit_span,
-        None,
+        crate::scopes::job_token_jwt_scopes(job_token_scopes),
     )
     .await
 }

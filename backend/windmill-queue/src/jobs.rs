@@ -503,6 +503,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -560,6 +561,7 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
+        None,
         None,
         None,
         None,
@@ -765,6 +767,19 @@ async fn restart_perpetual_runs_at_path(
     Ok(true)
 }
 
+/// The effective token scopes of an earlier job, as the ceiling of a job that re-runs it
+/// (a retry, a perpetual restart): the re-run never holds a wider token than the run it
+/// replaces.
+async fn stored_job_token_scopes(db: &DB, job_id: Uuid) -> Result<Option<Vec<String>>, Error> {
+    Ok(sqlx::query_scalar!(
+        "SELECT job_token_scopes FROM v2_job WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten())
+}
+
 /// A run of an earlier version at the path, and what its replacement inherits from it.
 struct PerpetualRunToRestart {
     id: Uuid,
@@ -857,6 +872,7 @@ async fn restart_perpetual_run(
         // an earlier version the next pass picks up.
         return Ok(());
     }
+    let scope_ceiling = stored_job_token_scopes(db, run.id).await?;
     let (_, tx) = push(
         db,
         PushIsolationLevel::Transaction(tx),
@@ -887,6 +903,7 @@ async fn restart_perpetual_run(
         None,
         None,
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -2103,6 +2120,7 @@ async fn restart_job_if_perpetual_inner(
         .await?
         .flatten()
         .unwrap_or_default();
+        let scope_ceiling = stored_job_token_scopes(db, queued_job.id).await?;
         let (_uuid, tx) = push(
             db,
             tx,
@@ -2127,6 +2145,9 @@ async fn restart_job_if_perpetual_inner(
                 // TODO(debouncing): handle properly
                 debouncing_settings: DebouncingSettings::default(),
                 labels: None, // labels already set on original job
+                // The run it replaces caps it (`scope_ceiling`), and that run already
+                // carried this script's setting.
+                job_token_scopes: None,
             },
             PushArgs::from(&args.0),
             &queued_job.created_by,
@@ -2153,6 +2174,7 @@ async fn restart_job_if_perpetual_inner(
             None,
             None,
             None,
+            scope_ceiling.as_deref(),
         )
         .await?;
         tx.commit().await?;
@@ -2411,6 +2433,7 @@ pub async fn maybe_enqueue_native_script_retry(
         )
         .await?;
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+    let scope_ceiling = stored_job_token_scopes(db, job.id).await?;
     let (new_id, mut tx) = match push(
         db,
         tx,
@@ -2459,6 +2482,7 @@ pub async fn maybe_enqueue_native_script_retry(
         None,
         trigger,
         None,
+        scope_ceiling.as_deref(),
     )
     .await
     {
@@ -3424,6 +3448,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -3513,6 +3538,7 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -3571,6 +3597,11 @@ pub struct MiniPulledJob {
     pub visible_to_owner: bool,
     pub permissioned_as_end_user_email: Option<String>,
     pub runnable_settings_handle: Option<i64>,
+    /// The job's effective token scopes (`v2_job.job_token_scopes`), minted into its token.
+    /// No `sqlx(default)`: a query that forgets the column must fail rather than mint an
+    /// unrestricted token.
+    #[serde(default)]
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 impl MiniPulledJob {
@@ -3622,6 +3653,7 @@ impl MiniPulledJob {
             runnable_settings_handle: None,
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            job_token_scopes: None,
         }
     }
 }
@@ -3865,6 +3897,7 @@ impl MiniPulledJob {
                 .then(|| JobTriggerKind::Schedule.into()),
             visible_to_owner: job.visible_to_owner.clone(),
             permissioned_as_end_user_email: None,
+            job_token_scopes: None,
         }
     }
     pub fn is_flow(&self) -> bool {
@@ -3968,6 +4001,7 @@ impl PulledJob {
                 groups,
                 folders,
                 end_user_email: self.job.permissioned_as_end_user_email.clone(),
+                job_token_scopes: self.job.job_token_scopes.clone(),
             }),
             _ => None,
         };
@@ -4074,7 +4108,8 @@ pub async fn get_mini_pulled_job<'c>(
         trigger,
         trigger_kind as \"trigger_kind: TriggerKindLabel\",
         visible_to_owner,
-        NULL as permissioned_as_end_user_email
+        NULL as permissioned_as_end_user_email,
+        job_token_scopes
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
         job_id,
     )
@@ -5981,6 +6016,10 @@ pub async fn push<'c, 'd>(
     end_user_email: Option<String>,
     trigger: Option<TriggerMetadata>,
     suspended_mode: Option<bool>,
+    // Caps the new job's token on top of the target's own `job_token_scopes`: the scopes of
+    // the job (or job token) this push acts for, `None` when nothing above it restricts it.
+    // A job may never hold a token wider than the job that created it.
+    scope_ceiling: Option<&[String]>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     Box::pin(push_inner(
         db,
@@ -6012,6 +6051,7 @@ pub async fn push<'c, 'd>(
         end_user_email,
         trigger,
         suspended_mode,
+        scope_ceiling,
     ))
     .await
 }
@@ -6047,6 +6087,7 @@ async fn push_inner<'c, 'd>(
     end_user_email: Option<String>,
     trigger: Option<TriggerMetadata>,
     suspended_mode: Option<bool>,
+    scope_ceiling: Option<&[String]>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     // The worker builds a preview's `_MODULES` arg into the job as its module code. Every
     // caller-reachable value lands in `args` or `extra` (webhook query and headers go to
@@ -6280,6 +6321,8 @@ async fn push_inner<'c, 'd>(
         debouncing_settings: DebouncingSettings,
         retry_settings: RetrySettings,
         labels: Option<Vec<String>>,
+        /// The target's own `job_token_scopes` setting.
+        job_token_scopes: Option<Vec<String>>,
         /// A `dependencies` job that only compiles an already-deployed script's binary.
         /// It shares the job kind, but not the queue policy lock generation needs.
         build_binary_only: bool,
@@ -6302,6 +6345,7 @@ async fn push_inner<'c, 'd>(
         debouncing_settings,
         retry_settings,
         labels,
+        job_token_scopes,
         build_binary_only,
     } = match job_payload {
         JobPayload::ScriptHash {
@@ -6316,6 +6360,7 @@ async fn push_inner<'c, 'd>(
             concurrency_settings,
             debouncing_settings,
             labels,
+            job_token_scopes,
         } => {
             if apply_preprocessor {
                 preprocessed = Some(false);
@@ -6333,6 +6378,7 @@ async fn push_inner<'c, 'd>(
                 dedicated_worker,
                 _low_level_priority: priority,
                 labels,
+                job_token_scopes,
                 ..Default::default()
             }
         }
@@ -6671,20 +6717,21 @@ async fn push_inner<'c, 'd>(
                 // script's `dedicated_worker` (it drives the dedicated tag below),
                 // but the SingleStepFlow payload doesn't — resolve it from the
                 // script row so a dedicated-worker script keeps its dedicated pool.
-                let dedicated_worker = if let Some(h) = &hash {
+                // The script's `job_token_scopes` is resolved the same way.
+                let (dedicated_worker, job_token_scopes) = if let Some(h) = &hash {
                     // Read on the non-RLS pool: push_inner is also entered with RLS
                     // isolation variants under which the script row may be invisible,
                     // which would mis-resolve dedicated_worker routing.
-                    sqlx::query_scalar::<_, Option<bool>>(
-                        "SELECT dedicated_worker FROM script WHERE hash = $1 AND workspace_id = $2",
+                    sqlx::query_as::<_, (Option<bool>, Option<Vec<String>>)>(
+                        "SELECT dedicated_worker, job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
                     )
                     .bind(h.0)
                     .bind(workspace_id)
                     .fetch_optional(db)
                     .await?
-                    .flatten()
+                    .unwrap_or((None, None))
                 } else {
-                    None
+                    (None, None)
                 };
                 break 'ssf JobPayloadUntagged {
                     runnable_id: hash.map(|h| h.0),
@@ -6696,6 +6743,7 @@ async fn push_inner<'c, 'd>(
                     },
                     language,
                     dedicated_worker,
+                    job_token_scopes,
                     concurrency_settings,
                     debouncing_settings,
                     retry_settings: retry.as_ref().map(RetrySettings::from).unwrap_or_default(),
@@ -6866,7 +6914,14 @@ async fn push_inner<'c, 'd>(
                 ..Default::default()
             }
         }
-        JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version, labels } => {
+        JobPayload::Flow {
+            path,
+            dedicated_worker,
+            apply_preprocessor,
+            version,
+            labels,
+            job_token_scopes,
+        } => {
             let mut ntx = tx.into_tx().await?;
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
@@ -6933,6 +6988,7 @@ async fn push_inner<'c, 'd>(
                 concurrency_settings,
                 debouncing_settings,
                 labels,
+                job_token_scopes,
                 ..Default::default()
             }
         }
@@ -6997,6 +7053,16 @@ async fn push_inner<'c, 'd>(
                 memory_id: None,
                 no_inherited_flow_env: false,
             };
+            // The restart runs the completed job's stored definition, so it keeps that job's
+            // restriction rather than reading the flow's current setting.
+            let job_token_scopes = sqlx::query_scalar::<_, Option<Vec<String>>>(
+                "SELECT job_token_scopes FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            )
+            .bind(completed_job_id)
+            .bind(workspace_id)
+            .fetch_optional(db)
+            .await?
+            .flatten();
             let value = flow_data.value();
             let priority = value.priority;
             let concurrency_settings = value.concurrency_settings.clone();
@@ -7021,6 +7087,7 @@ async fn push_inner<'c, 'd>(
                 _low_level_priority: priority,
                 concurrency_settings,
                 debouncing_settings,
+                job_token_scopes,
                 ..Default::default()
             }
         }
@@ -7345,6 +7412,11 @@ async fn push_inner<'c, 'd>(
         }
     };
 
+    let job_token_scopes = windmill_common::scopes::intersect_job_token_scopes(
+        scope_ceiling,
+        job_token_scopes.as_deref(),
+    );
+
     let folders = job_authed
         .folders
         .iter()
@@ -7443,7 +7515,8 @@ async fn push_inner<'c, 'd>(
                 trigger_kind, -- 39
                 script_entrypoint_override, -- 12
                 preprocessed, -- 27,
-                labels -- 44
+                labels, -- 44
+                job_token_scopes -- 47
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27,
@@ -7452,7 +7525,7 @@ async fn push_inner<'c, 'd>(
             (SELECT CASE WHEN fl.labels IS NULL THEN $44
                 ELSE (SELECT array_agg(DISTINCT lbl) FROM unnest(COALESCE($44, ARRAY[]::TEXT[]) || fl.labels) lbl)
             END
-            FROM folder_labels($46, $45) AS fl(labels)))
+            FROM folder_labels($46, $45) AS fl(labels)), $47)
         ),
         inserted_runtime AS (
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
@@ -7515,6 +7588,7 @@ async fn push_inner<'c, 'd>(
         labels.as_deref() as Option<&[String]>,
         runnable_path,
         workspace_id,
+        job_token_scopes.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
@@ -8478,6 +8552,7 @@ pub async fn get_same_worker_job(
                     v2_job.trigger,
                     v2_job.trigger_kind,
                     v2_job.visible_to_owner,
+                    v2_job.job_token_scopes,
                     v2_job.raw_code,
                     v2_job.raw_lock,
                     v2_job.raw_flow,

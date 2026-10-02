@@ -889,6 +889,7 @@ export async function getItemValue(
         summary: flow.summary,
         description: flow.description,
         value: flow.value,
+        job_token_scopes: flow.job_token_scopes ?? null,
       };
     } else if (kind === "script") {
       const script = await provider.getScriptByPath({ workspace, path });
@@ -898,6 +899,7 @@ export async function getItemValue(
         schema: script.schema,
         summary: script.summary,
         language: script.language,
+        job_token_scopes: script.job_token_scopes ?? null,
       };
     } else if (kind === "app" || kind === "raw_app") {
       return await provider.getAppByPath({ workspace, path });

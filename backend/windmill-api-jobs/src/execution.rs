@@ -865,6 +865,7 @@ pub async fn run_flow<'c>(
         chat_input_enabled,
         early_return,
         labels,
+        job_token_scopes,
         ..
     } = flow_version_info;
 
@@ -914,6 +915,7 @@ pub async fn run_flow<'c>(
         )
     };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -924,6 +926,7 @@ pub async fn run_flow<'c>(
             version,
             apply_preprocessor,
             labels,
+            job_token_scopes,
         },
         push_args,
         authed.display_username(),
@@ -950,6 +953,7 @@ pub async fn run_flow<'c>(
         None,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
 
@@ -1141,6 +1145,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         )
     };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -1176,6 +1181,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         None,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
 

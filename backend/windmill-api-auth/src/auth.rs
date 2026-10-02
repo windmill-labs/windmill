@@ -1131,8 +1131,11 @@ pub async fn resolve_opt_job_authed(
                         return Err((err, parts));
                     }
                 }
+                let own_job_runtime_route = opt_job_authed.job_id.is_some_and(|job_id| {
+                    crate::scopes::is_own_job_runtime_route(path, method, job_id)
+                });
                 let authed = &mut opt_job_authed.authed;
-                if authed.scopes.is_some() {
+                if authed.scopes.is_some() && !own_job_runtime_route {
                     transform_old_scope_to_new_scope(authed.scopes.as_mut());
 
                     if let Err(err) = crate::scopes::check_scopes_for_route(

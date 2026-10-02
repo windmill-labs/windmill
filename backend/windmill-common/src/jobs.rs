@@ -136,6 +136,7 @@ pub async fn script_path_to_payload<'e>(
                 timeout,
                 has_preprocessor,
                 labels,
+                job_token_scopes,
                 ..
             } = script_info;
 
@@ -153,6 +154,7 @@ pub async fn script_path_to_payload<'e>(
                     debouncing_settings,
                     concurrency_settings,
                     labels,
+                    job_token_scopes,
                 },
                 tag,
                 delete_after_use,
@@ -203,7 +205,7 @@ pub async fn get_payload_tag_from_prefixed_path(
                 None,
             )
         } else {
-            let FlowVersionInfo { dedicated_worker, tag, version, labels, .. } =
+            let FlowVersionInfo { dedicated_worker, tag, version, labels, job_token_scopes, .. } =
                 get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
             (
                 JobPayload::Flow {
@@ -212,6 +214,7 @@ pub async fn get_payload_tag_from_prefixed_path(
                     apply_preprocessor: false,
                     version,
                     labels,
+                    job_token_scopes,
                 },
                 tag,
                 None,

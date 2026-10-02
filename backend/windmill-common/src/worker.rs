@@ -800,7 +800,7 @@ fn format_pull_query(peek: String) -> String {
                 flow_innermost_root_job, root_job, flow_step_id,
                 same_worker, pre_run_error, visible_to_owner, tag, concurrent_limit,
                 concurrency_time_window_s, timeout, cache_ttl, priority, raw_code, raw_lock,
-                raw_flow, script_entrypoint_override, preprocessed
+                raw_flow, script_entrypoint_override, preprocessed, job_token_scopes
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
@@ -810,7 +810,7 @@ fn format_pull_query(peek: String) -> String {
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
-            j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
+            j.script_entrypoint_override, j.preprocessed, j.job_token_scopes, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
         FROM q, j

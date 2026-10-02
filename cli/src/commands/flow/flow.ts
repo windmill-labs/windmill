@@ -52,6 +52,7 @@ export interface FlowFile {
   schema?: any;
   on_behalf_of_email?: string;
   has_on_behalf_of?: boolean;
+  job_token_scopes?: string[] | null;
   // Mirrors granular ACLs on the flow path. Omitted from flow.yaml when no
   // perms are set. The CLI applies diffs through /acls/add and /acls/remove
   // (see applyExtraPermsDiff) — never through update_flow — so a perm-only
@@ -265,12 +266,22 @@ export async function pushFlow(
   // so a perm-only edit never bumps the flow version. Strip the field from the
   // body that goes to update_flow / create_flow and treat it as a separate
   // step both for the up-to-date short-circuit and after the deploy.
-  const { extra_perms: localPerms, ...localFlowBody } = localFlow as FlowFile & {
+  const {
+    extra_perms: localPerms,
+    job_token_scopes: localJobTokenScopes,
+    ...localFlowBody
+  } = localFlow as FlowFile & {
     extra_perms?: Record<string, boolean>;
   };
+  // Always sent, unlike the other settings: the server keeps a restriction the body omits,
+  // so a flow.yaml without the key has to clear it explicitly.
+  const jobTokenScopes = localJobTokenScopes ?? null;
 
   if (flow) {
-    if (isSuperset(localFlowBody, flow)) {
+    if (
+      isSuperset(localFlowBody, flow) &&
+      JSON.stringify(jobTokenScopes) === JSON.stringify(flow.job_token_scopes ?? null)
+    ) {
       log.info(colors.green(`Flow ${remotePath} is up to date`));
     } else {
       log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
@@ -281,6 +292,7 @@ export async function pushFlow(
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
           ...localFlowBody,
+          job_token_scopes: jobTokenScopes,
           ...preserveFields,
           // Preserve any user draft at this path (see backend skip_draft_deletion).
           skip_draft_deletion: true,
@@ -296,6 +308,7 @@ export async function pushFlow(
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
           ...localFlowBody,
+          job_token_scopes: jobTokenScopes,
           ...preserveFields,
           // Preserve any user draft at this path (see backend skip_draft_deletion).
           skip_draft_deletion: true,
