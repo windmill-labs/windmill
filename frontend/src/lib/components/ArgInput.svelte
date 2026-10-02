@@ -8,6 +8,7 @@
 		debounce,
 		emptySchema,
 		emptyString,
+		escapeHtml,
 		getSchemaFromProperties,
 		type DynamicInput as DynamicInputTypes
 	} from '$lib/utils'
@@ -1386,7 +1387,7 @@
 							dispatch('blur')
 						}}
 						code={rawValue}
-						{placeholder}
+						placeholder={placeholder && escapeHtml(placeholder)}
 						bind:error={jsonError}
 						on:changeValue={(e) => {
 							setNewValueFromCode(e.detail)
