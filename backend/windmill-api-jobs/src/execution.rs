@@ -161,6 +161,14 @@ pub fn with_run_retry(
             "retry is only supported for workspace scripts".to_string(),
         ));
     };
+    // A failed attempt keeps its raw args and the retry re-push skips the preprocessor, so
+    // every retry would call `main` with un-preprocessed input.
+    if apply_preprocessor {
+        return Err(Error::BadRequest(
+            "retry is not supported for a script with a preprocessor unless skip_preprocessor is set"
+                .to_string(),
+        ));
+    }
     run_query.parent_job = None;
     run_query.root_job = None;
     Ok(JobPayload::SingleStepFlow {
