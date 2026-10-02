@@ -102,6 +102,17 @@ impl PgProgress {
 }
 
 const PG_STALL_WARNING_AFTER: Duration = Duration::from_secs(5 * 60);
+/// Steps faster than this are not logged: a log line is a write to the main DB,
+/// and a script split into many statements would pay one per statement.
+const PG_SLOW_STEP: Duration = Duration::from_secs(1);
+
+fn connection_kind(fresh_connection: bool) -> &'static str {
+    if fresh_connection {
+        "new connection"
+    } else {
+        "worker's cached connection"
+    }
+}
 
 /// Warns once per stall in the job log; never completes. A statement still
 /// computing its first row also trips it, which is why it only warns: the job
@@ -109,6 +120,7 @@ const PG_STALL_WARNING_AFTER: Duration = Duration::from_secs(5 * 60);
 async fn warn_on_stalled_statement(
     progress: &PgProgress,
     statement_count: usize,
+    fresh_connection: bool,
     job_id: Uuid,
     workspace_id: &str,
     conn: &Connection,
@@ -126,12 +138,13 @@ async fn warn_on_stalled_statement(
             &job_id,
             workspace_id,
             format!(
-                "No new row for {} min on statement {}/{statement_count} ({} rows so far). \
+                "No new row for {} min on statement {}/{statement_count} ({} rows so far, {}). \
                  A query still running on the database is normal; if the database shows no \
                  active query for this connection, the job is stuck in the worker.\n",
                 stalled.as_secs() / 60,
                 progress.statement.load(Ordering::Relaxed) + 1,
                 progress.rows(),
+                connection_kind(fresh_connection),
             ),
             conn,
         )
@@ -1044,16 +1057,21 @@ pub async fn do_postgresql(
         new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
     }
 
-    if !run_inline && !annotations.prepare {
-        let msg = if new_client.is_some() {
+    let fresh_connection = new_client.is_some();
+    let log_progress = !run_inline && !annotations.prepare;
+    let connect_time = connect_started.elapsed();
+    if log_progress && connect_time >= PG_SLOW_STEP {
+        windmill_queue::append_logs(
+            &job.id,
+            &job.workspace_id,
             format!(
-                "Connected to the database in {} ms\n",
-                connect_started.elapsed().as_millis()
-            )
-        } else {
-            "Reusing the worker's cached database connection\n".to_string()
-        };
-        windmill_queue::append_logs(&job.id, &job.workspace_id, msg, conn).await;
+                "Getting a database connection took {} ms ({})\n",
+                connect_time.as_millis(),
+                connection_kind(fresh_connection)
+            ),
+            conn,
+        )
+        .await;
     }
 
     let (mut sig, _) = parse_pgsql_sig_with_typed_schema(&query)
@@ -1097,7 +1115,6 @@ pub async fn do_postgresql(
     let size_ref = &size;
     let progress = PgProgress::new();
     let progress_ref = &progress;
-    let log_progress = !run_inline && !annotations.prepare;
     let statement_count = queries.len();
     let result_f = async move {
         let mut results = vec![];
@@ -1163,7 +1180,8 @@ pub async fn do_postgresql(
                 progress_ref,
             )?
             .await?;
-            if log_progress {
+            let statement_time = statement_started.elapsed();
+            if log_progress && statement_time >= PG_SLOW_STEP {
                 windmill_queue::append_logs(
                     &job.id,
                     &job.workspace_id,
@@ -1171,7 +1189,7 @@ pub async fn do_postgresql(
                         "Statement {}/{statement_count}: {} rows in {} ms\n",
                         i + 1,
                         progress_ref.rows() - rows_before,
-                        statement_started.elapsed().as_millis()
+                        statement_time.as_millis()
                     ),
                     conn,
                 )
@@ -1193,7 +1211,7 @@ pub async fn do_postgresql(
         if log_progress {
             tokio::select! {
                 result = result_f => result,
-                never = warn_on_stalled_statement(progress_ref, statement_count, job.id, &job.workspace_id, conn) => match never {},
+                never = warn_on_stalled_statement(progress_ref, statement_count, fresh_connection, job.id, &job.workspace_id, conn) => match never {},
             }
         } else {
             result_f.await
