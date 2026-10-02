@@ -1580,7 +1580,8 @@ impl InstanceConfig {
     }
 
     /// The instance configuration as an API response may carry it: `from_db` without
-    /// `SERVER_SECRET_SETTINGS`.
+    /// `SERVER_SECRET_SETTINGS`. It still holds admin-entered credentials (`license_key`,
+    /// `scim_token`, SMTP and OAuth secrets), so callers must have checked superadmin.
     pub async fn from_db_without_server_secrets(
         db: &sqlx::Pool<sqlx::Postgres>,
     ) -> anyhow::Result<Self> {

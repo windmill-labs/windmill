@@ -686,7 +686,7 @@ async function getConfig(opts: InstanceSyncOptions & { outputFile?: string; show
     if (config.global_settings.jwt_secret) config.global_settings.jwt_secret = "***";
   }
   if (config?.global_settings && !config.global_settings.jwt_secret) {
-    log.info(
+    log.infoStderr(
       "jwt_secret is not part of the export: the server never returns it. Set it separately if another instance must accept this one's tokens."
     );
   }

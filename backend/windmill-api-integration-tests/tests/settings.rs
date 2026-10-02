@@ -204,14 +204,19 @@ async fn test_alert_job_queue_waiting_in_global_settings(db: Pool<Postgres>) -> 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_signing_secrets_never_returned(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
-    for (name, value) in [
+    let secrets = [
         ("jwt_secret", json!("planted-jwt-secret")),
         ("rsa_keys", json!({"private_key": "planted-rsa-key"})),
         (
             "custom_instance_replication_pwd",
             json!("planted-replication-pwd"),
         ),
-    ] {
+        (
+            "external_instance_pg_state",
+            json!({"admin_pwd": "planted-pg-state"}),
+        ),
+    ];
+    for (name, value) in &secrets {
         sqlx::query(
             "INSERT INTO global_settings (name, value) VALUES ($1, $2)
              ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
@@ -232,7 +237,7 @@ async fn test_signing_secrets_never_returned(db: Pool<Postgres>) -> anyhow::Resu
         let status = resp.status().as_u16();
         let body = resp.text().await?;
         assert_2xx(status, &body, path);
-        bodies.push((path, body));
+        bodies.push((path.to_string(), body));
     }
     #[cfg(feature = "enterprise")]
     {
@@ -242,23 +247,21 @@ async fn test_signing_secrets_never_returned(db: Pool<Postgres>) -> anyhow::Resu
         let status = resp.status().as_u16();
         let body = resp.text().await?;
         assert_2xx(status, &body, "list_global");
-        bodies.push(("list_global", body));
+        bodies.push(("list_global".to_string(), body));
     }
-    for name in ["jwt_secret", "rsa_keys"] {
+    for (name, _) in &secrets {
         let resp = authed(client().get(format!("{base}/global/{name}")))
             .send()
             .await?;
         let status = resp.status().as_u16();
         assert_eq!(status, 400, "GET /global/{name} returned {status}");
-        bodies.push((name, resp.text().await?));
+        bodies.push((format!("global/{name}"), resp.text().await?));
     }
 
     for (path, body) in bodies {
         assert!(
-            !body.contains("planted-jwt-secret")
-                && !body.contains("planted-rsa-key")
-                && !body.contains("planted-replication-pwd"),
-            "{path} returned a signing secret: {body}"
+            !body.contains("planted-"),
+            "{path} returned a server secret: {body}"
         );
     }
     Ok(())
