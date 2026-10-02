@@ -2,6 +2,7 @@
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
 	import { GitBranchPlus, Move, Copy, Trash2, StickyNote, PictureInPicture2 } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
+	import AiDecisionNodeBranch from './AiDecisionNodeBranch.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
@@ -236,6 +237,9 @@
 					<GitBranchPlus size={16} />
 				</button>
 			</div>
+		{/if}
+		{#if data.module?.value?.type === 'aidecision' && data.insertable}
+			<AiDecisionNodeBranch moduleId={data.id} />
 		{/if}
 	{/snippet}
 </NodeWrapper>

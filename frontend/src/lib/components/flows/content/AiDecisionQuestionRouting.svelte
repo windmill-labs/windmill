@@ -13,8 +13,8 @@
 		findRouting,
 		missingOptions
 	} from '../aiDecisionBranching'
-	import { findModuleInFlow, getModuleArrayContainer } from '../flowTree'
-	import { insertNewModuleAtIndex } from '../flowStateUtils.svelte'
+	import { findModuleInFlow } from '../flowTree'
+	import { branchOnQuestion } from '../aiDecisionInsert'
 
 	interface Props {
 		decisionId: string
@@ -23,8 +23,8 @@
 
 	let { decisionId, question }: Props = $props()
 
-	const { flowStore, flowStateStore, history, selectionManager } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const ctx = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, history, selectionManager } = ctx
 
 	// Read from the stored step, so what this offers matches what the branches are checked against.
 	let options = $derived.by(() => {
@@ -44,23 +44,6 @@
 			: []
 	)
 
-	async function branchOn() {
-		const container = getModuleArrayContainer(flowStore.val.value, decisionId)
-		if (!container) return
-		push(history, flowStore.val)
-		const modules = (await insertNewModuleAtIndex(
-			flowStore,
-			flowStateStore,
-			container.modules,
-			container.index + 1,
-			'branchone'
-		)) as FlowModule[]
-		const inserted = modules[container.index + 1]
-		addChoiceBranches(inserted, decisionId, question, options)
-		refreshStateStore(flowStore)
-		selectionManager.selectId(inserted.id)
-	}
-
 	function addMissing(target: FlowModule) {
 		push(history, flowStore.val)
 		addChoiceBranches(target, decisionId, question, missing)
@@ -76,7 +59,7 @@
 			wrapperClasses="self-start"
 			startIcon={{ icon: Split }}
 			title="Add a Branch to one after this step, with one branch per option"
-			onClick={branchOn}
+			onClick={() => branchOnQuestion(ctx, decisionId, question, options)}
 		>
 			Branch on this question
 		</Button>
