@@ -116,7 +116,12 @@
 {/snippet}
 
 <div class="flex flex-col gap-2 w-full">
-	<div class="flex justify-end">
+	<div class="flex items-start justify-end gap-2">
+		{#if mode === 'json'}
+			<span class="text-2xs text-hint font-mono grow min-w-0">
+				{'{ <name>: { type: choice | score | noul, instructions, criteria } }'}
+			</span>
+		{/if}
 		<Toggle
 			size="xs"
 			lightMode
@@ -132,10 +137,7 @@
 		/>
 	</div>
 	{#if mode === 'json'}
-		<div class="flex flex-col gap-1 w-full">
-			<span class="text-xs text-secondary">
-				{'{ <name>: { type: choice | score | noul, instructions, criteria } }'}
-			</span>
+		<div class="w-full">
 			{#key jsonEditorKey}
 				{#await import('./JsonEditor.svelte') then Module}
 					<Module.default
