@@ -200,3 +200,54 @@ async fn test_alert_job_queue_waiting_in_global_settings(db: Pool<Postgres>) -> 
 
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_signing_secrets_never_returned(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    for (name, value) in [
+        ("jwt_secret", json!("planted-jwt-secret")),
+        ("rsa_keys", json!({"private_key": "planted-rsa-key"})),
+    ] {
+        sqlx::query(
+            "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+             ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
+        )
+        .bind(name)
+        .bind(value)
+        .execute(&db)
+        .await?;
+    }
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api/settings", server.addr.port());
+
+    let mut bodies = vec![];
+    for path in ["instance_config", "instance_config/yaml"] {
+        let resp = authed(client().get(format!("{base}/{path}"))).send().await?;
+        let status = resp.status().as_u16();
+        let body = resp.text().await?;
+        assert_2xx(status, &body, path);
+        bodies.push((path, body));
+    }
+    #[cfg(feature = "enterprise")]
+    {
+        let resp = authed(client().get(format!("{base}/list_global"))).send().await?;
+        let status = resp.status().as_u16();
+        let body = resp.text().await?;
+        assert_2xx(status, &body, "list_global");
+        bodies.push(("list_global", body));
+    }
+    for name in ["jwt_secret", "rsa_keys"] {
+        let resp = authed(client().get(format!("{base}/global/{name}"))).send().await?;
+        let status = resp.status().as_u16();
+        assert_eq!(status, 400, "GET /global/{name} returned {status}");
+        bodies.push((name, resp.text().await?));
+    }
+
+    for (path, body) in bodies {
+        assert!(
+            !body.contains("planted-jwt-secret") && !body.contains("planted-rsa-key"),
+            "{path} returned a signing secret: {body}"
+        );
+    }
+    Ok(())
+}

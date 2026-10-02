@@ -1019,10 +1019,18 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "min_keep_alive_version",
 ];
 
+/// Secrets the server signs with or generated for itself. `jwt_secret` signs API and job
+/// tokens and `rsa_keys` signs job OIDC tokens, so reading either is enough to mint tokens
+/// for any user. No API response returns them, superadmin or not. Unlike `HIDDEN_SETTINGS`
+/// they stay writable through config (an operator ConfigMap may set `jwt_secret`).
+pub const SERVER_SECRET_SETTINGS: &[&str] = &[
+    "jwt_secret",
+    "rsa_keys",
+    "custom_instance_replication_pwd",
+    "external_instance_pg_state",
+];
+
 /// Internal settings that are never exposed via the API or included in config exports.
-/// Note: jwt_secret is intentionally NOT hidden — it is included in YAML exports so that
-/// operators can set it via ConfigMap. It is protected from deletion (PROTECTED_SETTINGS)
-/// and from being set to empty/null, and its value is partially redacted in log output.
 pub const HIDDEN_SETTINGS: &[&str] = &[
     "uid",
     "min_keep_alive_version",
@@ -1567,6 +1575,21 @@ pub fn resolve_env_refs(settings: &mut GlobalSettings) -> Result<(), String> {
 impl InstanceConfig {
     /// Read the full instance configuration from the database.
     pub async fn from_db(db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<Self> {
+        Self::read_from_db(db, true).await
+    }
+
+    /// The instance configuration as an API response may carry it: `from_db` without
+    /// `SERVER_SECRET_SETTINGS`.
+    pub async fn from_db_without_server_secrets(
+        db: &sqlx::Pool<sqlx::Postgres>,
+    ) -> anyhow::Result<Self> {
+        Self::read_from_db(db, false).await
+    }
+
+    async fn read_from_db(
+        db: &sqlx::Pool<sqlx::Postgres>,
+        include_server_secrets: bool,
+    ) -> anyhow::Result<Self> {
         // Read global_settings table → flat map → deserialize into GlobalSettings
         let rows: Vec<(String, serde_json::Value)> =
             sqlx::query_as("SELECT name, value FROM global_settings")
@@ -1575,6 +1598,9 @@ impl InstanceConfig {
         let map: serde_json::Map<String, serde_json::Value> = rows
             .into_iter()
             .filter(|(name, _)| !HIDDEN_SETTINGS.contains(&name.as_str()))
+            .filter(|(name, _)| {
+                include_server_secrets || !SERVER_SECRET_SETTINGS.contains(&name.as_str())
+            })
             .collect();
         let global_settings: GlobalSettings =
             serde_json::from_value(serde_json::Value::Object(map))?;
