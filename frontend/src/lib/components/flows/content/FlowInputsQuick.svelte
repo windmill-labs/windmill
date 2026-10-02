@@ -181,7 +181,12 @@
 		['While loop', 'whileloop'],
 		['Branch to one', 'branchone'],
 		['Branch to all', 'branchall'],
-		...(customUi?.aiAgent != false ? ([['AI Agent', 'aiagent']] as [string, string][]) : [])
+		...(customUi?.aiAgent != false
+			? ([
+					['AI Agent', 'aiagent'],
+					['AI decision', 'aidecision']
+				] as [string, string][])
+			: [])
 	]
 
 	let topLevelNodes: [string, string][] = $state([])

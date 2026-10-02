@@ -357,6 +357,8 @@ impl FlowValue {
                 | Flow { .. }
                 | FlowScript { .. }
                 | Identity) => cb(&s, &module.id)?,
+                // Runs no script of its own.
+                AIDecision { .. } => {}
                 ForloopFlow { modules, .. } | WhileloopFlow { modules, .. } => {
                     Self::traverse_leafs(modules.iter().collect(), cb)?
                 }
@@ -1110,6 +1112,13 @@ pub enum FlowModuleValue {
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         tool_inputs: HashMap<String, HashMap<String, InputTransform>>,
     },
+    /// One call to a decision model (TypeSafe's Jev) answering the typed `questions` of its
+    /// `input_transforms` about a `state`. A flow branches on the answers with a `BranchOne`.
+    AIDecision {
+        input_transforms: HashMap<String, InputTransform>,
+        #[serde(skip_serializing_if = "is_none_or_empty")]
+        tag: Option<String>,
+    },
 }
 
 fn is_none_or_empty(expr: &Option<String>) -> bool {
@@ -1254,6 +1263,10 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 agent: untagged.agent,
                 tool_inputs: untagged.tool_inputs.unwrap_or_default(),
             }),
+            "aidecision" => Ok(FlowModuleValue::AIDecision {
+                input_transforms: untagged.input_transforms.unwrap_or_default(),
+                tag: untagged.tag,
+            }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
@@ -1266,6 +1279,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     "rawscript",
                     "identity",
                     "aiagent",
+                    "aidecision",
                 ],
             )),
         }

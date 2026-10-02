@@ -174,7 +174,7 @@ function collectFlowNodeIdsFromNode(node: FlowNodeLike): string[] {
 export function collectProviderlessAgentIds(modules: unknown): string[] {
 	const ids: string[] = []
 	forEachAiAgentModule(modules, (mod, v) => {
-		if (!v.agent && !v.input_transforms?.provider) {
+		if (v.type === 'aiagent' && !v.agent && !v.input_transforms?.provider) {
 			ids.push(mod.id)
 		}
 	})

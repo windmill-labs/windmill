@@ -19,6 +19,7 @@
 		class?: string | undefined
 		disabled?: boolean
 		fixedOverflowWidgets?: boolean
+		placeholder?: string
 	}
 
 	let {
@@ -30,7 +31,8 @@
 		loadAsync = false,
 		class: clazz = undefined,
 		disabled = false,
-		fixedOverflowWidgets = true
+		fixedOverflowWidgets = true,
+		placeholder = undefined
 	}: Props = $props()
 
 	let tooBig = $derived(code && code?.length > 1000000)
@@ -101,6 +103,7 @@
 				class={clazz}
 				{disabled}
 				{fixedOverflowWidgets}
+				{placeholder}
 				renderLineHighlight="none"
 			/>
 		</div>
