@@ -1021,8 +1021,9 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
 
 /// Secrets the server signs with or generated for itself. `jwt_secret` signs API and job
 /// tokens and `rsa_keys` signs job OIDC tokens, so reading either is enough to mint tokens
-/// for any user. No API response returns them, superadmin or not. Unlike `HIDDEN_SETTINGS`
-/// they stay writable through config (an operator ConfigMap may set `jwt_secret`).
+/// for any user. No API response returns them, superadmin or not. Withholding them from
+/// reads does not make them unwritable: the two signing keys are not in `HIDDEN_SETTINGS`,
+/// so config can still set them (an operator ConfigMap may set `jwt_secret`).
 pub const SERVER_SECRET_SETTINGS: &[&str] = &[
     "jwt_secret",
     "rsa_keys",

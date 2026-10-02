@@ -207,6 +207,10 @@ async fn test_signing_secrets_never_returned(db: Pool<Postgres>) -> anyhow::Resu
     for (name, value) in [
         ("jwt_secret", json!("planted-jwt-secret")),
         ("rsa_keys", json!({"private_key": "planted-rsa-key"})),
+        (
+            "custom_instance_replication_pwd",
+            json!("planted-replication-pwd"),
+        ),
     ] {
         sqlx::query(
             "INSERT INTO global_settings (name, value) VALUES ($1, $2)
@@ -222,7 +226,9 @@ async fn test_signing_secrets_never_returned(db: Pool<Postgres>) -> anyhow::Resu
 
     let mut bodies = vec![];
     for path in ["instance_config", "instance_config/yaml"] {
-        let resp = authed(client().get(format!("{base}/{path}"))).send().await?;
+        let resp = authed(client().get(format!("{base}/{path}")))
+            .send()
+            .await?;
         let status = resp.status().as_u16();
         let body = resp.text().await?;
         assert_2xx(status, &body, path);
@@ -230,14 +236,18 @@ async fn test_signing_secrets_never_returned(db: Pool<Postgres>) -> anyhow::Resu
     }
     #[cfg(feature = "enterprise")]
     {
-        let resp = authed(client().get(format!("{base}/list_global"))).send().await?;
+        let resp = authed(client().get(format!("{base}/list_global")))
+            .send()
+            .await?;
         let status = resp.status().as_u16();
         let body = resp.text().await?;
         assert_2xx(status, &body, "list_global");
         bodies.push(("list_global", body));
     }
     for name in ["jwt_secret", "rsa_keys"] {
-        let resp = authed(client().get(format!("{base}/global/{name}"))).send().await?;
+        let resp = authed(client().get(format!("{base}/global/{name}")))
+            .send()
+            .await?;
         let status = resp.status().as_u16();
         assert_eq!(status, 400, "GET /global/{name} returned {status}");
         bodies.push((name, resp.text().await?));
@@ -245,7 +255,9 @@ async fn test_signing_secrets_never_returned(db: Pool<Postgres>) -> anyhow::Resu
 
     for (path, body) in bodies {
         assert!(
-            !body.contains("planted-jwt-secret") && !body.contains("planted-rsa-key"),
+            !body.contains("planted-jwt-secret")
+                && !body.contains("planted-rsa-key")
+                && !body.contains("planted-replication-pwd"),
             "{path} returned a signing secret: {body}"
         );
     }
