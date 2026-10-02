@@ -24,6 +24,7 @@
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 	import { push } from '$lib/history.svelte'
 	import { addChoiceBranches, checkRouting } from '../aiDecisionBranching'
+	import StepIdBadge from './StepIdBadge.svelte'
 
 	interface Props {
 		flowModule: FlowModule
@@ -156,26 +157,30 @@
 									<Alert
 										type="info"
 										size="xs"
-										title="The {check.question} question of {check.decisionId} has {check.missing
-											.length === 1
-											? 'an option'
-											: 'options'} with no branch: {check.missing.join(', ')}"
+										title="{check.missing.length === 1
+											? 'An option has'
+											: 'Options have'} no branch yet: {check.missing.join(', ')}"
 										actions={[
 											{
 												label: check.missing.length === 1 ? 'Add branch' : 'Add branches',
 												onClick: () => addMissing(check.decisionId, check.question, check.missing)
 											}
 										]}
-									/>
+									>
+										From the {check.question} question of <StepIdBadge id={check.decisionId} />
+									</Alert>
 								{/if}
 								{#each check.stale as stale (stale.index)}
 									<Alert
 										type="warning"
 										size="xs"
 										title="Branch {stale.index +
-											1} handles {stale.option}, which the {check.question} question of {check.decisionId} no longer offers"
+											1} handles {stale.option}, which is no longer an option"
 										actions={[{ label: 'Remove branch', onClick: () => removeBranch(stale.index) }]}
-									/>
+									>
+										The {check.question} question of <StepIdBadge id={check.decisionId} /> no longer
+										offers it.
+									</Alert>
 								{/each}
 							{/each}
 							<section

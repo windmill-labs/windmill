@@ -15,6 +15,7 @@
 	} from '../aiDecisionBranching'
 	import { findModuleInFlow } from '../flowTree'
 	import { branchOnQuestion } from '../aiDecisionInsert'
+	import StepIdBadge from './StepIdBadge.svelte'
 
 	interface Props {
 		decisionId: string
@@ -66,16 +67,17 @@
 	{/if}
 {:else}
 	{@const target = routing}
-	<div class="flex items-center gap-1 text-xs text-secondary">
+	<div class="flex items-center gap-2 text-xs text-secondary">
 		<Split size={12} />
 		<span>Branched in</span>
+		<StepIdBadge id={target.id} />
 		<Button
-			variant="subtle"
+			variant="default"
 			unifiedSize="xs"
 			title="Open the Branch to one"
 			onClick={() => selectionManager.selectId(target.id)}
 		>
-			{target.summary || target.id}
+			Open
 		</Button>
 	</div>
 	{#if missing.length > 0}
@@ -97,12 +99,12 @@
 		<Alert
 			type="warning"
 			size="xs"
-			title="{target.summary || target.id} has {stale.length === 1
-				? 'a branch'
-				: 'branches'} for {stale
+			title="{stale.length === 1
+				? 'A branch handles an option'
+				: 'Branches handle options'} this question no longer has: {stale
 				.map((s) => s.option)
-				.join(', ')}, which this question no longer offers"
-			actions={[{ label: 'Open', onClick: () => selectionManager.selectId(target.id) }]}
+				.join(', ')}"
+			actions={[{ label: 'Open to remove', onClick: () => selectionManager.selectId(target.id) }]}
 		/>
 	{/if}
 {/if}

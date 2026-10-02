@@ -5,6 +5,7 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import Toggle from './Toggle.svelte'
 	import {
 		emptyQuestion,
 		optionNameError,
@@ -116,21 +117,19 @@
 
 <div class="flex flex-col gap-2 w-full">
 	<div class="flex justify-end">
-		<ToggleButtonGroup noWFull {disabled} selected={mode} onSelected={(v) => switchTo(v)}>
-			{#snippet children({ item })}
-				<ToggleButton
-					value="form"
-					label="Form"
-					{item}
-					small
-					disabled={!fitsRows}
-					tooltip={fitsRows
-						? undefined
-						: 'These questions use structured instructions or descriptions, which the form cannot show'}
-				/>
-				<ToggleButton value="json" label="JSON" {item} small />
-			{/snippet}
-		</ToggleButtonGroup>
+		<Toggle
+			size="xs"
+			lightMode
+			disabled={disabled || !fitsRows}
+			checked={mode === 'json'}
+			options={{
+				right: 'JSON',
+				rightTooltip: fitsRows
+					? 'Edit the questions as JSON'
+					: 'These questions use structured instructions or descriptions, which only JSON can show'
+			}}
+			on:change={(e) => switchTo(e.detail ? 'json' : 'form')}
+		/>
 	</div>
 	{#if mode === 'json'}
 		<div class="flex flex-col gap-1 w-full">
