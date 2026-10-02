@@ -275,6 +275,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_build_binary_tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub dependency_job_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub github_app_webhook_base_url: Option<String>,
