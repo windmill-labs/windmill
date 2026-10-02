@@ -458,7 +458,7 @@ tower-cookies = "^0.11"
 serde = "^1"
 # 1.0.151 introduced RawValue::from_string_unchecked, which the SQL executors use
 # to avoid re-parsing every collected row.
-serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value"] }
+serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value", "float_roundtrip"] }
 serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4", "js"] }
 thiserror = "^2"
@@ -571,6 +571,7 @@ base64 = "^0.22.1"
 base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
+ryu-js = "1.0.3"
 md-5 = "0.10.6"
 sha1 = "0.10.6"
 sqlx = { version = "0.8.0", features = [

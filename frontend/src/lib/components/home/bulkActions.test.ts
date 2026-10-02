@@ -15,6 +15,7 @@ function item(over: Partial<BulkItem> = {}): BulkItem {
 		archived: false,
 		draftOnly: false,
 		isDraft: false,
+		legacyDraft: false,
 		rawApp: false,
 		...over
 	}

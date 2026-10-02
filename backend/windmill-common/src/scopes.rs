@@ -125,6 +125,7 @@ impl ScopeDefinition {
             // running its components. Not general — `jobs:write` must not grant
             // `jobs:run`. The resource check below still confines it to the same app.
             ("write", "run") if self.domain == "apps" => {}
+            ("write", "cancel") if self.domain == "jobs" => {}
             _ => return false,
         }
 
@@ -431,9 +432,10 @@ impl ScopeDomain {
 /// Available scope actions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScopeAction {
-    Read,  // GET operations, list, view
-    Write, // POST, PUT, PATCH, DELETE operations, create, update, delete
-    Run,   // Special action for running (scripts, flows, etc.)
+    Read,   // GET operations, list, view
+    Write,  // POST, PUT, PATCH, DELETE operations, create, update, delete
+    Run,    // Special action for running (scripts, flows, etc.)
+    Cancel, // Cancelling jobs (`CANCEL_PATH_ACTIONS`); covered by `jobs:write`
 }
 
 impl ScopeAction {
@@ -442,6 +444,7 @@ impl ScopeAction {
             Self::Read => "read",
             Self::Write => "write",
             Self::Run => "run",
+            Self::Cancel => "cancel",
         }
     }
 
@@ -451,6 +454,7 @@ impl ScopeAction {
             "write" => Some(Self::Write),
             "delete" => Some(Self::Write),
             "run" => Some(Self::Run),
+            "cancel" => Some(Self::Cancel),
             _ => None,
         }
     }
@@ -461,6 +465,7 @@ impl ScopeAction {
         match (self, other) {
             (ScopeAction::Write, ScopeAction::Read) => true,
             (ScopeAction::Run, ScopeAction::Read) => true,
+            (ScopeAction::Write, ScopeAction::Cancel) => true,
             (a, b) => a == b,
         }
     }
@@ -487,6 +492,7 @@ pub fn scope_contains(caller: &ScopeDefinition, requested: &ScopeDefinition) -> 
         // Apps only: `write` covers `run` (see `ScopeDefinition::includes`), so an
         // app-editor token can mint the narrower run-only credential.
         ("write", "run") if caller.domain == "apps" => {}
+        ("write", "cancel") if caller.domain == "jobs" => {}
         _ => return false,
     }
 

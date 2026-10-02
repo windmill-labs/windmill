@@ -181,7 +181,38 @@ lazy_static::lazy_static! {
     };
 }
 
+/// The job routes a `jobs:cancel` scope reaches, as workspaced route suffixes. A
+/// path-scoped `jobs:cancel:<paths>` is resource-blind here like every scope; the
+/// handlers confine it through `job_cancel_path_confinement`, so a cancel route added
+/// here without that check would serve a path-scoped token every job.
+const CANCEL_PATH_ACTIONS: [&'static str; 4] = [
+    "jobs_u/queue/cancel/",
+    "jobs_u/queue/force_cancel/",
+    "jobs_u/queue/cancel_persistent/",
+    "jobs/queue/cancel_selection",
+];
+
+fn is_cancel_route(method: &str, route_path: &str) -> bool {
+    if !method.eq_ignore_ascii_case("POST") {
+        return false;
+    }
+    let mut parts = route_path.splitn(5, '/');
+    let (Some(""), Some("api"), Some("w"), Some(_), Some(suffix)) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return false;
+    };
+    CANCEL_PATH_ACTIONS.iter().any(|p| suffix.starts_with(p))
+}
+
 fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
+    if is_cancel_route(method, route_path) {
+        return ScopeAction::Cancel;
+    }
     if RUN_PATH_ACTIONS
         .iter()
         .any(|run_path| route_path.contains(run_path))
@@ -519,6 +550,9 @@ pub fn job_read_run_confinement(scopes: Option<&[String]>) -> Option<Vec<ScopeDe
             Some(ScopeAction::Run) if scope.kind.is_some() || scope.resource.is_some() => {
                 confinement.push(scope)
             }
+            // Grants no reads (see `scope_grants_access`), so it neither confines nor
+            // frees them.
+            Some(ScopeAction::Cancel) => continue,
             Some(_) => return None,
             None => continue,
         }
@@ -537,6 +571,58 @@ pub fn run_confinement_admits(
         ScopeDomain::Jobs.as_str(),
         ScopeAction::Run.as_str(),
         Some(kind),
+        Some(vec![runnable_path.to_string()]),
+    );
+    confinement.iter().any(|scope| scope.includes(&required))
+}
+
+/// The `jobs:cancel:<paths>` scopes a token's cancels are confined to, or `None` when
+/// they are not confined: an unscoped token, or one whose cancel grant is not
+/// path-scoped (`jobs:cancel`, or `jobs:write`, which stays resource-blind here as on
+/// every other job write).
+///
+/// A job is within the confinement when its own `runnable_path` or that of any of its
+/// `parent_job` ancestors matches (see `cancel_confinement_admits`), so a token scoped
+/// to a flow can cancel the flow's steps.
+pub fn job_cancel_path_confinement(scopes: Option<&[String]>) -> Option<Vec<ScopeDefinition>> {
+    let mut confinement = Vec::new();
+    for scope in scopes?
+        .iter()
+        .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+    {
+        let Ok(scope) = ScopeDefinition::from_scope_string(scope) else {
+            continue;
+        };
+        if ScopeDomain::from_str(&scope.domain) != Some(ScopeDomain::Jobs) {
+            continue;
+        }
+        match ScopeAction::from_str(&scope.action) {
+            Some(ScopeAction::Cancel) if scope.resource.is_some() => confinement.push(scope),
+            Some(ScopeAction::Cancel | ScopeAction::Write) => return None,
+            _ => continue,
+        }
+    }
+    (!confinement.is_empty()).then_some(confinement)
+}
+
+/// Whether the token holds a `jobs:cancel` scope, path-scoped or not.
+pub fn has_job_cancel_grant(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|scopes| {
+        scopes.iter().any(|s| {
+            ScopeDefinition::from_scope_string(s).is_ok_and(|s| {
+                ScopeDomain::from_str(&s.domain) == Some(ScopeDomain::Jobs)
+                    && ScopeAction::from_str(&s.action) == Some(ScopeAction::Cancel)
+            })
+        })
+    })
+}
+
+/// Whether a job of `runnable_path` is inside a [`job_cancel_path_confinement`] set.
+pub fn cancel_confinement_admits(confinement: &[ScopeDefinition], runnable_path: &str) -> bool {
+    let required = ScopeDefinition::new(
+        ScopeDomain::Jobs.as_str(),
+        ScopeAction::Cancel.as_str(),
+        None,
         Some(vec![runnable_path.to_string()]),
     );
     confinement.iter().any(|scope| scope.includes(&required))
@@ -1415,5 +1501,69 @@ mod tests {
 
         // Unknown route -> None so the caller fails closed.
         assert!(scope_for_route("GET", "/healthz").is_none());
+    }
+
+    #[test]
+    fn jobs_cancel_grants_only_the_cancel_routes() {
+        let cancel = vec!["jobs:cancel:f/served/*".to_string()];
+        let id = "0190f4c2-0000-7000-8000-000000000000";
+        for route in [
+            format!("/api/w/ws/jobs_u/queue/cancel/{id}"),
+            format!("/api/w/ws/jobs_u/queue/force_cancel/{id}"),
+            "/api/w/ws/jobs_u/queue/cancel_persistent/f/served/s".to_string(),
+            "/api/w/ws/jobs/queue/cancel_selection".to_string(),
+        ] {
+            assert!(
+                check_route_access(&cancel, &route, "POST").is_ok(),
+                "{route}"
+            );
+            assert!(
+                check_route_access(&["jobs:write".to_string()], &route, "POST").is_ok(),
+                "{route}"
+            );
+            assert!(
+                check_route_access(&["jobs:read".to_string()], &route, "POST").is_err(),
+                "{route}"
+            );
+        }
+        for (route, method) in [
+            (format!("/api/w/ws/jobs_u/get/{id}"), "GET"),
+            ("/api/w/ws/jobs/list".to_string(), "GET"),
+            (format!("/api/w/ws/jobs/flow/resume_suspended/{id}"), "POST"),
+            (format!("/api/w/ws/jobs/queue/run_now/{id}"), "POST"),
+            ("/api/w/ws/jobs/run/p/f/served/s".to_string(), "POST"),
+        ] {
+            assert!(
+                check_route_access(&cancel, &route, method).is_err(),
+                "{route}"
+            );
+        }
+    }
+
+    #[test]
+    fn jobs_cancel_path_confinement() {
+        let scopes = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let conf =
+            job_cancel_path_confinement(Some(&scopes(&["jobs:cancel:f/served/*,u/svc/kill_me"])))
+                .unwrap();
+        assert!(cancel_confinement_admits(&conf, "f/served/etl"));
+        assert!(cancel_confinement_admits(&conf, "u/svc/kill_me"));
+        assert!(!cancel_confinement_admits(&conf, "f/other/etl"));
+        assert!(!cancel_confinement_admits(&conf, "f/served_not/etl"));
+
+        // A cancel grant that is not path-scoped leaves cancels unconfined.
+        for s in [
+            &["jobs:cancel"][..],
+            &["jobs:cancel:f/a/*", "jobs:write"],
+            &[],
+        ] {
+            assert!(
+                job_cancel_path_confinement(Some(&scopes(s))).is_none(),
+                "{s:?}"
+            );
+        }
+        // A cancel scope neither confines nor frees a run token's reads.
+        let run = scopes(&["jobs:run:flows:f/a/b", "jobs:cancel"]);
+        assert!(job_read_run_confinement(Some(&run)).is_some());
     }
 }

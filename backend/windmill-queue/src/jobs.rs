@@ -4642,6 +4642,8 @@ pub async fn pull(
                         let tag = match configured_dependency_job_tag(
                             &job.kind,
                             job.script_lang.as_ref(),
+                            // the job sits on a shell worker's tag, so its own tag is lost
+                            false,
                             &job.workspace_id,
                             db,
                         )
@@ -5309,15 +5311,20 @@ pub async fn resolve_push_tag(
 
 /// The tag a dependency job is routed to when the instance's `dependency_job_tag` setting is
 /// set, whatever tag the script, flow or app itself runs on. `None` for any other job kind, for
-/// bunnative (its bundle must be built on a worker with the bun tag), or when the setting is
-/// unset.
+/// bunnative (its bundle must be built on a worker with the bun tag), for a binary prebuild
+/// pushed with an explicit `auto_build_binary_tag`, or when the setting is unset. An untagged
+/// prebuild follows its dependency job onto the configured tag.
 pub async fn configured_dependency_job_tag(
     job_kind: &JobKind,
     language: Option<&ScriptLang>,
+    tagged_binary_prebuild: bool,
     workspace_id: &str,
     db: &DB,
 ) -> Option<String> {
-    if !job_kind.is_dependency() || language == Some(&ScriptLang::Bunnative) {
+    if !job_kind.is_dependency()
+        || tagged_binary_prebuild
+        || language == Some(&ScriptLang::Bunnative)
+    {
         return None;
     }
     let tag = DEPENDENCY_JOB_TAG.load_full();
@@ -7246,8 +7253,14 @@ async fn push_inner<'c, 'd>(
             runnable_path.clone().expect("dedicated script has a path")
         );
         windmill_common::worker::dedicated_worker_tag(workspace_id, &full_path)
-    } else if let Some(tag) =
-        configured_dependency_job_tag(&job_kind, language.as_ref(), workspace_id, db).await
+    } else if let Some(tag) = configured_dependency_job_tag(
+        &job_kind,
+        language.as_ref(),
+        build_binary_only && tag.is_some(),
+        workspace_id,
+        db,
+    )
+    .await
     {
         tag
     } else {
