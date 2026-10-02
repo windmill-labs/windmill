@@ -2,7 +2,8 @@
   "github": {
     "auth_url": "https://github.com/login/oauth/authorize",
     "token_url": "https://github.com/login/oauth/access_token",
-    "scopes": ["workflow", "repo"]
+    "scopes": ["workflow", "repo"],
+    "scope_options": ["repo", "workflow", "gist", "read:org"]
   },
   "gitlab": {
     "auth_url": "https://gitlab.com/oauth/authorize",
@@ -42,6 +43,22 @@
       "im:read",
       "mpim:read",
       "files:read"
+    ],
+    "scope_options": [
+      { "value": "reactions:write", "label": "Add emoji reactions" },
+      { "value": "channels:manage", "label": "Create, archive and manage public channels, invite members, set topics" },
+      { "value": "groups:write", "label": "Create and manage private channels the app is in" },
+      { "value": "usergroups:write", "label": "Edit user groups (workspace settings often block bots)" }
+    ],
+    "user_scope_options": [
+      { "value": "reactions:write", "label": "Add emoji reactions" },
+      { "value": "channels:write", "label": "Create, archive and manage public channels" },
+      { "value": "channels:write.invites", "label": "Invite members to public channels" },
+      { "value": "channels:write.topic", "label": "Set public channel topics" },
+      { "value": "groups:write", "label": "Create and manage private channels" },
+      { "value": "users.profile:write", "label": "Set your status and edit your profile" },
+      { "value": "reminders:write", "label": "Create reminders for yourself" },
+      { "value": "usergroups:write", "label": "Edit user groups" }
     ],
     "token_response_path": "authed_user"
   },
@@ -100,6 +117,9 @@
     "scope_options": [
       { "value": "https://www.googleapis.com/auth/calendar.events", "label": "Read and edit events on all calendars" },
       { "value": "https://www.googleapis.com/auth/calendar.events.readonly", "label": "Read events on all calendars" },
+      { "value": "https://www.googleapis.com/auth/calendar.calendarlist.readonly", "label": "See the list of calendars you're subscribed to" },
+      { "value": "https://www.googleapis.com/auth/calendar.calendars.readonly", "label": "Read calendar properties (title, timezone)" },
+      { "value": "https://www.googleapis.com/auth/calendar.freebusy", "label": "See your availability (free/busy)" },
       { "value": "https://www.googleapis.com/auth/calendar.readonly", "label": "Read all calendars and events" },
       { "value": "https://www.googleapis.com/auth/calendar", "label": "Read, edit, share and delete all calendars" }
     ],

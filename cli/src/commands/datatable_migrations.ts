@@ -243,6 +243,23 @@ export async function pushMigrationFromDisk(
 }
 
 /**
+ * The local migrations of a data table, identified by their `.up.sql` file (the
+ * up file is mandatory); files only deleted locally are deliberately ignored.
+ */
+export function listLocalMigrations(
+  datatableName: string,
+): { timestamp: number; name: string }[] {
+  const dir = path.join(process.cwd(), MIGRATIONS_DIR, datatableName);
+  if (!fs.existsSync(dir)) return [];
+  const local: { timestamp: number; name: string }[] = [];
+  for (const file of fs.readdirSync(dir)) {
+    const m = file.match(/^(\d+)_(.*)\.up\.sql$/);
+    if (m) local.push({ timestamp: Number(m[1]), name: m[2] });
+  }
+  return local;
+}
+
+/**
  * Upsert the on-disk migrations of a data table to the workspace, so a freshly
  * created migration file works with `wmill datatable migrate up` even without a
  * prior `wmill sync push`. Pushes only migrations that are new or edited
@@ -254,15 +271,7 @@ export async function pushLocalMigrations(
   datatableName: string,
 ): Promise<void> {
   const dir = path.join(process.cwd(), MIGRATIONS_DIR, datatableName);
-  if (!fs.existsSync(dir)) return;
-
-  // Local migrations are identified by their `.up.sql` file (the up file is
-  // mandatory); this deliberately ignores files that were only deleted locally.
-  const local: { timestamp: number; name: string }[] = [];
-  for (const file of fs.readdirSync(dir)) {
-    const m = file.match(/^(\d+)_(.*)\.up\.sql$/);
-    if (m) local.push({ timestamp: Number(m[1]), name: m[2] });
-  }
+  const local = listLocalMigrations(datatableName);
   if (local.length === 0) return;
 
   const remote = await wmill.listDatatableMigrations({ workspace });
