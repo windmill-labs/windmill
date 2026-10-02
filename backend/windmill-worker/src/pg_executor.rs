@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -152,14 +152,16 @@ impl Drop for PgConnection {
 }
 
 /// A job's claim on a connection. Dropping it checks the connection back in,
-/// or closes it when keeping it would break the cache invariant.
+/// or closes it when its query did not finish or keeping it would break the
+/// cache invariant.
 struct PgConnectionLease {
     scope: String,
     /// Set while the job is on a connection of its own.
     own: Option<u64>,
     conn: Option<PgConnection>,
-    /// False where connections are never cached.
-    cacheable: bool,
+    /// Check the connection back in on drop. Set once the job's query has read
+    /// all its results, so every other way out closes the connection.
+    keep: bool,
 }
 
 impl PgConnectionLease {
@@ -174,14 +176,14 @@ impl PgConnectionLease {
                 Some(i) => {
                     let conn = cache.idle.remove(i);
                     (
-                        Self { scope, own: None, conn: Some(conn), cacheable: true },
+                        Self { scope, own: None, conn: Some(conn), keep: false },
                         vec![],
                     )
                 }
                 None => {
                     let (id, evicted) = cache.register_own(&scope);
                     (
-                        Self { scope, own: Some(id), conn: None, cacheable: true },
+                        Self { scope, own: Some(id), conn: None, keep: false },
                         evicted,
                     )
                 }
@@ -192,14 +194,14 @@ impl PgConnectionLease {
     }
 
     fn uncached() -> Self {
-        Self { scope: String::new(), own: None, conn: None, cacheable: false }
+        Self { scope: String::new(), own: None, conn: None, keep: false }
     }
 
     /// Gives up a cached connection that failed its probe; the job then
     /// connects on its own.
     fn discard(&mut self) {
         let conn = self.conn.take();
-        let evicted = if self.cacheable && self.own.is_none() {
+        let evicted = if self.own.is_none() {
             let (id, evicted) = pg_connection_cache().register_own(&self.scope);
             self.own = Some(id);
             evicted
@@ -224,7 +226,7 @@ impl Drop for PgConnectionLease {
                 cache.own.retain(|o| o.id != id);
             }
             match conn {
-                Some(mut conn) if self.cacheable && cache.may_keep(&self.scope) => {
+                Some(mut conn) if self.keep && cache.may_keep(&self.scope) => {
                     conn.last_used = Instant::now();
                     cache.idle.push(conn);
                     let over = cache.idle.len().saturating_sub(PG_MAX_IDLE_CONNECTIONS);
@@ -1188,7 +1190,7 @@ pub async fn do_postgresql(
 
     let size = AtomicUsize::new(0);
     let size_ref = &size;
-    let query_f = async move {
+    let result_f = async move {
         let mut results = vec![];
         // Session reset (DISCARD ALL) is now handled eagerly when validating
         // the cached connection — no per-query reset needed here.
@@ -1260,13 +1262,6 @@ pub async fn do_postgresql(
             collection_strategy.collect(results)
         }
     };
-    let query_done = AtomicBool::new(false);
-    let query_done_ref = &query_done;
-    let result_f = async move {
-        let result = query_f.await;
-        query_done_ref.store(true, Ordering::Relaxed);
-        result
-    };
 
     let result = if run_inline {
         result_f.await
@@ -1285,14 +1280,13 @@ pub async fn do_postgresql(
         )
         .await
     }
-    .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input));
+    .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input))?;
 
-    // A query cut off by a timeout or cancel keeps running server-side, and the
-    // next job's reset probe on this connection would wait for it.
-    if !query_done.load(Ordering::Relaxed) {
-        lease.cacheable = false;
-    }
-    let result = result?;
+    // Keep the connection only after a query that read its results to the end.
+    // An error may have stopped reading early (the result cap, a decode failure),
+    // as a timeout, a dropped future or a first-row collection do: the server
+    // keeps sending, and the next job's reset probe would wait on it.
+    lease.keep = !*CLOUD_HOSTED && !collection_strategy.collect_first_row_only();
 
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
