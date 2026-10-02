@@ -175,7 +175,6 @@ const RESOURCE_TYPE_WORDS: Record<string, string> = {
 	signoz: 'SigNoz',
 	surrealdb: 'SurrealDB',
 	togetherai: 'TogetherAI',
-	typesafe: 'TypeSafe',
 	webscrapingai: 'WebScrapingAI',
 	weatherapi: 'WeatherAPI',
 	whatsapp: 'WhatsApp',

@@ -2,10 +2,11 @@
 -- 'admins' so every workspace sees it, in the shape the hub gives the other AI providers, which
 -- the step reads as `api_key` and `base_url`. A hub sync that later publishes the same name
 -- updates the schema in place.
-INSERT INTO resource_type (workspace_id, name, schema, description, created_by, edited_at)
+INSERT INTO resource_type (workspace_id, name, display_name, schema, description, created_by, edited_at)
 VALUES (
     'admins',
     'typesafe',
+    'TypeSafe',
     '{
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
