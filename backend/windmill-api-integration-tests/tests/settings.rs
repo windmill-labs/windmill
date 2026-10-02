@@ -201,8 +201,30 @@ async fn test_alert_job_queue_waiting_in_global_settings(db: Pool<Postgres>) -> 
     Ok(())
 }
 
+async fn read_secret_surfaces(
+    base: &str,
+    names: &[&str],
+) -> anyhow::Result<Vec<(String, u16, String)>> {
+    let mut paths = vec![
+        "instance_config".to_string(),
+        "instance_config/yaml".to_string(),
+    ];
+    #[cfg(feature = "enterprise")]
+    paths.push("list_global".to_string());
+    paths.extend(names.iter().map(|n| format!("global/{n}")));
+    let mut out = vec![];
+    for path in paths {
+        let resp = authed(client().get(format!("{base}/{path}")))
+            .send()
+            .await?;
+        let status = resp.status().as_u16();
+        out.push((path, status, resp.text().await?));
+    }
+    Ok(out)
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_signing_secrets_never_returned(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_server_secrets_follow_export_flag(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let secrets = [
         ("jwt_secret", json!("planted-jwt-secret")),
@@ -226,39 +248,29 @@ async fn test_signing_secrets_never_returned(db: Pool<Postgres>) -> anyhow::Resu
         .execute(&db)
         .await?;
     }
+    let names: Vec<&str> = secrets.iter().map(|(n, _)| *n).collect();
     let server = ApiServer::start(db.clone()).await?;
     let base = format!("http://localhost:{}/api/settings", server.addr.port());
 
-    let mut bodies = vec![];
-    for path in ["instance_config", "instance_config/yaml"] {
-        let resp = authed(client().get(format!("{base}/{path}")))
-            .send()
-            .await?;
-        let status = resp.status().as_u16();
-        let body = resp.text().await?;
-        assert_2xx(status, &body, path);
-        bodies.push((path.to_string(), body));
-    }
-    #[cfg(feature = "enterprise")]
-    {
-        let resp = authed(client().get(format!("{base}/list_global")))
-            .send()
-            .await?;
-        let status = resp.status().as_u16();
-        let body = resp.text().await?;
-        assert_2xx(status, &body, "list_global");
-        bodies.push(("list_global".to_string(), body));
-    }
-    for (name, _) in &secrets {
-        let resp = authed(client().get(format!("{base}/global/{name}")))
-            .send()
-            .await?;
-        let status = resp.status().as_u16();
-        assert_eq!(status, 400, "GET /global/{name} returned {status}");
-        bodies.push((format!("global/{name}"), resp.text().await?));
+    // Default: a full export, so `get-config` and `pull` can migrate an instance.
+    std::env::remove_var("EXPORT_SERVER_SECRETS");
+    for (path, status, body) in read_secret_surfaces(&base, &names).await? {
+        assert_2xx(status, &body, &path);
+        assert!(
+            body.contains("planted-"),
+            "{path} dropped a server secret: {body}"
+        );
     }
 
-    for (path, body) in bodies {
+    std::env::set_var("EXPORT_SERVER_SECRETS", "false");
+    let withheld = read_secret_surfaces(&base, &names).await;
+    std::env::remove_var("EXPORT_SERVER_SECRETS");
+    for (path, status, body) in withheld? {
+        if path.starts_with("global/") {
+            assert_eq!(status, 400, "GET {path} returned {status}");
+        } else {
+            assert_2xx(status, &body, &path);
+        }
         assert!(
             !body.contains("planted-"),
             "{path} returned a server secret: {body}"

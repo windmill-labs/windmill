@@ -687,7 +687,7 @@ async function getConfig(opts: InstanceSyncOptions & { outputFile?: string; show
   }
   if (config?.global_settings && !config.global_settings.jwt_secret) {
     log.infoStderr(
-      "jwt_secret is not part of the export: the server never returns it. Set it separately if another instance must accept this one's tokens."
+      "jwt_secret, rsa_keys and the instance database secrets are not part of the export: the server withholds them (EXPORT_SERVER_SECRETS=false). This export cannot fully restore or migrate the instance."
     );
   }
 
