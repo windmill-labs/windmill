@@ -26,7 +26,7 @@
             "input_transforms": {
               "x": { "type": "static", "value": 1.0 },
               "y": { "type": "static", "value": [92.46585493017267, 15624.632993405901, 1e-7] },
-              "z": { "type": "static", "value": { "type": "flowscript", "id": 1, "modules_node": 2 } }
+              "z": { "type": "static", "value": [{ "type": "flowscript", "id": 1, "modules_node": 2 }, { "id": "a", "value": { "type": "rawscript", "content": "data" } }] }
             }
           },
           "summary": "Multiply",
@@ -58,7 +58,7 @@
       ],
       "same_worker": false
     },
-    "digest": "ec744f60de5e01b9c7fc7308c0da378ff4443e486f9191a869dc190ac2223d13",
+    "digest": "0d8ae0dd8eb7272264ee802481a5abfe67501a759268fb2aa7e8277f0a2ab44c",
     "steps": {
       "a": "abf4646174c8d6984ea9f6d9c6746b61c3d95cd0cb91a4ca89b884b0f61600ae",
       "c": "ee70e41e8647bab22bc4f7ac943c76355e2157015e71538a8f3adbb492c76a45"

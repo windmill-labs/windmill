@@ -55,16 +55,37 @@ export function digestOf(value: unknown): string {
   return createHash("sha256").update(canonicalJson(value), "utf8").digest("hex");
 }
 
-/** The inline scripts of a flow value, by step id. */
-function inlineSteps(value: unknown, steps: Record<string, string>) {
-  if (Array.isArray(value)) {
-    value.forEach((v) => inlineSteps(v, steps));
-  } else if (value && typeof value === "object") {
-    const o = value as Record<string, any>;
-    if (typeof o.id === "string" && o.value?.type === "rawscript") {
-      steps[o.id] = digestOf({ content: o.value.content, lock: o.value.lock });
-    }
-    Object.values(o).forEach((v) => inlineSteps(v, steps));
+/** The inline scripts of a flow's steps, by step id. Only module positions are walked: a
+ * static input shaped like a step is data. */
+function inlineSteps(modules: any[] | undefined, steps: Record<string, string>) {
+  for (const m of modules ?? []) {
+    stepValue(m?.id, m?.value, steps);
+  }
+}
+
+function stepValue(id: unknown, v: any, steps: Record<string, string>) {
+  switch (v?.type) {
+    case "rawscript":
+      if (typeof id === "string") {
+        steps[id] = digestOf({ content: v.content, lock: v.lock });
+      }
+      break;
+    case "forloopflow":
+    case "whileloopflow":
+      inlineSteps(v.modules, steps);
+      break;
+    case "branchone":
+      inlineSteps(v.default, steps);
+      for (const b of v.branches ?? []) inlineSteps(b?.modules, steps);
+      break;
+    case "branchall":
+      for (const b of v.branches ?? []) inlineSteps(b?.modules, steps);
+      break;
+    case "aiagent":
+      for (const t of v.tools ?? []) {
+        if (t?.value?.tool_type === "flowmodule") stepValue(t.id, t.value, steps);
+      }
+      break;
   }
 }
 
@@ -82,7 +103,11 @@ export async function flowDigest(folder: string): Promise<ItemDigest> {
     throw new Error(`Missing inline script file(s): ${missingFiles.join(", ")}`);
   }
   const steps: Record<string, string> = {};
-  inlineSteps(flow.value, steps);
+  const value = flow.value as any;
+  inlineSteps(
+    [...(value.modules ?? []), value.failure_module, value.preprocessor_module].filter(Boolean),
+    steps
+  );
   const path = folder
     .replaceAll(SEP, "/")
     .replace(/\/$/, "")
