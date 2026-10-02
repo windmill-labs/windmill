@@ -4450,15 +4450,23 @@ async fn cancel_selection(
     let force_cancel = query.force_cancel.unwrap_or(false);
     let mut cancelled = Vec::new();
     for (workspace_id, ids) in jobs_by_workspace {
-        let ids = if force_cancel
-            && windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
-                .is_some()
+        let scopes = authed.scopes.as_deref();
+        let ids = if windmill_api_auth::scopes::job_cancel_path_confinement(scopes).is_some()
+            || windmill_api_auth::scopes::job_read_run_confinement(scopes).is_some()
         {
-            // A force cancel kills the highest queued ancestor, so that is what the scope
-            // must admit.
+            // The same per-job checks as the by-id cancel routes, on the job the cancel
+            // actually kills: a force cancel reaches the highest queued ancestor.
             let mut admitted = Vec::with_capacity(ids.len());
             for id in ids {
-                let target = force_cancel_target(&db, &workspace_id, id).await?;
+                let target = if force_cancel {
+                    force_cancel_target(&db, &workspace_id, id).await?
+                } else {
+                    id
+                };
+                match require_job_within_run_scope(&db, &authed, &workspace_id, &target).await {
+                    Err(Error::NotFound(_)) => continue,
+                    r => r?,
+                }
                 if !filter_jobs_within_cancel_scope(&db, &authed, &workspace_id, vec![target])
                     .await?
                     .is_empty()
@@ -4468,7 +4476,7 @@ async fn cancel_selection(
             }
             admitted
         } else {
-            filter_jobs_within_cancel_scope(&db, &authed, &workspace_id, ids).await?
+            ids
         };
         let Json(mut w_cancelled) = cancel_jobs(
             ids,
