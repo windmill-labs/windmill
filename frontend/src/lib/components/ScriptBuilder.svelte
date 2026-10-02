@@ -2069,13 +2069,6 @@
 										</div>
 									</Section>
 									<Section label="Job token">
-										{#snippet header()}
-											<Tooltip>
-												Restrict what the token of this script's jobs (WM_TOKEN) can do through the
-												API, e.g. only mint an OIDC token. Use it for scripts that run untrusted
-												input, such as AI agents.
-											</Tooltip>
-										{/snippet}
 										<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
 									</Section>
 									<Section

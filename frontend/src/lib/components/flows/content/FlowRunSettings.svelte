@@ -342,6 +342,15 @@
 				</div>
 			{/if}
 
+			<div data-setting="job-token">
+				<JobTokenScopesSetting
+					bind:value={flowModule.job_token_scopes}
+					kind="step"
+					size="xs"
+					textClass="text-xs font-normal text-primary"
+				/>
+			</div>
+
 			{#if loopSubset}
 				<div data-setting="mock">
 					<FlowModuleMock bind:flowModule />
@@ -383,8 +392,4 @@
 			{/if}
 		</section>
 	{/if}
-	<section class="flex flex-col gap-3" data-setting="job-token">
-		{@render sectionHeader('Job token')}
-		<JobTokenScopesSetting bind:value={flowModule.job_token_scopes} kind="step" />
-	</section>
 </div>

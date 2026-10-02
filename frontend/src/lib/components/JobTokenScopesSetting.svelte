@@ -8,9 +8,12 @@
 		/** `null`/`undefined`: the job token has the full permissions of the identity it runs as. */
 		value: string[] | null | undefined
 		kind: 'script' | 'flow' | 'step'
+		/** Match the toggles listed around it. */
+		size?: 'xs' | 'sm'
+		textClass?: string
 	}
 
-	let { value = $bindable(), kind }: Props = $props()
+	let { value = $bindable(), kind, size = 'sm', textClass }: Props = $props()
 
 	const OIDC_ONLY = ['oidc:write']
 
@@ -36,7 +39,8 @@
 
 <div class="flex flex-col gap-2">
 	<Toggle
-		size="sm"
+		{size}
+		{textClass}
 		checked={value != null}
 		on:change={() => {
 			if (value != null) {
@@ -45,7 +49,13 @@
 				setMode('oidc_only')
 			}
 		}}
-		options={{ right: 'Restrict the job token' }}
+		options={{
+			right: 'Restrict the job token',
+			rightTooltip:
+				"Limit what the WM_TOKEN of this " +
+				kind +
+				"'s jobs can do through the API, e.g. only mint an OIDC token. Use it for code that handles untrusted input, such as AI agents."
+		}}
 	/>
 	{#if value != null}
 		<ToggleButtonGroup selected={mode} onSelected={(v) => setMode(v)}>

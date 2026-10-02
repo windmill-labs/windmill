@@ -460,10 +460,12 @@
 					}}
 				/>
 
-				<div class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-emphasis">Job token</span>
-					<JobTokenScopesSetting bind:value={flowStore.val.job_token_scopes} kind="flow" />
-				</div>
+				<JobTokenScopesSetting
+					bind:value={flowStore.val.job_token_scopes}
+					kind="flow"
+					size="xs"
+					textClass="font-medium"
+				/>
 
 				<!-- On behalf of last editor section -->
 				<span class="inline-flex gap-2">
