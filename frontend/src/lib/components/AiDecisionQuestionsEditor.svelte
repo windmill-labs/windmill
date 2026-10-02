@@ -116,12 +116,7 @@
 {/snippet}
 
 <div class="flex flex-col gap-2 w-full">
-	<div class="flex items-start justify-end gap-2">
-		{#if mode === 'json'}
-			<span class="text-2xs text-hint font-mono grow min-w-0">
-				{'{ <name>: { type: choice | score | noul, instructions, criteria } }'}
-			</span>
-		{/if}
+	<div class="flex justify-end">
 		<Toggle
 			size="xs"
 			lightMode
