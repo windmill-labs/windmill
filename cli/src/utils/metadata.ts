@@ -987,7 +987,18 @@ export async function inferSchema(
       currentSchema.properties[arg.name].originalType = (arg as any).otyp
     }
 
-    currentSchema.properties[arg.name].default = arg.default;
+    // Most languages cannot write a resource default in code, so one picked in the
+    // schema (`$res:` path) is kept while the code sets none; any code default wins.
+    const oldDefault = oldProperties[arg.name]?.default;
+    if (
+      !(
+        arg.default == null &&
+        typeof oldDefault == "string" &&
+        oldDefault.startsWith("$res:")
+      )
+    ) {
+      currentSchema.properties[arg.name].default = arg.default;
+    }
 
     if (!arg.has_default && !currentSchema.required.includes(arg.name)) {
       currentSchema.required.push(arg.name);
