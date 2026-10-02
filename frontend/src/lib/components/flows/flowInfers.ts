@@ -232,8 +232,7 @@ export const AI_DECISION_SCHEMA: Schema = {
 		questions: {
 			type: 'object',
 			format: 'ai-decision-questions',
-			description:
-				'What to ask about the state. A choice picks one of its options, a score places the state on a scale of 2 to 10 levels, and a yes/no gives the probability of yes. As an expression: { <name>: { type: choice | score | noul, instructions, criteria } }.'
+			description: 'What to ask about the state'
 		}
 	},
 	required: ['provider', 'state', 'questions'],

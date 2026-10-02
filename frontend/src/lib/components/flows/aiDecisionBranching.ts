@@ -1,3 +1,4 @@
+import { getContext, setContext } from 'svelte'
 import type { BranchOne, FlowModule, OpenFlow } from '$lib/gen'
 import { choiceQuestionOptions } from './aiDecisionQuestions'
 import { getAllModules } from './flowExplorer'
@@ -139,4 +140,19 @@ export function addChoiceBranches(
 	options: string[]
 ) {
 	;(routing.value as BranchOne).branches.push(...choiceBranches(decisionId, question, options))
+}
+
+const DECISION_STEP = Symbol('aiDecisionStep')
+
+/** The AI decision step whose questions are being edited, for the questions editor to offer
+ *  branching on them. Its `id` is undefined where branching does not apply: a decision used as
+ *  an agent tool, or a test form. */
+export type AiDecisionStepContext = { readonly id: string | undefined }
+
+export function setAiDecisionStep(step: AiDecisionStepContext): void {
+	setContext(DECISION_STEP, step)
+}
+
+export function getAiDecisionStep(): AiDecisionStepContext | undefined {
+	return getContext(DECISION_STEP)
 }

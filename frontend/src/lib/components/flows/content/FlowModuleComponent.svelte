@@ -35,7 +35,7 @@
 	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import { flowLocalAgentSchema } from '../agentResourceUtils'
 	import { AI_AGENT_TOOL_AI_KEYS, AI_DECISION_TOOL_AI_KEYS } from '../agentToolUtils'
-	import AiDecisionRouting from './AiDecisionRouting.svelte'
+	import { setAiDecisionStep } from '../aiDecisionBranching'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
@@ -154,6 +154,12 @@
 		toolDescription = $bindable(undefined),
 		siblingToolNames = undefined
 	}: Props = $props()
+
+	setAiDecisionStep({
+		get id() {
+			return flowModule.value.type === 'aidecision' && !isAgentTool ? flowModule.id : undefined
+		}
+	})
 
 	// Key for the linked-agent tools store. Ancestry-qualified for a nested agent tool, whose id
 	// comes from a resource and is not flow-global — it could otherwise alias a top-level step and
@@ -1306,9 +1312,6 @@
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
 													/>
-													{#if flowModule.value.type === 'aidecision' && !isAgentTool}
-														<AiDecisionRouting class="px-2 xl:px-4 pb-8" {flowModule} />
-													{/if}
 												{/if}
 												{#if agentLinked}
 													<!-- Linked agent: the resource's tools with their inputs rebindable to this

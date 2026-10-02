@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Plus, X } from 'lucide-svelte'
+	import { Plus, Trash2, X } from 'lucide-svelte'
 	import { Button } from './common'
 	import TextInput from './text_input/TextInput.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -15,6 +15,8 @@
 		type DecisionQuestionType,
 		type QuestionRow
 	} from './flows/aiDecisionQuestions'
+	import { getAiDecisionStep } from './flows/aiDecisionBranching'
+	import AiDecisionQuestionRouting from './flows/content/AiDecisionQuestionRouting.svelte'
 
 	interface Props {
 		value: any
@@ -22,6 +24,8 @@
 	}
 
 	let { value = $bindable(), disabled = false }: Props = $props()
+
+	const decisionStep = getAiDecisionStep()
 
 	// A value the cards cannot hold is edited as JSON. Decided on open and again whenever the value
 	// is replaced from elsewhere (an undo, the AI chat), never by an edit made here.
@@ -81,10 +85,21 @@
 	]
 </script>
 
+{#snippet label(text: string)}
+	<span class="text-xs font-semibold text-emphasis">{text}</span>
+{/snippet}
+
+{#snippet error(text: string | undefined)}
+	{#if text}
+		<span class="text-2xs text-red-600 dark:text-red-400">{text}</span>
+	{/if}
+{/snippet}
+
 {#if !fitsRows}
 	<div class="flex flex-col gap-1 w-full">
 		<span class="text-xs text-secondary">
-			These questions use structured instructions or descriptions, so they are edited as JSON.
+			These questions use structured instructions or descriptions, so they are edited as JSON:
+			{'{ <name>: { type: choice | score | noul, instructions, criteria } }'}
 		</span>
 		{#key jsonEditorKey}
 			{#await import('./JsonEditor.svelte') then Module}
@@ -102,19 +117,20 @@
 {:else}
 	<div class="flex flex-col gap-3 w-full">
 		{#each rows as row, i (i)}
-			<div class="flex flex-col gap-2 border rounded-md p-3 bg-surface">
+			<div class="flex flex-col gap-3 rounded-md bg-surface-tertiary p-3 shadow-sm">
 				<div class="flex items-start gap-2">
 					<div class="flex flex-col gap-1 grow">
-						<span class="text-xs text-secondary">Name</span>
+						{@render label('Name')}
 						<TextInput
 							size="sm"
 							bind:value={row.name}
 							error={questionNameError(rows, i)}
 							inputProps={{ disabled, placeholder: 'intent' }}
 						/>
+						{@render error(questionNameError(rows, i))}
 					</div>
 					<div class="flex flex-col gap-1">
-						<span class="text-xs text-secondary">Answer</span>
+						{@render label('Answer')}
 						<ToggleButtonGroup
 							noWFull
 							{disabled}
@@ -135,18 +151,15 @@
 							destructive
 							iconOnly
 							{disabled}
-							startIcon={{ icon: X }}
-							title="Remove question"
+							startIcon={{ icon: Trash2 }}
+							title="Delete question"
 							onClick={() => rows.splice(i, 1)}
 						/>
 					</div>
 				</div>
-				{#if questionNameError(rows, i)}
-					<span class="text-2xs text-red-500">{questionNameError(rows, i)}</span>
-				{/if}
 
 				<div class="flex flex-col gap-1">
-					<span class="text-xs text-secondary">Question</span>
+					{@render label('Question')}
 					<TextInput
 						size="sm"
 						underlyingInputEl="textarea"
@@ -158,16 +171,19 @@
 
 				{#if row.type === 'choice'}
 					<div class="flex flex-col gap-1">
-						<span class="text-xs text-secondary">Options</span>
+						{@render label('Options')}
+						<span class="text-xs text-secondary">What each option means helps the model choose</span
+						>
 						{#each row.options as option, j (j)}
 							<div class="flex gap-2 items-start">
-								<div class="w-1/3 shrink-0">
+								<div class="w-1/3 shrink-0 flex flex-col gap-1">
 									<TextInput
 										size="sm"
 										bind:value={option.name}
 										error={optionNameError(row, j)}
-										inputProps={{ disabled, placeholder: 'refund', title: optionNameError(row, j) }}
+										inputProps={{ disabled, placeholder: 'refund' }}
 									/>
+									{@render error(optionNameError(row, j))}
 								</div>
 								<TextInput
 									size="sm"
@@ -196,9 +212,13 @@
 							Add option
 						</Button>
 					</div>
+					{#if decisionStep?.id && row.name.trim()}
+						<AiDecisionQuestionRouting decisionId={decisionStep.id} question={row.name.trim()} />
+					{/if}
 				{:else if row.type === 'score'}
 					<div class="flex flex-col gap-1">
-						<span class="text-xs text-secondary">Levels, lowest first</span>
+						{@render label('Levels')}
+						<span class="text-xs text-secondary">Lowest first</span>
 						{#each row.levels as _, j (j)}
 							<div class="flex gap-2 items-center">
 								<span class="text-xs text-secondary w-4 text-right">{j}</span>
@@ -232,12 +252,14 @@
 				{:else}
 					<div class="grid grid-cols-2 gap-2">
 						<div class="flex flex-col gap-1">
-							<span class="text-xs text-secondary">Yes means (optional)</span>
+							{@render label('Yes means')}
 							<TextInput size="sm" bind:value={row.yes} inputProps={{ disabled }} />
+							<span class="text-2xs text-hint">Optional</span>
 						</div>
 						<div class="flex flex-col gap-1">
-							<span class="text-xs text-secondary">No means (optional)</span>
+							{@render label('No means')}
 							<TextInput size="sm" bind:value={row.no} inputProps={{ disabled }} />
+							<span class="text-2xs text-hint">Optional</span>
 						</div>
 					</div>
 				{/if}
