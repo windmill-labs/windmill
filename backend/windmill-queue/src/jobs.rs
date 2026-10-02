@@ -3741,7 +3741,7 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
-            // `QueuedJobV2` carries no args; a dependency job never completes through here.
+            // `QueuedJobV2` carries no args, which is what marks a binary-build job.
             build_binary_only: false,
             // Nor scopes: a caller whose completion can re-run the job (the monitor's zombie
             // recovery) fills them in from `job_perms` while the job is still queued.

@@ -603,7 +603,10 @@ async fn enqueue_windmill_tool(
         // narrows that further.
         windmill_common::scopes::intersect_job_token_scopes(
             ctx.job.job_token_scopes.as_deref(),
-            tool_module.job_token_scopes.as_deref(),
+            windmill_common::scopes::step_job_token_scopes(
+                tool_module.job_token_scopes.as_deref(),
+            )
+            .as_deref(),
         )
         .as_deref(),
     )

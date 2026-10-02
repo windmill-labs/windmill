@@ -9746,6 +9746,11 @@ async fn add_batch_jobs(
                     "Path is required if no value is not provided"
                 ))?
             };
+            if windmill_common::scopes::validate_flow_step_job_token_scopes(&value)? {
+                windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+                    .assert()
+                    .await?;
+            }
             add_virtual_items_if_necessary(&mut value.modules);
             let flow_status = FlowStatus::new(&value);
             (

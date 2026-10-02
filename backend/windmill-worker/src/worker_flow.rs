@@ -4756,7 +4756,10 @@ async fn push_next_flow_job(
             // narrows that further.
             windmill_common::scopes::intersect_job_token_scopes(
                 flow_job.job_token_scopes.as_deref(),
-                module.job_token_scopes.as_deref(),
+                windmill_common::scopes::step_job_token_scopes(
+                    module.job_token_scopes.as_deref(),
+                )
+                .as_deref(),
             )
             .as_deref(),
         )

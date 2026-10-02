@@ -664,6 +664,13 @@ pub fn log_job_token_scopes_deploy(kind: &'static str, scopes: Option<&[String]>
     );
 }
 
+/// The cap a flow step or agent tool's own `job_token_scopes` puts on its jobs. A definition
+/// can reach the worker without the deploy-time validation (a raw flow), so a setting that
+/// does not validate restricts the step to no API access rather than being trusted as is.
+pub fn step_job_token_scopes(scopes: Option<&[String]>) -> Option<Vec<String>> {
+    scopes.map(|s| validate_job_token_scopes(s).unwrap_or_default())
+}
+
 /// The `scopes` claim of a job token minted from the job's effective scopes.
 pub fn job_token_jwt_scopes(effective: Option<Vec<String>>) -> Option<Vec<String>> {
     match effective {
@@ -731,6 +738,11 @@ mod job_token_scopes_tests {
         assert_eq!(
             validate_job_token_scopes(&v(&["oidc:write", " oidc:write"])).unwrap(),
             v(&["oidc:write"])
+        );
+        // A step setting that skipped deploy validation restricts rather than widens.
+        assert_eq!(
+            step_job_token_scopes(Some(&v(&["if_jobs:filter_tags:bun"]))),
+            Some(vec![])
         );
     }
 }
