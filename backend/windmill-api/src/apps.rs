@@ -764,6 +764,7 @@ async fn list_apps(
                       path,
                       value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
                       created_at,
+                      email IS NULL as "legacy!",
                       typ::text as "typ!"
                FROM draft
                WHERE workspace_id = $1
@@ -813,9 +814,9 @@ async fn list_apps(
                 inherited_labels: None,
                 is_draft: true,
                 draft_path,
-                // Synthesized rows are the authed user's own draft.
+                // Owned by nobody when legacy; see scripts.rs.
                 draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
-                    username: Some(authed.username.clone()),
+                    username: (!row.legacy).then(|| authed.username.clone()),
                 }])),
             });
         }

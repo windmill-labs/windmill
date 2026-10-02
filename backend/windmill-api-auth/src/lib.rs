@@ -625,6 +625,7 @@ fn scope_contains(caller: &ScopeDefinition, requested: &ScopeDefinition) -> bool
         // Apps only: `write` covers `run` (see `ScopeDefinition::includes`), so an
         // app-editor token can mint the narrower run-only credential.
         ("write", "run") if caller.domain == "apps" => {}
+        ("write", "cancel") if caller.domain == "jobs" => {}
         _ => return false,
     }
 

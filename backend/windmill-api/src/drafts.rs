@@ -884,9 +884,9 @@ async fn move_draft(
                  {attempted}. Reopen it, re-save to rewrite it cleanly, then retry."
             )
         } else if row.legacy {
-            // The home list synthesizes a draft-only row for the legacy draft with the
-            // caller's own name on it, so this is reachable from the row menu. Only an
-            // admin can claim or discard that row, and only from the drafts page.
+            // The home list surfaces the legacy draft as a draft-only row owned by nobody,
+            // so this is reachable from the row menu. It can be discarded (a write-gated
+            // legacy delete) or claimed by an admin, but never moved.
             format!(
                 "'{path}' is a legacy workspace draft with no owner, so it cannot be moved. \
                  A workspace admin can claim or discard it on the Review & deploy drafts page."
