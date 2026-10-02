@@ -61,5 +61,65 @@ async fn relocks_go_to_the_configured_dependency_job_tag(db: Pool<Postgres>) -> 
             ),
         ]
     );
+
+    // A binary prebuild given `auto_build_binary_tag` keeps it; an untagged one follows its
+    // dependency job.
+    assert_eq!(
+        push_binary_prebuild(&db, Some("build-pool")).await?,
+        "build-pool"
+    );
+    assert_eq!(
+        push_binary_prebuild(&db, None).await?,
+        "deps-test-workspace"
+    );
     Ok(())
+}
+
+async fn push_binary_prebuild(db: &Pool<Postgres>, tag: Option<&str>) -> anyhow::Result<String> {
+    let mut args = std::collections::HashMap::new();
+    args.insert(
+        "build_binary_only".to_string(),
+        windmill_common::worker::to_raw_value(&true),
+    );
+    let (build_id, tx) = windmill_queue::push(
+        db,
+        windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
+        "test-workspace",
+        windmill_common::jobs::JobPayload::BuildBinary {
+            path: "f/tags/plain".to_string(),
+            hash: windmill_common::scripts::ScriptHash(7_100_002),
+            language: windmill_common::scripts::ScriptLang::Go,
+        },
+        windmill_queue::PushArgs::from(&args),
+        "test-user",
+        "test@windmill.dev",
+        "u/test-user".to_string(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag.map(str::to_string),
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(sqlx::query_scalar("SELECT tag FROM v2_job WHERE id = $1")
+        .bind(build_id)
+        .fetch_one(db)
+        .await?)
 }
