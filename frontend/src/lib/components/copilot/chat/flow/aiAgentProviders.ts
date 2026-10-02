@@ -29,8 +29,8 @@ export type AiAgentProviderCatalog = {
 	defaultModel?: { kind: AIProvider; model: string }
 }
 
-/** The provider an AI decision step runs on, and the one kind an AI agent step cannot. */
-const DECISION_PROVIDER_KIND = 'typesafe'
+/** The providers an AI decision step runs on, and the kinds an AI agent step cannot. */
+const DECISION_PROVIDER_KINDS: readonly string[] = ['typesafe', 'cloudflare']
 
 /** A model id as every provider writes one: `claude-sonnet-5`, `meta-llama/Llama-3.3-70B`,
  * `anthropic.claude-haiku-4-5-20251001-v1:0`, `ft:gpt-4o:acme::abc`. Anything else is not
@@ -149,8 +149,8 @@ This workspace has none, so an AI agent step has no model to run on. ${
 	const truncationLine = catalog.resourcesAreComplete
 		? ''
 		: '\nThis list is incomplete: the workspace has AI provider resources that are not shown.'
-	const decisionLine = catalog.options.some((o) => o.kind === DECISION_PROVIDER_KIND)
-		? `\nA \`${DECISION_PROVIDER_KIND}\` resource serves AI decision steps only, and AI decision steps run on nothing else.`
+	const decisionLine = catalog.options.some((o) => DECISION_PROVIDER_KINDS.includes(o.kind))
+		? `\nA \`typesafe\` or \`cloudflare\` resource serves AI decision steps only, and AI decision steps run on nothing else.`
 		: ''
 	return `## AI provider resources in this workspace
 
@@ -247,14 +247,14 @@ function checkProviderValue(
 	if (typeof kind !== 'string' || kind === '') {
 		return blocking(`provider.kind is missing. Expected ${PROVIDER_SHAPE}`)
 	}
-	if (stepType === 'aidecision' && kind !== DECISION_PROVIDER_KIND) {
+	if (stepType === 'aidecision' && !DECISION_PROVIDER_KINDS.includes(kind)) {
 		return blocking(
-			`an AI decision step runs on TypeSafe: provider.kind must be "${DECISION_PROVIDER_KIND}", not "${kind}"`
+			`an AI decision step runs on a decision model: provider.kind must be "typesafe" or "cloudflare", not "${kind}"`
 		)
 	}
-	if (stepType !== 'aidecision' && kind === DECISION_PROVIDER_KIND) {
+	if (stepType !== 'aidecision' && DECISION_PROVIDER_KINDS.includes(kind)) {
 		return blocking(
-			`TypeSafe answers decisions, not messages: use an "aidecision" step rather than an AI agent`
+			`"${kind}" serves decision models, which answer typed questions rather than messages: use an "aidecision" step rather than an AI agent`
 		)
 	}
 	if (typeof resource !== 'string' || !resource.startsWith('$res:')) {

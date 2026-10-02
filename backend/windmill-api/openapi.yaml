@@ -29467,6 +29467,7 @@ components:
           aws_bedrock,
           customai,
           typesafe,
+          cloudflare,
         ]
 
     GitSyncObjectType:

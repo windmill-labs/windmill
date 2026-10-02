@@ -184,7 +184,7 @@ names, so neither is name-checked at all — leave those summaries as they are.
 
 ## AI Decision Modules
 
-An `aidecision` module asks a decision model (TypeSafe's Jev) typed questions about a `state` and
+An `aidecision` module asks a decision model (TypeSafe's Jev or Cloudflare's Clef) typed questions about a `state` and
 answers each with calibrated probabilities instead of text. Prefer it over an `aiagent` when the step
 is a judgment (classify, route, score or a yes/no check) that needs no tools and no free text: it
 is faster, cheaper, and its answers have a fixed shape.
@@ -222,7 +222,8 @@ is faster, cheaper, and its answers have a fixed shape.
 }
 ```
 
-- `provider.kind` is `typesafe`; `model` is `jev-latest` unless a version is pinned
+- `provider.kind` is `typesafe` (`model` `jev-latest` unless a version is pinned) or `cloudflare`
+  (`model` `clef`, or `clef-flash` for faster answers); the resource is of that same type
 - `state` is what the questions are about: a string, an object or an array of strings. An object
   with descriptive keys holding only what the questions need works best
 - `questions` maps each question name to `{ type, instructions, criteria }`:

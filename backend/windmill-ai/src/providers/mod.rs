@@ -205,9 +205,11 @@ pub fn create_query_builder(
             AnthropicQueryBuilder::new(AIProvider::AzureFoundry, AIPlatform::Standard),
         ),
         // Only for forwarding through the API proxy, which is bearer auth on `<base>/<path>` as
-        // TypeSafe expects. TypeSafe serves no chat route, and `run_agent` refuses it before a
-        // chat request could be built.
-        AIProvider::TypeSafe => Box::new(OtherQueryBuilder::new(AIProvider::TypeSafe)),
+        // TypeSafe and Cloudflare expect. Neither serves a chat route for its decision models, and
+        // `run_agent` refuses both before a chat request could be built.
+        AIProvider::TypeSafe | AIProvider::Cloudflare => {
+            Box::new(OtherQueryBuilder::new(credentials.provider.clone()))
+        }
         _ => Box::new(OtherQueryBuilder::new(credentials.provider.clone())),
     }
 }

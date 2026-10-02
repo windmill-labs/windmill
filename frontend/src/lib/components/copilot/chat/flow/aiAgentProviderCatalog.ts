@@ -35,9 +35,14 @@ const FILTERED_MODEL_LISTING_KINDS: ReadonlySet<string> = new Set([
 /** Kinds whose endpoint serves ids its listing does not contain, so an unlisted id is never
  * grounds for calling it wrong. OpenRouter appends routing suffixes — `:online`, `:nitro`,
  * `:floor` — to any listed model without listing the combinations, and it carries no `base_url`
- * of its own (the backend supplies it), so `customEndpoint` does not cover it. TypeSafe's list is
- * the ids Windmill knows, not a listing: it also serves `jev-preview` and every pinned version. */
-const ALIASING_MODEL_LISTING_KINDS: ReadonlySet<string> = new Set(['openrouter', 'typesafe'])
+ * of its own (the backend supplies it), so `customEndpoint` does not cover it. The decision
+ * providers' lists are the ids Windmill knows, not listings: TypeSafe also serves `jev-preview` and
+ * every pinned version. */
+const ALIASING_MODEL_LISTING_KINDS: ReadonlySet<string> = new Set([
+	'openrouter',
+	'typesafe',
+	'cloudflare'
+])
 
 /** Each resource costs one model listing call against the provider. A workspace with a
  * long tail of AI resources would otherwise stall every flow write. */

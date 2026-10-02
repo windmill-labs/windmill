@@ -126,9 +126,17 @@ pub enum AIProvider {
     /// TypeSafe's Jev decision model. It answers typed questions rather than chatting, so only
     /// an AI decision runs it (`run_systemone`), never the agent loop.
     TypeSafe,
+    /// Cloudflare Workers AI, for its Jev-compatible decision models (Clef). Decisions only, as
+    /// for TypeSafe; its base URL comes from the resource's account id.
+    Cloudflare,
 }
 
 impl AIProvider {
+    /// A provider that answers decisions (typed questions) and serves no chat.
+    pub fn is_decision_provider(&self) -> bool {
+        matches!(self, AIProvider::TypeSafe | AIProvider::Cloudflare)
+    }
+
     /// Get the base URL for the AI provider
     pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
         if let Some(base_url) = resource_base_url {
@@ -182,6 +190,9 @@ impl AIProvider {
             AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
             AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
             AIProvider::TypeSafe => Ok(TYPESAFE_BASE_URL.to_string()),
+            AIProvider::Cloudflare => Err(Error::BadRequest(
+                "A Cloudflare resource needs an account_id".to_string(),
+            )),
             p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI | AIProvider::AzureFoundry) => {
                 Err(Error::BadRequest(format!(
                     "{:?} provider requires a base URL in the resource",

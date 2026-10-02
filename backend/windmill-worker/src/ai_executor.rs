@@ -1290,10 +1290,11 @@ pub async fn run_agent(
     job_completed_tx: crate::JobCompletedSender,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
-    if args.provider.kind == AIProvider::TypeSafe {
-        return Err(Error::BadRequest(
-            "TypeSafe answers decisions, not messages: use an AI decision step".to_string(),
-        ));
+    if args.provider.kind.is_decision_provider() {
+        return Err(Error::BadRequest(format!(
+            "{:?} serves decision models, which answer typed questions rather than messages: use an AI decision step",
+            args.provider.kind
+        )));
     }
     let credentials = args.provider.to_provider_credentials(db).await?;
     let base_url = &credentials.base_url;
@@ -2443,9 +2444,9 @@ async fn handle_ai_decision(
     worker_name: &str,
 ) -> error::Result<Box<RawValue>> {
     let args = serde_json::from_str::<AIDecisionArgs>(&serde_json::to_string(local_args)?)?;
-    if args.provider.kind != AIProvider::TypeSafe {
+    if !args.provider.kind.is_decision_provider() {
         return Err(Error::BadRequest(format!(
-            "An AI decision runs on a TypeSafe resource, not {:?}",
+            "An AI decision runs on a TypeSafe or Cloudflare resource, not {:?}",
             args.provider.kind
         )));
     }

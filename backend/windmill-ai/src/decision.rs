@@ -1,5 +1,6 @@
-//! AI decision steps: one call to TypeSafe's System One endpoint, which answers typed questions
-//! (`choice`, `score`, `noul`) about a state with calibrated probabilities instead of text.
+//! AI decision steps: one call to a System One endpoint (TypeSafe's Jev, or Cloudflare's
+//! Jev-compatible Clef on Workers AI), which answers typed questions (`choice`, `score`, `noul`)
+//! about a state with calibrated probabilities instead of text.
 
 use std::time::Duration;
 
@@ -8,6 +9,7 @@ use serde_json::{value::RawValue, Map, Value};
 use windmill_common::error::{Error, Result};
 
 use crate::{
+    ai_providers::AIProvider,
     credentials::ProviderCredentials,
     proxy::{common_outbound_headers, retain_effective_credentials},
     types::{ProviderWithResource, TokenUsage},
@@ -26,6 +28,8 @@ pub struct AIDecisionArgs {
 
 /// The alias TypeSafe keeps on its current model, sent when the step names none.
 pub const TYPESAFE_DEFAULT_MODEL: &str = "jev-latest";
+/// Cloudflare's larger decision model, run when the step names none.
+pub const CLOUDFLARE_DEFAULT_MODEL: &str = "clef";
 
 #[derive(Serialize)]
 struct SystemOneRequest<'a> {
@@ -41,6 +45,12 @@ struct SystemOneResponse {
     answers: Box<RawValue>,
     #[serde(default)]
     usage: Option<SystemOneUsage>,
+}
+
+/// Workers AI wraps the System One response in its API envelope.
+#[derive(Deserialize)]
+struct CloudflareEnvelope {
+    result: SystemOneResponse,
 }
 
 #[derive(Deserialize)]
@@ -105,12 +115,29 @@ pub async fn run_systemone(
     questions: &Map<String, Value>,
     timeout: Duration,
 ) -> Result<DecisionResult> {
-    let model = if model.trim().is_empty() {
-        TYPESAFE_DEFAULT_MODEL
-    } else {
-        model
+    let cloudflare = credentials.provider == AIProvider::Cloudflare;
+    let model = match model.trim() {
+        "" if cloudflare => CLOUDFLARE_DEFAULT_MODEL,
+        "" => TYPESAFE_DEFAULT_MODEL,
+        model => model,
     };
-    let endpoint = format!("{}/systemone", credentials.base_url.trim_end_matches('/'));
+    let base = credentials.base_url.trim_end_matches('/');
+    // Workers AI serves each model at its own URL; the model goes into the path, so it is held to
+    // the characters a model id has.
+    let endpoint = if cloudflare {
+        if !model
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        {
+            return Err(Error::BadRequest(format!(
+                "Invalid Cloudflare decision model: {model}"
+            )));
+        }
+        format!("{base}/{model}")
+    } else {
+        format!("{base}/systemone")
+    };
+    let vendor = if cloudflare { "Cloudflare" } else { "TypeSafe" };
     let auth_headers = retain_effective_credentials(
         credentials,
         vec![(
@@ -137,7 +164,7 @@ pub async fn run_systemone(
         .json(&SystemOneRequest { model, state, questions })
         .send()
         .await
-        .map_err(|e| Error::ExecutionErr(format!("Failed to call TypeSafe: {e}")))?;
+        .map_err(|e| Error::ExecutionErr(format!("Failed to call {vendor}: {e}")))?;
 
     let status = response.status();
     if !status.is_success() {
@@ -146,16 +173,26 @@ pub async fn run_systemone(
             .await
             .unwrap_or_else(|_| "<failed to read body>".to_string());
         return Err(Error::ExecutionErr(format!(
-            "TypeSafe error calling {endpoint}: {status} - {body}"
+            "{vendor} error calling {endpoint}: {status} - {body}"
         )));
     }
 
     let body = response
         .text()
         .await
-        .map_err(|e| Error::ExecutionErr(format!("Failed to read the TypeSafe response: {e}")))?;
-    let parsed = serde_json::from_str::<SystemOneResponse>(&body)
-        .map_err(|e| Error::ExecutionErr(format!("Unexpected TypeSafe response ({e}): {body}")))?;
+        .map_err(|e| Error::ExecutionErr(format!("Failed to read the {vendor} response: {e}")))?;
+    // Tried in turn rather than as an untagged enum, which cannot hold the raw `answers`.
+    let parsed = match serde_json::from_str::<SystemOneResponse>(&body) {
+        Ok(parsed) => parsed,
+        Err(e) => match serde_json::from_str::<CloudflareEnvelope>(&body) {
+            Ok(envelope) => envelope.result,
+            Err(_) => {
+                return Err(Error::ExecutionErr(format!(
+                    "Unexpected {vendor} response ({e}): {body}"
+                )))
+            }
+        },
+    };
 
     Ok(DecisionResult {
         output: parsed.answers,

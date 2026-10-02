@@ -24,7 +24,8 @@
 		 *  other than the one being navigated. Resources and the models read off them are per
 		 *  workspace, so without it this offers what the wrong one holds. */
 		workspace?: string | undefined
-		/** Offer the decision providers (TypeSafe) in place of the chat ones, for an AI decision. */
+		/** Offer the decision providers (TypeSafe, Cloudflare) in place of the chat ones, for an AI
+		 *  decision. */
 		decision?: boolean
 	}
 

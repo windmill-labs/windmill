@@ -269,6 +269,12 @@ pub struct ProviderResource {
     /// credentials exchange this crate does not perform.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub token_url: Option<String>,
+    /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub token: Option<String>,
+    /// The account of a `cloudflare` resource, which its Workers AI URL is built from.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub account_id: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -280,6 +286,22 @@ pub struct ProviderWithResource {
     /// Belongs to the model selection, so it rides on the provider config.
     #[serde(default)]
     pub reasoning_effort: Option<String>,
+}
+
+/// The Workers AI models URL of a Cloudflare account. The id goes into the path, so it is held to
+/// the characters an account id has rather than trusted to stay inside its segment.
+fn cloudflare_workers_ai_base_url(account_id: Option<&str>) -> Result<String, Error> {
+    match account_id {
+        Some(id) if id.chars().all(|c| c.is_ascii_alphanumeric()) => Ok(format!(
+            "https://api.cloudflare.com/client/v4/accounts/{id}/ai/run/@cf/cloudflare"
+        )),
+        Some(_) => Err(Error::BadRequest(
+            "The Cloudflare account_id must be letters and digits only".to_string(),
+        )),
+        None => Err(Error::BadRequest(
+            "A Cloudflare resource needs an account_id".to_string(),
+        )),
+    }
 }
 
 impl ProviderWithResource {
@@ -301,6 +323,9 @@ impl ProviderWithResource {
     }
 
     pub async fn get_base_url(&self, db: &DB) -> Result<String, Error> {
+        if self.kind == AIProvider::Cloudflare && self.resource.base_url.is_none() {
+            return cloudflare_workers_ai_base_url(self.resource.account_id.as_deref());
+        }
         self.kind
             .get_base_url(self.resource.base_url.clone(), db)
             .await
@@ -320,7 +345,14 @@ impl ProviderWithResource {
         Ok(ProviderCredentials {
             provider: self.kind.clone(),
             base_url,
-            api_key: self.resource.api_key.clone(),
+            api_key: match self.kind {
+                AIProvider::Cloudflare => self
+                    .resource
+                    .api_key
+                    .clone()
+                    .or_else(|| self.resource.token.clone()),
+                _ => self.resource.api_key.clone(),
+            },
             access_token: None,
             organization_id: None,
             user: None,

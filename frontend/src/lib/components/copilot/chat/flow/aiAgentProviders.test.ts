@@ -67,7 +67,13 @@ describe('validateAiAgentProviders', () => {
 		expect(() =>
 			validateAiAgentProviders(anthropicProvider('claude-something-new'), {
 				...COMPLETE,
-				options: [{ ...ANTHROPIC, modelsAreLive: false, models: { ids: ['claude-sonnet-5'], complete: false } }]
+				options: [
+					{
+						...ANTHROPIC,
+						modelsAreLive: false,
+						models: { ids: ['claude-sonnet-5'], complete: false }
+					}
+				]
 			})
 		).not.toThrow()
 	})
@@ -108,7 +114,7 @@ describe('validateAiAgentProviders', () => {
 		expect(warnings).toHaveLength(1)
 	})
 
-	it('keeps TypeSafe to AI decision steps', () => {
+	it('keeps decision providers to AI decision steps', () => {
 		const typesafe = {
 			type: 'static',
 			value: { kind: 'typesafe', resource: '$res:u/admin/typesafe', model: 'jev-latest' }
@@ -122,9 +128,17 @@ describe('validateAiAgentProviders', () => {
 		]
 
 		expect(() => validateAiAgentProviders(decision(anthropic), undefined)).toThrow(
-			/Step "d".*must be "typesafe"/
+			/Step "d".*must be "typesafe" or "cloudflare"/
 		)
 		expect(() => validateAiAgentProviders(agentStep(typesafe), undefined)).toThrow(
+			/Step "agent".*use an "aidecision" step/
+		)
+		const cloudflare = {
+			type: 'static',
+			value: { kind: 'cloudflare', resource: '$res:u/admin/cloudflare', model: 'clef' }
+		}
+		expect(() => validateAiAgentProviders(decision(cloudflare), undefined)).not.toThrow()
+		expect(() => validateAiAgentProviders(agentStep(cloudflare), undefined)).toThrow(
 			/Step "agent".*use an "aidecision" step/
 		)
 	})
@@ -141,10 +155,12 @@ describe('formatAiAgentProvidersPrompt', () => {
 		expect(
 			formatAiAgentProvidersPrompt({ ...COMPLETE, defaultModel }, { canAskUser: true })
 		).toContain('the workspace default')
-		expect(formatAiAgentProvidersPrompt({ ...AMBIGUOUS, defaultModel }, { canAskUser: true })).toContain(
+		expect(
+			formatAiAgentProvidersPrompt({ ...AMBIGUOUS, defaultModel }, { canAskUser: true })
+		).toContain('askUserQuestion')
+		expect(formatAiAgentProvidersPrompt(COMPLETE, { canAskUser: true })).toContain(
 			'askUserQuestion'
 		)
-		expect(formatAiAgentProvidersPrompt(COMPLETE, { canAskUser: true })).toContain('askUserQuestion')
 	})
 
 	it('never names askUserQuestion for a chat that does not have the tool', () => {
@@ -156,9 +172,10 @@ describe('formatAiAgentProvidersPrompt', () => {
 
 describe('collectAiAgentProviderRefs', () => {
 	it('needs the catalog only for a step that states its own static provider', () => {
-		expect(
-			collectAiAgentProviderRefs(anthropicProvider('claude-sonnet-5'))
-		).toEqual({ needsCatalog: true, resourceRefs: ['$res:u/admin/anthropic'] })
+		expect(collectAiAgentProviderRefs(anthropicProvider('claude-sonnet-5'))).toEqual({
+			needsCatalog: true,
+			resourceRefs: ['$res:u/admin/anthropic']
+		})
 		expect(
 			collectAiAgentProviderRefs([{ id: 'a', value: { type: 'aiagent', agent: 'u/admin/saved' } }])
 		).toEqual({ needsCatalog: false, resourceRefs: [] })
@@ -180,7 +197,10 @@ describe('an authoritative empty catalog', () => {
 		)
 		// Not knowing the resources is not the same as knowing there are none.
 		expect(
-			formatAiAgentProvidersPrompt({ options: [], resourcesAreComplete: false }, { canAskUser: true })
+			formatAiAgentProvidersPrompt(
+				{ options: [], resourcesAreComplete: false },
+				{ canAskUser: true }
+			)
 		).toBe('')
 	})
 

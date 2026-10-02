@@ -1,4 +1,4 @@
-/** The questions of an AI decision as TypeSafe's Jev reads them, keyed by question name. */
+/** The questions of an AI decision as Jev and Clef read them, keyed by question name. */
 export type DecisionQuestionType = 'choice' | 'score' | 'noul'
 
 /** One question as the editor holds it: every type's criteria at once, so switching type and back

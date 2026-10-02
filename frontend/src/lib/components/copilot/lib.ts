@@ -87,7 +87,7 @@ const OPENAI_MODELS = [
 
 /** The providers that chat. Every surface picking a model to talk to (the copilot, flow chat, an
  *  agent's text or image output, eval judges) offers exactly these. */
-export type ChatAIProvider = Exclude<AIProvider, 'typesafe'>
+export type ChatAIProvider = Exclude<AIProvider, 'typesafe' | 'cloudflare'>
 
 export const AI_PROVIDERS: Record<ChatAIProvider, AIProviderDetails> = {
 	openai: {
@@ -167,8 +167,9 @@ export const AI_PROVIDERS: Record<ChatAIProvider, AIProviderDetails> = {
 	}
 }
 
-/** TypeSafe's Jev answers typed questions instead of messages, so only an AI decision offers it.
- *  The pinned version is there for flows tuned against its probabilities. */
+/** Decision models answer typed questions instead of messages, so only an AI decision offers
+ *  them: TypeSafe's Jev, and Cloudflare's Jev-compatible Clef. The pinned Jev version is there
+ *  for flows tuned against its probabilities. */
 export const DECISION_AI_PROVIDERS: Record<
 	Exclude<AIProvider, ChatAIProvider>,
 	AIProviderDetails
@@ -176,6 +177,10 @@ export const DECISION_AI_PROVIDERS: Record<
 	typesafe: {
 		label: 'TypeSafe',
 		defaultModels: ['jev-latest', 'jev-1.13.0']
+	},
+	cloudflare: {
+		label: 'Cloudflare',
+		defaultModels: ['clef', 'clef-flash']
 	}
 }
 
@@ -221,9 +226,9 @@ export async function fetchAvailableModels(
 	/** Cap on the listing response, for callers that fetch without a user asking. */
 	maxBytes?: number
 ): Promise<string[]> {
-	// TypeSafe's listing is not OpenAI-shaped (`name`, not `id`), and it serves one model under
-	// aliases, so its known ids are the list.
-	if (provider === 'typesafe') {
+	// Neither decision provider has an OpenAI-shaped listing: TypeSafe's names models with `name`
+	// and serves one under aliases, and Workers AI's catalog spans every model it hosts.
+	if (provider === 'typesafe' || provider === 'cloudflare') {
 		return DECISION_AI_PROVIDERS[provider].defaultModels
 	}
 
