@@ -62,6 +62,83 @@ lazy_static! {
     pub static ref CACHE_HITS: AtomicU64 = AtomicU64::new(0);
 }
 
+/// How far a job's statements have got, read by its stall warning.
+struct PgProgress {
+    start: std::time::Instant,
+    statement: AtomicUsize,
+    rows: AtomicU64,
+    last_progress_ms: AtomicU64,
+}
+
+impl PgProgress {
+    fn new() -> Self {
+        Self {
+            start: std::time::Instant::now(),
+            statement: AtomicUsize::new(0),
+            rows: AtomicU64::new(0),
+            last_progress_ms: AtomicU64::new(0),
+        }
+    }
+
+    fn elapsed_ms(&self) -> u64 {
+        self.start.elapsed().as_millis() as u64
+    }
+
+    fn start_statement(&self, index: usize) {
+        self.statement.store(index, Ordering::Relaxed);
+        self.last_progress_ms
+            .store(self.elapsed_ms(), Ordering::Relaxed);
+    }
+
+    fn row(&self) {
+        self.rows.fetch_add(1, Ordering::Relaxed);
+        self.last_progress_ms
+            .store(self.elapsed_ms(), Ordering::Relaxed);
+    }
+
+    fn rows(&self) -> u64 {
+        self.rows.load(Ordering::Relaxed)
+    }
+}
+
+const PG_STALL_WARNING_AFTER: Duration = Duration::from_secs(5 * 60);
+
+/// Warns once per stall in the job log; never completes. A statement still
+/// computing its first row also trips it, which is why it only warns: the job
+/// timeout stays the one thing that stops a job.
+async fn warn_on_stalled_statement(
+    progress: &PgProgress,
+    statement_count: usize,
+    job_id: Uuid,
+    workspace_id: &str,
+    conn: &Connection,
+) -> std::convert::Infallible {
+    let mut warned_for = None;
+    loop {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let last = progress.last_progress_ms.load(Ordering::Relaxed);
+        let stalled = Duration::from_millis(progress.elapsed_ms().saturating_sub(last));
+        if stalled < PG_STALL_WARNING_AFTER || warned_for == Some(last) {
+            continue;
+        }
+        warned_for = Some(last);
+        windmill_queue::append_logs(
+            &job_id,
+            workspace_id,
+            format!(
+                "No new row for {} min on statement {}/{statement_count} ({} rows so far). \
+                 A query still running on the database is normal; if the database shows no \
+                 active query for this connection, the job is stuck in the worker.\n",
+                stalled.as_secs() / 60,
+                progress.statement.load(Ordering::Relaxed) + 1,
+                progress.rows(),
+            ),
+            conn,
+        )
+        .await;
+    }
+}
+
 pub async fn clear_pg_cache() {
     *CONNECTION_CACHE.lock().await = None;
     CONNECTION_COUNTER.write().await.clear();
@@ -483,6 +560,7 @@ fn do_postgresql_inner<'a>(
     workspace_id: &'a str,
     log_conn: &'a Connection,
     raw_output: bool,
+    progress: &'a PgProgress,
 ) -> error::Result<BoxFuture<'a, error::Result<Vec<Box<RawValue>>>>> {
     let mut query_params = vec![];
     let mut param_types: Vec<Type> = vec![];
@@ -633,10 +711,13 @@ fn do_postgresql_inner<'a>(
 
         if skip_collect {
             futures::pin_mut!(rows);
-            while rows.try_next().await.map_err(to_anyhow)?.is_some() {}
+            while rows.try_next().await.map_err(to_anyhow)?.is_some() {
+                progress.row();
+            }
         } else if let Some(ref s3) = s3 {
             let format_state_ref = &format_state;
             let rows_stream = rows.map_err(to_anyhow).map(move |row_result| {
+                progress.row();
                 row_result.and_then(|row| {
                     postgres_row_to_json_value_with_state(row, format_state_ref).map_err(to_anyhow)
                 })
@@ -674,6 +755,7 @@ fn do_postgresql_inner<'a>(
             let mut column_names: Option<Vec<String>> = None;
 
             while let Some(row) = rows.try_next().await.map_err(to_anyhow)? {
+                progress.row();
                 if column_names.is_none() {
                     column_names = Some(
                         row.columns()
@@ -870,6 +952,7 @@ pub async fn do_postgresql(
     );
     let database_string_clone = database_string.clone();
 
+    let connect_started = std::time::Instant::now();
     let cached_client;
     let new_client;
     if !*CLOUD_HOSTED {
@@ -961,6 +1044,18 @@ pub async fn do_postgresql(
         new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
     }
 
+    if !run_inline && !annotations.prepare {
+        let msg = if new_client.is_some() {
+            format!(
+                "Connected to the database in {} ms\n",
+                connect_started.elapsed().as_millis()
+            )
+        } else {
+            "Reusing the worker's cached database connection\n".to_string()
+        };
+        windmill_queue::append_logs(&job.id, &job.workspace_id, msg, conn).await;
+    }
+
     let (mut sig, _) = parse_pgsql_sig_with_typed_schema(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?;
 
@@ -1000,6 +1095,10 @@ pub async fn do_postgresql(
 
     let size = AtomicUsize::new(0);
     let size_ref = &size;
+    let progress = PgProgress::new();
+    let progress_ref = &progress;
+    let log_progress = !run_inline && !annotations.prepare;
+    let statement_count = queries.len();
     let result_f = async move {
         let mut results = vec![];
         // Session reset (DISCARD ALL) is now handled eagerly when validating
@@ -1037,6 +1136,9 @@ pub async fn do_postgresql(
             let skip_collect = collection_strategy.collect_last_statement_only(queries.len())
                 && i < queries.len() - 1;
             let is_last = i == queries.len() - 1;
+            progress_ref.start_statement(i);
+            let rows_before = progress_ref.rows();
+            let statement_started = std::time::Instant::now();
             let result = do_postgresql_inner(
                 query.to_string(),
                 &param_idx_to_arg_and_value,
@@ -1058,8 +1160,23 @@ pub async fn do_postgresql(
                 &job.workspace_id,
                 conn,
                 annotations.raw_output && is_last && !skip_collect,
+                progress_ref,
             )?
             .await?;
+            if log_progress {
+                windmill_queue::append_logs(
+                    &job.id,
+                    &job.workspace_id,
+                    format!(
+                        "Statement {}/{statement_count}: {} rows in {} ms\n",
+                        i + 1,
+                        progress_ref.rows() - rows_before,
+                        statement_started.elapsed().as_millis()
+                    ),
+                    conn,
+                )
+                .await;
+            }
             results.push(result);
         }
 
@@ -1070,6 +1187,16 @@ pub async fn do_postgresql(
             Ok(crate::pg_raw_output::extract_envelope_or_empty(results))
         } else {
             collection_strategy.collect(results)
+        }
+    };
+    let result_f = async {
+        if log_progress {
+            tokio::select! {
+                result = result_f => result,
+                never = warn_on_stalled_statement(progress_ref, statement_count, job.id, &job.workspace_id, conn) => match never {},
+            }
+        } else {
+            result_f.await
         }
     };
 
