@@ -966,6 +966,7 @@ pub async fn do_postgresql(
     let database_string_clone = database_string.clone();
 
     let connect_started = std::time::Instant::now();
+    let mut cached_connection_failed_reset = false;
     let cached_client;
     let new_client;
     if !*CLOUD_HOSTED {
@@ -1038,6 +1039,7 @@ pub async fn do_postgresql(
                 new_client = None;
             } else {
                 tracing::info!("Cached connection is stale, creating new one");
+                cached_connection_failed_reset = true;
                 if let Some(ref mut g) = guard {
                     **g = None;
                 }
@@ -1067,7 +1069,11 @@ pub async fn do_postgresql(
             format!(
                 "Getting a database connection took {} ms ({})\n",
                 connect_time.as_millis(),
-                connection_kind(fresh_connection)
+                if cached_connection_failed_reset {
+                    "the cached connection failed its reset, then a new connection"
+                } else {
+                    connection_kind(fresh_connection)
+                }
             ),
             conn,
         )
