@@ -258,6 +258,7 @@
 	// never reaches `value`, so without this the field would stay valid on its last parsed value.
 	let jsonError: string = $state('')
 	let isListJson = $state(false)
+	let questionsInJson = $state(false)
 	let hasIsListJsonChanged = $state(false)
 
 	let el: HTMLTextAreaElement | undefined = $state(undefined)
@@ -699,7 +700,9 @@
 
 	{#if description}
 		<div class={twMerge('text-xs text-secondary', css?.description?.class)}>
-			<pre class="font-main whitespace-normal">{description}</pre>
+			<pre class="font-main whitespace-normal"
+				>{description}{#if inputCat == 'ai-decision-questions' && questionsInJson}{'. In JSON: { <name>: { type: choice | score | noul, instructions, criteria } }'}{/if}</pre
+			>
 		</div>
 	{/if}
 
@@ -1493,7 +1496,11 @@
 				decision={format === 'ai-decision-provider'}
 			/>
 		{:else if inputCat == 'ai-decision-questions'}
-			<AiDecisionQuestionsEditor bind:value {disabled} />
+			<AiDecisionQuestionsEditor
+				bind:value
+				{disabled}
+				onModeChange={(mode) => (questionsInJson = mode === 'json')}
+			/>
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}

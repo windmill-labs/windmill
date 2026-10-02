@@ -22,9 +22,10 @@
 	interface Props {
 		value: any
 		disabled?: boolean
+		onModeChange?: (mode: 'form' | 'json') => void
 	}
 
-	let { value = $bindable(), disabled = false }: Props = $props()
+	let { value = $bindable(), disabled = false, onModeChange }: Props = $props()
 
 	const decisionStep = getAiDecisionStep()
 
@@ -32,6 +33,7 @@
 	// descriptions, which the cards would flatten to text, so such questions stay in JSON.
 	let fitsRows = $state(questionsFitRows(untrack(() => value)))
 	let mode: 'form' | 'json' = $state(untrack(() => fitsRows) ? 'form' : 'json')
+	$effect(() => onModeChange?.(mode))
 	let jsonCode = $state(
 		JSON.stringify(
 			untrack(() => value),

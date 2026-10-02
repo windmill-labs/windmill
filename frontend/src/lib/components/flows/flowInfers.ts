@@ -232,8 +232,7 @@ export const AI_DECISION_SCHEMA: Schema = {
 		questions: {
 			type: 'object',
 			format: 'ai-decision-questions',
-			description:
-				'What to ask about the state. In JSON: { <name>: { type: choice | score | noul, instructions, criteria } }'
+			description: 'What to ask about the state'
 		}
 	},
 	required: ['provider', 'state', 'questions'],
