@@ -19,7 +19,7 @@ use serde_json::value::RawValue;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -621,6 +621,7 @@ async fn cancel_job_api(
     // anonymous-created jobs by `cancel_job`'s `require_anonymous`.
     if let Some(authed) = opt_authed.as_ref() {
         require_job_update_read_access(&db, &user_db, authed, &w_id, &id, None).await?;
+        require_job_within_cancel_scope(&db, authed, &w_id, id).await?;
     }
 
     let tx = db.begin().await?;
@@ -689,7 +690,22 @@ async fn cancel_persistent_script_api(
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<()> {
     let audit_author: AuditAuthor = match opt_authed {
-        Some(authed) => (&authed).into(),
+        Some(authed) => {
+            if let Some(confinement) =
+                windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
+            {
+                if !windmill_api_auth::scopes::cancel_confinement_admits(
+                    &confinement,
+                    script_path.to_path(),
+                ) {
+                    return Err(Error::NotFound(format!(
+                        "Script {} not found",
+                        script_path.to_path()
+                    )));
+                }
+            }
+            (&authed).into()
+        }
         None => {
             return Err(Error::BadRequest(format!(
                 "Cancelling persistent script require to be logged in and member of {w_id}"
@@ -783,6 +799,7 @@ async fn force_cancel(
     if let Some(authed) = opt_authed.as_ref() {
         let target = force_cancel_target(&db, &w_id, id).await?;
         require_job_update_read_access(&db, &user_db, authed, &w_id, &target, None).await?;
+        require_job_within_cancel_scope(&db, authed, &w_id, target).await?;
     }
 
     let tx = db.begin().await?;
@@ -1959,6 +1976,67 @@ async fn require_job_within_run_scope(
     } else {
         Err(Error::NotFound(format!("Job {job_id} not found")))
     }
+}
+
+/// The `ids` a path-scoped `jobs:cancel:<paths>` token may cancel; all of them for
+/// every caller whose cancels are not path-confined (see `job_cancel_path_confinement`).
+///
+/// A job is admitted when it, or any of its `parent_job` ancestors, is a run of a
+/// deployed script or flow whose path the scope names: cancelling a flow's step is
+/// within a scope on the flow. Only those kinds count, because a preview's
+/// `runnable_path` is whatever its caller sent and would otherwise let any preview
+/// impersonate an in-scope runnable.
+async fn filter_jobs_within_cancel_scope(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    ids: Vec<Uuid>,
+) -> error::Result<Vec<Uuid>> {
+    let Some(confinement) =
+        windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
+    else {
+        return Ok(ids);
+    };
+    let chain = sqlx::query!(
+        r#"WITH RECURSIVE chain(origin, id, parent_job) AS (
+                SELECT id, id, parent_job FROM v2_job WHERE id = ANY($1) AND workspace_id = $2
+                UNION ALL
+                SELECT c.origin, j.id, j.parent_job FROM v2_job j
+                    JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
+            )
+            SELECT c.origin AS "origin!", j.runnable_path AS "runnable_path!"
+            FROM chain c JOIN v2_job j ON j.id = c.id
+            WHERE j.workspace_id = $2 AND j.runnable_path IS NOT NULL
+                AND j.kind IN ('script', 'script_hub', 'unassigned_script', 'flow',
+                    'unassigned_flow', 'singlestepflow', 'unassigned_singlestepflow')"#,
+        &ids,
+        w_id,
+    )
+    .fetch_all(db)
+    .await?;
+    let admitted: HashSet<Uuid> = chain
+        .into_iter()
+        .filter(|r| {
+            windmill_api_auth::scopes::cancel_confinement_admits(&confinement, &r.runnable_path)
+        })
+        .map(|r| r.origin)
+        .collect();
+    Ok(ids.into_iter().filter(|id| admitted.contains(id)).collect())
+}
+
+async fn require_job_within_cancel_scope(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: Uuid,
+) -> error::Result<()> {
+    if filter_jobs_within_cancel_scope(db, authed, w_id, vec![job_id])
+        .await?
+        .is_empty()
+    {
+        return Err(Error::NotFound(format!("Job {job_id} not found")));
+    }
+    Ok(())
 }
 
 /// Self + every `parent_job` ancestor (intermediate sub-flows up to the top-level
@@ -4372,6 +4450,26 @@ async fn cancel_selection(
     let force_cancel = query.force_cancel.unwrap_or(false);
     let mut cancelled = Vec::new();
     for (workspace_id, ids) in jobs_by_workspace {
+        let ids = if force_cancel
+            && windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
+                .is_some()
+        {
+            // A force cancel kills the highest queued ancestor, so that is what the scope
+            // must admit.
+            let mut admitted = Vec::with_capacity(ids.len());
+            for id in ids {
+                let target = force_cancel_target(&db, &workspace_id, id).await?;
+                if !filter_jobs_within_cancel_scope(&db, &authed, &workspace_id, vec![target])
+                    .await?
+                    .is_empty()
+                {
+                    admitted.push(id);
+                }
+            }
+            admitted
+        } else {
+            filter_jobs_within_cancel_scope(&db, &authed, &workspace_id, ids).await?
+        };
         let Json(mut w_cancelled) = cancel_jobs(
             ids,
             &db,
