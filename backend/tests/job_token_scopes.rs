@@ -193,3 +193,62 @@ async fn test_flow_steps_inherit_the_flow_restriction(db: Pool<Postgres>) -> any
     assert_eq!(step, Some(vec!["oidc:write".to_string()]));
     Ok(())
 }
+
+#[sqlx::test(fixtures("base"))]
+async fn test_deploy_without_the_field_keeps_the_restriction(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api/w/test-workspace", server.addr.port());
+    let client = reqwest::Client::new();
+    let script = |path: &str, scopes: Option<serde_json::Value>| {
+        let mut body = json!({
+            "path": path, "summary": "", "description": "", "content": "echo 42", "language": "bash",
+        });
+        if let Some(scopes) = scopes {
+            body["job_token_scopes"] = scopes;
+        }
+        body
+    };
+    let stored = |path: &'static str| {
+        let db = db.clone();
+        async move {
+            sqlx::query_scalar::<_, Option<Vec<String>>>(
+                "SELECT job_token_scopes FROM script WHERE path = $1 ORDER BY created_at DESC LIMIT 1",
+            )
+            .bind(path)
+            .fetch_one(&db)
+            .await
+        }
+    };
+
+    let resp = client
+        .post(format!("{base}/scripts/create"))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&script("u/test-user/agent", Some(json!(["oidc:write"]))))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), StatusCode::CREATED, "{}", resp.text().await?);
+
+    // A rename by a client that does not know the field carries the restriction along.
+    let resp = client
+        .post(format!("{base}/scripts/update/u/test-user/agent"))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&script("u/test-user/renamed", None))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "{}", resp.text().await?);
+    assert_eq!(stored("u/test-user/renamed").await?, Some(vec!["oidc:write".to_string()]));
+
+    // An explicit null clears it.
+    let resp = client
+        .post(format!("{base}/scripts/update/u/test-user/renamed"))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&script("u/test-user/renamed", Some(serde_json::Value::Null)))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "{}", resp.text().await?);
+    assert_eq!(stored("u/test-user/renamed").await?, None);
+    Ok(())
+}

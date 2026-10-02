@@ -3641,7 +3641,11 @@ pub async fn run_worker(
                         NextJob::Http(_) => None,
                     };
 
-                    if let Some(flow_runners) = flow_runners.filter(|_| !fails_before_running) {
+                    // A flow runner runs every step it gets with its own unscoped worker token, so
+                    // a step with a restricted token runs here, with the token minted for it.
+                    if let Some(flow_runners) = flow_runners
+                        .filter(|_| !fails_before_running && job.job_token_scopes.is_none())
+                    {
                         let key_o = job.flow_step_id.as_ref().map(|x| x.to_string());
                         if let Some(key) = key_o {
                             if let Some(flow_runner_tx) = flow_runners.runners.get(&key) {

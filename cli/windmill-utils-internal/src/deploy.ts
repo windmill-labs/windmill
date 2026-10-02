@@ -458,6 +458,8 @@ export async function deployItem(
           path,
           requestBody: {
             ...flow,
+            // Sent even when unset: the backend keeps a restriction an omitted field leaves out.
+            job_token_scopes: flow.job_token_scopes ?? null,
             preserve_on_behalf_of: preserveOnBehalfOf,
             on_behalf_of_email: onBehalfOf,
             // Usernames are per-workspace, so the source's principal names nobody in
@@ -471,6 +473,8 @@ export async function deployItem(
           workspace: workspaceTo,
           requestBody: {
             ...flow,
+            // Sent even when unset: the backend keeps a restriction an omitted field leaves out.
+            job_token_scopes: flow.job_token_scopes ?? null,
             preserve_on_behalf_of: preserveOnBehalfOf,
             on_behalf_of_email: onBehalfOf,
             // Usernames are per-workspace, so the source's principal names nobody in
@@ -498,6 +502,7 @@ export async function deployItem(
         requestBody: {
           ...script,
           lock: script.lock,
+          job_token_scopes: script.job_token_scopes ?? null,
           parent_hash: parentHash,
           preserve_on_behalf_of: preserveOnBehalfOf,
           on_behalf_of_email: onBehalfOf,

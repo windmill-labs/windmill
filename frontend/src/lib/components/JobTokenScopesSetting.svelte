@@ -65,7 +65,8 @@
 			The <code>WM_TOKEN</code> of every job of this {kind} can only do what these scopes allow. Jobs
 			it starts, {kind === 'flow' ? 'its steps, ' : ''}and AI agent tools inherit the restriction.
 			Variables and resources passed as <code>$var:</code>/<code>$res:</code> inputs, an AI agent's provider
-			resource, relative imports and object storage each need a read scope. Write scopes on scripts,
+			resource, relative imports and object storage each need a read scope, and script state
+			(<code>getState</code>/<code>setState</code>) needs <code>resources:write</code>. Write scopes on scripts,
 			flows, schedules or triggers let a job escape the restriction. Jobs with a restricted token never
 			run on dedicated workers.
 		</p>

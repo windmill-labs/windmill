@@ -74,7 +74,7 @@ use windmill_common::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
         Retry, StopAfterIf,
     },
-    jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode},
+    jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, RawCode},
     min_version::{MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440},
     schedule::Schedule,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
@@ -3857,49 +3857,6 @@ impl MiniPulledJob {
             .and_then(|f| f.chat_input_enabled)
     }
 
-    pub fn from(job: &QueuedJob) -> MiniPulledJob {
-        MiniPulledJob {
-            workspace_id: job.workspace_id.clone(),
-            id: job.id,
-            args: job.args.clone(),
-            parent_job: job.parent_job.clone(),
-            created_by: job.created_by.clone(),
-            started_at: job.started_at.clone(),
-            scheduled_for: job.scheduled_for,
-            runnable_path: job.script_path.clone(),
-            kind: job.job_kind,
-            runnable_id: job.script_hash.clone(),
-            canceled_reason: job.canceled_reason.clone(),
-            canceled_by: job.canceled_by.clone(),
-            permissioned_as: job.permissioned_as.clone(),
-            permissioned_as_email: job.email.clone(),
-            flow_status: job.flow_status.clone(),
-            tag: job.tag.clone(),
-            script_lang: job.language.clone(),
-            same_worker: job.same_worker,
-            pre_run_error: job.pre_run_error.clone(),
-            concurrent_limit: job.concurrent_limit.clone(),
-            concurrency_time_window_s: job.concurrency_time_window_s.clone(),
-            runnable_settings_handle: job.runnable_settings_handle,
-            flow_innermost_root_job: job.root_job.clone(), // QueuedJob is taken from v2_as_queue, where root_job corresponds to flow_innermost_root_job in v2_job
-            root_job: None,
-            timeout: job.timeout.clone(),
-            flow_step_id: job.flow_step_id.clone(),
-            cache_ttl: job.cache_ttl.clone(),
-            cache_ignore_s3_path: job.cache_ignore_s3_path.clone(),
-            priority: job.priority.clone(),
-            preprocessed: job.preprocessed.clone(),
-            script_entrypoint_override: job.script_entrypoint_override.clone(),
-            trigger: job.schedule_path.clone(),
-            trigger_kind: job
-                .schedule_path
-                .is_some()
-                .then(|| JobTriggerKind::Schedule.into()),
-            visible_to_owner: job.visible_to_owner.clone(),
-            permissioned_as_end_user_email: None,
-            job_token_scopes: None,
-        }
-    }
     pub fn is_flow(&self) -> bool {
         self.kind.is_flow()
     }

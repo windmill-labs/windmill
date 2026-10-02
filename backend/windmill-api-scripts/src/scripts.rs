@@ -1379,34 +1379,6 @@ async fn create_script_internal<'c>(
         &db,
     )
     .await?;
-    // Absent keeps what the previous version has (the parent, or else the latest at the path):
-    // a client unaware of the setting must not drop a restriction by redeploying or renaming.
-    let resolved_job_token_scopes = match (&ns.job_token_scopes, &ns.parent_hash) {
-        (Some(Some(scopes)), _) => {
-            windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
-                .assert()
-                .await?;
-            Some(windmill_common::scopes::validate_job_token_scopes(scopes)?)
-        }
-        (Some(None), _) => None,
-        (None, Some(parent_hash)) => sqlx::query_scalar!(
-            "SELECT job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
-            parent_hash.0,
-            &w_id
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten(),
-        (None, None) => sqlx::query_scalar!(
-            "SELECT job_token_scopes FROM script WHERE path = $1 AND workspace_id = $2 \
-             AND deleted = false ORDER BY created_at DESC LIMIT 1",
-            &ns.path,
-            &w_id
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten(),
-    };
     // Written beside the principal only while a worker that still reads it may be live.
     let legacy_on_behalf_of_email =
         windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
@@ -1523,6 +1495,37 @@ async fn create_script_internal<'c>(
         };
         parent_adopted_from_retired_path = ns.parent_hash.is_some();
     }
+
+    // Absent keeps the previous version's value, read once the parent is settled (a rename
+    // adopts its source head above), so a client unaware of the setting cannot drop a
+    // restriction by redeploying or renaming.
+    let resolved_job_token_scopes: Option<Vec<String>> = match (&ns.job_token_scopes, &ns.parent_hash) {
+        (Some(Some(scopes)), _) => {
+            windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+                .assert()
+                .await?;
+            Some(windmill_common::scopes::validate_job_token_scopes(scopes)?)
+        }
+        (Some(None), _) => None,
+        (None, Some(parent_hash)) => sqlx::query_scalar!(
+            "SELECT job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
+            parent_hash.0,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten(),
+        (None, None) => sqlx::query_scalar!(
+            "SELECT job_token_scopes FROM script WHERE path = $1 AND workspace_id = $2 \
+             AND deleted = false ORDER BY created_at DESC LIMIT 1",
+            &ns.path,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten(),
+    };
+    ns.job_token_scopes = Some(resolved_job_token_scopes.clone());
 
     // Before hashing, so the hash and the no-op check see the schema that gets stored.
     // `{}` counts as absent: an agent filling every tool argument sends it for "none".

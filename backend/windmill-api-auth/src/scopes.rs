@@ -747,7 +747,6 @@ pub fn scope_for_route(method: &str, path: &str) -> Option<String> {
     })
 }
 
-/// Helper function to check if scopes allow access to a route
 /// Routes the runtime of a job calls about that job alone: progress, its root id, its
 /// resume and approval urls, a workflow-as-code checkpoint or task. A job token restricted
 /// by `job_token_scopes` keeps these whatever its scopes, or the job could not run at all,
@@ -802,6 +801,7 @@ pub fn flow_run_read_route_job(route_path: &str, http_method: &str) -> Option<uu
     uuid::Uuid::parse_str(id).ok()
 }
 
+/// Helper function to check if scopes allow access to a route
 pub fn check_scopes_for_route(
     token_scopes: Option<&[String]>,
     route_path: &str,

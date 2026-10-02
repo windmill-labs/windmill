@@ -9620,7 +9620,8 @@ async fn add_batch_jobs(
     let language = language.unwrap_or(ScriptLang::Deno);
 
     let tag = if let Some(dedicated_worker) = dedicated_worker {
-        if dedicated_worker && path.is_some() {
+        // Same rule as `push`: a dedicated worker would run it with its own unscoped token.
+        if dedicated_worker && path.is_some() && job_token_scopes.is_none() {
             windmill_common::worker::dedicated_worker_tag(&w_id, &path.clone().unwrap())
         } else {
             format!("{}", language.as_str())

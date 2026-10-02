@@ -4328,7 +4328,10 @@ async fn push_next_flow_job(
     };
 
     // only start runners if we're not already in a squash for loop
+    // Runners would run its steps with their own unscoped token: a restricted flow runs them
+    // as regular jobs.
     let start_runners = flow_runners.is_none()
+        && flow_job.job_token_scopes.is_none()
         && matches!(
             next_status,
             NextStatus::NextLoopIteration { start_runners: true, .. }
