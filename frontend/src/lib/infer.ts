@@ -580,6 +580,7 @@ export async function inferArgs(
 			arg.default == null &&
 			typeof old?.default == 'string' &&
 			old.default.startsWith('$res:') &&
+			schema.properties[arg.name].type == 'object' &&
 			format?.startsWith('resource-') &&
 			format == old.format
 		if (!keepResourceDefault) {
