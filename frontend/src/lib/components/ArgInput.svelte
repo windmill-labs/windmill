@@ -701,7 +701,7 @@
 	{#if description}
 		<div class={twMerge('text-xs text-secondary', css?.description?.class)}>
 			<pre class="font-main whitespace-normal"
-				>{description}{#if inputCat == 'ai-decision-questions' && questionsInJson}{'. In JSON: { <name>: { type: choice | score | noul, instructions, criteria } }'}{/if}</pre
+				>{description}{#if inputCat == 'ai-decision-questions' && questionsInJson}{': { <name>: { type: choice | score | noul, instructions, criteria } }'}{/if}</pre
 			>
 		</div>
 	{/if}
