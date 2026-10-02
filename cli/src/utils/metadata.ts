@@ -988,15 +988,17 @@ export async function inferSchema(
     }
 
     // Most languages cannot write a resource default in code, so one picked in the
-    // schema (`$res:` path) is kept while the code sets none; any code default wins.
-    const oldDefault = oldProperties[arg.name]?.default;
-    if (
-      !(
-        arg.default == null &&
-        typeof oldDefault == "string" &&
-        oldDefault.startsWith("$res:")
-      )
-    ) {
+    // schema (`$res:` path) is kept while the code sets none and the arg is still that
+    // resource type; any code default wins.
+    const old = oldProperties[arg.name];
+    const format = currentSchema.properties[arg.name].format;
+    const keepResourceDefault =
+      arg.default == null &&
+      typeof old?.default == "string" &&
+      old.default.startsWith("$res:") &&
+      format?.startsWith("resource-") &&
+      format == old.format;
+    if (!keepResourceDefault) {
       currentSchema.properties[arg.name].default = arg.default;
     }
 

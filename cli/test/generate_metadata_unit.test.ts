@@ -230,21 +230,23 @@ describe("generate-metadata invalid input handling", () => {
 });
 
 describe("generate-metadata keeps schema defaults code cannot express", () => {
-  const content = `type Postgresql = object;\nexport async function main(db?: Postgresql, n: number = 1) {\n  return db;\n}\n`;
+  const content = `type Postgresql = object;\ntype Mysql = object;\nexport async function main(db?: Postgresql, other?: Mysql, n: number = 1) {\n  return db;\n}\n`;
 
-  test("a $res: default survives re-inference, a code default still wins", async () => {
+  test("a $res: default survives while the resource type holds, a code default still wins", async () => {
     const result = await inferSchema(
       "bun",
       content,
       {
         properties: {
           db: { type: "object", format: "resource-postgresql", default: "$res:f/x/pg" },
+          other: { type: "object", format: "resource-postgresql", default: "$res:f/x/pg" },
           n: { type: "number", default: "$res:f/x/other" },
         },
       },
       "test.ts"
     );
     expect(result.schema.properties.db.default).toEqual("$res:f/x/pg");
+    expect(result.schema.properties.other.default ?? null).toBeNull();
     expect(result.schema.properties.n.default).toEqual(1);
   });
 });
