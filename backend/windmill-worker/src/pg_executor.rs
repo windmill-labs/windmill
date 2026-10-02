@@ -273,6 +273,20 @@ async fn sweep_idle_pg_connections() {
     }
 }
 
+/// PostgreSQL's SQLSTATE 53300 (role, database and server caps) and PgBouncer's
+/// client and user caps. The connect path only surfaces the message, not the code.
+fn is_connection_cap_refusal(e: &Error) -> bool {
+    let msg = e.to_string();
+    [
+        "too many connections for",
+        "too many clients already",
+        "remaining connection slots are reserved",
+        "no more connections allowed",
+    ]
+    .iter()
+    .any(|m| msg.contains(m))
+}
+
 fn close_idle_pg_connections() -> usize {
     let idle = std::mem::take(&mut pg_connection_cache().idle);
     idle.len()
@@ -1156,7 +1170,7 @@ pub async fn do_postgresql(
                 // total connection cap, which pool scopes do not capture. Free the
                 // idle connections of every scope and try once more.
                 Err(e) => {
-                    if close_idle_pg_connections() == 0 {
+                    if !is_connection_cap_refusal(&e) || close_idle_pg_connections() == 0 {
                         return Err(e);
                     }
                     tokio::time::sleep(Duration::from_millis(250)).await;
