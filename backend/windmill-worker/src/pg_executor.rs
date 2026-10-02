@@ -1380,7 +1380,17 @@ pub async fn do_postgresql(
         )
         .await
     }
-    .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input))?;
+    .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input));
+    // A failed job can leave the connection inside a transaction, or with its
+    // query still running after a timeout or cancel, and the status byte can
+    // lag behind an error. Never reuse it.
+    let result = match result {
+        Ok(result) => result,
+        Err(e) => {
+            lease.discard();
+            return Err(e);
+        }
+    };
 
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
