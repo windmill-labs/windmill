@@ -22,7 +22,7 @@ smtp = ["dep:mail-send", "dep:rustls", "dep:tokio-rustls", "dep:rustls-native-ce
 scoped_cache = []
 cloud = []
 dev_override = []
-openidconnect = ["dep:openidconnect"]
+openidconnect = ["dep:openidconnect", "dep:rsa"]
 python = ["dep:windmill-parser-py"]
 
 [lib]
