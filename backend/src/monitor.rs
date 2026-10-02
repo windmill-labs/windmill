@@ -6199,16 +6199,21 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             let memory_peak = job.memory_peak.unwrap_or(0);
             let (_, killpill_rx_never_used) = KillpillSender::new(1);
             // Read while the job is still queued: a re-run (perpetual, retry) takes its cap from
-            // here once the `job_perms` row is swept after completion.
-            let job_token_scopes = sqlx::query_scalar!(
+            // here once the `job_perms` row is swept after completion. A failed read leaves the
+            // job for the next sweep rather than completing it with no cap.
+            let job_token_scopes = match sqlx::query_scalar!(
                 "SELECT job_token_scopes FROM job_perms WHERE job_id = $1",
                 job.id
             )
             .fetch_optional(db)
             .await
-            .ok()
-            .flatten()
-            .flatten();
+            {
+                Ok(scopes) => scopes.flatten(),
+                Err(e) => {
+                    tracing::error!("Could not read the token scopes of zombie job {}: {e:#}", job.id);
+                    continue;
+                }
+            };
             let mut completed = windmill_queue::MiniCompletedJob::from(job);
             completed.job_token_scopes = job_token_scopes;
             let _ = handle_job_error(

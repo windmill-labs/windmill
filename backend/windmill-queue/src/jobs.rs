@@ -3744,6 +3744,8 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             // `QueuedJobV2` carries no args, and nothing reaches the restart gate
             // through this conversion — the worker completes jobs from the pulled job.
             build_binary_only: false,
+            // Nor scopes: a caller whose completion can re-run the job fills them in from
+            // `job_perms` while the job is still queued.
             job_token_scopes: None,
         }
     }
