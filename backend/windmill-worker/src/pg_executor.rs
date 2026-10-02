@@ -235,8 +235,9 @@ impl PgConnectionLease {
         Self { slot, conn, cache_on_release: false }
     }
 
-    /// Gives up a cached connection that failed its probe; the job then
-    /// connects on its own.
+    /// Closes the lease's connection so it is never cached again: a cached one
+    /// that failed its probe (the job then connects on its own), or one a job
+    /// failed on or left inside a transaction.
     fn discard(&mut self) {
         let conn = self.conn.take();
         if self.slot == PgLeaseSlot::CheckedOut {
