@@ -19,6 +19,7 @@
 		CtxAppInput
 	} from '../../inputType'
 	import type { AppViewerContext } from '../../types'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 	import { createEventDispatcher } from 'svelte'
 	import { deepEqual } from 'fast-equals'
 	import { computeFields } from './utils'
@@ -37,6 +38,7 @@
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderApps = useOperatorBuilderApps()
 
 	interface Props {
 		runnable: RunnableByPath
@@ -362,16 +364,18 @@
 			>
 				Edit
 			</Button>
-			<Button
-				size="xs"
-				variant="default"
-				startIcon={{ icon: GitFork }}
-				on:click={() => {
-					fork(runnable.path)
-				}}
-			>
-				Fork
-			</Button>
+			{#if !$operatorBuilderApps}
+				<Button
+					size="xs"
+					variant="default"
+					startIcon={{ icon: GitFork }}
+					on:click={() => {
+						fork(runnable.path)
+					}}
+				>
+					Fork
+				</Button>
+			{/if}
 		{/if}
 		<Popover
 			floatingConfig={{

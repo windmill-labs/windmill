@@ -4,6 +4,7 @@
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -46,6 +47,9 @@
 		/** The app_version the draft forked from; the server derives `draft.base`
 		 *  from it. */
 		parent_version?: number
+		/** Whose draft this one was loaded from, until its preview is run or it is deployed:
+		 *  the editor previews it as that user's code, not as the viewer's. */
+		loaded_from?: string
 	}
 
 	let files: Record<string, string> | undefined = $state(undefined)
@@ -95,6 +99,8 @@
 	// edits to the just-deployed app autosaved to a dead key (autosave appeared
 	// broken). See /scripts/edit, which derives its draft path the same way.
 	// effectivePath omitted: the live-editor-draft entry is owned by RawAppEditor.
+	const operatorBuilderApps = useOperatorBuilderApps()
+
 	const draftSync = usePageDraftSync<RawAppDraft>({
 		itemKind: 'raw_app',
 		path: () => page.params.path ?? '',
@@ -122,6 +128,7 @@
 			policy,
 			custom_path: savedApp?.custom_path,
 			parent_version: parentVersion,
+			loaded_from: loadedDraftOwner,
 			// Persist the typed path as `draft_path` only when it actually differs
 			// from the current path — a `draft_path` equal to the baseline is a
 			// no-op that would block the draft from deduping against the deployed
@@ -162,6 +169,7 @@
 	let isNewApp = $state(false)
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 	let loadedFromDraft = $state(false)
+	let loadedDraftOwner = $state<string | undefined>(undefined)
 	let othersModalOpen = $state(false)
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
@@ -269,7 +277,7 @@
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
 			const seedFiles = { ...react19Template }
-			const seedRunnables = structuredClone(STARTER_RUNNABLES)
+			const seedRunnables = starterRunnables()
 			savedApp = {
 				summary: '',
 				value: { files: seedFiles as any, runnables: seedRunnables as any },
@@ -358,6 +366,7 @@
 					policy?: any
 					custom_path?: string
 					draft_path?: string
+					loaded_from?: string
 			  }
 			| undefined
 		// Surface the saved `draft_path` on `backendApp` so `extractRawApp` seeds
@@ -408,6 +417,7 @@
 		const pendingLoad = getDraft
 			? OtherUserDraftLoad.takePending($workspaceStore!, 'raw_app', path)
 			: undefined
+		loadedDraftOwner = pendingLoad?.ownerLabel ?? savedRawAppDraft?.loaded_from
 		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
 		// lock so editing our own draft works again. See /scripts/edit's loader.
 		if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'raw_app', path)) {
@@ -442,6 +452,7 @@
 						policy,
 						custom_path: savedApp?.custom_path,
 						parent_version: parentVersion,
+						loaded_from: loadedDraftOwner,
 						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
 					} as RawAppDraft,
 					onResetToOwnDraft: () => loadApp({ getDraft: true })
@@ -518,9 +529,15 @@
 
 	let rawAppEditor: RawAppEditor | undefined = $state()
 
+	// The starter runnables are inline scripts, which the backend refuses from an operator with
+	// builder rights: seeding them would make their very first deploy fail.
+	function starterRunnables() {
+		return $operatorBuilderApps ? {} : structuredClone(STARTER_RUNNABLES)
+	}
+
 	function onTemplatePickerStart(result: RawAppTemplatePickerResult, withPrompt: boolean) {
 		files = { ...result.files }
-		runnables = { ...result.runnables, ...structuredClone(STARTER_RUNNABLES) }
+		runnables = { ...result.runnables, ...starterRunnables() }
 		data = result.data
 		summary = result.summary
 		policy = result.policy
@@ -625,6 +642,7 @@
 				bind:savedApp
 				{diffDrawer}
 				newApp={isNewApp}
+				bind:loadedDraftOwner
 				version={parentVersion ??
 					(deployedHeadVersion != null ? Number(deployedHeadVersion) : undefined)}
 				{draftBaseVersion}
@@ -663,6 +681,7 @@
 					// pair would then differ and open the prompt on a draft that is gone.
 					draftBaseVersion = version != null && version === head ? String(version) : undefined
 					draftSavedAt = undefined
+					loadedDraftOwner = undefined
 					if (head != null) {
 						// Named by whoever deployed the head, not by the page load's author.
 						deployedHeadVersion = String(head)

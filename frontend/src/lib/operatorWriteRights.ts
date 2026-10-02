@@ -27,22 +27,42 @@ export const useTriggerLock = () => writeLock('manage_triggers', 'triggers')
 
 /**
  * True when the user is an operator of `workspace` and it granted operators the right to compose
- * flows out of runnables that are already deployed. They still author no code, and everywhere else
- * `operator` keeps meaning read-only, so a gate on the operator role has to consult this before
+ * this kind out of runnables that are already deployed. They still author no code, and everywhere
+ * else `operator` keeps meaning read-only, so a gate on the operator role has to consult this before
  * refusing. `operator_settings` is null for a non-operator, so this is false for them.
+ *
+ * The two rights are granted independently: anything that authors one kind must gate on that
+ * kind, or a flows-only workspace offers app affordances the backend then refuses.
  */
-function builderFlows(workspace: Readable<string | undefined>): Readable<boolean> {
+function builderRight(
+	key: 'builder_flows' | 'builder_apps',
+	workspace: Readable<string | undefined>
+): Readable<boolean> {
 	return derived(
 		[userWorkspaces, workspace],
 		([$userWorkspaces, $workspace]) =>
-			$userWorkspaces.find((w) => w.id === $workspace)?.operator_settings?.builder_flows === true
+			$userWorkspaces.find((w) => w.id === $workspace)?.operator_settings?.[key] === true
+	)
+}
+
+/** Either right, only for surfaces that are not per-kind, such as the create menu's visibility. */
+function anyBuilderRight(workspace: Readable<string | undefined>): Readable<boolean> {
+	return derived(
+		[builderRight('builder_flows', workspace), builderRight('builder_apps', workspace)],
+		([flows, apps]) => flows || apps
 	)
 }
 
 /** Builder rights in the operating workspace. Reads context: call during component
  * initialisation. */
-export const useOperatorBuilderFlows = () => builderFlows(useOperatingWorkspace())
+export const useOperatorBuilderFlows = () => builderRight('builder_flows', useOperatingWorkspace())
+/** Reads context: call during component initialisation. */
+export const useOperatorBuilderApps = () => builderRight('builder_apps', useOperatingWorkspace())
+/** Reads context: call during component initialisation. */
+export const useOperatorBuilderRights = () => anyBuilderRight(useOperatingWorkspace())
 
 /** Builder rights in the navigation workspace, for code outside any component: the legacy AI
  * chat is one instance for the whole app and acts on the workspace the nav is on. */
-export const navigationOperatorBuilderFlows = builderFlows(workspaceStore)
+export const navigationOperatorBuilderFlows = builderRight('builder_flows', workspaceStore)
+export const navigationOperatorBuilderApps = builderRight('builder_apps', workspaceStore)
+export const navigationOperatorBuilderRights = anyBuilderRight(workspaceStore)

@@ -191,25 +191,23 @@
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator}
-				{#if showEditButton && flow.canWrite && !flow.archived}
-					<div>
-						<Button
-							variant="subtle"
-							wrapperClasses="w-20"
-							unifiedSize="md"
-							startIcon={{ icon: Pen }}
-							href="{base}/flows/edit/{flow.path}"
-							aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
-							aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
-						>
-							Edit
-						</Button>
-					</div>
-				{/if}
-				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
-					<EditInForkButton itemType="flow" path={flow.path} />
-				{/if}
+			{#if showEditButton && flow.canWrite && !flow.archived && (!$userStore?.operator || $operatorBuilderFlows)}
+				<div>
+					<Button
+						variant="subtle"
+						wrapperClasses="w-20"
+						unifiedSize="md"
+						startIcon={{ icon: Pen }}
+						href="{base}/flows/edit/{flow.path}"
+						aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+						aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+					>
+						Edit
+					</Button>
+				</div>
+			{/if}
+			{#if !$userStore?.operator && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
+				<EditInForkButton itemType="flow" path={flow.path} />
 			{/if}
 		</span>
 

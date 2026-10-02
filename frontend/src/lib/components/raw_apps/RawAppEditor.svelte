@@ -8,7 +8,8 @@
 	import type Drawer from '../common/drawer/Drawer.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import { Button } from '../common'
-	import { AppService, type Policy, WorkspaceService } from '$lib/gen'
+	import { ApiError, AppService, type Policy, UserService, WorkspaceService } from '$lib/gen'
+	import { useActingUser } from '$lib/actingUser.svelte'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
 
@@ -85,6 +86,9 @@
 		/** Data configuration including tables and creation policy */
 		data?: RawAppData
 		newApp: boolean
+		/** Whose draft the editor shows, when it was loaded from another user's. Running the
+		 *  held preview clears it. */
+		loadedDraftOwner?: string
 		policy: Policy
 		summary?: string
 		path: string
@@ -194,6 +198,7 @@
 		runnables = $bindable({}),
 		data = $bindable(DEFAULT_DATA),
 		newApp,
+		loadedDraftOwner = $bindable(),
 		policy,
 		summary = $bindable(''),
 		path,
@@ -1546,6 +1551,73 @@
 	// once tokenless and again tokenful, running mount-time side effects twice.
 	let previewSdkPending = $state(false)
 
+	// The preview runs the app's code same-origin with the viewer's session, so code an
+	// operator wrote could act as whoever opens it here. Until sandboxed apps also preview
+	// isolated, code last deployed or drafted by anyone but a known developer waits for the
+	// viewer to run it: a loaded draft is checked by its owner, not by the app's deployer.
+	type PreviewGate =
+		| { kind: 'checking' }
+		| { kind: 'open' }
+		| { kind: 'held'; draft: boolean; operator?: string }
+	let previewGate: PreviewGate = $state({ kind: 'checking' })
+	let previewGateKey: string | undefined = undefined
+	const actingUser = useActingUser(() => opWorkspace)
+
+	function previewGateKeyOf(draftOwner: string | undefined) {
+		return `${opWorkspace ?? ''}|${path}|${newApp}|${actingUser.current?.username ?? ''}|${draftOwner ?? ''}`
+	}
+
+	$effect(() => {
+		const ws = opWorkspace
+		const me = actingUser.current
+		const key = previewGateKeyOf(loadedDraftOwner)
+		if (key === previewGateKey) return
+		previewGateKey = key
+		if ((newApp && !loadedDraftOwner) || me?.operator) {
+			untrack(() => runHeldPreview())
+			return
+		}
+		previewGate = { kind: 'checking' }
+		if (ws && me) untrack(() => checkPreviewAuthor(ws, me.username, key))
+	})
+
+	async function checkPreviewAuthor(ws: string, me: string, key: string) {
+		// `null`: never deployed, so the code on screen is the viewer's own draft.
+		const author =
+			loadedDraftOwner ??
+			(await AppService.getAppLiteByPath({ workspace: ws, path }).then(
+				(app) => app.created_by,
+				(e) => (e instanceof ApiError && e.status === 404 ? null : undefined)
+			))
+		let held = author === undefined
+		let operator: string | undefined
+		if (author && author !== me) {
+			const users = await UserService.listUsers({ workspace: ws }).catch(() => undefined)
+			const user = users?.find((u) => u.username === author)
+			held = !user || user.operator
+			operator = user?.operator ? author : undefined
+		}
+		if (key !== previewGateKey) return
+		if (held) {
+			previewGate = { kind: 'held', draft: !!loadedDraftOwner, operator }
+		} else {
+			runHeldPreview()
+		}
+	}
+
+	function consentToPreview() {
+		// The viewer has run this code, so it previews as theirs from now on, reloads included.
+		previewGateKey = previewGateKeyOf(undefined)
+		loadedDraftOwner = undefined
+		runHeldPreview()
+	}
+
+	function runHeldPreview() {
+		previewGate = { kind: 'open' }
+		if (lastBuild) feedPreviewIframe(lastBuild)
+		syncExternalPreview()
+	}
+
 	/** Discard the running app. The shell resets the DOM but keeps the JavaScript
 	 * realm, so only a reload drops the old bundle's timers, listeners and the
 	 * token its client captured at module load. */
@@ -1617,7 +1689,7 @@
 	}
 
 	function syncExternalPreview() {
-		if (previewSdkPending || !externalPreviewReady) return
+		if (previewSdkPending || previewGate.kind !== 'open' || !externalPreviewReady) return
 		if (lastBuild) {
 			postToExternalPreview({
 				type: 'preview',
@@ -1634,7 +1706,7 @@
 		// Between dropping a credential and settling its replacement the shell stays
 		// blank; whichever settles last — the mint or the shell's own `load` — starts
 		// the app. Same for a shell still reloading: its `load` handler replays.
-		if (previewSdkPending || !previewIframeLoaded) return
+		if (previewSdkPending || previewGate.kind !== 'open' || !previewIframeLoaded) return
 		runtimeError = undefined
 		emptyRender = false
 		// Same-origin app-preview.html, and the payload now carries a token — address
@@ -2728,7 +2800,29 @@
 									src={PREVIEW_SHELL_URL}
 									class="w-full flex-1 block"
 								></iframe>
-								{#if buildError}
+								{#if previewGate.kind === 'held'}
+									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
+										<Alert
+											type="warning"
+											title="Preview paused"
+											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
+										>
+											<div class="flex flex-col items-start gap-2">
+												<span>
+													{previewGate.operator
+														? `${previewGate.draft ? 'This draft was saved by' : 'This app was last deployed by'} ${previewGate.operator}, an operator.`
+														: previewGate.draft
+															? 'Who saved this draft could not be checked.'
+															: 'Who last deployed this app could not be checked.'}
+													Running the preview runs its code with your session, so review its files first.
+												</span>
+												<Button variant="default" unifiedSize="sm" onclick={consentToPreview}>
+													Run preview
+												</Button>
+											</div>
+										</Alert>
+									</div>
+								{:else if buildError}
 									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
 									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->
 									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">

@@ -23,7 +23,7 @@ use windmill_common::{
     users::resolve_username_to_email,
     utils::{check_proper_path, strip_json_nul},
     variables::{build_crypt, encrypt},
-    workspaces::operator_can_build_flows,
+    workspaces::{operator_builder_rights, BuilderKind},
 };
 
 pub fn workspaced_service() -> Router {
@@ -107,7 +107,7 @@ async fn list_drafts(
     // Without builder rights an operator has no drafts of their own (they can't write any, see
     // `require_can_write_path`), so this list is always empty for them. They can still READ some
     // collaborators' drafts via `/drafts/get`.
-    if authed.is_operator && !operator_can_build_flows(&db, &w_id).await? {
+    if authed.is_operator && !operator_builder_rights(&db, &w_id).await?.any() {
         return Ok(Json(vec![]));
     }
     let all_users = query.all_users.unwrap_or(false);
@@ -493,6 +493,21 @@ async fn update_draft(
                 &w_id,
             )
             .await?;
+        }
+    }
+
+    // The raw-app editor runs a draft's inline runnables as whoever opens it, so a builder's
+    // draft is refused the inline code its deploy would be.
+    if authed.is_operator && kind == UserDraftItemKind::RawApp {
+        if let Some(value) = &req.value {
+            let draft: serde_json::Value = serde_json::from_str(&strip_json_nul(value.0.get()))
+                .map_err(|e| Error::BadRequest(format!("Invalid app draft: {e}")))?;
+            if windmill_common::apps::app_value_has_inline_script(&draft) {
+                return Err(Error::PermissionDenied(
+                    "Operators with builder rights cannot save an app carrying inline scripts"
+                        .to_string(),
+                ));
+            }
         }
     }
 
@@ -1161,14 +1176,21 @@ pub(crate) async fn require_can_write_path(
     if authed.is_admin {
         return Ok(());
     }
-    // Operators are read-only and never WRITE drafts, except a flow draft where the workspace
-    // granted the builder right: the kind has to be checked, or the right would open drafts of
-    // kinds it says nothing about. Read access is deliberately asymmetric:
+    // Operators are read-only and never WRITE drafts, except of a kind the workspace granted them
+    // the matching builder right for: a flows-only workspace must not get raw-app drafts through
+    // here. Read access is deliberately asymmetric:
     // `require_can_read_path` has no operator block, so an operator can still READ a draft they
     // can read via `/drafts/get`, mirroring their read access to deployed content. Intended.
     if authed.is_operator {
-        let granted =
-            matches!(kind, UserDraftItemKind::Flow) && operator_can_build_flows(db, w_id).await?;
+        let allowed = match kind {
+            UserDraftItemKind::Flow => Some(BuilderKind::Flows),
+            UserDraftItemKind::RawApp => Some(BuilderKind::Apps),
+            _ => None,
+        };
+        let granted = match allowed {
+            Some(kind) => operator_builder_rights(db, w_id).await?.has(kind),
+            None => false,
+        };
         if !granted {
             return Err(Error::PermissionDenied(
                 "operators cannot save drafts".to_string(),
