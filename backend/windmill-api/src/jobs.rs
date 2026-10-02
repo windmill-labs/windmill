@@ -691,18 +691,17 @@ async fn cancel_persistent_script_api(
 ) -> error::Result<()> {
     let audit_author: AuditAuthor = match opt_authed {
         Some(authed) => {
-            if let Some(confinement) =
-                windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
-            {
-                if !windmill_api_auth::scopes::cancel_confinement_admits(
-                    &confinement,
-                    script_path.to_path(),
-                ) {
-                    return Err(Error::NotFound(format!(
-                        "Script {} not found",
-                        script_path.to_path()
-                    )));
-                }
+            let path = script_path.to_path();
+            let scopes = authed.scopes.as_deref();
+            // The jobs cancelled are top-level runs of this script, so the by-id cancels'
+            // run and cancel confinements reduce to checks on its path.
+            let admitted = windmill_api_auth::scopes::job_cancel_path_confinement(scopes)
+                .is_none_or(|c| windmill_api_auth::scopes::cancel_confinement_admits(&c, path))
+                && windmill_api_auth::scopes::job_read_run_confinement(scopes).is_none_or(|c| {
+                    windmill_api_auth::scopes::run_confinement_admits(&c, "scripts", path)
+                });
+            if !admitted {
+                return Err(Error::NotFound(format!("Script {path} not found")));
             }
             (&authed).into()
         }
@@ -1982,10 +1981,11 @@ async fn require_job_within_run_scope(
 /// every caller whose cancels are not path-confined (see `job_cancel_path_confinement`).
 ///
 /// A job is admitted when it, or any of its `parent_job` ancestors, is a run of a
-/// deployed script or flow whose path the scope names: cancelling a flow's step is
-/// within a scope on the flow. Only those kinds count, because a preview's
+/// deployed script, flow or agent whose path the scope names: cancelling a flow's step
+/// is within a scope on the flow. Only those kinds count, because a preview's
 /// `runnable_path` is whatever its caller sent and would otherwise let any preview
-/// impersonate an in-scope runnable.
+/// impersonate an in-scope runnable. Agent runs are previews filed under the agent's
+/// path, recognized the same way `require_job_within_run_scope` does.
 async fn filter_jobs_within_cancel_scope(
     db: &DB,
     authed: &ApiAuthed,
@@ -2004,11 +2004,16 @@ async fn filter_jobs_within_cancel_scope(
                 SELECT c.origin, j.id, j.parent_job FROM v2_job j
                     JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
             )
-            SELECT c.origin AS "origin!", j.runnable_path AS "runnable_path!"
-            FROM chain c JOIN v2_job j ON j.id = c.id
+            SELECT c.origin AS "origin!",
+                CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\.chat$', '')
+                    ELSE j.runnable_path END AS "runnable_path!"
+            FROM chain c JOIN v2_job j ON j.id = c.id,
+            LATERAL (SELECT j.kind = 'flowpreview'
+                AND j.raw_flow->'modules'->1 IS NULL
+                AND j.raw_flow->'modules'->0->>'id' = '__wm_agent_root' AS agent) a
             WHERE j.workspace_id = $2 AND j.runnable_path IS NOT NULL
-                AND j.kind IN ('script', 'script_hub', 'unassigned_script', 'flow',
-                    'unassigned_flow', 'singlestepflow', 'unassigned_singlestepflow')"#,
+                AND (a.agent OR j.kind IN ('script', 'script_hub', 'unassigned_script', 'flow',
+                    'unassigned_flow', 'singlestepflow', 'unassigned_singlestepflow'))"#,
         &ids,
         w_id,
     )
@@ -4456,25 +4461,35 @@ async fn cancel_selection(
         {
             // The same per-job checks as the by-id cancel routes, on the job the cancel
             // actually kills: a force cancel reaches the highest queued ancestor.
-            let mut admitted = Vec::with_capacity(ids.len());
+            let mut targets = Vec::with_capacity(ids.len());
             for id in ids {
                 let target = if force_cancel {
                     force_cancel_target(&db, &workspace_id, id).await?
                 } else {
                     id
                 };
-                match require_job_within_run_scope(&db, &authed, &workspace_id, &target).await {
-                    Err(Error::NotFound(_)) => continue,
-                    r => r?,
+                if windmill_api_auth::scopes::job_read_run_confinement(scopes).is_some() {
+                    match require_job_within_run_scope(&db, &authed, &workspace_id, &target).await {
+                        Err(Error::NotFound(_)) => continue,
+                        r => r?,
+                    }
                 }
-                if !filter_jobs_within_cancel_scope(&db, &authed, &workspace_id, vec![target])
-                    .await?
-                    .is_empty()
-                {
-                    admitted.push(id);
-                }
+                targets.push((id, target));
             }
-            admitted
+            let admitted: HashSet<Uuid> = filter_jobs_within_cancel_scope(
+                &db,
+                &authed,
+                &workspace_id,
+                targets.iter().map(|(_, t)| *t).collect(),
+            )
+            .await?
+            .into_iter()
+            .collect();
+            targets
+                .into_iter()
+                .filter(|(_, t)| admitted.contains(t))
+                .map(|(id, _)| id)
+                .collect()
         } else {
             ids
         };

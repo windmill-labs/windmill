@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE chain(origin, id, parent_job) AS (\n                SELECT id, id, parent_job FROM v2_job WHERE id = ANY($1) AND workspace_id = $2\n                UNION ALL\n                SELECT c.origin, j.id, j.parent_job FROM v2_job j\n                    JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2\n            )\n            SELECT c.origin AS \"origin!\",\n                CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\\.chat$', '')\n                    ELSE j.runnable_path END AS \"runnable_path!\"\n            FROM chain c JOIN v2_job j ON j.id = c.id,\n            LATERAL (SELECT j.kind = 'flowpreview'\n                AND j.raw_flow->'modules'->1 IS NULL\n                AND j.raw_flow->'modules'->0->>'id' = '__wm_agent_root' AS agent) a\n            WHERE j.workspace_id = $2 AND j.runnable_path IS NOT NULL\n                AND (a.agent OR j.kind IN ('script', 'script_hub', 'unassigned_script', 'flow',\n                    'unassigned_flow', 'singlestepflow', 'unassigned_singlestepflow'))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "origin!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_path!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "35f960e9de880fdcaf81615933c828c4a877709c3c39a530d629cc91f9dd2d29"
+}
