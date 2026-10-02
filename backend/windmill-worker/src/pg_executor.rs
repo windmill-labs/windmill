@@ -397,15 +397,15 @@ fn can_stream_rows(query: &str) -> bool {
     !rowless || query.to_ascii_lowercase().contains("returning")
 }
 
-/// The first keyword of a statement, past whitespace and comments. Block comments nest in
-/// Postgres, so `/* /* a */ INSERT */ SELECT` starts with SELECT. `None` when the
-/// comments never end.
+/// The first keyword of a statement, past whitespace and comments, following Postgres's
+/// scanner: a `--` comment ends at CR or LF, and block comments nest, so
+/// `/* /* a */ INSERT */ SELECT` starts with SELECT. `None` when the comments never end.
 fn leading_keyword(query: &str) -> Option<String> {
     let mut rest = query;
     loop {
         rest = rest.trim_start();
         if let Some(after) = rest.strip_prefix("--") {
-            rest = &after[after.find('\n')?..];
+            rest = &after[after.find(['\n', '\r'])?..];
         } else if rest.starts_with("/*") {
             let mut depth = 0usize;
             let mut i = 0;
@@ -430,7 +430,7 @@ fn leading_keyword(query: &str) -> Option<String> {
         }
     }
     let end = rest
-        .find(|c: char| !c.is_ascii_alphabetic())
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
         .unwrap_or(rest.len());
     Some(rest[..end].to_ascii_lowercase())
 }
@@ -2567,6 +2567,8 @@ mod tests {
             "/* /* inner */ INSERT */ SELECT * FROM t",
             "/* never closed INSERT",
             "-- INSERT",
+            "-- header\rSELECT m, pad AS\nupdate FROM t",
+            "insert_rows()",
             "TABLE t",
             "VALUES (1)",
             "EXPLAIN SELECT 1",
