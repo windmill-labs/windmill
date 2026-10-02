@@ -58,7 +58,8 @@ use windmill_queue::{append_logs, cancel_single_job, CanceledBy, MiniPulledJob};
 use crate::{
     ai::stream_event_processor::StreamEventProcessor,
     common::{
-        build_args_map, resolve_job_timeout, transform_json_value, OccupancyMetrics, StreamNotifier,
+        build_args_map, get_root_job_id, resolve_job_timeout, transform_json_value,
+        OccupancyMetrics, StreamNotifier,
     },
     handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
 };
@@ -1744,6 +1745,7 @@ pub async fn run_agent(
                                 db,
                                 &conversation_id,
                                 Some(job.id),
+                                get_root_job_id(job),
                                 "Used websearch tool",
                                 MessageType::Tool,
                                 &step_name,
@@ -1796,6 +1798,7 @@ pub async fn run_agent(
                                 db,
                                 &conversation_id,
                                 Some(job.id),
+                                get_root_job_id(job),
                                 response_content,
                                 MessageType::Assistant,
                                 &step_name,
@@ -1923,6 +1926,7 @@ pub async fn run_agent(
                             db,
                             &conversation_id,
                             Some(job.id),
+                            get_root_job_id(job),
                             answer,
                             MessageType::Assistant,
                             &step_name,
@@ -1974,6 +1978,7 @@ pub async fn run_agent(
                             db,
                             &conversation_id,
                             Some(job.id),
+                            get_root_job_id(job),
                             &message_content,
                             MessageType::Assistant,
                             &step_name,

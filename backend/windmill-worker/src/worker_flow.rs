@@ -2261,7 +2261,8 @@ async fn add_tool_message_to_conversation(
                 add_message_to_conversation_tx(
                     &mut tx,
                     conversation_id,
-                    Some(job_id.clone()),
+                    Some(*job_id),
+                    *job_id,
                     &content,
                     MessageType::Assistant,
                     None,

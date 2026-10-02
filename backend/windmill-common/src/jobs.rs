@@ -550,9 +550,11 @@ pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInl
 /// **Transaction contract:** call this inside a transaction. The conversation cleanup below
 /// locks rows to serialise itself against a concurrent delete, and on an autocommit
 /// connection that lock is released at statement end, silently restoring the race.
-/// A conversation is collected only once every message row of it has gone with a job; a
-/// row written with no job id (an MCP tool call, persisted under no job of its own) keeps
-/// its conversation and the agent's memory for it alive for as long as it exists.
+/// A message row goes with the flow run its turn started (`turn_job_id`), not with the step
+/// or tool job in `job_id`: those complete, and so expire, before the run, and deleting by
+/// them would drop a turn's answer while keeping its question. `job_id` is the fallback for
+/// rows written by a worker that predates `turn_job_id`. A conversation is collected once
+/// every message row of it has gone.
 pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> error::Result<()> {
     sqlx::query!(
         "DELETE FROM dispatch_event WHERE producer_job_id = ANY($1)",
@@ -561,7 +563,8 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
     .execute(&mut *conn)
     .await?;
     let mut conversation_ids: Vec<uuid::Uuid> = sqlx::query_scalar!(
-        "DELETE FROM flow_conversation_message WHERE job_id = ANY($1) RETURNING conversation_id",
+        "DELETE FROM flow_conversation_message WHERE COALESCE(turn_job_id, job_id) = ANY($1)
+         RETURNING conversation_id",
         ids
     )
     .fetch_all(&mut *conn)
