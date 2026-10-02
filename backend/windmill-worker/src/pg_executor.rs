@@ -396,7 +396,9 @@ fn can_stream_rows(query: &str) -> bool {
             | "analyze"
             | "refresh"
     );
-    !rowless || stmt.contains("returning")
+    // Searched in the whole query: `remove_comments` stops at the first `;`, which
+    // can sit inside a dollar-quoted literal ahead of the RETURNING.
+    !rowless || query.to_ascii_lowercase().contains("returning")
 }
 
 fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
@@ -2527,6 +2529,7 @@ mod tests {
             "WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x",
             "INSERT INTO t VALUES (1) RETURNING id",
             "/* c */ UPDATE t SET a = 1\nreturning *",
+            "UPDATE t SET note = $$a;b$$ RETURNING *",
             "TABLE t",
             "VALUES (1)",
             "EXPLAIN SELECT 1",
