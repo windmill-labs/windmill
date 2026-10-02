@@ -789,6 +789,19 @@ async fn stored_job_token_scopes(
     })
 }
 
+/// A worker older than `job_token_scopes` ignores a step's or agent tool's own restriction, so
+/// a flow that sets one is refused while such a worker is live, whichever way the flow arrived
+/// (a deploy, a preview, a standalone agent, an eval). Free when every worker is current.
+async fn refuse_step_scopes_on_outdated_workers(value: &FlowValue) -> Result<(), Error> {
+    let gate = &windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES;
+    if !gate.met().await
+        && windmill_common::scopes::validate_flow_step_job_token_scopes(value).unwrap_or(true)
+    {
+        gate.assert().await?;
+    }
+    Ok(())
+}
+
 /// A run of an earlier version at the path, and what its replacement inherits from it.
 struct PerpetualRunToRestart {
     id: Uuid,
@@ -6618,6 +6631,7 @@ async fn push_inner<'c, 'd>(
             ..Default::default()
         },
         JobPayload::RawFlow { mut value, path, restarted_from } => {
+            refuse_step_scopes_on_outdated_workers(&value).await?;
             add_virtual_items_if_necessary(&mut value.modules);
 
             let flow_status: FlowStatus = match restarted_from {
@@ -6964,6 +6978,7 @@ async fn push_inner<'c, 'd>(
             tx = PushIsolationLevel::Transaction(ntx);
 
             let mut value = data.value().clone();
+            refuse_step_scopes_on_outdated_workers(&value).await?;
             let priority = value.priority;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let cache_ignore_s3_path = value.cache_ignore_s3_path;
