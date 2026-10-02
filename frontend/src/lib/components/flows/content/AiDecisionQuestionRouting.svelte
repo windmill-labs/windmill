@@ -23,9 +23,11 @@
 	interface Props {
 		decisionId: string
 		question: string
+		/** Name the question in the copy, for when it is not shown in a card of its own. */
+		named?: boolean
 	}
 
-	let { decisionId, question }: Props = $props()
+	let { decisionId, question, named = false }: Props = $props()
 
 	const ctx = getContext<FlowEditorContext>('FlowEditorContext')
 	const { flowStore, flowStateStore, history, selectionManager } = ctx
@@ -87,14 +89,14 @@
 			title="Add a Branch to one after this step, with one branch per option"
 			onClick={() => branchOnQuestion(ctx, decisionId, question, kind, options)}
 		>
-			Branch on this question
+			Branch on {named ? question : 'this question'}
 		</Button>
 	{/if}
 {:else}
 	{@const target = routing}
 	<div class="flex items-center gap-2 text-xs text-secondary">
 		<Split size={12} />
-		<span>Branched in</span>
+		<span>{named ? `${question} branched in` : 'Branched in'}</span>
 		<StepIdBadge id={target.id} />
 		<Button
 			variant="default"
@@ -124,11 +126,9 @@
 		<Alert
 			type="warning"
 			size="xs"
-			title="{stale.length === 1
-				? 'A branch handles an option'
-				: 'Branches handle options'} this question no longer has: {quoteOptions(
-				stale.map((s) => s.option)
-			)}"
+			title="{stale.length === 1 ? 'A branch handles an option' : 'Branches handle options'} {named
+				? `the ${question} question`
+				: 'this question'} no longer has: {quoteOptions(stale.map((s) => s.option))}"
 			actions={[
 				{
 					label: stale.length === 1 ? 'Remove branch' : 'Remove branches',

@@ -7,6 +7,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Toggle from './Toggle.svelte'
 	import {
+		branchableQuestions,
 		emptyQuestion,
 		optionNameError,
 		questionNameError,
@@ -149,6 +150,12 @@
 				{/await}
 			{/key}
 		</div>
+		{#if decisionStep?.id}
+			{@const id = decisionStep.id}
+			{#each branchableQuestions(value) as q (q.name)}
+				<AiDecisionQuestionRouting decisionId={id} question={q.name} named />
+			{/each}
+		{/if}
 	{:else}
 		<div class="flex flex-col gap-3 w-full">
 			{#each rows as row, i (i)}
