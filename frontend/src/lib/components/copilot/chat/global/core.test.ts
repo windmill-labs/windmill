@@ -3089,6 +3089,30 @@ describe('global AI tools', () => {
 		expect(value?.summary).toBe('edited in the editor')
 	})
 
+	// The editor can also close during that window, which releases the cell and leaves its
+	// save in the backend row — newer than anything resolution saw.
+	it('prefers the backend draft over the resolved value once the cell is released', async () => {
+		const path = 'u/admin/released_cell'
+		seedBackendDraft(
+			'script',
+			path,
+			{ path, summary: 'saved on close', content: 'new', language: 'bun', kind: 'script' },
+			{ workspace: WORKSPACE }
+		)
+
+		// No cell: the editor that held one has closed.
+		const stale = { path, summary: 'as dispatched', content: 'old', language: 'bun' }
+		const value = await readGlobalDraftValue<any>(WORKSPACE, 'script', {
+			path,
+			storagePath: path,
+			value: stale,
+			fetched: true
+		})
+
+		expect(value?.content).toBe('new')
+		expect(value?.summary).toBe('saved on close')
+	})
+
 	// A rename typed in the editor is only in the cell; the backend row still carries the old
 	// name. Matching the row anyway would let the old name keep selecting the draft.
 	it('does not resolve a renamed draft by the name its backend row still carries', async () => {

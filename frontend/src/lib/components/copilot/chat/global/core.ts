@@ -8538,13 +8538,9 @@ async function deployDraft(
 		// The shared deployer deploys at the path inside the draft and doesn't report it
 		// back, so read it here — post-flush, since a rename may have been parked. This is
 		// where a draft-only or renamed item lands, and what the callbacks below must name.
+		// Read after the flush above, which may have persisted a rename parked in the editor.
 		deployedPath =
-			chosenDraftName(
-				type,
-				// `fresh`: the flush above may have persisted a rename parked in the editor,
-				// which the value read while resolving predates.
-				await readGlobalDraftValue(workspace, type, target, { fresh: true })
-			) ?? storagePath
+			chosenDraftName(type, await readGlobalDraftValue(workspace, type, target)) ?? storagePath
 		const result = await deployDraftToWorkspace(type, storagePath, workspace, {
 			draftOnly,
 			deploymentMessage

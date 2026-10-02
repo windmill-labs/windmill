@@ -558,24 +558,25 @@ async function fetchBackendDraftValue(
 	return resp.value ?? undefined
 }
 
-/** Draft VALUE at a resolved target, in order: the cell if one is open (the user's freshest
- * in-tab edits), else the value resolving the target already read, else the current user's
- * backend draft. `fresh` skips the resolved value — for a caller that has since changed the
- * draft it is reading. */
+/** Draft VALUE at a resolved target: the cell if an editor holds one (the user's freshest
+ * in-tab edits), else the current user's backend draft.
+ *
+ * Deliberately not the value resolving the target already read, though that would save a
+ * request. Both callers merge onto what this returns, and a tool awaits other work before its
+ * write — the provider catalog, a bundle. In that window the user can edit and then close the
+ * editor, which releases the cell and leaves the backend row newer than anything resolution
+ * saw; merging onto the older value silently reverts their save. Only the storage key is
+ * reused across that wait, never the contents. */
 export async function readGlobalDraftValue<V>(
 	workspace: string,
 	type: WorkspaceItemType,
 	target: ResolvedDraftTarget,
-	opts: { triggerKind?: TriggerKind; fresh?: boolean } = {}
+	opts: { triggerKind?: TriggerKind } = {}
 ): Promise<V | undefined> {
 	const itemKind = itemKindFor(type, opts.triggerKind)
 	if (!itemKind) return undefined
-	// Ahead of the resolved value, which was read when the call was dispatched: a tool awaits
-	// other work before its write (the provider catalog, a bundle), and an edit made in the
-	// editor during that window would be overwritten by the older snapshot.
 	const cell = UserDraft.get<V>(itemKind, target.storagePath, { workspace })
 	if (cell !== undefined) return cell
-	if (target.fetched && !opts.fresh) return target.value as V | undefined
 	return (await fetchBackendDraftValue(workspace, itemKind, target.storagePath)) as V | undefined
 }
 
