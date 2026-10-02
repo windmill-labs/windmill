@@ -11,6 +11,7 @@ import {
   UserService,
   KafkaTriggerService,
 } from "./services.gen";
+import type { Retry } from "./types.gen";
 import { OpenAPI } from "./core/OpenAPI";
 import { isSuspendSignal, stepErrorMarker, taskErrorFromMarker } from "./wacError";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -420,12 +421,26 @@ export async function runScriptAsync(
   return _runScriptAsyncInternal(path, hash_, args, scheduledInSeconds, tag);
 }
 
+/** Options for {@link runScriptByPathAsync} and {@link runScriptByHashAsync}. */
+export interface RunScriptAsyncOptions {
+  /** Schedule execution for a future time (in seconds) */
+  scheduledInSeconds?: number;
+  /** Override the worker tag the job runs on */
+  tag?: string;
+  /** Re-run the job when it fails, with the same policy a schedule takes, e.g.
+   *  `{ constant: { attempts: 3, seconds: 10 } }`. The returned id is the first
+   *  attempt's; each retry is a job of its own. A retried job is not recorded as
+   *  a child of the job that dispatched it. */
+  retry?: Retry;
+}
+
 async function _runScriptAsyncInternal(
   path: string | null = null,
   hash_: string | null = null,
   args: Record<string, any> | null = null,
   scheduledInSeconds: number | null = null,
-  tag: string | null = null
+  tag: string | null = null,
+  retry: Retry | null = null
 ): Promise<string> {
   // Create a script job and return its job id.
   args = args || {};
@@ -437,6 +452,10 @@ async function _runScriptAsyncInternal(
 
   if (tag) {
     params["tag"] = tag;
+  }
+
+  if (retry) {
+    params["retry"] = JSON.stringify(retry);
   }
 
   let parentJobId = getEnv("WM_JOB_ID");
@@ -475,34 +494,47 @@ async function _runScriptAsyncInternal(
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   `{ scheduledInSeconds?, tag?, retry? }`, e.g. `{ retry: { constant: { attempts: 3, seconds: 10 } } }`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
 export async function runScriptByPathAsync(
   path: string,
   args: Record<string, any> | null = null,
-  scheduledInSeconds: number | null = null,
+  scheduledInSeconds: number | null | RunScriptAsyncOptions = null,
   tag: string | null = null
 ): Promise<string> {
-  return _runScriptAsyncInternal(path, null, args, scheduledInSeconds, tag);
+  const o = asyncRunOptions(scheduledInSeconds, tag);
+  return _runScriptAsyncInternal(path, null, args, o.scheduledInSeconds, o.tag, o.retry);
 }
 
 /**
  * Run a script asynchronously by its hash
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   `{ scheduledInSeconds?, tag?, retry? }`, e.g. `{ retry: { constant: { attempts: 3, seconds: 10 } } }`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
 export async function runScriptByHashAsync(
   hash_: string,
   args: Record<string, any> | null = null,
-  scheduledInSeconds: number | null = null,
+  scheduledInSeconds: number | null | RunScriptAsyncOptions = null,
   tag: string | null = null
 ): Promise<string> {
-  return _runScriptAsyncInternal(null, hash_, args, scheduledInSeconds, tag);
+  const o = asyncRunOptions(scheduledInSeconds, tag);
+  return _runScriptAsyncInternal(null, hash_, args, o.scheduledInSeconds, o.tag, o.retry);
+}
+
+function asyncRunOptions(
+  scheduledInSeconds: number | null | RunScriptAsyncOptions,
+  tag: string | null
+): RunScriptAsyncOptions {
+  return typeof scheduledInSeconds === "object" && scheduledInSeconds !== null
+    ? scheduledInSeconds
+    : { scheduledInSeconds: scheduledInSeconds ?? undefined, tag: tag ?? undefined };
 }
 
 /**
