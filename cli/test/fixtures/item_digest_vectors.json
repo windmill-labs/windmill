@@ -25,11 +25,12 @@
             "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
             "input_transforms": {
               "x": { "type": "static", "value": 1.0 },
-              "y": { "type": "static", "value": [92.46585493017267, 15624.632993405901, 1e-7] }
+              "y": { "type": "static", "value": [92.46585493017267, 15624.632993405901, 1e-7] },
+              "z": { "type": "static", "value": { "type": "flowscript", "id": 1, "modules_node": 2 } }
             }
           },
           "summary": "Multiply",
-          "retry": { "constant": { "attempts": 2, "seconds": 0.5 } }
+          "retry": { "constant": { "attempts": 2, "seconds": 5 } }
         },
         {
           "id": "b",
@@ -57,7 +58,7 @@
       ],
       "same_worker": false
     },
-    "digest": "2a49adac2b7eb903c08abddb25e90b9810720c154266654fc8eceaa34d72b69e",
+    "digest": "ec744f60de5e01b9c7fc7308c0da378ff4443e486f9191a869dc190ac2223d13",
     "steps": {
       "a": "abf4646174c8d6984ea9f6d9c6746b61c3d95cd0cb91a4ca89b884b0f61600ae",
       "c": "ee70e41e8647bab22bc4f7ac943c76355e2157015e71538a8f3adbb492c76a45"

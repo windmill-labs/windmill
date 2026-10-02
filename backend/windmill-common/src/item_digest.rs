@@ -11,14 +11,13 @@
 //!   multi-file script's `{<relative path>: {"content", "lock"}}` and is left out when empty.
 //!   The language is not covered: a checkout only records it in the file extension;
 //! - a flow step's inline script: `{"content", "lock"}`;
-//! - a flow: its `value`, with any step stored by reference in `flow_node` inlined back.
-
-use std::collections::HashMap;
+//! - a flow: its `value`. A flow whose value references code in `flow_node` has none, see
+//!   [`references_flow_nodes`].
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::{db::DB, error::Result};
+use crate::flows::{Branch, FlowModule, FlowModuleValue, FlowValue, ToolValue};
 
 pub fn digest(value: &Value) -> String {
     let mut out = String::new();
@@ -70,78 +69,50 @@ fn write_canonical(value: &Value, out: &mut String) {
     }
 }
 
-/// Inlines every step a flow value stores by reference in `flow_node` (an inline script
-/// `{"type": "flowscript", "id"}`, or a `modules_node`/`default_node` holding a loop's or
-/// branch's steps), so that the digest covers their code.
-pub async fn inline_flow_nodes(db: &DB, w_id: &str, value: &mut Value) -> Result<()> {
-    // A node's steps can reference further nodes.
-    for _ in 0..100 {
-        let mut ids = vec![];
-        collect_node_ids(value, &mut ids);
-        if ids.is_empty() {
-            return Ok(());
-        }
-        let nodes = sqlx::query!(
-            "SELECT id, code, lock, flow FROM flow_node WHERE id = ANY($1) AND workspace_id = $2",
-            &ids,
-            w_id
-        )
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(|n| (n.id, (n.code, n.lock, n.flow)))
-        .collect::<HashMap<_, _>>();
-        inline_nodes(value, &nodes);
-    }
-    Ok(())
+/// Whether a flow value runs code stored outside it, in `flow_node` rows: an inline script
+/// step `{"type": "flowscript", "id"}`, or a loop's or branch's steps in a `*_node`. Its digest
+/// would not cover that code, and a checkout cannot reproduce it either, since the export
+/// carries the references. A value or step that does not parse runs nothing, so it counts as
+/// none.
+pub fn references_flow_nodes(value: &Value) -> bool {
+    let Ok(flow) = serde_json::from_value::<FlowValue>(value.clone()) else {
+        return false;
+    };
+    flow.modules
+        .iter()
+        .chain(flow.preprocessor_module.as_deref())
+        .chain(flow.failure_module.as_deref())
+        .any(module_references_flow_nodes)
 }
 
-const NODE_KEYS: [(&str, &str); 2] = [("modules_node", "modules"), ("default_node", "default")];
-
-fn collect_node_ids(value: &Value, ids: &mut Vec<i64>) {
-    match value {
-        Value::Object(o) => {
-            if o.get("type").and_then(Value::as_str) == Some("flowscript") {
-                ids.extend(o.get("id").and_then(Value::as_i64));
-            }
-            for (key, _) in NODE_KEYS {
-                ids.extend(o.get(key).and_then(Value::as_i64));
-            }
-            o.values().for_each(|v| collect_node_ids(v, ids));
-        }
-        Value::Array(a) => a.iter().for_each(|v| collect_node_ids(v, ids)),
-        _ => {}
-    }
+fn module_references_flow_nodes(module: &FlowModule) -> bool {
+    module
+        .get_value()
+        .is_ok_and(|v| module_value_references_flow_nodes(&v))
 }
 
-type Node = (Option<String>, Option<String>, Option<Value>);
-
-fn inline_nodes(value: &mut Value, nodes: &HashMap<i64, Node>) {
+fn module_value_references_flow_nodes(value: &FlowModuleValue) -> bool {
+    let any = |modules: &[FlowModule]| modules.iter().any(module_references_flow_nodes);
+    let branches = |branches: &[Branch]| {
+        branches
+            .iter()
+            .any(|b| b.modules_node.is_some() || any(&b.modules))
+    };
     match value {
-        Value::Object(o) => {
-            if o.get("type").and_then(Value::as_str) == Some("flowscript") {
-                let id = o.remove("id").and_then(|id| id.as_i64());
-                o.insert("type".into(), "rawscript".into());
-                let (code, lock) = id
-                    .and_then(|id| nodes.get(&id))
-                    .map(|(code, lock, _)| (code.clone(), lock.clone()))
-                    .unwrap_or_default();
-                o.insert("content".into(), code.unwrap_or_default().into());
-                o.insert("lock".into(), lock.into());
-            }
-            for (key, target) in NODE_KEYS {
-                if let Some(id) = o.remove(key) {
-                    let modules = id
-                        .as_i64()
-                        .and_then(|id| nodes.get(&id))
-                        .and_then(|(_, _, flow)| flow.as_ref()?.get("modules").cloned());
-                    o.insert(target.into(), modules.unwrap_or(Value::Array(vec![])));
-                }
-            }
-            o.values_mut().for_each(|v| inline_nodes(v, nodes));
+        FlowModuleValue::FlowScript { .. } => true,
+        FlowModuleValue::ForloopFlow { modules, modules_node, .. }
+        | FlowModuleValue::WhileloopFlow { modules, modules_node, .. } => {
+            modules_node.is_some() || any(modules)
         }
-        Value::Array(a) => a.iter_mut().for_each(|v| inline_nodes(v, nodes)),
-        _ => {}
+        FlowModuleValue::BranchOne { branches: b, default, default_node } => {
+            default_node.is_some() || any(default) || branches(b)
+        }
+        FlowModuleValue::BranchAll { branches: b, .. } => branches(b),
+        FlowModuleValue::AIAgent { tools, .. } => tools.iter().any(|tool| match &tool.value {
+            ToolValue::FlowModule(v) => module_value_references_flow_nodes(v),
+            _ => false,
+        }),
+        _ => false,
     }
 }
 

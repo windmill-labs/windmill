@@ -175,31 +175,34 @@ async fn digests_match_the_cli_vectors(db: Pool<Postgres>) {
     .await
     .unwrap();
 
-    // Step `a` stored by reference, as a flow value may hold it: the digest covers its code.
+    // Version 889 holds step `a` by reference, which no checkout can reproduce.
     let step = &flow["value"]["modules"][0]["value"];
-    let mut value = flow["value"].clone();
-    value["modules"][0]["value"] = json!({
+    let mut by_ref = flow["value"].clone();
+    by_ref["modules"][0]["value"] = json!({
         "type": "flowscript", "id": 999, "language": step["language"],
         "input_transforms": step["input_transforms"],
     });
     sqlx::query(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, versions)
-         VALUES ('test-workspace', $1, '', '', $2, 'test-user', ARRAY[888::bigint])",
+         VALUES ('test-workspace', $1, '', '', $2, 'test-user', ARRAY[888::bigint, 889::bigint])",
     )
     .bind(flow["path"].as_str())
-    .bind(&value)
+    .bind(&flow["value"])
     .execute(&db)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO flow_version (id, workspace_id, path, value, schema, created_by)
-         VALUES (888, 'test-workspace', $1, $2, '{}', 'test-user')",
-    )
-    .bind(flow["path"].as_str())
-    .bind(&value)
-    .execute(&db)
-    .await
-    .unwrap();
+    for (id, value) in [(888, &flow["value"]), (889, &by_ref)] {
+        sqlx::query(
+            "INSERT INTO flow_version (id, workspace_id, path, value, schema, created_by)
+             VALUES ($1, 'test-workspace', $2, $3, '{}', 'test-user')",
+        )
+        .bind(id as i64)
+        .bind(flow["path"].as_str())
+        .bind(value)
+        .execute(&db)
+        .await
+        .unwrap();
+    }
     sqlx::query(
         "INSERT INTO flow_node (id, workspace_id, path, code, lock, hash_v2)
          VALUES (999, 'test-workspace', $1, $2, $3, 'h')",
@@ -216,7 +219,8 @@ async fn digests_match_the_cli_vectors(db: Pool<Postgres>) {
          VALUES
             ('3bb0c0de-0000-4000-8000-000000000201', 'test-workspace', 'script', $1, 777, NULL, NULL, NULL, 'bun', 'test-user', 'g/all', 'group-all@windmill.dev'),
             ('3bb0c0de-0000-4000-8000-000000000202', 'test-workspace', 'flow', $2, 888, NULL, 'f/digest/nightly', 'schedule', 'flow', 'test-user', 'u/test-user', 'test@windmill.dev'),
-            ('3bb0c0de-0000-4000-8000-000000000203', 'test-workspace', 'flowscript', $2 || '/a', 999, '3bb0c0de-0000-4000-8000-000000000202', NULL, NULL, 'gpu', 'test-user', 'u/test-user', 'test@windmill.dev')",
+            ('3bb0c0de-0000-4000-8000-000000000203', 'test-workspace', 'flowscript', $2 || '/a', 999, '3bb0c0de-0000-4000-8000-000000000202', NULL, NULL, 'gpu', 'test-user', 'u/test-user', 'test@windmill.dev'),
+            ('3bb0c0de-0000-4000-8000-000000000204', 'test-workspace', 'flow', $2, 889, NULL, NULL, NULL, 'flow', 'test-user', 'u/test-user', 'test@windmill.dev')",
     )
     .bind(script["path"].as_str())
     .bind(flow["path"].as_str())
@@ -244,4 +248,6 @@ async fn digests_match_the_cli_vectors(db: Pool<Postgres>) {
     assert_eq!(step.tag, "gpu");
     assert_eq!(step.worker_group.as_deref(), Some("gpu-group"));
     assert_eq!(step.run_as_type, RunAsType::User);
+
+    assert_eq!(provenance(&db, "3bb0c0de-0000-4000-8000-000000000204").await.digest, None);
 }

@@ -238,12 +238,8 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         }
     }
     let job = &lineage[0];
-    let digest = item_digest_of(db, w_id, job).await?;
-    let root_digest = if lineage.len() == 1 {
-        digest.clone()
-    } else {
-        item_digest_of(db, w_id, root).await?
-    };
+    let digest = item_digest_of(job);
+    let root_digest = item_digest_of(root);
     let run_as_type = match job.run_as_type.as_deref() {
         Some("group") => RunAsType::Group,
         Some("service_account") => RunAsType::ServiceAccount,
@@ -302,14 +298,12 @@ async fn restart_origin_is_current(db: &DB, origin: &Uuid, w_id: &str) -> Result
     Ok(current)
 }
 
-async fn item_digest_of(db: &DB, w_id: &str, job: &LineageJob) -> Result<Option<String>> {
-    let Some(mut source) = job.digest_source.clone() else {
-        return Ok(None);
-    };
-    if job.kind == JobKind::Flow {
-        item_digest::inline_flow_nodes(db, w_id, &mut source).await?;
+fn item_digest_of(job: &LineageJob) -> Option<String> {
+    let source = job.digest_source.as_ref()?;
+    if job.kind == JobKind::Flow && item_digest::references_flow_nodes(source) {
+        return None;
     }
-    Ok(Some(item_digest::digest(&source)))
+    Some(item_digest::digest(source))
 }
 
 fn version(job: &LineageJob) -> Option<String> {

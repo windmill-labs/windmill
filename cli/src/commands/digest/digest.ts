@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { sep as SEP } from "node:path";
 
 import { Command } from "@cliffy/command";
+import * as log from "../../core/log.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { GlobalOptions } from "../../types.ts";
 import { readLocalFlow } from "../flow/flow.ts";
@@ -163,6 +164,7 @@ async function digest(
   opts: GlobalOptions & { json?: boolean },
   ...paths: string[]
 ) {
+  if (opts.json) log.setSilent(true);
   const merged = await mergeConfigWithConfigFile(opts);
   const codebases = listSyncCodebases(merged);
   const results: ItemDigest[] = [];
