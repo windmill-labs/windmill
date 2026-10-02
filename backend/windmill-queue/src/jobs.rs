@@ -791,7 +791,8 @@ async fn stored_job_token_scopes(
 
 /// A worker older than `job_token_scopes` ignores a step's or agent tool's own restriction, so
 /// a flow that sets one is refused while such a worker is live, whichever way the flow arrived
-/// (a deploy, a preview, a standalone agent, an eval). Free when every worker is current.
+/// (a deploy, a restart, a preview, a standalone agent, an eval). Free when every worker is
+/// current.
 async fn refuse_step_scopes_on_outdated_workers(value: &FlowValue) -> Result<(), Error> {
     let gate = &windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES;
     if !gate.met().await
@@ -7106,6 +7107,7 @@ async fn push_inner<'c, 'd>(
                 None => None,
             };
             let value = flow_data.value();
+            refuse_step_scopes_on_outdated_workers(value).await?;
             let priority = value.priority;
             let concurrency_settings = value.concurrency_settings.clone();
             let debouncing_settings = value.debouncing_settings.clone();
