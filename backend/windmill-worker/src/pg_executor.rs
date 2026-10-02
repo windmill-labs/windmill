@@ -510,15 +510,23 @@ fn do_postgresql_inner<'a>(
     let result_f = async move {
         let mut res: Vec<Box<serde_json::value::RawValue>> = vec![];
 
-        // Always prefer query_typed_raw (unnamed prepared statement). It is sent as
-        // a single Parse+Bind+Execute+Sync round-trip, so it survives transaction-mode
-        // connection poolers (PgBouncer/Supabase pooler/RDS Proxy) where named
+        // Always prefer query_typed_raw (unnamed prepared statement). It and its
+        // describe are each a self-contained round-trip ending in Sync, so they
+        // survive transaction-mode connection poolers (PgBouncer/Supabase
+        // pooler/RDS Proxy) where named
         // statements ("s0", "s1", ...) can be reported missing because the prepare
         // and the execute land on different backend connections. Fall back to
         // prepare + query_raw only when an arg has a type unsupported by
         // otyp_to_pg_type (e.g. custom enum, geometry, …) — in that case we lose
         // pooler safety, but the query at least runs against a direct connection.
         let rows = if all_types_resolved {
+            // query_typed_raw looks up result column types this connection has not seen
+            // (enums, domains, extension types) while the rows already stream, and on a
+            // large result that lookup waits behind them forever. Describing first resolves
+            // them up front, still without a named statement.
+            if let Err(e) = client.describe_typed(&query, &param_types).await {
+                return Err(wrap_param_encoding_error(e, &param_meta, &param_types));
+            }
             let typed_params = query_params
                 .iter()
                 .zip(param_types.iter())
