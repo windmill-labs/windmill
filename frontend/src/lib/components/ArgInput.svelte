@@ -1386,6 +1386,7 @@
 							dispatch('blur')
 						}}
 						code={rawValue}
+						{placeholder}
 						bind:error={jsonError}
 						on:changeValue={(e) => {
 							setNewValueFromCode(e.detail)

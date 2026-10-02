@@ -282,7 +282,7 @@ is faster, cheaper, and its answers have a fixed shape.
         "type": "static",
         "value": { "kind": "typesafe", "resource": "$res:f/ai/typesafe", "model": "jev-latest" }
       },
-      "state": { "type": "javascript", "expr": "({ message: flow_input.message, plan: results.get_account.plan })" },
+      "state": { "type": "javascript", "expr": "flow_input.message" },
       "questions": {
         "type": "static",
         "value": {
@@ -306,8 +306,9 @@ is faster, cheaper, and its answers have a fixed shape.
 
 - `provider.kind` is `typesafe` (`model` `jev-latest` unless a version is pinned) or `cloudflare`
   (`model` `clef`, or `clef-flash` for faster answers); the resource is of that same type
-- `state` is what the questions are about: a string, an object or an array of strings. An object
-  with descriptive keys holding only what the questions need works best
+- `state` is the content to evaluate: usually a text, such as the message to classify. To combine
+  several values, pass an object with descriptive keys holding only what the questions need
+  (`({ message: flow_input.message, plan: results.get_account.plan })`); an array of strings also works
 - `questions` maps each question name to `{ type, instructions, criteria }`:
   - `choice`: `criteria` maps each option to its description (up to 255 options). The answer has
     `choice`, `probabilities` and `confidence`

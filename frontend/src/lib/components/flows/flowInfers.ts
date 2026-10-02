@@ -227,7 +227,8 @@ export const AI_DECISION_SCHEMA: Schema = {
 		state: {
 			type: undefined,
 			description:
-				'What the questions are asked about: a text, an object or a list of texts. Name each part of an object, and send only what the questions need: detail they do not need makes the answers less accurate.'
+				'The content to evaluate: a text, or an object with named parts. Extra detail makes the answers less accurate.',
+			placeholder: '"Checkout is failing for every customer"'
 		},
 		questions: {
 			type: 'object',
