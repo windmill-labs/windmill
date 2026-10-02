@@ -8,8 +8,10 @@
 		DEFAULT_TAGS_PER_WORKSPACE_SETTING,
 		DEFAULT_TAGS_WORKSPACES_SETTING,
 		FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
-		PREVIEW_TAGS_OVERRIDE_SETTING
+		PREVIEW_TAGS_OVERRIDE_SETTING,
+		DEPENDENCY_JOB_TAG_SETTING
 	} from '$lib/consts'
+	import TextInput from './text_input/TextInput.svelte'
 	import Toggle from './Toggle.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
@@ -31,12 +33,14 @@
 	let limitToWorkspaces = $state(false)
 	let previewTagsOverride = $state(false)
 	let forkAppendForkSuffix = $state(false)
+	let dependencyJobTag = $state('')
 
 	// Change detection
 	let originalDefaultTagPerWorkspace = $state<boolean | undefined>(defaultTagPerWorkspace)
 	let originalDefaultTagWorkspaces = $state<string[]>(defaultTagWorkspaces)
 	let originalPreviewTagsOverride = $state(false)
 	let originalForkAppendForkSuffix = $state(false)
+	let originalDependencyJobTag = $state('')
 
 	// Detect changes
 	let hasChanges = $derived(
@@ -44,7 +48,8 @@
 			JSON.stringify($state.snapshot(originalDefaultTagWorkspaces)?.sort() || []) !==
 				JSON.stringify($state.snapshot(defaultTagWorkspaces)?.sort() || []) ||
 			originalPreviewTagsOverride !== previewTagsOverride ||
-			originalForkAppendForkSuffix !== forkAppendForkSuffix
+			originalForkAppendForkSuffix !== forkAppendForkSuffix ||
+			originalDependencyJobTag.trim() !== dependencyJobTag.trim()
 	)
 
 	let workspaces: string[] = $state([])
@@ -70,6 +75,11 @@
 			})) as any
 			forkAppendForkSuffix = forkSetting ?? false
 			originalForkAppendForkSuffix = forkAppendForkSuffix
+			dependencyJobTag =
+				((await SettingService.getGlobal({
+					key: DEPENDENCY_JOB_TAG_SETTING
+				})) as any) ?? ''
+			originalDependencyJobTag = dependencyJobTag
 		} catch (err) {
 			sendUserToast(`Could not load default tags: ${err}`, true)
 		}
@@ -104,11 +114,19 @@
 			}
 		})
 
+		await SettingService.setGlobal({
+			key: DEPENDENCY_JOB_TAG_SETTING,
+			requestBody: {
+				value: dependencyJobTag.trim() || undefined
+			}
+		})
+
 		// Update original state after save
 		originalDefaultTagPerWorkspace = defaultTagPerWorkspace
 		originalDefaultTagWorkspaces = [...(defaultTagWorkspaces || [])]
 		originalPreviewTagsOverride = previewTagsOverride
 		originalForkAppendForkSuffix = forkAppendForkSuffix
+		originalDependencyJobTag = dependencyJobTag
 
 		loadDefaultTags()
 		sendUserToast('Saved')
@@ -218,6 +236,20 @@
 					disabled={!$enterpriseLicense}
 				/>
 			</div>
+			<div class="flex flex-col gap-1 max-w-md">
+				<span class="text-xs font-semibold text-emphasis">Dependency job tag</span>
+				<span class="text-2xs text-secondary">
+					Route every dependency job (lockfile resolution at deploy and relocks triggered by an
+					imported script changing, for scripts, flows and apps) to this tag, whatever tag the
+					runnable itself runs on. Supports <code>$workspace</code>. Dedicated workers still build
+					their own locks. Leave empty to keep the default routing.
+				</span>
+				<TextInput
+					bind:value={dependencyJobTag}
+					size="sm"
+					inputProps={{ placeholder: 'e.g. dependency', disabled: !$enterpriseLicense }}
+				/>
+			</div>
 		</div>
 
 		<div class="flex gap-2 items-center mb-1">
@@ -240,6 +272,17 @@
 					</div>
 				</div>
 			{/each}
+			{#if dependencyJobTag.trim()}
+				<div class="flex gap-2 items-center">
+					<div class="w-36">
+						<Badge color="transparent">all dependency jobs</Badge>
+					</div>
+					<div class="w-6 flex justify-center text-secondary">&rightarrow;</div>
+					<div class="flex-1">
+						<Badge color="blue">{dependencyJobTag.trim()}</Badge>
+					</div>
+				</div>
+			{/if}
 			{#if previewTagsOverride}
 				<div class="flex gap-2 items-center">
 					<div class="w-36">
