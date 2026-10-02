@@ -245,6 +245,7 @@ fn make_mini(id: Uuid, runnable_path: &str) -> MiniCompletedJob {
         cache_ignore_s3_path: None,
         runnable_settings_handle: None,
         build_binary_only: false,
+        job_token_scopes: None,
     }
 }
 

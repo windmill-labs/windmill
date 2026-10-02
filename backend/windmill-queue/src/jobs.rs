@@ -769,16 +769,24 @@ async fn restart_perpetual_runs_at_path(
 
 /// The effective token scopes of an earlier job, as the ceiling of a job that re-runs it
 /// (a retry, a perpetual restart): the re-run never holds a wider token than the run it
-/// replaces. Read while that job still holds its `job_perms` row, which the monitor sweeps
-/// once the job has left the queue.
-async fn stored_job_token_scopes(db: &DB, job_id: Uuid) -> Result<Option<Vec<String>>, Error> {
-    Ok(sqlx::query_scalar!(
+/// replaces. Read from its `job_perms` row, or from `carried` (the scopes it was pulled with)
+/// once the monitor has swept that row after the job left the queue.
+async fn stored_job_token_scopes(
+    db: &DB,
+    job_id: Uuid,
+    carried: Option<&Vec<String>>,
+) -> Result<Option<Vec<String>>, Error> {
+    let row = sqlx::query_scalar!(
         "SELECT job_token_scopes FROM job_perms WHERE job_id = $1",
         job_id
     )
     .fetch_optional(db)
-    .await?
-    .flatten())
+    .await?;
+    Ok(match row {
+        Some(scopes) => scopes,
+        // Swept since the job left the queue: the scopes carried from its pull.
+        None => carried.cloned(),
+    })
 }
 
 /// A run of an earlier version at the path, and what its replacement inherits from it.
@@ -873,7 +881,7 @@ async fn restart_perpetual_run(
         // an earlier version the next pass picks up.
         return Ok(());
     }
-    let scope_ceiling = stored_job_token_scopes(db, run.id).await?;
+    let scope_ceiling = stored_job_token_scopes(db, run.id, None).await?;
     let (_, tx) = push(
         db,
         PushIsolationLevel::Transaction(tx),
@@ -2121,7 +2129,9 @@ async fn restart_job_if_perpetual_inner(
         .await?
         .flatten()
         .unwrap_or_default();
-        let scope_ceiling = stored_job_token_scopes(db, queued_job.id).await?;
+        let scope_ceiling =
+            stored_job_token_scopes(db, queued_job.id, queued_job.job_token_scopes.as_ref())
+                .await?;
         let (_uuid, tx) = push(
             db,
             tx,
@@ -2441,7 +2451,8 @@ pub async fn maybe_enqueue_native_script_retry(
         )
         .await?;
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
-    let scope_ceiling = stored_job_token_scopes(db, job.id).await?;
+    let scope_ceiling =
+        stored_job_token_scopes(db, job.id, job.job_token_scopes.as_ref()).await?;
     let (new_id, mut tx) = match push(
         db,
         tx,
@@ -3699,6 +3710,10 @@ pub struct MiniCompletedJob {
     /// the server would reject every completion it sends, not just build jobs.
     #[serde(default)]
     pub build_binary_only: bool,
+    /// The job's effective token scopes, carried from the pull: a re-run (retry, perpetual
+    /// restart) caps itself with them after the job's `job_perms` row may have been swept.
+    #[serde(default)]
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 impl From<QueuedJobV2> for MiniCompletedJob {
@@ -3729,6 +3744,7 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             // `QueuedJobV2` carries no args, and nothing reaches the restart gate
             // through this conversion — the worker completes jobs from the pulled job.
             build_binary_only: false,
+            job_token_scopes: None,
         }
     }
 }
@@ -3759,6 +3775,7 @@ impl From<MiniPulledJob> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
+            job_token_scopes: job.job_token_scopes.clone(),
             build_binary_only: crate::binary_prebuild::is_build_binary_job(
                 job.args.as_ref().map(|x| &x.0),
             ),
@@ -3791,6 +3808,7 @@ impl From<Arc<MiniPulledJob>> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
+            job_token_scopes: job.job_token_scopes.clone(),
             build_binary_only: crate::binary_prebuild::is_build_binary_job(
                 job.args.as_ref().map(|x| &x.0),
             ),
@@ -5761,8 +5779,10 @@ pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> 
             "SELECT
             j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as,
             j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle,
-            COALESCE(j.args->'build_binary_only' = 'true'::jsonb, false) AS \"build_binary_only!\"
+            COALESCE(j.args->'build_binary_only' = 'true'::jsonb, false) AS \"build_binary_only!\",
+            p.job_token_scopes AS \"job_token_scopes?\"
             FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
+            LEFT JOIN job_perms p ON p.job_id = j.id
             WHERE j.id = $1 AND j.workspace_id = $2",
             id,
             w_id
