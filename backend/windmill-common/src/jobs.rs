@@ -484,7 +484,8 @@ pub struct RunInlinePreviewScriptFnParams {
 }
 
 pub enum InlineScriptTarget {
-    Path(String),
+    /// A script addressed by path, pinned to the version the caller resolved and checked.
+    Path { path: String, hash: i64 },
     Hash(i64),
 }
 

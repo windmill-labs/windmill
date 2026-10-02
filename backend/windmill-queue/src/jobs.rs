@@ -769,10 +769,11 @@ async fn restart_perpetual_runs_at_path(
 
 /// The effective token scopes of an earlier job, as the ceiling of a job that re-runs it
 /// (a retry, a perpetual restart): the re-run never holds a wider token than the run it
-/// replaces.
+/// replaces. Read while that job still holds its `job_perms` row, which the monitor sweeps
+/// once the job has left the queue.
 async fn stored_job_token_scopes(db: &DB, job_id: Uuid) -> Result<Option<Vec<String>>, Error> {
     Ok(sqlx::query_scalar!(
-        "SELECT job_token_scopes FROM v2_job WHERE id = $1",
+        "SELECT job_token_scopes FROM job_perms WHERE job_id = $1",
         job_id
     )
     .fetch_optional(db)
@@ -3597,7 +3598,7 @@ pub struct MiniPulledJob {
     pub visible_to_owner: bool,
     pub permissioned_as_end_user_email: Option<String>,
     pub runnable_settings_handle: Option<i64>,
-    /// The job's effective token scopes (`v2_job.job_token_scopes`), minted into its token.
+    /// The job's effective token scopes (`job_perms.job_token_scopes`), minted into its token.
     /// No `sqlx(default)`: a query that forgets the column must fail rather than mint an
     /// unrestricted token.
     #[serde(default)]
@@ -4066,8 +4067,9 @@ pub async fn get_mini_pulled_job<'c>(
         trigger_kind as \"trigger_kind: TriggerKindLabel\",
         visible_to_owner,
         NULL as permissioned_as_end_user_email,
-        job_token_scopes
-        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
+        job_perms.job_token_scopes
+        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
+        LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id WHERE v2_job_queue.id = $1",
         job_id,
     )
     .fetch_optional(e)
@@ -7040,16 +7042,19 @@ async fn push_inner<'c, 'd>(
                 memory_id: None,
                 no_inherited_flow_env: false,
             };
-            // The restart runs the completed job's stored definition, so it keeps that job's
-            // restriction rather than reading the flow's current setting.
-            let job_token_scopes = sqlx::query_scalar::<_, Option<Vec<String>>>(
-                "SELECT job_token_scopes FROM v2_job WHERE id = $1 AND workspace_id = $2",
-            )
-            .bind(completed_job_id)
-            .bind(workspace_id)
-            .fetch_optional(db)
-            .await?
-            .flatten();
+            // The completed job's own scopes are gone with its `job_perms` row, so the restart
+            // takes the flow's current setting (and the restarting caller's ceiling).
+            let job_token_scopes = match &flow_path {
+                Some(flow_path) => sqlx::query_scalar::<_, Option<Vec<String>>>(
+                    "SELECT job_token_scopes FROM flow WHERE path = $1 AND workspace_id = $2",
+                )
+                .bind(flow_path)
+                .bind(workspace_id)
+                .fetch_optional(db)
+                .await?
+                .flatten(),
+                None => None,
+            };
             let value = flow_data.value();
             let priority = value.priority;
             let concurrency_settings = value.concurrency_settings.clone();
@@ -7508,8 +7513,7 @@ async fn push_inner<'c, 'd>(
                 trigger_kind, -- 39
                 script_entrypoint_override, -- 12
                 preprocessed, -- 27,
-                labels, -- 44
-                job_token_scopes -- 47
+                labels -- 44
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27,
@@ -7518,15 +7522,15 @@ async fn push_inner<'c, 'd>(
             (SELECT CASE WHEN fl.labels IS NULL THEN $44
                 ELSE (SELECT array_agg(DISTINCT lbl) FROM unnest(COALESCE($44, ARRAY[]::TEXT[]) || fl.labels) lbl)
             END
-            FROM folder_labels($46, $45) AS fl(labels)), $47)
+            FROM folder_labels($46, $45) AS fl(labels)))
         ),
         inserted_runtime AS (
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
         ),
         inserted_job_perms AS (
-            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email)
-            values ($1, $32, $33, $34, $35, $36, $37, $2, $41)
-            ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email
+            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email, job_token_scopes)
+            values ($1, $32, $33, $34, $35, $36, $37, $2, $41, $47)
+            ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email, job_token_scopes = EXCLUDED.job_token_scopes
         )
         INSERT INTO v2_job_queue
             (workspace_id, id, running, scheduled_for, started_at, tag, priority, cache_ignore_s3_path, runnable_settings_handle)
@@ -8545,7 +8549,7 @@ pub async fn get_same_worker_job(
                     v2_job.trigger,
                     v2_job.trigger_kind,
                     v2_job.visible_to_owner,
-                    v2_job.job_token_scopes,
+                    p.job_token_scopes,
                     v2_job.raw_code,
                     v2_job.raw_lock,
                     v2_job.raw_flow,

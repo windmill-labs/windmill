@@ -2366,6 +2366,7 @@ async fn advance_flow_status(
                 THEN v2_job_status.flow_leaf_jobs
                 ELSE JSONB_SET(COALESCE(v2_job_status.flow_leaf_jobs, '{}'::JSONB), ARRAY[$7::TEXT], $8) END
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
+            LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id
         WHERE v2_job_status.id = $1 AND v2_job_queue.id = $1
         RETURNING
             v2_job_queue.workspace_id,
@@ -2403,7 +2404,7 @@ async fn advance_flow_status(
             v2_job.trigger_kind as \"trigger_kind: TriggerKindLabel\",
             v2_job.visible_to_owner,
             NULL as permissioned_as_end_user_email,
-            v2_job.job_token_scopes",
+            job_perms.job_token_scopes",
         flow,
         &step_path as &[&str],
         step,

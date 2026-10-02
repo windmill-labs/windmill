@@ -520,14 +520,14 @@ pub async fn caller_scope_ceiling(
         return Ok(None);
     };
     let row = sqlx::query_scalar!(
-        "SELECT job_token_scopes FROM v2_job WHERE id = $1",
+        "SELECT job_token_scopes FROM job_perms WHERE job_id = $1",
         job_id
     )
     .fetch_optional(db)
     .await?;
     Ok(match row {
         Some(scopes) => scopes,
-        // The job row is gone (retention), so only the token's own claims are left.
+        // The job left the queue and its row was swept: only the token's own claims are left.
         None => authed.scopes.clone(),
     })
 }

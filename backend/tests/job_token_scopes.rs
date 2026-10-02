@@ -18,14 +18,24 @@ async fn insert_job(
     parent: Option<&str>,
     scopes: &[&str],
 ) -> anyhow::Result<()> {
+    let id = Uuid::parse_str(id)?;
     sqlx::query(
         "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
-            kind, script_lang, runnable_path, tag, parent_job, job_token_scopes)
+            kind, script_lang, runnable_path, tag, parent_job)
         VALUES ($1, 'test-workspace', 'test-user-3', 'u/test-user-3', 'test3@windmill.dev',
-            'script', 'deno', 'u/test-user-3/agent', 'deno', $2, $3)",
+            'script', 'deno', 'u/test-user-3/agent', 'deno', $2)",
     )
-    .bind(Uuid::parse_str(id)?)
+    .bind(id)
     .bind(parent.map(Uuid::parse_str).transpose()?)
+    .execute(db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups,
+            workspace_id, job_token_scopes)
+        VALUES ($1, 'test3@windmill.dev', 'test-user-3', false, false, '{}', '{}',
+            'test-workspace', $2)",
+    )
+    .bind(id)
     .bind(scopes)
     .execute(db)
     .await?;
@@ -153,7 +163,7 @@ async fn test_restricted_job_token_is_confined(db: Pool<Postgres>) -> anyhow::Re
         assert_eq!(resp.status(), StatusCode::CREATED);
         let child = Uuid::parse_str(&resp.text().await?)?;
         let scopes: Option<Vec<String>> =
-            sqlx::query_scalar("SELECT job_token_scopes FROM v2_job WHERE id = $1")
+            sqlx::query_scalar("SELECT job_token_scopes FROM job_perms WHERE job_id = $1")
                 .bind(child)
                 .fetch_one(&db)
                 .await?;
@@ -196,7 +206,10 @@ async fn test_flow_steps_inherit_the_flow_restriction(db: Pool<Postgres>) -> any
     .await;
 
     let step: Option<Vec<String>> =
-        sqlx::query_scalar("SELECT job_token_scopes FROM v2_job WHERE parent_job = $1")
+        sqlx::query_scalar(
+            "SELECT p.job_token_scopes FROM v2_job j JOIN job_perms p ON p.job_id = j.id
+            WHERE j.parent_job = $1",
+        )
             .bind(flow.id)
             .fetch_one(&db)
             .await?;

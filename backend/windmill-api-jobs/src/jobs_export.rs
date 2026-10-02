@@ -278,7 +278,7 @@ pub async fn export_queued_jobs(
             v2_job.preprocessed,
             v2_job.args as "args: _",
             v2_job.labels,
-            v2_job.job_token_scopes,
+            job_perms.job_token_scopes as "job_token_scopes?",
             v2_job.pre_run_error,
 
             v2_job_queue.started_at,
@@ -301,6 +301,7 @@ pub async fn export_queued_jobs(
             concurrency_key.key as "concurrency_key?"
         FROM v2_job_queue
         INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
+        LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id
         LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id
         LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
         LEFT JOIN concurrency_key ON concurrency_key.job_id = v2_job_queue.id
@@ -448,6 +449,16 @@ pub async fn import_queued_jobs(
         ));
     }
 
+    // An imported job gets no `job_perms` row, so its token would be minted without the
+    // restriction it was queued with.
+    if let Some(job) = jobs.iter().find(|job| job.job_token_scopes.is_some()) {
+        return Err(error::Error::BadRequest(format!(
+            "Queued job {} restricts its job token and cannot be imported; run it again on \
+             this instance instead",
+            job.id
+        )));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     for job in jobs {
@@ -459,12 +470,12 @@ pub async fn import_queued_jobs(
                 parent_job, root_job, script_lang, script_entrypoint_override, flow_step,
                 flow_step_id, flow_innermost_root_job, trigger, trigger_kind, same_worker,
                 visible_to_owner, concurrent_limit, concurrency_time_window_s, cache_ttl,
-                timeout, priority, preprocessed, args, labels, pre_run_error, job_token_scopes
+                timeout, priority, preprocessed, args, labels, pre_run_error
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                $31, $32, $33, $34
+                $31, $32, $33
             )
             ON CONFLICT (id) DO NOTHING
             "#,
@@ -501,7 +512,6 @@ pub async fn import_queued_jobs(
             job.args as _,
             job.labels as _,
             job.pre_run_error,
-            job.job_token_scopes.as_deref() as Option<&[String]>,
         )
         .execute(&mut *tx)
         .await?;

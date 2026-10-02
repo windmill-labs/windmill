@@ -362,7 +362,8 @@ pub struct JobPerms {
     pub groups: Vec<String>,
     pub folders: Vec<serde_json::Value>,
     pub end_user_email: Option<String>,
-    /// The job's effective `v2_job.job_token_scopes`, which its token is minted with.
+    /// The job's effective scopes, stored on its `job_perms` row at push and minted into its
+    /// token.
     #[serde(default)]
     pub job_token_scopes: Option<Vec<String>>,
 }
@@ -657,10 +658,9 @@ pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
 ) -> sqlx::Result<Option<JobPerms>> {
     sqlx::query_as!(
         JobPerms,
-        "SELECT p.email, p.username, p.is_admin, p.is_operator, p.groups, p.folders, p.end_user_email,
-            j.job_token_scopes
-        FROM job_perms p LEFT JOIN v2_job j ON j.id = p.job_id
-        WHERE p.job_id = $1 AND p.workspace_id = $2",
+        "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email,
+            job_token_scopes
+        FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
         job_id,
         w_id
     )
@@ -756,6 +756,8 @@ pub async fn create_token_for_owner(
             let scopes = jp.job_token_scopes.take();
             (jp.into(), scopes)
         }
+        // Push writes a job's `job_perms` row and its scopes in one statement, so a job with no
+        // row was never restricted.
         _ => {
             tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
             let authed = fetch_authed_from_permissioned_as(owner, email, w_id, db)
@@ -765,15 +767,7 @@ pub async fn create_token_for_owner(
                         "Could not get permissions directly for job {job_id}: {e:#}"
                     ))
                 })?;
-            let scopes = sqlx::query_scalar!(
-                "SELECT job_token_scopes FROM v2_job WHERE id = $1 AND workspace_id = $2",
-                job_id,
-                w_id
-            )
-            .fetch_optional(db)
-            .await?
-            .flatten();
-            (authed, scopes)
+            (authed, None)
         }
     };
 

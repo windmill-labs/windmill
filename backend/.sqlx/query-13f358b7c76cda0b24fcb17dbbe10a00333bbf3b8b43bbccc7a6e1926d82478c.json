@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT job_token_scopes FROM v2_job WHERE id = $1 AND workspace_id = $2",
+  "query": "SELECT job_token_scopes FROM job_perms WHERE job_id = $1",
   "describe": {
     "columns": [
       {
@@ -11,13 +11,12 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
       true
     ]
   },
-  "hash": "32f92624baf4eed5137af20edf8236428a28c455b75e8fa96d9512202cbd936d"
+  "hash": "13f358b7c76cda0b24fcb17dbbe10a00333bbf3b8b43bbccc7a6e1926d82478c"
 }

@@ -8802,7 +8802,8 @@ async fn run_inline_script_by_path(
         token,
         db,
         w_id,
-        InlineScriptTarget::Path(script_path.to_path().to_string()),
+        // Resolved to a version by `run_inline_script_inner`.
+        InlineScriptTarget::Path { path: script_path.to_path().to_string(), hash: 0 },
         body.args,
         Some(user_db),
     )
@@ -8866,29 +8867,37 @@ async fn run_inline_script_inner(
     user_db: Option<UserDB>,
 ) -> error::Result<Response> {
     // An inline run executes with the caller's own token, so it cannot honour a script's
-    // `job_token_scopes`: such a script only runs as a job.
-    let restricted = match &target {
-        InlineScriptTarget::Path(path) => {
-            sqlx::query_scalar!(
-            "SELECT job_token_scopes IS NOT NULL FROM script WHERE path = $1 AND workspace_id = $2 \
-             AND archived = false AND deleted = false ORDER BY created_at DESC LIMIT 1",
-            path,
-            &w_id
-        )
-            .fetch_optional(&db)
-            .await?
+    // `job_token_scopes`: such a script only runs as a job. A path is resolved here, once, and
+    // the version checked is the version run.
+    let (target, restricted) = match target {
+        InlineScriptTarget::Path { path, .. } => {
+            let authed_ref = authed.to_authed_ref();
+            let info = get_latest_deployed_hash_for_path(
+                user_db
+                    .as_ref()
+                    .map(|db| UserDbWithAuthed { db: db.clone(), authed: &authed_ref }),
+                db.clone(),
+                &w_id,
+                &path,
+            )
+            .await?;
+            let restricted = info.job_token_scopes.is_some();
+            (InlineScriptTarget::Path { path, hash: info.hash }, restricted)
         }
         InlineScriptTarget::Hash(hash) => {
-            sqlx::query_scalar!(
-            "SELECT job_token_scopes IS NOT NULL FROM script WHERE hash = $1 AND workspace_id = $2",
-            hash,
-            &w_id
-        )
+            let restricted = sqlx::query_scalar!(
+                "SELECT job_token_scopes IS NOT NULL FROM script WHERE hash = $1 AND workspace_id = $2",
+                hash,
+                &w_id
+            )
             .fetch_optional(&db)
             .await?
+            .flatten()
+            .unwrap_or(false);
+            (InlineScriptTarget::Hash(hash), restricted)
         }
     };
-    if restricted.flatten().unwrap_or(false) {
+    if restricted {
         return Err(Error::BadRequest(
             "This script restricts its job token (job_token_scopes) and cannot be run inline; \
              run it as a job instead"
@@ -9641,9 +9650,9 @@ async fn add_batch_jobs(
             INSERT INTO v2_job
                 (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,
                 script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,
-                concurrency_time_window_s, timeout, args, job_token_scopes)
+                concurrency_time_window_s, timeout, args)
                 (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                ('{ "uuid": "' || uuid || '" }')::jsonb, $17 FROM uuid_table)
+                ('{ "uuid": "' || uuid || '" }')::jsonb FROM uuid_table)
             RETURNING id AS "id!""#,
             w_id,
             raw_code,
@@ -9661,7 +9670,6 @@ async fn add_batch_jobs(
             concurrency_time_window_s,
             timeout,
             n,
-            job_token_scopes.as_deref() as Option<&[String]>,
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -9690,8 +9698,8 @@ async fn add_batch_jobs(
     .await?;
 
     sqlx::query!(
-            "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id)
-            SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
+            "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, job_token_scopes)
+            SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8, $9",
             &uuids,
             authed.email,
             authed.username,
@@ -9700,6 +9708,7 @@ async fn add_batch_jobs(
             &[],
             &[],
             w_id,
+            job_token_scopes.as_deref() as Option<&[String]>,
         )
         .execute(&mut *tx)
         .await?;

@@ -53,12 +53,13 @@ Symbols, not line numbers, are cited: they drift less.
   for every reader until turned off. The resource ACL is the only control, so granting write on a
   folder grants that influence.
 - **Restricted job tokens** (`job_token_scopes` on scripts and flows): a job's effective scopes
-  are stored in `v2_job.job_token_scopes` at push and minted into its token
+  are stored on its `job_perms` row at push and minted into its token
   (`create_token_for_owner`); an empty set is minted as `NO_API_ACCESS_SCOPE`, since
   `scopes: Some([])` reads as unscoped. Every `push` takes a `scope_ceiling`, and the job gets the
   ceiling ∩ the target's own setting: flow steps take their flow job's, agent tools their agent's,
-  WAC children their parent's, retries and restarts the run they replace, and API pushes the
-  calling job's (`caller_scope_ceiling`) — a scoped user or webhook token caps nothing. Schedules,
+  WAC children their parent's, retries the run they replace, and API pushes the calling job's
+  (`caller_scope_ceiling`) — a scoped user or webhook token caps nothing. The row is swept once a
+  job leaves the queue, so a restart of a completed flow takes the flow's current setting. Schedules,
   triggers and error/success handlers start from the target's own setting. A restricted token
   keeps only the runtime routes about its own job (`is_own_job_runtime_route`) and the reads of
   its own flow run (`flow_run_read_route_job`, checked against its lineage: the orchestrator

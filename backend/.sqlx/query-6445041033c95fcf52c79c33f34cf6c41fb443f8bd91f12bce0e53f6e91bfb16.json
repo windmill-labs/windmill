@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n        v2_job_queue.workspace_id,\n        v2_job_queue.id,\n        v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",\n        v2_job.parent_job,\n        v2_job.created_by,\n        v2_job_queue.started_at,\n        v2_job_queue.runnable_settings_handle,\n        scheduled_for,\n        runnable_path,\n        kind as \"kind: JobKind\",\n        runnable_id as \"runnable_id: ScriptHash\",\n        canceled_reason,\n        canceled_by,\n        permissioned_as,\n        permissioned_as_email,\n        flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n        v2_job.tag,\n        script_lang as \"script_lang: ScriptLang\",\n        same_worker,\n        pre_run_error,\n        concurrent_limit,\n        concurrency_time_window_s,\n        flow_innermost_root_job,\n        root_job,\n        timeout,\n        flow_step_id,\n        cache_ttl,\n        cache_ignore_s3_path,\n        v2_job_queue.priority,\n        preprocessed,\n        script_entrypoint_override,\n        trigger,\n        trigger_kind as \"trigger_kind: TriggerKindLabel\",\n        visible_to_owner,\n        NULL as permissioned_as_end_user_email,\n        job_token_scopes\n        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
+  "query": "UPDATE v2_job_status SET\n            flow_status = JSONB_SET(\n                JSONB_SET(v2_job_status.flow_status, $2::TEXT[], $3),\n                $4::TEXT[], $5\n            ) - $6::TEXT[],\n            flow_leaf_jobs = CASE\n                WHEN $7::TEXT IS NULL\n                    OR COALESCE(v2_job.flow_innermost_root_job, v2_job_status.id) <> v2_job_status.id\n                THEN v2_job_status.flow_leaf_jobs\n                ELSE JSONB_SET(COALESCE(v2_job_status.flow_leaf_jobs, '{}'::JSONB), ARRAY[$7::TEXT], $8) END\n        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id\n            LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id\n        WHERE v2_job_status.id = $1 AND v2_job_queue.id = $1\n        RETURNING\n            v2_job_queue.workspace_id,\n            v2_job_queue.id,\n            v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",\n            v2_job.parent_job,\n            v2_job.created_by,\n            v2_job_queue.started_at,\n            v2_job_queue.runnable_settings_handle,\n            v2_job_queue.scheduled_for,\n            v2_job.runnable_path,\n            v2_job.kind as \"kind: JobKind\",\n            v2_job.runnable_id as \"runnable_id: ScriptHash\",\n            v2_job_queue.canceled_reason,\n            v2_job_queue.canceled_by,\n            v2_job.permissioned_as,\n            v2_job.permissioned_as_email,\n            v2_job_status.flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n            v2_job.tag,\n            v2_job.script_lang as \"script_lang: ScriptLang\",\n            v2_job.same_worker,\n            v2_job.pre_run_error,\n            v2_job.concurrent_limit,\n            v2_job.concurrency_time_window_s,\n            v2_job.flow_innermost_root_job,\n            v2_job.root_job,\n            v2_job.timeout,\n            v2_job.flow_step_id,\n            v2_job.cache_ttl,\n            v2_job_queue.cache_ignore_s3_path,\n            v2_job_queue.priority,\n            v2_job.preprocessed,\n            v2_job.script_entrypoint_override,\n            v2_job.trigger,\n            v2_job.trigger_kind as \"trigger_kind: TriggerKindLabel\",\n            v2_job.visible_to_owner,\n            NULL as permissioned_as_end_user_email,\n            job_perms.job_token_scopes",
   "describe": {
     "columns": [
       {
@@ -278,7 +278,14 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "TextArray",
+        "Jsonb",
+        "TextArray",
+        "Jsonb",
+        "TextArray",
+        "Text",
+        "Jsonb"
       ]
     },
     "nullable": [
@@ -320,5 +327,5 @@
       true
     ]
   },
-  "hash": "eb1ea11d391e5860aa4a6e9d4c1ecac07c2e0998c2cee48f254915690d8270d0"
+  "hash": "6445041033c95fcf52c79c33f34cf6c41fb443f8bd91f12bce0e53f6e91bfb16"
 }
