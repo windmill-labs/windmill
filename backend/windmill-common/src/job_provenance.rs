@@ -1,6 +1,7 @@
+use serde_json::Value;
 use uuid::Uuid;
 
-use crate::{db::DB, error::Result, jobs::JobKind, scripts::ScriptHash};
+use crate::{db::DB, error::Result, item_digest, jobs::JobKind, scripts::ScriptHash};
 
 /// Where a job's code comes from, as far as its chain of parents can prove it.
 pub struct JobProvenance {
@@ -28,7 +29,39 @@ pub struct JobProvenance {
     pub root_path: Option<String>,
     pub root_kind: JobKind,
     pub root_trigger_kind: Option<String>,
+    /// What triggered the root job, as recorded in `v2_job.trigger`.
+    pub root_trigger: Option<String>,
     pub root_version: Option<String>,
+    /// See [`item_digest`]. Only scripts, flows and flow steps' inline scripts have one.
+    pub digest: Option<String>,
+    pub root_digest: Option<String>,
+    /// The job's worker tag.
+    pub tag: String,
+    /// The group of the worker running the job, if it is running.
+    pub worker_group: Option<String>,
+    pub run_as_type: RunAsType,
+}
+
+/// What `permissioned_as` names.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum RunAsType {
+    User,
+    ServiceAccount,
+    Group,
+    /// No member of the workspace: a superadmin outside it, a built-in identity
+    /// (`superadmin_secret@windmill.dev`, ...) or a user since removed.
+    NonMember,
+}
+
+impl RunAsType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RunAsType::User => "user",
+            RunAsType::ServiceAccount => "service_account",
+            RunAsType::Group => "group",
+            RunAsType::NonMember => "non_member",
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -58,6 +91,8 @@ struct LineageJob {
     runnable_path: Option<String>,
     runnable_id: Option<i64>,
     trigger_kind: Option<String>,
+    trigger: Option<String>,
+    tag: String,
     permissioned_as: String,
     origin_verified: bool,
     current_version: bool,
@@ -66,6 +101,10 @@ struct LineageJob {
     restarted_from: Option<String>,
     app_stamped: bool,
     args_modules: bool,
+    worker_group: Option<String>,
+    run_as_type: Option<String>,
+    /// What the digest hashes, for the job and the root only.
+    digest_source: Option<Value>,
 }
 
 /// Reads any job of `w_id` regardless of the caller: authorize access to `job_id` first.
@@ -74,16 +113,17 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         LineageJob,
         r#"WITH RECURSIVE lineage AS (
             SELECT id, parent_job, kind, runnable_path, runnable_id, trigger_kind, trigger,
-                permissioned_as, args, 0 AS depth
+                tag, permissioned_as, args, 0 AS depth
             FROM v2_job WHERE id = $1 AND workspace_id = $2
           UNION ALL
             SELECT p.id, p.parent_job, p.kind, p.runnable_path, p.runnable_id, p.trigger_kind,
-                p.trigger, p.permissioned_as, p.args, l.depth + 1
+                p.trigger, p.tag, p.permissioned_as, p.args, l.depth + 1
             FROM v2_job p JOIN lineage l ON p.id = l.parent_job
             WHERE p.workspace_id = $2 AND l.depth < 100
         )
         SELECT id AS "id!", parent_job, kind AS "kind!: JobKind", runnable_path, runnable_id,
-            trigger_kind::text AS trigger_kind, permissioned_as AS "permissioned_as!",
+            trigger_kind::text AS trigger_kind, trigger, tag AS "tag!",
+            permissioned_as AS "permissioned_as!",
             -- A restart takes its flow version from the request, so a trusted flow path
             -- can carry another flow's code: the version must belong to that path.
             CASE kind
@@ -121,7 +161,30 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
                 AS "app_stamped!",
             -- A preview's modules come from its args, which its parent may have taken from
             -- the caller.
-            COALESCE(jsonb_typeof(args->'_MODULES') = 'object', false) AS "args_modules!"
+            COALESCE(jsonb_typeof(args->'_MODULES') = 'object', false) AS "args_modules!",
+            CASE WHEN depth = 0 THEN (SELECT wp.worker_group FROM v2_job_queue q
+                JOIN worker_ping wp ON wp.worker = q.worker WHERE q.id = lineage.id)
+            END AS worker_group,
+            CASE WHEN depth = 0 THEN CASE
+                WHEN starts_with(permissioned_as, 'g/') THEN 'group'
+                ELSE (SELECT CASE WHEN u.is_service_account THEN 'service_account' ELSE 'user' END
+                    FROM usr u WHERE starts_with(permissioned_as, 'u/')
+                        AND u.username = substr(permissioned_as, 3) AND u.workspace_id = $2)
+            END END AS run_as_type,
+            -- The canonical item `item_digest` hashes, null members included.
+            CASE WHEN depth = 0 OR depth = max(depth) OVER () THEN CASE kind
+                WHEN 'script' THEN (SELECT jsonb_build_object('content', s.content,
+                        'lock', s.lock, 'codebase', s.codebase,
+                        'modules', (SELECT jsonb_object_agg(m.key, m.value - 'language')
+                            FROM jsonb_each(s.modules) m))
+                    FROM script s WHERE s.hash = runnable_id AND s.workspace_id = $2
+                        AND NOT s.deleted)
+                WHEN 'flow' THEN (SELECT fv.value FROM flow_version fv
+                    WHERE fv.id = runnable_id AND fv.workspace_id = $2)
+                WHEN 'flowscript' THEN (SELECT jsonb_build_object('content', n.code,
+                        'lock', n.lock)
+                    FROM flow_node n WHERE n.id = runnable_id AND n.workspace_id = $2)
+            END END AS digest_source
         FROM lineage ORDER BY depth"#,
         job_id,
         w_id
@@ -174,6 +237,15 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
             }
         }
     }
+    let job = &lineage[0];
+    let digest = item_digest_of(job);
+    let root_digest = item_digest_of(root);
+    let run_as_type = match job.run_as_type.as_deref() {
+        Some("group") => RunAsType::Group,
+        Some("service_account") => RunAsType::ServiceAccount,
+        Some("user") => RunAsType::User,
+        _ => RunAsType::NonMember,
+    };
     Ok(Some(JobProvenance {
         deployed,
         latest: deployed && all_current,
@@ -186,7 +258,13 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         root_path: root.runnable_path.clone(),
         root_kind: root.kind,
         root_trigger_kind: root.trigger_kind.clone(),
+        root_trigger: root.trigger.clone(),
         root_version: version(root),
+        digest,
+        root_digest,
+        tag: job.tag.clone(),
+        worker_group: job.worker_group.clone(),
+        run_as_type,
     }))
 }
 
@@ -218,6 +296,14 @@ async fn restart_origin_is_current(db: &DB, origin: &Uuid, w_id: &str) -> Result
     .fetch_one(db)
     .await?;
     Ok(current)
+}
+
+fn item_digest_of(job: &LineageJob) -> Option<String> {
+    let source = job.digest_source.as_ref()?;
+    if job.kind == JobKind::Flow && item_digest::references_flow_nodes(source) {
+        return None;
+    }
+    Some(item_digest::digest(source))
 }
 
 fn version(job: &LineageJob) -> Option<String> {

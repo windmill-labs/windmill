@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -362,6 +361,79 @@ fn wrap_param_encoding_error(
     to_anyhow(err).into()
 }
 
+/// Whether a statement may return a row stream, and so needs its column types described
+/// before it runs. Anything not recognised as returning at most a row counts as a stream:
+/// a wrong guess only costs a round trip, while a missed stream can hang the job.
+fn can_stream_rows(query: &str) -> bool {
+    let Some(keyword) = leading_keyword(query) else {
+        return true;
+    };
+    let rowless = matches!(
+        keyword.as_str(),
+        "insert"
+            | "update"
+            | "delete"
+            | "merge"
+            | "create"
+            | "alter"
+            | "drop"
+            | "truncate"
+            | "grant"
+            | "revoke"
+            | "comment"
+            | "set"
+            | "reset"
+            | "call"
+            | "do"
+            | "begin"
+            | "commit"
+            | "rollback"
+            | "lock"
+            | "vacuum"
+            | "analyze"
+            | "refresh"
+    );
+    !rowless || query.to_ascii_lowercase().contains("returning")
+}
+
+/// The first keyword of a statement, past whitespace and comments, following Postgres's
+/// scanner: a `--` comment ends at CR or LF, and block comments nest, so
+/// `/* /* a */ INSERT */ SELECT` starts with SELECT. `None` when the comments never end.
+fn leading_keyword(query: &str) -> Option<String> {
+    let mut rest = query;
+    loop {
+        rest = rest.trim_start();
+        if let Some(after) = rest.strip_prefix("--") {
+            rest = &after[after.find(['\n', '\r'])?..];
+        } else if rest.starts_with("/*") {
+            let mut depth = 0usize;
+            let mut i = 0;
+            let bytes = rest.as_bytes();
+            loop {
+                match bytes.get(i..i + 2)? {
+                    b"/*" => depth += 1,
+                    b"*/" => depth -= 1,
+                    _ => {
+                        i += 1;
+                        continue;
+                    }
+                }
+                i += 2;
+                if depth == 0 {
+                    break;
+                }
+            }
+            rest = &rest[i..];
+        } else {
+            break;
+        }
+    }
+    let end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+        .unwrap_or(rest.len());
+    Some(rest[..end].to_ascii_lowercase())
+}
+
 fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
     let base = otyp.trim_end_matches("[]");
     let is_array = otyp.ends_with("[]");
@@ -510,15 +582,25 @@ fn do_postgresql_inner<'a>(
     let result_f = async move {
         let mut res: Vec<Box<serde_json::value::RawValue>> = vec![];
 
-        // Always prefer query_typed_raw (unnamed prepared statement). It is sent as
-        // a single Parse+Bind+Execute+Sync round-trip, so it survives transaction-mode
-        // connection poolers (PgBouncer/Supabase pooler/RDS Proxy) where named
+        // Always prefer query_typed_raw (unnamed prepared statement). It and its
+        // describe are each a self-contained round-trip ending in Sync, so they
+        // survive transaction-mode connection poolers (PgBouncer/Supabase
+        // pooler/RDS Proxy) where named
         // statements ("s0", "s1", ...) can be reported missing because the prepare
         // and the execute land on different backend connections. Fall back to
         // prepare + query_raw only when an arg has a type unsupported by
         // otyp_to_pg_type (e.g. custom enum, geometry, …) — in that case we lose
         // pooler safety, but the query at least runs against a direct connection.
         let rows = if all_types_resolved {
+            // query_typed_raw looks up result column types this connection has not seen
+            // (enums, domains, extension types) while the rows already stream, and on a
+            // large result that lookup waits behind them forever. Describing first resolves
+            // them up front, still without a named statement.
+            if can_stream_rows(&query) {
+                if let Err(e) = client.describe_typed(&query, &param_types).await {
+                    return Err(wrap_param_encoding_error(e, &param_meta, &param_types));
+                }
+            }
             let typed_params = query_params
                 .iter()
                 .zip(param_types.iter())
@@ -1889,8 +1971,8 @@ pub fn pg_cell_to_json_value_with_state(
         Type::UUID => get_basic(row, column, column_i, |a: uuid::Uuid| {
             Ok(JSONValue::String(a.to_string()))
         })?,
-        Type::INET => get_basic(row, column, column_i, |a: IpAddr| {
-            Ok(JSONValue::String(a.to_string()))
+        Type::INET | Type::CIDR => get_basic(row, column, column_i, |a: InetStr| {
+            Ok(JSONValue::String(a.0))
         })?,
         Type::INTERVAL => get_basic(row, column, column_i, |a: IntervalStr| {
             Ok(JSONValue::String(a.0))
@@ -1996,6 +2078,9 @@ pub fn pg_cell_to_json_value_with_state(
         })?,
         Type::BYTEA_ARRAY => get_array(row, column, column_i, |a: Vec<u8>| {
             Ok(JSONValue::String(format!("\\x{}", hex::encode(a))))
+        })?,
+        Type::INET_ARRAY | Type::CIDR_ARRAY => get_array(row, column, column_i, |a: InetStr| {
+            Ok(JSONValue::String(a.0))
         })?,
         Type::VOID => JSONValue::Null,
         // Default fallback for unhandled column types: read as text. We use
@@ -2156,6 +2241,29 @@ fn get_array<'a, T: FromSql<'a>>(
     })
 }
 
+/// `inet` / `cidr` in Postgres's own text form. `IpAddr`'s `FromSql` drops the
+/// prefix length, so a network such as `10.0.0.0/8` would read back as a host.
+struct InetStr(String);
+impl FromSql<'_> for InetStr {
+    fn from_sql(
+        ty: &Type,
+        raw: &[u8],
+    ) -> Result<InetStr, Box<dyn std::error::Error + Sync + Send>> {
+        let inet = postgres_protocol::types::inet_from_sql(raw)?;
+        let host_prefix = if inet.addr().is_ipv4() { 32 } else { 128 };
+        Ok(InetStr(
+            if *ty == Type::CIDR || inet.netmask() != host_prefix {
+                format!("{}/{}", inet.addr(), inet.netmask())
+            } else {
+                inet.addr().to_string()
+            },
+        ))
+    }
+    fn accepts(ty: &Type) -> bool {
+        matches!(*ty, Type::INET | Type::CIDR)
+    }
+}
+
 // you can remove this section if not using TS_VECTOR (or other types requiring an intermediary `FromSQL` struct)
 struct StringCollector(String);
 impl FromSql<'_> for StringCollector {
@@ -2269,6 +2377,19 @@ mod tests {
             map_s3object_jsonb_overflow(pg_err2, false).to_string(),
             "jsonb array elements exceeds the maximum",
         );
+    }
+
+    #[test]
+    fn inet_keeps_the_prefix_postgres_prints() {
+        let inet = |netmask: u8, addr: [u8; 4]| {
+            let mut raw = vec![2, netmask, 0, 4];
+            raw.extend(addr);
+            raw
+        };
+        let read = |ty: &Type, raw: &[u8]| InetStr::from_sql(ty, raw).unwrap().0;
+        assert_eq!(read(&Type::INET, &inet(32, [10, 1, 2, 3])), "10.1.2.3");
+        assert_eq!(read(&Type::INET, &inet(8, [10, 0, 0, 0])), "10.0.0.0/8");
+        assert_eq!(read(&Type::CIDR, &inet(32, [10, 1, 2, 3])), "10.1.2.3/32");
     }
 
     #[test]
@@ -2470,6 +2591,39 @@ mod tests {
 
     fn typ_for(arg_t: &str) -> Typ {
         windmill_parser_sql::parse_pg_typ(arg_t)
+    }
+
+    #[test]
+    fn only_rowless_statements_skip_the_describe() {
+        for q in [
+            "SELECT * FROM t",
+            "-- $1 n (int)\nselect $1",
+            "WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x",
+            "INSERT INTO t VALUES (1) RETURNING id",
+            "/* c */ UPDATE t SET a = 1\nreturning *",
+            "UPDATE t SET note = $$a;b$$ RETURNING *",
+            "/* /* inner */ INSERT */ SELECT * FROM t",
+            "/* never closed INSERT",
+            "-- INSERT",
+            "-- header\rSELECT m, pad AS\nupdate FROM t",
+            "insert_rows()",
+            "TABLE t",
+            "VALUES (1)",
+            "EXPLAIN SELECT 1",
+        ] {
+            assert!(can_stream_rows(q), "{q}");
+        }
+        for q in [
+            "INSERT INTO t VALUES (1)",
+            "-- $1 n (int)\nUPDATE t SET a = $1",
+            "delete from t",
+            "CREATE TABLE t (a int)",
+            "SET search_path TO x",
+            "CALL p()",
+            "/* a /* b */ c */\n-- d\nINSERT INTO t VALUES (1)",
+        ] {
+            assert!(!can_stream_rows(q), "{q}");
+        }
     }
 
     #[test]
