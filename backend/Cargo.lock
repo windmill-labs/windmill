@@ -9497,7 +9497,7 @@ dependencies = [
 [[package]]
 name = "postgres-native-tls"
 version = "0.5.2"
-source = "git+https://github.com/windmill-labs/rust-postgres?rev=7f4374f9237237759305942727e136742b1e7f8b#7f4374f9237237759305942727e136742b1e7f8b"
+source = "git+https://github.com/windmill-labs/rust-postgres?rev=b3a6443aa1ae90a4f6c4b742103ba80584598f2e#b3a6443aa1ae90a4f6c4b742103ba80584598f2e"
 dependencies = [
  "native-tls",
  "tokio",
@@ -9520,7 +9520,7 @@ dependencies = [
 [[package]]
 name = "postgres-protocol"
 version = "0.6.12"
-source = "git+https://github.com/windmill-labs/rust-postgres?rev=7f4374f9237237759305942727e136742b1e7f8b#7f4374f9237237759305942727e136742b1e7f8b"
+source = "git+https://github.com/windmill-labs/rust-postgres?rev=b3a6443aa1ae90a4f6c4b742103ba80584598f2e#b3a6443aa1ae90a4f6c4b742103ba80584598f2e"
 dependencies = [
  "base64 0.22.1",
  "byteorder",
@@ -9537,7 +9537,7 @@ dependencies = [
 [[package]]
 name = "postgres-types"
 version = "0.2.11"
-source = "git+https://github.com/windmill-labs/rust-postgres?rev=7f4374f9237237759305942727e136742b1e7f8b#7f4374f9237237759305942727e136742b1e7f8b"
+source = "git+https://github.com/windmill-labs/rust-postgres?rev=b3a6443aa1ae90a4f6c4b742103ba80584598f2e#b3a6443aa1ae90a4f6c4b742103ba80584598f2e"
 dependencies = [
  "array-init",
  "bit-vec 0.6.3",
@@ -13417,7 +13417,7 @@ dependencies = [
 [[package]]
 name = "tokio-postgres"
 version = "0.7.15"
-source = "git+https://github.com/windmill-labs/rust-postgres?rev=7f4374f9237237759305942727e136742b1e7f8b#7f4374f9237237759305942727e136742b1e7f8b"
+source = "git+https://github.com/windmill-labs/rust-postgres?rev=b3a6443aa1ae90a4f6c4b742103ba80584598f2e#b3a6443aa1ae90a4f6c4b742103ba80584598f2e"
 dependencies = [
  "async-trait",
  "byteorder",

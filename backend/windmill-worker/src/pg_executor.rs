@@ -1384,7 +1384,23 @@ pub async fn do_postgresql(
 
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
-    if !*CLOUD_HOSTED && lease.slot == PgLeaseSlot::Uncached {
+    // A transaction the script left open would otherwise carry over into the
+    // next job that reuses the connection. Closing the connection rolls it
+    // back, as it always has without the cache. The status comes with the last
+    // reply, so a script that ends cleanly pays nothing for this check.
+    if lease.client().transaction_status() != tokio_postgres::TransactionStatus::Idle {
+        lease.discard();
+        if !run_inline {
+            windmill_queue::append_logs(
+                &job.id,
+                &job.workspace_id,
+                "The script ended inside an open transaction, which was rolled back. \
+                 End it with COMMIT to keep its changes.\n",
+                conn,
+            )
+            .await;
+        }
+    } else if !*CLOUD_HOSTED && lease.slot == PgLeaseSlot::Uncached {
         lease.cache_on_release = is_most_used_conn(&database_string).await;
     }
     drop(lease);
