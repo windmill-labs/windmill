@@ -127,6 +127,16 @@ async fn test_restricted_job_token_is_confined(db: Pool<Postgres>) -> anyhow::Re
             .await?;
         assert_eq!(resp.status() == StatusCode::FORBIDDEN, refused, "{job}");
     }
+    // Its progress reaches only the flow it runs in.
+    for (flow, refused) in [(FLOW_JOB, false), (RUN_JOB, true)] {
+        let resp = client
+            .post(format!("{base}/job_metrics/set_progress/{OIDC_JOB}"))
+            .bearer_auth(&oidc_token)
+            .json(&json!({ "percent": 50, "flow_job_id": flow }))
+            .send()
+            .await?;
+        assert_eq!(resp.status() == StatusCode::FORBIDDEN, refused, "{flow}");
+    }
 
     // A job it starts is capped at its own scopes, intersected with the target's setting.
     let run_token = job_token(&db, RUN_JOB).await?;
