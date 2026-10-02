@@ -148,6 +148,46 @@ async fn test_restricted_job_token_is_confined(db: Pool<Postgres>) -> anyhow::Re
         assert_eq!(resp.status() == StatusCode::FORBIDDEN, refused, "{flow}");
     }
 
+    // Imported queue rows bypass push, so a restricted token cannot import, even an admin's.
+    let admin_job = Uuid::parse_str("b0000000-0000-0000-0000-000000000004")?;
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
+            kind, script_lang, runnable_path, tag)
+        VALUES ($1, 'test-workspace', 'test-user', 'u/test-user', 'test@windmill.dev',
+            'script', 'deno', 'u/test-user/agent', 'deno')",
+    )
+    .bind(admin_job)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups,
+            workspace_id, job_token_scopes)
+        VALUES ($1, 'test@windmill.dev', 'test-user', true, false, '{}', '{}', 'test-workspace',
+            '{jobs:write}')",
+    )
+    .bind(admin_job)
+    .execute(&db)
+    .await?;
+    let admin_token = windmill_common::auth::create_token_for_owner(
+        &db,
+        "test-workspace",
+        "u/test-user",
+        "ephemeral-script",
+        300,
+        "test@windmill.dev",
+        &admin_job,
+        None,
+        None,
+    )
+    .await?;
+    let resp = client
+        .post(format!("{base}/jobs/queue/import"))
+        .bearer_auth(&admin_token)
+        .json(&json!([]))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN, "{}", resp.text().await?);
+
     // A job it starts is capped at its own scopes, intersected with the target's setting.
     let run_token = job_token(&db, RUN_JOB).await?;
     for (path, expected) in [

@@ -756,9 +756,15 @@ pub async fn create_token_for_owner(
             let scopes = jp.job_token_scopes.take();
             (jp.into(), scopes)
         }
+        // A failed read must not mint as if the job had no row: that would drop its restriction.
+        Err(e) => {
+            return Err(Error::internal_err(format!(
+                "Could not read permissions for job {job_id}: {e:#}"
+            )))
+        }
         // Push writes a job's `job_perms` row and its scopes in one statement, so a job with no
         // row was never restricted.
-        _ => {
+        Ok(None) => {
             tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
             let authed = fetch_authed_from_permissioned_as(owner, email, w_id, db)
                 .await

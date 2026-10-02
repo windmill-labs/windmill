@@ -4329,14 +4329,15 @@ async fn push_next_flow_job(
     };
 
     // only start runners if we're not already in a squash for loop
-    // Runners would run its steps with their own unscoped token: a restricted flow runs them
-    // as regular jobs.
+    // Runners would run its steps with their own unscoped token: a restricted flow, or a loop
+    // that restricts itself or any step in it, runs them as regular jobs.
     let start_runners = flow_runners.is_none()
         && flow_job.job_token_scopes.is_none()
         && matches!(
             next_status,
             NextStatus::NextLoopIteration { start_runners: true, .. }
-        );
+        )
+        && !restricts_any_step(module);
 
     let do_not_pass_runners = matches!(next_status, NextStatus::NextStep { .. })
         && flow_runners
@@ -6340,6 +6341,16 @@ pub fn raw_script_to_payload(
         timeout: None, // timeout evaluation handled at higher level
         on_behalf_of: None,
     }
+}
+
+/// Whether `module`, or any step or agent tool under it, sets `job_token_scopes`.
+fn restricts_any_step(module: &FlowModule) -> bool {
+    let mut any = false;
+    let _ = FlowModule::traverse_modules(&vec![module.clone()], &mut |m: &FlowModule| {
+        any |= m.job_token_scopes.is_some();
+        Ok(())
+    });
+    any
 }
 
 async fn flow_to_payload(

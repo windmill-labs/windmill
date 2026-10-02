@@ -449,6 +449,13 @@ pub async fn import_queued_jobs(
         ));
     }
 
+    // Imported rows bypass `push`, so nothing would cap their tokens: a restricted job token
+    // could otherwise queue arbitrary jobs that run with its owner's full permissions.
+    if authed.job_id.is_some() && authed.scopes.is_some() {
+        return Err(error::Error::PermissionDenied(
+            "A restricted job token cannot import queued jobs".to_string(),
+        ));
+    }
     // An imported job gets no `job_perms` row, so its token would be minted without the
     // restriction it was queued with.
     if let Some(job) = jobs.iter().find(|job| job.job_token_scopes.is_some()) {

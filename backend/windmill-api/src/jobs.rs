@@ -9759,6 +9759,13 @@ async fn run_preview_flow_job(
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
+    // Step restrictions apply to a preview as they do to a deployed run, so they are checked
+    // the same way: an invalid entry or an older worker would leave a step unrestricted.
+    if windmill_common::scopes::validate_flow_step_job_token_scopes(&raw_flow.value)? {
+        windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+            .assert()
+            .await?;
+    }
     // A builder must be able to test what it composes, but the submitted value is not the stored
     // one: without this the preview is a way to run inline code the write path refuses.
     if authed.is_operator {

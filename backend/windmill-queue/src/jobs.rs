@@ -2146,9 +2146,16 @@ async fn restart_job_if_perpetual_inner(
                 // TODO(debouncing): handle properly
                 debouncing_settings: DebouncingSettings::default(),
                 labels: None, // labels already set on original job
-                // The run it replaces caps it (`scope_ceiling`), and that run already
-                // carried this script's setting.
-                job_token_scopes: None,
+                // Read from the script, not only from the run it replaces: that run's
+                // `job_perms` row (the ceiling) may already be swept once it left the queue.
+                job_token_scopes: sqlx::query_scalar!(
+                    "SELECT job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
+                    hash.0,
+                    &queued_job.workspace_id
+                )
+                .fetch_optional(db)
+                .await?
+                .flatten(),
             },
             PushArgs::from(&args.0),
             &queued_job.created_by,
