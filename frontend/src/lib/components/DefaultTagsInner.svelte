@@ -242,7 +242,20 @@
 					Route every dependency job (lockfile resolution at deploy and relocks triggered by an
 					imported script changing, for scripts, flows and apps) to this tag, whatever tag the
 					runnable itself runs on. Supports <code>$workspace</code>. Dedicated workers still build
-					their own locks. Leave empty to keep the default routing.
+					their own locks, and Bun native scripts still build their bundle on the bun tag.
+				</span>
+				<span class="text-2xs text-secondary">
+					Leave empty for the default routing: a script's dependency job runs on the script's own
+					tag, or on its language's default tag (e.g. <code
+						>{defaultTagPerWorkspace ? 'python3-$workspace' : 'python3'}</code
+					>) when it has none; flow and app dependency jobs run on
+					<code>{defaultTagPerWorkspace ? 'dependency-$workspace' : 'dependency'}</code>.
+					<a
+						href="https://www.windmill.dev/docs/core_concepts/worker_groups"
+						target="_blank"
+						class="gap-1 items-baseline"
+						>Worker groups <ExternalLink size={12} class="inline-block" /></a
+					>
 				</span>
 				<TextInput
 					bind:value={dependencyJobTag}
