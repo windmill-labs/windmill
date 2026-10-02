@@ -1065,6 +1065,18 @@ pub fn job_cancel_path_confinement(scopes: Option<&[String]>) -> Option<Vec<Scop
     (!confinement.is_empty()).then_some(confinement)
 }
 
+/// Whether the token holds a `jobs:cancel` scope, path-scoped or not.
+pub fn has_job_cancel_grant(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|scopes| {
+        scopes.iter().any(|s| {
+            ScopeDefinition::from_scope_string(s).is_ok_and(|s| {
+                ScopeDomain::from_str(&s.domain) == Some(ScopeDomain::Jobs)
+                    && ScopeAction::from_str(&s.action) == Some(ScopeAction::Cancel)
+            })
+        })
+    })
+}
+
 /// Whether a job of `runnable_path` is inside a [`job_cancel_path_confinement`] set.
 pub fn cancel_confinement_admits(confinement: &[ScopeDefinition], runnable_path: &str) -> bool {
     let required = ScopeDefinition::new(

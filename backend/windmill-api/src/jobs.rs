@@ -620,8 +620,7 @@ async fn cancel_job_api(
     // right to kill someone else's run. Anonymous callers are instead confined to
     // anonymous-created jobs by `cancel_job`'s `require_anonymous`.
     if let Some(authed) = opt_authed.as_ref() {
-        require_job_update_read_access(&db, &user_db, authed, &w_id, &id, None).await?;
-        require_job_within_cancel_scope(&db, authed, &w_id, id).await?;
+        require_job_cancel_access(&db, &user_db, authed, &w_id, &id).await?;
     }
 
     let tx = db.begin().await?;
@@ -692,15 +691,9 @@ async fn cancel_persistent_script_api(
     let audit_author: AuditAuthor = match opt_authed {
         Some(authed) => {
             let path = script_path.to_path();
-            let scopes = authed.scopes.as_deref();
-            // The jobs cancelled are top-level runs of this script, so the by-id cancels'
-            // run and cancel confinements reduce to checks on its path.
-            let admitted = windmill_api_auth::scopes::job_cancel_path_confinement(scopes)
+            if !windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
                 .is_none_or(|c| windmill_api_auth::scopes::cancel_confinement_admits(&c, path))
-                && windmill_api_auth::scopes::job_read_run_confinement(scopes).is_none_or(|c| {
-                    windmill_api_auth::scopes::run_confinement_admits(&c, "scripts", path)
-                });
-            if !admitted {
+            {
                 return Err(Error::NotFound(format!("Script {path} not found")));
             }
             (&authed).into()
@@ -797,8 +790,7 @@ async fn force_cancel(
     // caller who can only see an inner step kill a root flow hidden from them.
     if let Some(authed) = opt_authed.as_ref() {
         let target = force_cancel_target(&db, &w_id, id).await?;
-        require_job_update_read_access(&db, &user_db, authed, &w_id, &target, None).await?;
-        require_job_within_cancel_scope(&db, authed, &w_id, target).await?;
+        require_job_cancel_access(&db, &user_db, authed, &w_id, &target).await?;
     }
 
     let tx = db.begin().await?;
@@ -1722,6 +1714,22 @@ pub(crate) async fn require_job_read_access(
     created_by: &str,
     view_token: Option<&str>,
 ) -> error::Result<()> {
+    require_job_access(
+        db, user_db, authed, w_id, job_id, created_by, view_token, true,
+    )
+    .await
+}
+
+async fn require_job_access(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: &Uuid,
+    created_by: &str,
+    view_token: Option<&str>,
+    run_confined: bool,
+) -> error::Result<()> {
     // Tag scope (`if_jobs:filter_tags:`) is an orthogonal hard restriction on a
     // scoped token: it must never read a job outside its allowed tags, regardless of
     // how authorization is otherwise satisfied (created_by / view token / RLS). Most
@@ -1748,7 +1756,9 @@ pub(crate) async fn require_job_read_access(
     // A path-scoped `jobs:run` token is likewise hard-restricted to the runnables it
     // may start, ahead of every grant below — the token is handed out to run one thing,
     // so it must not read jobs of anything else merely because its owner could.
-    require_job_within_run_scope(db, authed, w_id, job_id).await?;
+    if run_confined {
+        require_job_within_run_scope(db, authed, w_id, job_id).await?;
+    }
 
     // Fast path: you can always read a job you launched. This is also load-bearing
     // for apps — a component job runs as the app policy's `permissioned_as`, but its
@@ -2237,6 +2247,41 @@ async fn require_job_update_read_access(
     .await?
     .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
     require_job_read_access(db, user_db, authed, w_id, job_id, &created_by, view_token).await
+}
+
+/// The per-job check of the cancel routes. A `jobs:cancel` grant stands on its own, like
+/// `jobs:write`: its paths confine it (`filter_jobs_within_cancel_scope`), not the
+/// token's `jobs:run` scopes, which bound what a run token may read. Intersecting the two
+/// would not hold anyway, since the token can mint itself a child holding only the
+/// cancel scope.
+async fn require_job_cancel_access(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: &Uuid,
+) -> error::Result<()> {
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
+    let run_confined = !windmill_api_auth::scopes::has_job_cancel_grant(authed.scopes.as_deref());
+    require_job_access(
+        db,
+        user_db,
+        authed,
+        w_id,
+        job_id,
+        &created_by,
+        None,
+        run_confined,
+    )
+    .await?;
+    require_job_within_cancel_scope(db, authed, w_id, *job_id).await
 }
 
 /// Whether a validated approval token should grant the job-read bypass. The token alone
@@ -4455,44 +4500,38 @@ async fn cancel_selection(
     let force_cancel = query.force_cancel.unwrap_or(false);
     let mut cancelled = Vec::new();
     for (workspace_id, ids) in jobs_by_workspace {
-        let scopes = authed.scopes.as_deref();
-        let ids = if windmill_api_auth::scopes::job_cancel_path_confinement(scopes).is_some()
-            || windmill_api_auth::scopes::job_read_run_confinement(scopes).is_some()
-        {
-            // The same per-job checks as the by-id cancel routes, on the job the cancel
-            // actually kills: a force cancel reaches the highest queued ancestor.
-            let mut targets = Vec::with_capacity(ids.len());
-            for id in ids {
-                let target = if force_cancel {
-                    force_cancel_target(&db, &workspace_id, id).await?
-                } else {
-                    id
-                };
-                if windmill_api_auth::scopes::job_read_run_confinement(scopes).is_some() {
-                    match require_job_within_run_scope(&db, &authed, &workspace_id, &target).await {
-                        Err(Error::NotFound(_)) => continue,
-                        r => r?,
-                    }
+        let ids =
+            if windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
+                .is_some()
+            {
+                // Checked on the job the cancel actually kills: a force cancel reaches the
+                // highest queued ancestor.
+                let mut targets = Vec::with_capacity(ids.len());
+                for id in ids {
+                    let target = if force_cancel {
+                        force_cancel_target(&db, &workspace_id, id).await?
+                    } else {
+                        id
+                    };
+                    targets.push((id, target));
                 }
-                targets.push((id, target));
-            }
-            let admitted: HashSet<Uuid> = filter_jobs_within_cancel_scope(
-                &db,
-                &authed,
-                &workspace_id,
-                targets.iter().map(|(_, t)| *t).collect(),
-            )
-            .await?
-            .into_iter()
-            .collect();
-            targets
+                let admitted: HashSet<Uuid> = filter_jobs_within_cancel_scope(
+                    &db,
+                    &authed,
+                    &workspace_id,
+                    targets.iter().map(|(_, t)| *t).collect(),
+                )
+                .await?
                 .into_iter()
-                .filter(|(_, t)| admitted.contains(t))
-                .map(|(id, _)| id)
-                .collect()
-        } else {
-            ids
-        };
+                .collect();
+                targets
+                    .into_iter()
+                    .filter(|(_, t)| admitted.contains(t))
+                    .map(|(id, _)| id)
+                    .collect()
+            } else {
+                ids
+            };
         let Json(mut w_cancelled) = cancel_jobs(
             ids,
             &db,
