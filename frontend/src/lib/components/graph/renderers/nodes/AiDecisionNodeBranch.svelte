@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { Split } from 'lucide-svelte'
+	import { GitBranchPlus } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { decisionChoiceQuestions, findRouting } from '$lib/components/flows/aiDecisionBranching'
@@ -29,12 +29,13 @@
 
 {#if ctx && question}
 	{@const q = question}
-	<div class="absolute top-1/2 -right-10 -translate-y-1/2 z-10">
+	<div class="absolute top-1/2 -right-8 -translate-y-1/2 z-10">
 		<Button
 			variant="default"
-			unifiedSize="sm"
+			unifiedSize="xs"
 			iconOnly
-			startIcon={{ icon: Split }}
+			btnClasses="bg-surface text-secondary"
+			startIcon={{ icon: GitBranchPlus }}
 			title="Branch on {q.name}"
 			onClick={() => branchOnQuestion(ctx, moduleId, q.name, q.kind, q.options)}
 		/>
