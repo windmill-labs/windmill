@@ -3741,11 +3741,10 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
-            // `QueuedJobV2` carries no args, and nothing reaches the restart gate
-            // through this conversion — the worker completes jobs from the pulled job.
+            // `QueuedJobV2` carries no args; a dependency job never completes through here.
             build_binary_only: false,
-            // Nor scopes: a caller whose completion can re-run the job fills them in from
-            // `job_perms` while the job is still queued.
+            // Nor scopes: a caller whose completion can re-run the job (the monitor's zombie
+            // recovery) fills them in from `job_perms` while the job is still queued.
             job_token_scopes: None,
         }
     }
