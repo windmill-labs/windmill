@@ -1069,6 +1069,18 @@ impl TokioPgConnection {
     }
 }
 
+/// Without these, a server that vanishes without closing the socket (a failover,
+/// a dropped route) leaves a query waiting on a read for the OS default of two
+/// hours. The server's kernel answers the probes, so a slow query is unaffected.
+fn set_pg_keepalive(config: &mut tokio_postgres::Config) {
+    config
+        .keepalives(true)
+        .keepalives_idle(std::time::Duration::from_secs(60))
+        .keepalives_interval(std::time::Duration::from_secs(10))
+        .keepalives_retries(6)
+        .tcp_user_timeout(std::time::Duration::from_secs(120));
+}
+
 impl PgDatabase {
     /// The role the connection logs in as, whichever way it authenticates.
     pub fn login_name(&self) -> &str {
@@ -1108,6 +1120,12 @@ impl PgDatabase {
 
     pub fn non_empty_options(&self) -> Option<&str> {
         self.options.as_deref().filter(|o| !o.is_empty())
+    }
+
+    fn uri_config(&self) -> Result<tokio_postgres::Config, error::Error> {
+        let mut config: tokio_postgres::Config = self.to_uri().parse().map_err(to_anyhow)?;
+        set_pg_keepalive(&mut config);
+        Ok(config)
     }
 
     pub async fn connect(
@@ -1256,10 +1274,8 @@ impl PgDatabase {
 
             let (client, connection) = tokio::time::timeout(
                 std::time::Duration::from_secs(20),
-                tokio_postgres::connect(
-                    &self.to_uri(),
-                    MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
-                ),
+                self.uri_config()?
+                    .connect(MakeTlsConnector::new(connector.build().map_err(to_anyhow)?)),
             )
             .await
             .map_err(to_anyhow)?
@@ -1270,7 +1286,7 @@ impl PgDatabase {
             tracing::info!("Creating new connection");
             let (client, connection) = tokio::time::timeout(
                 std::time::Duration::from_secs(20),
-                tokio_postgres::connect(&self.to_uri(), NoTls),
+                self.uri_config()?.connect(NoTls),
             )
             .await
             .map_err(to_anyhow)?
@@ -1387,6 +1403,7 @@ impl PgDatabase {
         if let Some(options) = self.non_empty_options() {
             config.options(options);
         }
+        set_pg_keepalive(&mut config);
 
         let (client, connection) = tokio::time::timeout(
             std::time::Duration::from_secs(20),
