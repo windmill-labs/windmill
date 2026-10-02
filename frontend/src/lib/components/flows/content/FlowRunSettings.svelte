@@ -28,6 +28,7 @@
 
 	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
+	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 	import { slideDynamic } from '$lib/transitions'
 
@@ -382,4 +383,8 @@
 			{/if}
 		</section>
 	{/if}
+	<section class="flex flex-col gap-3" data-setting="job-token">
+		{@render sectionHeader('Job token')}
+		<JobTokenScopesSetting bind:value={flowModule.job_token_scopes} kind="step" />
+	</section>
 </div>

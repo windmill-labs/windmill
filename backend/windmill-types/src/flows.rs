@@ -635,6 +635,9 @@ pub struct FlowModule {
     pub pass_flow_input_directly: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debouncing: Option<DebouncingSettings>,
+    /// Caps the token of the jobs this step runs, on top of the flow's own restriction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -922,6 +925,9 @@ pub struct AgentTool {
     /// Overrides the description auto-derived from the underlying runnable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Caps the token of this tool's jobs, on top of the agent step's own restriction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
     pub value: ToolValue,
 }
 
@@ -935,6 +941,7 @@ impl AgentTool {
 
         self.id = flow_module.id;
         self.summary = flow_module.summary;
+        self.job_token_scopes = flow_module.job_token_scopes;
         self.value = ToolValue::FlowModule(module_value);
     }
 }
@@ -947,6 +954,7 @@ impl From<&AgentTool> for Option<FlowModule> {
                 id: tool.id.clone(),
                 value: to_raw_value(module_value),
                 summary: tool.summary.clone(),
+                job_token_scopes: tool.job_token_scopes.clone(),
                 ..Default::default()
             }),
             ToolValue::Mcp(_) => None,
@@ -1351,6 +1359,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             apply_preprocessor: None,
             pass_flow_input_directly: None,
             debouncing: None,
+            job_token_scopes: None,
         });
     }
 }

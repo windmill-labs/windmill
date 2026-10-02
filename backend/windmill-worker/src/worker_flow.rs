@@ -4751,8 +4751,13 @@ async fn push_next_flow_job(
             end_user_email,
             None,
             None,
-            // A step never holds a wider token than the flow running it.
-            flow_job.job_token_scopes.as_deref(),
+            // A step never holds a wider token than the flow running it, and its own setting
+            // narrows that further.
+            windmill_common::scopes::intersect_job_token_scopes(
+                flow_job.job_token_scopes.as_deref(),
+                module.job_token_scopes.as_deref(),
+            )
+            .as_deref(),
         )
         .warn_after_seconds(2)
         .await?;

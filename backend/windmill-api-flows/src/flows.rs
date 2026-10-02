@@ -809,10 +809,17 @@ async fn create_flow(
         .and_then(|scopes| scopes.as_deref())
         .map(windmill_common::scopes::validate_job_token_scopes)
         .transpose()?;
-    if job_token_scopes.is_some() {
+    let restricts_steps = windmill_common::scopes::validate_flow_step_job_token_scopes(
+        &serde_json::from_str::<windmill_common::flows::FlowValue>(nf.value.get())
+            .map_err(|e| windmill_common::error::Error::BadRequest(e.to_string()))?,
+    )?;
+    if job_token_scopes.is_some() || restricts_steps {
         windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
             .assert()
             .await?;
+    }
+    if restricts_steps {
+        windmill_common::feature_usage::log_feature_usage("job_token_scopes", "deploy", "step:set");
     }
     let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
         nf.on_behalf_of_email.as_deref(),
@@ -1391,10 +1398,17 @@ async fn update_flow(
         .and_then(|scopes| scopes.as_deref())
         .map(windmill_common::scopes::validate_job_token_scopes)
         .transpose()?;
-    if job_token_scopes.is_some() {
+    let restricts_steps = windmill_common::scopes::validate_flow_step_job_token_scopes(
+        &serde_json::from_str::<windmill_common::flows::FlowValue>(nf.value.get())
+            .map_err(|e| windmill_common::error::Error::BadRequest(e.to_string()))?,
+    )?;
+    if job_token_scopes.is_some() || restricts_steps {
         windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
             .assert()
             .await?;
+    }
+    if restricts_steps {
+        windmill_common::feature_usage::log_feature_usage("job_token_scopes", "deploy", "step:set");
     }
     let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
         nf.on_behalf_of_email.as_deref(),
@@ -2373,6 +2387,7 @@ mod tests {
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
                     debouncing: None,
+                    job_token_scopes: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -2408,6 +2423,7 @@ mod tests {
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
                     debouncing: None,
+                    job_token_scopes: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -2443,6 +2459,7 @@ mod tests {
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
                     debouncing: None,
+                    job_token_scopes: None,
                 },
             ],
             failure_module: Some(Box::new(FlowModule {
@@ -2477,6 +2494,7 @@ mod tests {
                 apply_preprocessor: None,
                 pass_flow_input_directly: None,
                 debouncing: None,
+                job_token_scopes: None,
             })),
             preprocessor_module: None,
             same_worker: false,

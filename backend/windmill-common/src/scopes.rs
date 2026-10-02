@@ -618,6 +618,30 @@ pub fn intersect_job_token_scopes(
     }
 }
 
+/// Validates the `job_token_scopes` of every step and agent tool of a flow, returning whether
+/// any of them sets one.
+pub fn validate_flow_step_job_token_scopes(value: &crate::flows::FlowValue) -> Result<bool> {
+    let mut any = false;
+    let mut check = |module: &crate::flows::FlowModule| -> anyhow::Result<()> {
+        if let Some(scopes) = &module.job_token_scopes {
+            any = true;
+            validate_job_token_scopes(scopes)
+                .map_err(|e| anyhow::anyhow!("step {}: {e}", module.id))?;
+        }
+        Ok(())
+    };
+    let extra: Vec<crate::flows::FlowModule> = value
+        .failure_module
+        .iter()
+        .chain(value.preprocessor_module.iter())
+        .map(|m| (**m).clone())
+        .collect();
+    crate::flows::FlowModule::traverse_modules(&value.modules, &mut check)
+        .and_then(|()| crate::flows::FlowModule::traverse_modules(&extra, &mut check))
+        .map_err(|e| Error::BadRequest(e.to_string()))?;
+    Ok(any)
+}
+
 /// Counts a deploy of a script or flow that restricts its job token, keyed by which shape
 /// of restriction it picked, so take-up of the presets can be told from custom lists.
 pub fn log_job_token_scopes_deploy(kind: &'static str, scopes: Option<&[String]>) {

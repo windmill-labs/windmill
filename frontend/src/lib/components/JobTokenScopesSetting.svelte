@@ -7,7 +7,7 @@
 	interface Props {
 		/** `null`/`undefined`: the job token has the full permissions of the identity it runs as. */
 		value: string[] | null | undefined
-		kind: 'script' | 'flow'
+		kind: 'script' | 'flow' | 'step'
 	}
 
 	let { value = $bindable(), kind }: Props = $props()
@@ -62,8 +62,13 @@
 			/>
 		{/if}
 		<p class="text-2xs text-secondary">
-			The <code>WM_TOKEN</code> of every job of this {kind} can only do what these scopes allow. Jobs
-			it starts, {kind === 'flow' ? 'its steps, ' : ''}and AI agent tools inherit the restriction.
+			{#if kind === 'step'}
+				The <code>WM_TOKEN</code> of every job this step runs can only do what these scopes allow, on top
+				of the flow's own restriction. Loop and branch bodies, and AI agent tools, inherit it.
+			{:else}
+				The <code>WM_TOKEN</code> of every job of this {kind} can only do what these scopes allow. Jobs
+				it starts, {kind === 'flow' ? 'its steps, ' : ''}and AI agent tools inherit the restriction.
+			{/if}
 			Variables and resources passed as <code>$var:</code>/<code>$res:</code> inputs, an AI agent's provider
 			resource, relative imports and object storage each need a read scope, and script state
 			(<code>getState</code>/<code>setState</code>) needs <code>resources:write</code>. Write scopes on scripts,

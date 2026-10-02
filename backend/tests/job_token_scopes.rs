@@ -175,45 +175,61 @@ async fn test_restricted_job_token_is_confined(db: Pool<Postgres>) -> anyhow::Re
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_steps_inherit_the_flow_restriction(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
-    let value = json!({ "modules": [{ "id": "a", "value": { "type": "identity" } }] });
+    let value = json!({ "modules": [
+        { "id": "a", "value": { "type": "identity" },
+          "job_token_scopes": ["oidc:write", "variables:read"] },
+        { "id": "b", "value": { "type": "identity" } },
+    ] });
     sqlx::query(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at,
-            schema, extra_perms, versions, job_token_scopes)
-        VALUES ('test-workspace', 'u/test-user/restricted', '', '', $1, 'test-user', now(), '{}',
-            '{}', '{7171}', '{oidc:write}')",
+            schema, extra_perms, versions)
+        VALUES ('test-workspace', 'u/test-user/agent_flow', '', '', $1, 'test-user', now(), '{}',
+            '{}', '{7171}')",
     )
     .bind(&value)
     .execute(&db)
     .await?;
     sqlx::query(
         "INSERT INTO flow_version (id, workspace_id, path, value, schema, created_by)
-        VALUES (7171, 'test-workspace', 'u/test-user/restricted', $1, '{}', 'test-user')",
+        VALUES (7171, 'test-workspace', 'u/test-user/agent_flow', $1, '{}', 'test-user')",
     )
     .bind(&value)
     .execute(&db)
     .await?;
 
     let server = ApiServer::start(db.clone()).await?;
-    let flow = RunJob::from(JobPayload::Flow {
-        path: "u/test-user/restricted".to_string(),
-        dedicated_worker: None,
-        apply_preprocessor: false,
-        version: 7171,
-        labels: None,
-        job_token_scopes: Some(vec!["oidc:write".to_string()]),
-    })
-    .run_until_complete(&db, false, server.addr.port())
-    .await;
+    let scopes = |v: &[&str]| Some(v.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    // A step's own setting narrows the flow's restriction and never widens it; in an
+    // unrestricted flow it restricts that step alone.
+    for (flow_scopes, expected_a, expected_b) in [
+        (scopes(&["oidc:write"]), scopes(&["oidc:write"]), scopes(&["oidc:write"])),
+        (None, scopes(&["oidc:write", "variables:read"]), None),
+    ] {
+        let flow = RunJob::from(JobPayload::Flow {
+            path: "u/test-user/agent_flow".to_string(),
+            dedicated_worker: None,
+            apply_preprocessor: false,
+            version: 7171,
+            labels: None,
+            job_token_scopes: flow_scopes.clone(),
+        })
+        .run_until_complete(&db, false, server.addr.port())
+        .await;
 
-    let step: Option<Vec<String>> =
-        sqlx::query_scalar(
-            "SELECT p.job_token_scopes FROM v2_job j JOIN job_perms p ON p.job_id = j.id
-            WHERE j.parent_job = $1",
+        let steps: Vec<(String, Option<Vec<String>>)> = sqlx::query_as(
+            "SELECT j.flow_step_id, p.job_token_scopes FROM v2_job j
+            JOIN job_perms p ON p.job_id = j.id
+            WHERE j.parent_job = $1 ORDER BY j.flow_step_id",
         )
-            .bind(flow.id)
-            .fetch_one(&db)
-            .await?;
-    assert_eq!(step, Some(vec!["oidc:write".to_string()]));
+        .bind(flow.id)
+        .fetch_all(&db)
+        .await?;
+        assert_eq!(
+            steps,
+            vec![("a".to_string(), expected_a), ("b".to_string(), expected_b)],
+            "flow scopes {flow_scopes:?}"
+        );
+    }
     Ok(())
 }
 

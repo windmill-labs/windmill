@@ -376,6 +376,12 @@ components:
         continue_on_error:
           type: boolean
           description: If true, flow continues even if this step fails
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of this step's jobs is restricted to (domain:action[:resource], e.g. oidc:write), on top of the flow's own restriction: a step can only narrow it. Applies to everything the step runs (loop and branch bodies, AI agent tools)."
         retry:
           description: Retry configuration if this step fails
           $ref: '#/components/schemas/Retry'
@@ -999,6 +1005,12 @@ components:
         description:
           type: string
           description: Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script.
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of this tool's jobs is restricted to, on top of the agent step's own restriction: a tool can only narrow it."
         value:
           $ref: '#/components/schemas/ToolValue'
       required:

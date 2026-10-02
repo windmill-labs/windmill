@@ -16,8 +16,6 @@ use tokio::time::timeout;
 // Re-export proxy env-var snapshots so callers (including EE modules)
 // can keep importing them via `crate::{NO_PROXY, HTTP_PROXY, HTTPS_PROXY}`.
 use windmill_common::client::AuthedClient;
-use windmill_common::db::UserDbWithAuthed;
-use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::InlineScriptTarget;
 use windmill_common::jobs::RunInlineScriptFnParams;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;

@@ -50,6 +50,7 @@ fn flow_module(id: &str, value: FlowModuleValue) -> FlowModule {
         apply_preprocessor: None,
         pass_flow_input_directly: None,
         debouncing: None,
+        job_token_scopes: None,
     }
 }
 
