@@ -1750,8 +1750,9 @@ async fn test_postgresql_cached_connection_released_for_other_key(
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    // Two cache keys for the same role: only the sslmode differs.
-    let run = |sslmode: &str| {
+    // Keys for the same role: one pool scope when only the sslmode differs, two
+    // when the database does, which the role's limit still counts together.
+    let run = |dbname: &str, sslmode: &str| {
         RunJob::from(JobPayload::Code(RawCode {
             hash: None,
             content: "SELECT 1 as n;".into(),
@@ -1770,7 +1771,7 @@ async fn test_postgresql_cached_connection_released_for_other_key(
         }))
         .arg(
             "database",
-            json!({"host": "localhost", "port": 5432, "dbname": "windmill",
+            json!({"host": "localhost", "port": 5432, "dbname": dbname,
                    "user": "wm_pg_cache_one_conn", "password": "changeme", "sslmode": sslmode}),
         )
         .run_until_complete(&db, false, port)
@@ -1779,16 +1780,21 @@ async fn test_postgresql_cached_connection_released_for_other_key(
     // The evicted connection's backend exits asynchronously, so a fresh
     // connection can briefly still count it. Retrying absorbs that; without the
     // eviction the cached connection stays open for 60s and every retry fails.
-    for sslmode in ["disable", "prefer", "disable"] {
+    for (dbname, sslmode) in [
+        ("windmill", "disable"),
+        ("windmill", "prefer"),
+        ("postgres", "disable"),
+        ("windmill", "disable"),
+    ] {
         let mut result = json!(null);
         for _ in 0..5 {
-            result = run(sslmode).await.json_result().unwrap();
+            result = run(dbname, sslmode).await.json_result().unwrap();
             if result == json!([{"n": 1}]) {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
-        assert_eq!(result, json!([{"n": 1}]), "sslmode={sslmode}");
+        assert_eq!(result, json!([{"n": 1}]), "{dbname} sslmode={sslmode}");
     }
 
     clear_pg_cache().await;

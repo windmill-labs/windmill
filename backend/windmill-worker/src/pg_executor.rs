@@ -273,9 +273,13 @@ async fn sweep_idle_pg_connections() {
     }
 }
 
-pub async fn clear_pg_cache() {
+fn close_idle_pg_connections() -> usize {
     let idle = std::mem::take(&mut pg_connection_cache().idle);
-    drop(idle);
+    idle.len()
+}
+
+pub async fn clear_pg_cache() {
+    close_idle_pg_connections();
 }
 
 /// How the connection authenticates, which also keys the connection cache: a
@@ -1146,7 +1150,19 @@ pub async fn do_postgresql(
     }
     if lease.conn.is_none() {
         let (client, connection_task) =
-            new_pg_connection(&database, auth_mode, conn.as_sql()).await?;
+            match new_pg_connection(&database, auth_mode, conn.as_sql()).await {
+                Ok(connected) => connected,
+                // A server or pooler can also refuse outright past a per-login or
+                // total connection cap, which pool scopes do not capture. Free the
+                // idle connections of every scope and try once more.
+                Err(e) => {
+                    if close_idle_pg_connections() == 0 {
+                        return Err(e);
+                    }
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    new_pg_connection(&database, auth_mode, conn.as_sql()).await?
+                }
+            };
         lease.conn = Some(PgConnection {
             key: database_string.clone(),
             scope: lease.scope.clone(),
