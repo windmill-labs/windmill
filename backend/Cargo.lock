@@ -16773,6 +16773,7 @@ dependencies = [
  "pem",
  "pep440_rs",
  "postgres-native-tls 0.5.3",
+ "postgres-protocol",
  "process-wrap",
  "prometheus",
  "prost",
