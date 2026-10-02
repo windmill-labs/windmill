@@ -366,13 +366,11 @@ fn wrap_param_encoding_error(
 /// before it runs. Anything not recognised as returning at most a row counts as a stream:
 /// a wrong guess only costs a round trip, while a missed stream can hang the job.
 fn can_stream_rows(query: &str) -> bool {
-    let stmt = remove_comments(query).to_ascii_lowercase();
-    let keyword = stmt
-        .split(|c: char| !c.is_ascii_alphabetic())
-        .next()
-        .unwrap_or_default();
+    let Some(keyword) = leading_keyword(query) else {
+        return true;
+    };
     let rowless = matches!(
-        keyword,
+        keyword.as_str(),
         "insert"
             | "update"
             | "delete"
@@ -396,9 +394,45 @@ fn can_stream_rows(query: &str) -> bool {
             | "analyze"
             | "refresh"
     );
-    // Searched in the whole query: `remove_comments` stops at the first `;`, which
-    // can sit inside a dollar-quoted literal ahead of the RETURNING.
     !rowless || query.to_ascii_lowercase().contains("returning")
+}
+
+/// The first keyword of a statement, past whitespace and comments. Block comments nest in
+/// Postgres, so `/* /* a */ INSERT */ SELECT` starts with SELECT. `None` when the
+/// comments never end.
+fn leading_keyword(query: &str) -> Option<String> {
+    let mut rest = query;
+    loop {
+        rest = rest.trim_start();
+        if let Some(after) = rest.strip_prefix("--") {
+            rest = &after[after.find('\n')?..];
+        } else if rest.starts_with("/*") {
+            let mut depth = 0usize;
+            let mut i = 0;
+            let bytes = rest.as_bytes();
+            loop {
+                match bytes.get(i..i + 2)? {
+                    b"/*" => depth += 1,
+                    b"*/" => depth -= 1,
+                    _ => {
+                        i += 1;
+                        continue;
+                    }
+                }
+                i += 2;
+                if depth == 0 {
+                    break;
+                }
+            }
+            rest = &rest[i..];
+        } else {
+            break;
+        }
+    }
+    let end = rest
+        .find(|c: char| !c.is_ascii_alphabetic())
+        .unwrap_or(rest.len());
+    Some(rest[..end].to_ascii_lowercase())
 }
 
 fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
@@ -2530,6 +2564,9 @@ mod tests {
             "INSERT INTO t VALUES (1) RETURNING id",
             "/* c */ UPDATE t SET a = 1\nreturning *",
             "UPDATE t SET note = $$a;b$$ RETURNING *",
+            "/* /* inner */ INSERT */ SELECT * FROM t",
+            "/* never closed INSERT",
+            "-- INSERT",
             "TABLE t",
             "VALUES (1)",
             "EXPLAIN SELECT 1",
@@ -2543,6 +2580,7 @@ mod tests {
             "CREATE TABLE t (a int)",
             "SET search_path TO x",
             "CALL p()",
+            "/* a /* b */ c */\n-- d\nINSERT INTO t VALUES (1)",
         ] {
             assert!(!can_stream_rows(q), "{q}");
         }
