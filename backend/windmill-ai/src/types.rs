@@ -288,22 +288,6 @@ pub struct ProviderWithResource {
     pub reasoning_effort: Option<String>,
 }
 
-/// The Workers AI models URL of a Cloudflare account. The id goes into the path, so it is held to
-/// the characters an account id has rather than trusted to stay inside its segment.
-fn cloudflare_workers_ai_base_url(account_id: Option<&str>) -> Result<String, Error> {
-    match account_id {
-        Some(id) if id.chars().all(|c| c.is_ascii_alphanumeric()) => Ok(format!(
-            "https://api.cloudflare.com/client/v4/accounts/{id}/ai/run/@cf/cloudflare"
-        )),
-        Some(_) => Err(Error::BadRequest(
-            "The Cloudflare account_id must be letters and digits only".to_string(),
-        )),
-        None => Err(Error::BadRequest(
-            "A Cloudflare resource needs an account_id".to_string(),
-        )),
-    }
-}
-
 impl ProviderWithResource {
     pub fn get_api_key(&self) -> Option<&str> {
         self.resource.api_key.as_deref()
@@ -324,7 +308,9 @@ impl ProviderWithResource {
 
     pub async fn get_base_url(&self, db: &DB) -> Result<String, Error> {
         if self.kind == AIProvider::Cloudflare && self.resource.base_url.is_none() {
-            return cloudflare_workers_ai_base_url(self.resource.account_id.as_deref());
+            return crate::ai_providers::cloudflare_workers_ai_base_url(
+                self.resource.account_id.as_deref(),
+            );
         }
         self.kind
             .get_base_url(self.resource.base_url.clone(), db)

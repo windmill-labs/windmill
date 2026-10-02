@@ -213,6 +213,19 @@ mod tests {
     /// Refused are the values a flow produces when it forgot the input (no key, `null`, a blank
     /// string from an empty expression) and the scalars TypeSafe rejects. A text, an object or an
     /// array is a state, whatever it holds.
+    /// The account id goes into the URL path, so anything that could leave its segment is refused.
+    #[test]
+    fn cloudflare_account_id_stays_in_its_segment() {
+        use crate::ai_providers::cloudflare_workers_ai_base_url;
+        assert_eq!(
+            cloudflare_workers_ai_base_url(Some("abc123")).unwrap(),
+            "https://api.cloudflare.com/client/v4/accounts/abc123/ai/run/@cf/cloudflare"
+        );
+        for id in [None, Some("a/b"), Some("../x"), Some("a?b"), Some("")] {
+            assert!(cloudflare_workers_ai_base_url(id).is_err(), "{id:?}");
+        }
+    }
+
     #[test]
     fn decision_inputs_refuse_what_typesafe_would() {
         let questions = json!({"urgent": {"type": "noul", "instructions": "Is it urgent?"}});

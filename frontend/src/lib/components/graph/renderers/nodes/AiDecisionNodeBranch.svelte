@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { Split } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { decisionChoiceQuestions, findRouting } from '$lib/components/flows/aiDecisionBranching'
 	import { branchOnQuestion } from '$lib/components/flows/aiDecisionInsert'
@@ -29,15 +30,13 @@
 {#if ctx && question}
 	{@const q = question}
 	<div class="absolute top-1/2 -right-10 -translate-y-1/2 z-10">
-		<button
+		<Button
+			variant="default"
+			unifiedSize="sm"
+			iconOnly
+			startIcon={{ icon: Split }}
 			title="Branch on {q.name}"
-			class="rounded text-secondary border hover:bg-surface-hover bg-surface p-1"
-			onclick={(e) => {
-				e.stopPropagation()
-				branchOnQuestion(ctx, moduleId, q.name, q.options)
-			}}
-		>
-			<Split size={16} />
-		</button>
+			onClick={() => branchOnQuestion(ctx, moduleId, q.name, q.options)}
+		/>
 	</div>
 {/if}

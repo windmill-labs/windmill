@@ -131,6 +131,21 @@ pub enum AIProvider {
     Cloudflare,
 }
 
+/// The Workers AI models URL of a Cloudflare account. The id goes into the path, so it is held to
+/// the characters an account id has rather than trusted to stay inside its segment.
+pub fn cloudflare_workers_ai_base_url(account_id: Option<&str>) -> Result<String> {
+    match account_id {
+        Some(id) if !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric()) => Ok(format!(
+            "https://api.cloudflare.com/client/v4/accounts/{id}/ai/run/@cf/cloudflare"
+        )),
+        Some(_) => Err(Error::BadRequest(
+            "The Cloudflare account_id must be letters and digits only".to_string(),
+        )),
+        None => Err(Error::BadRequest(
+            "A Cloudflare resource needs an account_id".to_string(),
+        )),
+    }
+}
 impl AIProvider {
     /// A provider that answers decisions (typed questions) and serves no chat.
     pub fn is_decision_provider(&self) -> bool {

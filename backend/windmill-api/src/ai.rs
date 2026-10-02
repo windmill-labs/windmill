@@ -246,6 +246,12 @@ struct AIStandardResource {
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     headers: HashMap<String, String>,
+    /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    token: Option<String>,
+    /// The account of a `cloudflare` resource, which its Workers AI URL is built from.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    account_id: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -293,10 +299,21 @@ async fn resolve_provider_credentials(
             // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
             let base_url = if matches!(provider, AIProvider::AWSBedrock) {
                 String::new()
+            } else if *provider == AIProvider::Cloudflare && resource.base_url.is_none() {
+                let account_id = if let Some(account_id) = resource.account_id {
+                    Some(resolve_var(account_id, db, w_id, user_db.as_ref(), authed).await?)
+                } else {
+                    None
+                };
+                windmill_ai::ai_providers::cloudflare_workers_ai_base_url(account_id.as_deref())?
             } else {
                 provider.get_base_url(resource.base_url, db).await?
             };
-            let api_key = if let Some(api_key) = resource.api_key {
+            let api_key = match provider {
+                AIProvider::Cloudflare => resource.api_key.or(resource.token),
+                _ => resource.api_key,
+            };
+            let api_key = if let Some(api_key) = api_key {
                 Some(resolve_var(api_key, db, w_id, user_db.as_ref(), authed).await?)
             } else {
                 None
