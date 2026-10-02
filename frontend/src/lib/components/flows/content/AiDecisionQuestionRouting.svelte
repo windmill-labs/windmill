@@ -18,7 +18,6 @@
 	import { branchOnQuestion } from '../aiDecisionInsert'
 	import StepIdBadge from './StepIdBadge.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { graphBranchIndex, removeBranch } from '../branchOps'
 	import { dfs } from '../dfs'
 
 	interface Props {
@@ -55,14 +54,17 @@
 	})
 	let confirmingRemoval = $state(false)
 
+	// One undo entry for the whole removal, which is one click.
 	function removeStale(target: FlowModule) {
+		if (target.value.type !== 'branchone') return
+		push(history, flowStore.val)
+		const branches = target.value.branches
 		// From the last, so each index still points at its branch once the ones after it are gone.
 		for (const { index } of [...stale].sort((a, b) => b.index - a.index)) {
-			removeBranch(target.id, graphBranchIndex('branchone', index), {
-				flowStore,
-				flowStateStore,
-				history
-			})
+			for (const id of dfs(branches[index]?.modules ?? [], (m) => m.id)) {
+				delete flowStateStore.val[id]
+			}
+			branches.splice(index, 1)
 		}
 		refreshStateStore(flowStore)
 	}
