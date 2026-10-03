@@ -57,8 +57,11 @@ impl SecretBackend for VaultBackend {
 
 /// Create the appropriate secret backend based on configuration
 ///
-/// In OSS, always returns DatabaseBackend regardless of config.
-/// Vault configuration is ignored with a warning.
+/// In OSS the Enterprise backends are ignored with a warning and the database is
+/// used instead. Apple Keychain is the exception: it is available in OSS when
+/// built with the `keychain` feature, and fails closed when it is not — a
+/// fallback there would store the secret in the place the operator configured
+/// this backend to keep it out of.
 pub async fn create_secret_backend(
     db: DB,
     config: &SecretBackendConfig,
@@ -86,6 +89,19 @@ pub async fn create_secret_backend(
             );
             Ok(Arc::new(DatabaseBackend::new(db)))
         }
+        // No fallback to the database here, unlike the Enterprise arms above:
+        // falling back would store the secret in the very place this backend
+        // exists to keep it out of.
+        #[cfg(feature = "keychain")]
+        SecretBackendConfig::AppleKeychain(settings) => Ok(Arc::new(
+            crate::secret_backend::keychain::KeychainBackend::new(settings.clone()),
+        )),
+        #[cfg(not(feature = "keychain"))]
+        SecretBackendConfig::AppleKeychain(_) => Err(crate::error::Error::internal_err(
+            "the Apple Keychain secret backend is configured but this build was made \
+             without the `keychain` feature"
+                .to_string(),
+        )),
     }
 }
 

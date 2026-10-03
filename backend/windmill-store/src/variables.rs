@@ -14,7 +14,7 @@ use windmill_common::db::{Authable, DB};
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::{
-    delete_secret_from_backend, get_secret_value, is_external_stored_value, is_vault_stored_value,
+    delete_secret_from_backend, get_secret_value, is_external_stored_value,
     rename_vault_secret, store_secret_value,
 };
 use windmill_common::utils::{
@@ -1210,7 +1210,16 @@ async fn update_variable(
             .await?;
 
             if let Some(var) = current_var {
-                if var.is_secret && is_vault_stored_value(&var.value) {
+                // Any external backend, not only Vault. The Vault-specific check
+                // meant a rename skipped this block entirely for every other
+                // backend: the row moved, the secret stayed under the old name,
+                // and the new path read nothing.
+                //
+                // rename_vault_secret rejects a marker that does not belong to
+                // the configured backend, so a stale marker surfaces as an error
+                // here rather than being rewritten to point at a secret that was
+                // never moved.
+                if var.is_secret && is_external_stored_value(&var.value) {
                     if ns.value.is_some() {
                         // New value was provided and already stored at new path
                         // Just delete the old secret from Vault
@@ -1638,7 +1647,12 @@ mod tests {
     #[test]
     fn passes_through_external_backend_markers() {
         // External secret backends store $-prefixed markers, not workspace ciphertext.
-        for marker in ["$vault:f/x/cfg", "$aws_sm:f/x/cfg", "$azure_kv:f/x/cfg"] {
+        for marker in [
+            "$vault:f/x/cfg",
+            "$aws_sm:f/x/cfg",
+            "$azure_kv:f/x/cfg",
+            "$keychain:f/x/cfg",
+        ] {
             assert!(validate_already_encrypted_secret("f/x/cfg", marker).is_ok());
         }
     }
