@@ -273,18 +273,21 @@ async fn sweep_idle_pg_connections() {
     }
 }
 
-/// PostgreSQL's SQLSTATE 53300 (role, database and server caps) and PgBouncer's
-/// client and user caps. The connect path only surfaces the message, not the code.
+/// PostgreSQL's role, database and server caps, by SQLSTATE 53300 since the
+/// server translates the message under a non-English `lc_messages`, and
+/// PgBouncer's client and user caps, whose messages are English only and come
+/// with a generic code.
 fn is_connection_cap_refusal(e: &Error) -> bool {
-    let msg = e.to_string();
-    [
-        "too many connections for",
-        "too many clients already",
-        "remaining connection slots are reserved",
-        "no more connections allowed",
-    ]
-    .iter()
-    .any(|m| msg.contains(m))
+    if let Error::Anyhow { error, .. } = e {
+        let postgres_cap = error
+            .chain()
+            .filter_map(|cause| cause.downcast_ref::<tokio_postgres::Error>())
+            .any(|pg| pg.code() == Some(&tokio_postgres::error::SqlState::TOO_MANY_CONNECTIONS));
+        if postgres_cap {
+            return true;
+        }
+    }
+    e.to_string().contains("no more connections allowed")
 }
 
 fn close_idle_pg_connections() -> usize {
@@ -1193,6 +1196,7 @@ pub async fn do_postgresql(
 
     let connect_started = std::time::Instant::now();
     let mut cached_connection_failed_reset = false;
+    let mut reused_cached_connection = false;
     let mut lease = if *CLOUD_HOSTED {
         PgConnectionLease::uncached()
     } else {
@@ -1254,6 +1258,7 @@ pub async fn do_postgresql(
         {
             tracing::info!("Using cached connection");
             CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            reused_cached_connection = true;
         } else {
             tracing::info!("Cached connection is stale, creating new one");
             cached_connection_failed_reset = true;
@@ -1284,7 +1289,7 @@ pub async fn do_postgresql(
         });
     }
 
-    let fresh_connection = lease.own.is_some();
+    let fresh_connection = !reused_cached_connection;
     let log_progress = !run_inline && !annotations.prepare;
     let connect_time = connect_started.elapsed();
     if log_progress && connect_time >= PG_SLOW_STEP {
