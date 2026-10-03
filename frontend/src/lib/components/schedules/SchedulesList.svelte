@@ -15,6 +15,8 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
+	import ScheduleUpcomingEvents from '$lib/components/schedules/ScheduleUpcomingEvents.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
@@ -469,7 +471,18 @@
 			{/if}
 
 			<div class="gap-2 items-center hidden md:flex">
-				<Badge large color="blue">{schedule}</Badge>
+				<Tooltip placement="bottom">
+					<Badge large color="blue">{schedule}</Badge>
+					{#snippet text()}
+						<ScheduleUpcomingEvents
+							workspace={$operatingWorkspace!}
+							{path}
+							{schedule}
+							{timezone}
+							draftOnly={draft_only}
+						/>
+					{/snippet}
+				</Tooltip>
 				<Badge small color="gray">{timezone}</Badge>
 			</div>
 
