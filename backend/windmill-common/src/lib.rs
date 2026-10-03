@@ -1245,18 +1245,51 @@ impl PgDatabase {
         }
     }
 
+    fn sslmode_requires_tls(&self) -> bool {
+        matches!(
+            self.sslmode.as_deref(),
+            Some("require") | Some("verify-ca") | Some("verify-full")
+        )
+    }
+
+    /// Asks the server to cancel what the connection behind `token` is running. Dropping a
+    /// connection does not: the server works on until it next writes to the client.
+    ///
+    /// The request goes out the way the connection was made: `token_auth` is set for one
+    /// authenticated with an access token, which is over TLS whatever the sslmode.
+    pub async fn cancel_query(
+        &self,
+        token: tokio_postgres::CancelToken,
+        token_auth: bool,
+    ) -> Result<(), error::Error> {
+        if token_auth || self.sslmode_requires_tls() {
+            let mut connector = native_tls::TlsConnector::builder();
+            Self::configure_pg_tls_verification(
+                &mut connector,
+                self.sslmode.as_deref(),
+                self.root_certificate_pem.as_deref(),
+                self.accept_invalid_certs,
+            )?;
+            let connector =
+                postgres_native_tls::MakeTlsConnector::new(connector.build().map_err(to_anyhow)?);
+            token.cancel_query(connector).await.map_err(to_anyhow)?;
+        } else {
+            token
+                .cancel_query(tokio_postgres::tls::NoTls)
+                .await
+                .map_err(to_anyhow)?;
+        }
+        Ok(())
+    }
+
     async fn connect_inner(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         use native_tls::TlsConnector;
         use postgres_native_tls::MakeTlsConnector;
         use tokio_postgres::tls::NoTls;
-        let ssl_mode_is_require = matches!(
-            self.sslmode.as_deref(),
-            Some("require") | Some("verify-ca") | Some("verify-full")
-        );
 
-        if ssl_mode_is_require {
+        if self.sslmode_requires_tls() {
             tracing::info!("Creating new connection");
             let mut connector = TlsConnector::builder();
             Self::configure_pg_tls_verification(
