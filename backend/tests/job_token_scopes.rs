@@ -163,7 +163,7 @@ async fn test_restricted_job_token_is_confined(db: Pool<Postgres>) -> anyhow::Re
         "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups,
             workspace_id, job_token_scopes)
         VALUES ($1, 'test@windmill.dev', 'test-user', true, false, '{}', '{}', 'test-workspace',
-            '{jobs:run}')",
+            '{jobs:write,jobs:run}')",
     )
     .bind(admin_job)
     .execute(&db)
@@ -186,7 +186,8 @@ async fn test_restricted_job_token_is_confined(db: Pool<Postgres>) -> anyhow::Re
         .json(&json!([]))
         .send()
         .await?;
-    assert_eq!(resp.status(), StatusCode::FORBIDDEN, "{}", resp.text().await?);
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert!(resp.text().await?.contains("cannot import"));
     // Nor can it, even an admin's, place a child in an unrelated run: the flow-run routes
     // trust that lineage.
     let resp = client
