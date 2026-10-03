@@ -24,6 +24,7 @@ windmill-git-sync.workspace = true
 argon2.workspace = true
 axum.workspace = true
 chrono.workspace = true
+constant_time_eq.workspace = true
 http.workspace = true
 hyper.workspace = true
 lazy_static.workspace = true
