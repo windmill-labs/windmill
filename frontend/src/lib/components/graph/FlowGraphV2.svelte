@@ -44,6 +44,7 @@
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import { Expand, MousePointer, Hand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
+	import SimplifiedFlowGraph from './simplified/SimplifiedFlowGraph.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
 	import { encodeState, readFieldsRecursively, getModifierKey, isMac } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
@@ -116,6 +117,9 @@
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
+	// Alternative layout that draws no diff markers: a diff would read as an unchanged flow, so
+	// diff views never offer it.
+	let simplifiedView = $state(false)
 	let showNotes = $state(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
@@ -339,6 +343,7 @@
 	// Selection manager - create one if not provided
 	let selectionManager = untrack(() => selectionManagerProp) || new SelectionManager()
 	const selectedId = $derived(selectionManager.getSelectedId())
+	let simplifiedAvailable = $derived(!diffBeforeFlow && !moduleActions)
 
 	const noteEditorContext = getNoteEditorContext()
 
@@ -1304,7 +1309,9 @@
 	<DiffDrawer bind:this={diffDrawer} />
 {/if}
 <div
-	style={`height: ${height}px; max-height: ${maxHeight}px;`}
+	style={simplifiedView && simplifiedAvailable
+		? undefined
+		: `height: ${height}px; max-height: ${maxHeight}px;`}
 	class="overflow-clip relative {outerDivClass}"
 	bind:clientWidth={debouncedWidth}
 	bind:this={flowContainer}
@@ -1322,6 +1329,33 @@
 				>
 			</Alert>
 		</div>
+	{:else if simplifiedView && simplifiedAvailable}
+		<SimplifiedFlowGraph
+			{modules}
+			{failureModule}
+			{preprocessorModule}
+			{minHeight}
+			{maxHeight}
+			{selectedId}
+			{selectionManager}
+			selectionOverlay={multiSelectEnabled ? selectionBox : undefined}
+			selectionKey={editMode ? modifierKey : undefined}
+			{showNotes}
+			structure={'structureTree' in graph ? graph.structureTree : undefined}
+			{editMode}
+			{insertable}
+			eventHandlers={eventHandler}
+			{disableAi}
+			onSelect={(id) => {
+				if (notSelectable) return
+				selectionManager.selectId(id)
+				onSelect?.(id)
+			}}
+		>
+			{#snippet topLeftControls()}
+				{@render simplifiedViewToggle()}
+			{/snippet}
+		</SimplifiedFlowGraph>
 	{:else}
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
@@ -1394,19 +1428,7 @@
 				{/if}
 
 				{#if multiSelectEnabled}
-					<SelectionBoundingBox
-						selectedNodes={selectionManager.selectedIds.filter((id) =>
-							nodesWithOffset.some((n) => n.id === id)
-						)}
-						allNodes={nodesWithOffset as (Node & { type: string })[]}
-						onDeleteSelected={() => onDeleteMultiple?.(resolvedModuleIds)}
-						onDuplicateSelected={() => onDuplicateMultiple?.(resolvedModuleIds)}
-						onMoveSelected={() => onMoveMultiple?.(resolvedModuleIds)}
-						onCancelMove={() => onMoveMultiple?.(movingIds ?? [])}
-						{canMoveSelected}
-						isMoving={movingIds != null && movingIds.length > 0}
-						{resolvedModuleIds}
-					/>
+					{@render selectionBox(nodesWithOffset)}
 				{/if}
 
 				<GroupOverlay
@@ -1510,12 +1532,33 @@
 						{#if showDataflow}
 							<Toggle bind:checked={$useDataflow} size="xs" options={{ right: 'Dataflow' }} />
 						{/if}
+						{#if simplifiedAvailable}
+							{@render simplifiedViewToggle()}
+						{/if}
 					</Controls>
 				{/if}
 			</SvelteFlow>
 		</SvelteFlowProvider>
 	{/if}
 </div>
+
+{#snippet selectionBox(allNodes: Node[])}
+	<SelectionBoundingBox
+		selectedNodes={selectionManager.selectedIds.filter((id) => allNodes.some((n) => n.id === id))}
+		allNodes={allNodes as (Node & { type: string })[]}
+		onDeleteSelected={() => onDeleteMultiple?.(resolvedModuleIds)}
+		onDuplicateSelected={() => onDuplicateMultiple?.(resolvedModuleIds)}
+		onMoveSelected={() => onMoveMultiple?.(resolvedModuleIds)}
+		onCancelMove={() => onMoveMultiple?.(movingIds ?? [])}
+		{canMoveSelected}
+		isMoving={movingIds != null && movingIds.length > 0}
+		{resolvedModuleIds}
+	/>
+{/snippet}
+
+{#snippet simplifiedViewToggle()}
+	<Toggle bind:checked={simplifiedView} size="xs" options={{ right: 'Simplified view' }} />
+{/snippet}
 
 <style lang="postcss">
 	:global(.svelte-flow__handle) {

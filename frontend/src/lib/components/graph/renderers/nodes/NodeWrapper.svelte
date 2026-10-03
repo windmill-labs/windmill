@@ -5,6 +5,7 @@
 	import ContextMenu, { type ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
 	import { getGraphContext } from '../../graphContext'
 	import type { Item } from '$lib/utils'
+	import { toContextMenuItems } from '../../moduleMenuItems'
 
 	interface Props {
 		enableSourceHandle?: boolean
@@ -28,21 +29,7 @@
 	}: Props = $props()
 
 	let resolvedContextMenuItems: ContextMenuItem[] | undefined = $derived(
-		contextMenuItems ??
-			menuItems?.flatMap((item) => [
-				...(item.separatorTop
-					? [{ id: `${item.displayName}-divider`, label: '', divider: true }]
-					: []),
-				{
-					id: item.displayName,
-					label: item.displayName,
-					icon: item.icon,
-					disabled: item.disabled,
-					type: item.type,
-					shortcut: item.shortcut,
-					onClick: item.action as (() => void) | undefined
-				}
-			])
+		contextMenuItems ?? (menuItems ? toContextMenuItems(menuItems) : undefined)
 	)
 
 	// NodeWrapper is reused outside the flow graph (e.g. the app decision-tree
