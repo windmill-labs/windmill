@@ -936,10 +936,31 @@ mod tests {
         assert!(!ok(&format!("/api/w/ws/jobs/run/p/{own}"), "POST"));
         assert!(!ok("/api/w/ws/variables/get_value/u/admin/secret", "GET"));
         let run = |path: &str, method: &str| flow_run_read_route_job(path, method);
-        assert_eq!(run(&format!("/api/w/ws/jobs/result_by_id/{other}/b"), "GET"), Some(other));
-        assert_eq!(run(&format!("/api/w/ws/jobs_u/completed/get_result/{other}"), "GET"), Some(other));
-        assert_eq!(run(&format!("/api/w/ws/jobs/flow/user_states/{other}/k"), "POST"), Some(other));
-        assert_eq!(run(&format!("/api/w/ws/jobs_u/completed/delete/{other}"), "POST"), None);
+        assert_eq!(
+            run(&format!("/api/w/ws/jobs/result_by_id/{other}/b"), "GET"),
+            Some(other)
+        );
+        assert_eq!(
+            run(
+                &format!("/api/w/ws/jobs_u/completed/get_result/{other}"),
+                "GET"
+            ),
+            Some(other)
+        );
+        assert_eq!(
+            run(
+                &format!("/api/w/ws/jobs/flow/user_states/{other}/k"),
+                "POST"
+            ),
+            Some(other)
+        );
+        assert_eq!(
+            run(
+                &format!("/api/w/ws/jobs_u/completed/delete/{other}"),
+                "POST"
+            ),
+            None
+        );
     }
 
     #[test]
