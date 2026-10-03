@@ -98,6 +98,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -261,6 +262,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -384,6 +386,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -500,6 +503,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -1320,6 +1324,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -2152,6 +2157,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -2267,6 +2273,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -3089,6 +3096,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -3238,6 +3246,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -3370,6 +3379,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -3489,6 +3499,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -3601,6 +3612,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -3716,6 +3728,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -3832,6 +3845,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -3963,6 +3977,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -4077,6 +4092,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -4206,6 +4222,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -5210,6 +5227,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -5369,6 +5387,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -5518,6 +5537,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+- A script's input schema may carry a top-level \`prompt_for_ai\` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -6071,6 +6091,10 @@ Unless the user asked for new code, look for a workspace script or flow that alr
 
 The step's \`input_transforms\` must cover the reused item's inputs, so read its input schema first.
 Find candidates in the local tree (a \`.script.yaml\` sits next to each script and holds its input schema, a \`flow.yaml\` in each flow folder) and on the workspace with \`wmill script list\` / \`wmill flow list\`; \`wmill script get <path>\` and \`wmill flow get <path>\` show an item's details.
+
+## Additional Prompt for AI
+
+A flow's input schema may carry a top-level \`prompt_for_ai\` string, as a script's can: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that flow, and keep it when you rewrite the schema.
 
 ## Organizing Flows: Groups and Notes
 

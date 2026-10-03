@@ -92,8 +92,8 @@
 
 	let activeAdvancedOptions = $derived([
 		{
-			name: 'Fill flow inputs with AI',
-			active: typeof flowStore.val.schema?.prompt_for_ai == 'string'
+			name: 'Additional prompt for AI',
+			active: !!flowStore.val.schema?.prompt_for_ai
 		},
 		{
 			name: 'High Priority',

@@ -414,6 +414,10 @@ The step's `input_transforms` must cover the reused item's inputs, so read its i
 Find candidates in the local tree (a `.script.yaml` sits next to each script and holds its input schema, a `flow.yaml` in each flow folder) and on the workspace with `wmill script list` / `wmill flow list`; `wmill script get <path>` and `wmill flow get <path>` show an item's details.
 <!-- /cli-only -->
 
+## Additional Prompt for AI
+
+A flow's input schema may carry a top-level `prompt_for_ai` string, as a script's can: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that flow, and keep it when you rewrite the schema.
+
 ## Organizing Flows: Groups and Notes
 
 Groups and notes shape how a flow reads in the editor; neither changes what it does.
