@@ -48,8 +48,6 @@
 	let minTs: undefined | string = $state(undefined)
 	let maxTs: undefined | string = $state(undefined)
 
-	let max_lines: undefined | number = $state(undefined)
-
 	// let lastSeen: undefined | string = undefined
 
 	let withError = $state(false)
@@ -144,13 +142,6 @@
 					// last entries as the newest.
 					if (files.length > 1 && files[files.length - 2].ts > ts) {
 						files.sort((a, b) => a.ts - b.ts)
-					}
-					if (
-						log.ok_lines != undefined &&
-						log.err_lines != undefined &&
-						(max_lines == undefined || log.ok_lines + log.err_lines > max_lines)
-					) {
-						max_lines = log.ok_lines + log.err_lines
 					}
 				})
 
@@ -341,6 +332,9 @@
 		followTail = atEnd
 		showScrollToEnd = !atEnd
 		if (atEnd) hasNewLogs = false
+		// A jump whose files were all cached never reaches `onLogsAppended`; once the
+		// reader leaves the end, a later refresh must not carry it out.
+		else jumpPending = false
 	}
 
 	onDestroy(() => {
