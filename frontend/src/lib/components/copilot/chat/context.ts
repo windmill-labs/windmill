@@ -263,9 +263,12 @@ export function flattenDatatablesToAppContextElements(
 /** Workspace script context element — reference to a script in the workspace */
 export interface WorkspaceScriptElement {
 	type: 'workspace_script'
+	/** Storage path: what tools take. A never-deployed draft's is a generated `draft_<uuid>`. */
 	path: string
 	title: string
 	summary?: string
+	/** The name a draft deploys under, when it differs from `path`. */
+	draftPath?: string
 }
 
 /** Workspace flow context element — reference to a flow in the workspace */
@@ -274,6 +277,7 @@ export interface WorkspaceFlowElement {
 	path: string
 	title: string
 	summary?: string
+	draftPath?: string
 }
 
 /** Workspace app context element — reference to a (code-based) raw app in the
@@ -284,6 +288,7 @@ export interface WorkspaceAppElement {
 	path: string
 	title: string
 	summary?: string
+	draftPath?: string
 }
 
 /** Message-attached text file, rendered with the shared context badge. Never part

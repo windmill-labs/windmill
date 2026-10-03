@@ -640,6 +640,25 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	/** Follow an editor item to the path it deployed under, in place. A draft is hosted
+	 * under the path it is stored at, which the deploy then removes. */
+	retargetEditorItem(from: SessionTarget, to: SessionTarget): void {
+		if (from.kind === to.kind && from.path === to.path) return
+		const tab = this.#tabs.find((t) => isItemTabFor(t.url, from, 'edit'))
+		if (!tab) return
+		// Two editor tabs on one item would race the same cell, as in open()/navigate();
+		// the tab already there wins and this one is closed. The viewer side is left alone:
+		// it reads the deployed version and touches no cell.
+		if (this.#tabs.some((t) => t.id !== tab.id && isItemTabFor(t.url, to, 'edit'))) {
+			this.close(tab.id)
+			return
+		}
+		const target = previewTargetForSessionTarget(to.kind, to.path)
+		if (!target) return
+		retargetTab(tab, targetUrl(target))
+		this.#flush()
+	}
+
 	/** Follow a page item its editor saved under a new path, in place. */
 	retargetPageItem(from: PageItemRef, to: PageItemRef): void {
 		const fromUrl = pageItemUrl(from)

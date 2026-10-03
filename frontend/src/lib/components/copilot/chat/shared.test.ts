@@ -395,6 +395,45 @@ describe('processToolCall', () => {
 		expect(result.content).toBe(`Error while calling tool: ${expectedError}`)
 	})
 
+	// Every draft tool depends on the dispatch resolving `draftTarget` and handing the result
+	// to `fn`; without it each one fails with "This call named no item to act on". The global
+	// tests drive their own copy of these two lines, so only this one sees the real dispatch.
+	it('resolves a declared draftTarget and hands it to the tool', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const resolved = { path: 'f/team/named', storagePath: 'u/me/draft_abc', fetched: true }
+		const draftTarget = vi.fn().mockResolvedValue(resolved)
+		const fn = vi.fn().mockResolvedValue('ok')
+
+		const result = await processToolCall({
+			tools: [
+				{
+					def: createToolDef(z.object({ path: z.string() }), 'edit_thing', 'Edit a thing'),
+					draftTarget,
+					fn
+				}
+			],
+			toolCall: {
+				id: 'call_dt',
+				type: 'function',
+				function: { name: 'edit_thing', arguments: '{"path":"f/team/named"}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: vi.fn()
+			}
+		})
+
+		expect(draftTarget).toHaveBeenCalledWith({
+			args: { path: 'f/team/named' },
+			workspace: 'test-workspace'
+		})
+		expect(fn).toHaveBeenCalledWith(expect.objectContaining({ target: resolved }))
+		expect(result.content).toBe('ok')
+	})
+
 	it('continues to confirmation when pre-confirmation validation passes', async () => {
 		const { createToolDef, processToolCall } = await import('./shared')
 		const fn = vi.fn().mockResolvedValue('ok')

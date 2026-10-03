@@ -804,6 +804,31 @@ describe('SessionPreviewTabs.select / close / setCollapsed', () => {
 	})
 })
 
+describe('SessionPreviewTabs.retargetEditorItem', () => {
+	it('follows an editor item saved under a new path in place', () => {
+		const o = owner()
+		o.open(scriptTarget)
+		const id = o.tabs[0].id
+
+		o.retargetEditorItem({ kind: 'script', path: 'u/me/foo' }, { kind: 'script', path: 'f/x/foo' })
+
+		expect(o.tabs).toHaveLength(1)
+		expect(o.tabs[0].id).toBe(id)
+		expect(o.tabs[0].url).toBe('/scripts/edit/f/x/foo')
+	})
+
+	it('closes the tab when another one already holds the destination', () => {
+		const o = owner()
+		o.open(scriptTarget)
+		o.open({ type: 'item', item: { kind: 'script', path: 'f/x/foo', summary: '' } })
+		expect(o.tabs).toHaveLength(2)
+
+		o.retargetEditorItem({ kind: 'script', path: 'u/me/foo' }, { kind: 'script', path: 'f/x/foo' })
+
+		expect(o.tabs.map((t) => t.url)).toEqual(['/scripts/edit/f/x/foo'])
+	})
+})
+
 describe('SessionPreviewTabs.reorder', () => {
 	it('reorders tabs to the given id order and persists, keeping the active id', () => {
 		const { adapter, persisted } = makeAdapter()

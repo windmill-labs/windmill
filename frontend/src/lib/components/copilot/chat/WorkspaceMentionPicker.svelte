@@ -66,6 +66,7 @@ at the workspace root because the parent menu item already names the scope.
 				path: item.path,
 				title: item.path,
 				summary: item.summary,
+				draftPath: item.draftPath,
 				deletable: true
 			} satisfies WorkspaceScriptElement & { deletable: boolean }
 		}
@@ -75,6 +76,7 @@ at the workspace root because the parent menu item already names the scope.
 				path: item.path,
 				title: item.path,
 				summary: item.summary,
+				draftPath: item.draftPath,
 				deletable: true
 			} satisfies WorkspaceFlowElement & { deletable: boolean }
 		}
@@ -84,6 +86,7 @@ at the workspace root because the parent menu item already names the scope.
 				path: item.path,
 				title: item.path,
 				summary: item.summary,
+				draftPath: item.draftPath,
 				deletable: true
 			} satisfies WorkspaceAppElement & { deletable: boolean }
 		}
@@ -140,7 +143,8 @@ at the workspace root because the parent menu item already names the scope.
 		onPick={handlePick}
 		{leafIcon}
 		{branchIcon}
-		leafSecondary={(leaf, scope) => relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data), scope)}
+		leafSecondary={(leaf, scope) =>
+			relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data), scope)}
 		onScopeChange={handleScopeChange}
 		onFilterChange={loader.onFilterChange}
 		rootLoading={WORKSPACE_KINDS.some((k) => !loader.loaded[k] && loader.loadingKind[k])}
