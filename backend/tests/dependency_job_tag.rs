@@ -115,6 +115,7 @@ async fn push_binary_prebuild(db: &Pool<Postgres>, tag: Option<&str>) -> anyhow:
         None,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;

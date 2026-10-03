@@ -112,6 +112,8 @@ pub struct ExportableQueuedJob {
     pub preprocessed: Option<bool>,
     pub args: Option<sqlx::types::Json<Box<RawValue>>>,
     pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub job_token_scopes: Option<Vec<String>>,
     pub pre_run_error: Option<String>,
 
     // v2_job_queue columns (excluding workspace_id and id/created_at/tag/priority)
@@ -276,6 +278,7 @@ pub async fn export_queued_jobs(
             v2_job.preprocessed,
             v2_job.args as "args: _",
             v2_job.labels,
+            job_perms.job_token_scopes as "job_token_scopes?",
             v2_job.pre_run_error,
 
             v2_job_queue.started_at,
@@ -298,6 +301,7 @@ pub async fn export_queued_jobs(
             concurrency_key.key as "concurrency_key?"
         FROM v2_job_queue
         INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
+        LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id
         LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id
         LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
         LEFT JOIN concurrency_key ON concurrency_key.job_id = v2_job_queue.id
@@ -443,6 +447,23 @@ pub async fn import_queued_jobs(
         return Err(error::Error::BadRequest(
             "Importing queued jobs is not available on the cloud".to_string(),
         ));
+    }
+
+    // Imported rows bypass `push`, so nothing would cap their tokens: a restricted job token
+    // could otherwise queue arbitrary jobs that run with its owner's full permissions.
+    if authed.job_id.is_some() && authed.scopes.is_some() {
+        return Err(error::Error::PermissionDenied(
+            "A restricted job token cannot import queued jobs".to_string(),
+        ));
+    }
+    // An imported job gets no `job_perms` row, so its token would be minted without the
+    // restriction it was queued with.
+    if let Some(job) = jobs.iter().find(|job| job.job_token_scopes.is_some()) {
+        return Err(error::Error::BadRequest(format!(
+            "Queued job {} restricts its job token and cannot be imported; run it again on \
+             this instance instead",
+            job.id
+        )));
     }
 
     let mut tx = user_db.begin(&authed).await?;

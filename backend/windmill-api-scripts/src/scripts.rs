@@ -899,6 +899,7 @@ async fn is_noop_deploy_against_parent(
     ns: &NewScript,
     parent: &Script<ScriptRunnableSettingsHandle>,
     resolved_on_behalf_of: Option<&str>,
+    resolved_job_token_scopes: Option<&[String]>,
     db: &DB,
 ) -> Result<bool> {
     if parent.archived || parent.deleted {
@@ -952,6 +953,8 @@ async fn is_noop_deploy_against_parent(
         // caller-intent flag (auto-resolve parent), not script state
         auto_parent: _,
         labels,
+        // resolved against the deployed value into `resolved_job_token_scopes`, compared below
+        job_token_scopes: _,
         // caller-intent flag (preserve user drafts on CLI/git-sync deploys);
         // transient, never persisted, does not change what the script *is*
         skip_draft_deletion: _,
@@ -1023,6 +1026,9 @@ async fn is_noop_deploy_against_parent(
         return Ok(false);
     }
     if resolved_on_behalf_of != parent.on_behalf_of.as_deref() {
+        return Ok(false);
+    }
+    if resolved_job_token_scopes != parent.job_token_scopes.as_deref() {
         return Ok(false);
     }
     // Both of a dbt script's derived fields are compared as they WOULD BE STORED,
@@ -1492,6 +1498,37 @@ async fn create_script_internal<'c>(
         parent_adopted_from_retired_path = ns.parent_hash.is_some();
     }
 
+    // Absent keeps the previous version's value, read once the parent is settled (a rename
+    // adopts its source head above), so a client unaware of the setting cannot drop a
+    // restriction by redeploying or renaming.
+    let resolved_job_token_scopes: Option<Vec<String>> = match (&ns.job_token_scopes, &ns.parent_hash) {
+        (Some(Some(scopes)), _) => {
+            windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+                .assert()
+                .await?;
+            Some(windmill_common::scopes::validate_job_token_scopes(scopes)?)
+        }
+        (Some(None), _) => None,
+        (None, Some(parent_hash)) => sqlx::query_scalar!(
+            "SELECT job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
+            parent_hash.0,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten(),
+        (None, None) => sqlx::query_scalar!(
+            "SELECT job_token_scopes FROM script WHERE path = $1 AND workspace_id = $2 \
+             AND deleted = false ORDER BY created_at DESC LIMIT 1",
+            &ns.path,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten(),
+    };
+    ns.job_token_scopes = Some(resolved_job_token_scopes.clone());
+
     // Before hashing, so the hash and the no-op check see the schema that gets stored.
     // `{}` counts as absent: an agent filling every tool argument sends it for "none".
     let schema_absent = ns.schema.as_ref().is_none_or(|s| {
@@ -1620,8 +1657,14 @@ async fn create_script_internal<'c>(
             // CLI pushes must not produce phantom commits on the downstream
             // git repository.
             if skip_if_noop
-                && is_noop_deploy_against_parent(&ns, &ps, resolved_on_behalf_of.as_deref(), &db)
-                    .await?
+                && is_noop_deploy_against_parent(
+                    &ns,
+                    &ps,
+                    resolved_on_behalf_of.as_deref(),
+                    resolved_job_token_scopes.as_deref(),
+                    &db,
+                )
+                .await?
             {
                 tracing::info!(
                     workspace_id = %w_id,
@@ -2197,8 +2240,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of, on_behalf_of_email) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of, on_behalf_of_email, job_token_scopes) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42)",
         &w_id,
         &hash.0,
         ns.path,
@@ -2242,9 +2285,14 @@ async fn create_script_internal<'c>(
         ns.labels.as_deref() as Option<&[String]>,
         resolved_on_behalf_of,
         legacy_on_behalf_of_email,
+        resolved_job_token_scopes.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .await?;
+    windmill_common::scopes::log_job_token_scopes_deploy(
+        "script",
+        resolved_job_token_scopes.as_deref(),
+    );
 
     // A lock that is not left to a dependency job queues none, so this is the only place its hash
     // can be recorded. `try_skip_relock` treats a missing hash for an imported script as changed,
@@ -2954,6 +3002,7 @@ async fn create_script_internal<'c>(
             None,
             None,
             None,
+            None,
         )
         .await?;
 
@@ -3074,6 +3123,7 @@ async fn create_script_internal<'c>(
                     None,
                     Some(&authed.clone().into()),
                     false,
+                    None,
                     None,
                     None,
                     None,

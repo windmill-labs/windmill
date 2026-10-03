@@ -2366,6 +2366,7 @@ async fn advance_flow_status(
                 THEN v2_job_status.flow_leaf_jobs
                 ELSE JSONB_SET(COALESCE(v2_job_status.flow_leaf_jobs, '{}'::JSONB), ARRAY[$7::TEXT], $8) END
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
+            LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id
         WHERE v2_job_status.id = $1 AND v2_job_queue.id = $1
         RETURNING
             v2_job_queue.workspace_id,
@@ -2402,7 +2403,8 @@ async fn advance_flow_status(
             v2_job.trigger,
             v2_job.trigger_kind as \"trigger_kind: TriggerKindLabel\",
             v2_job.visible_to_owner,
-            NULL as permissioned_as_end_user_email",
+            NULL as permissioned_as_end_user_email,
+            job_perms.job_token_scopes",
         flow,
         &step_path as &[&str],
         step,
@@ -4327,11 +4329,15 @@ async fn push_next_flow_job(
     };
 
     // only start runners if we're not already in a squash for loop
+    // Runners would run its steps with their own unscoped token: a restricted flow, or a loop
+    // that restricts itself or any step in it, runs them as regular jobs.
     let start_runners = flow_runners.is_none()
+        && flow_job.job_token_scopes.is_none()
         && matches!(
             next_status,
             NextStatus::NextLoopIteration { start_runners: true, .. }
-        );
+        )
+        && !restricts_any_step(module);
 
     let do_not_pass_runners = matches!(next_status, NextStatus::NextStep { .. })
         && flow_runners
@@ -4746,6 +4752,16 @@ async fn push_next_flow_job(
             end_user_email,
             None,
             None,
+            // A step never holds a wider token than the flow running it, and its own setting
+            // narrows that further.
+            windmill_common::scopes::intersect_job_token_scopes(
+                flow_job.job_token_scopes.as_deref(),
+                windmill_common::scopes::step_job_token_scopes(
+                    module.job_token_scopes.as_deref(),
+                )
+                .as_deref(),
+            )
+            .as_deref(),
         )
         .warn_after_seconds(2)
         .await?;
@@ -6330,6 +6346,16 @@ pub fn raw_script_to_payload(
     }
 }
 
+/// Whether `module`, or any step or agent tool under it, sets `job_token_scopes`.
+fn restricts_any_step(module: &FlowModule) -> bool {
+    let mut any = false;
+    let _ = FlowModule::traverse_modules(&vec![module.clone()], &mut |m: &FlowModule| {
+        any |= m.job_token_scopes.is_some();
+        Ok(())
+    });
+    any
+}
+
 async fn flow_to_payload(
     path: String,
     delete_after_use: bool,
@@ -6339,13 +6365,14 @@ async fn flow_to_payload(
 ) -> Result<JobPayloadWithTag, Error> {
     let flow_info = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
     let on_behalf_of = flow_info.on_behalf_of(w_id, &db).await?;
-    let FlowVersionInfo { version, tag, .. } = flow_info;
+    let FlowVersionInfo { version, tag, job_token_scopes, .. } = flow_info;
     let payload = JobPayload::Flow {
         path,
         dedicated_worker: None,
         apply_preprocessor: false,
         version,
         labels: None,
+        job_token_scopes,
     };
     Ok(JobPayloadWithTag {
         payload,
@@ -6419,6 +6446,7 @@ pub async fn script_to_payload(
                 delete_after_use,
                 delete_after_secs,
                 timeout,
+                job_token_scopes,
                 runnable_settings:
                     ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
                 ..
@@ -6436,6 +6464,7 @@ pub async fn script_to_payload(
                     priority,
                     apply_preprocessor: apply_preprocessor.unwrap_or(false),
                     labels: None,
+                    job_token_scopes,
                 },
                 tag_override.to_owned().or(tag),
                 delete_after_use,

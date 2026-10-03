@@ -599,6 +599,16 @@ async fn enqueue_windmill_tool(
         None,
         None,
         None,
+        // A tool never holds a wider token than the agent calling it, and its own setting
+        // narrows that further.
+        windmill_common::scopes::intersect_job_token_scopes(
+            ctx.job.job_token_scopes.as_deref(),
+            windmill_common::scopes::step_job_token_scopes(
+                tool_module.job_token_scopes.as_deref(),
+            )
+            .as_deref(),
+        )
+        .as_deref(),
     )
     .await?;
 

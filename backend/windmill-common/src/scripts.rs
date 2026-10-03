@@ -164,6 +164,7 @@ async fn prefetch_cached_script_inner(
         assets: script.assets,
         modules: script.modules,
         labels: script.labels,
+        job_token_scopes: script.job_token_scopes,
         inherited_labels: script.inherited_labels,
         runnable_settings: ScriptRunnableSettingsInline {
             concurrency_settings: concurrency_settings.maybe_fallback(
@@ -463,6 +464,7 @@ pub async fn deploy_relocked_version(
         modules,
         auto_parent: None,
         labels: s.labels,
+        job_token_scopes: Some(s.job_token_scopes.clone()),
         skip_draft_deletion: None,
     };
 
@@ -483,7 +485,7 @@ pub async fn deploy_relocked_version(
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
     codebase, has_preprocessor, on_behalf_of, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels, \
-    lock_error_logs, created_at)
+    job_token_scopes, lock_error_logs, created_at)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, $4::text, language, kind, tag, \
@@ -491,7 +493,7 @@ pub async fn deploy_relocked_version(
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
             codebase, has_preprocessor, on_behalf_of, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, COALESCE($5::jsonb, modules), labels, \
-            $6::text, clock_timestamp()
+            job_token_scopes, $6::text, clock_timestamp()
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ", new_hash, s.hash.0, w_id, lock, modules_json, lock_error_logs).execute(&mut **tx).await?;

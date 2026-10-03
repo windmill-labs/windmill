@@ -6167,6 +6167,21 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             continue;
         }
         if let Some(job) = job.unwrap() {
+            // Read while the job is still queued: a re-run (perpetual, retry) takes its cap from
+            // here once the `job_perms` row is swept after completion. A failed read leaves the
+            // job for the next sweep rather than completing it with no cap.
+            let perms =
+                match windmill_common::auth::get_job_perms(db, &job.id, &job.workspace_id).await {
+                    Ok(perms) => perms,
+                    Err(e) => {
+                        tracing::error!(
+                            "Could not read the permissions of zombie job {}: {e:#}",
+                            job.id
+                        );
+                        continue;
+                    }
+                };
+            let job_token_scopes = perms.as_ref().and_then(|p| p.job_token_scopes.clone());
             let label = ephemeral_script_token_label(&job.permissioned_as, &job.created_by);
             let token = create_token_for_owner(
                 &db,
@@ -6176,7 +6191,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 job_token_expiry_secs(&db, &job.workspace_id).await,
                 &job.permissioned_as_email,
                 &job.id,
-                None,
+                perms,
                 Some(format!("handle_zombie_jobs")),
             )
             .await
@@ -6198,10 +6213,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             );
             let memory_peak = job.memory_peak.unwrap_or(0);
             let (_, killpill_rx_never_used) = KillpillSender::new(1);
+            let mut completed = windmill_queue::MiniCompletedJob::from(job);
+            completed.job_token_scopes = job_token_scopes;
             let _ = handle_job_error(
                 db,
                 &client,
-                &windmill_queue::MiniCompletedJob::from(job),
+                &completed,
                 memory_peak,
                 None,
                 error::Error::ExecutionErr(error_message.clone()),

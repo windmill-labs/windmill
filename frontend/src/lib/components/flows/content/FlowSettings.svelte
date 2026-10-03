@@ -5,6 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
@@ -101,6 +102,7 @@
 		},
 		{ name: 'Error Handler Muted', active: Boolean(flowStore.val.ws_error_handler_muted) },
 		{ name: 'Invisible to Others', active: Boolean(flowStore.val.visible_to_runner_only) },
+		{ name: 'Restricted Job Token', active: flowStore.val.job_token_scopes != null },
 		{ name: 'Shared Directory', active: Boolean(flowStore.val.value.same_worker) },
 		{ name: 'Preserve Step Tags', active: Boolean(flowStore.val.value.preserve_step_tags) },
 		{ name: 'Cache Results', active: Boolean(flowStore.val.value.cache_ttl) },
@@ -724,6 +726,13 @@
 						type="flow"
 					/>
 				{/if}
+
+				<JobTokenScopesSetting
+					bind:value={flowStore.val.job_token_scopes}
+					kind="flow"
+					size="xs"
+					textClass="font-medium"
+				/>
 			</Section>
 		</div>
 	</FlowCard>

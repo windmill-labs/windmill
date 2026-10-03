@@ -1278,6 +1278,7 @@ async fn test_python_wac_v2_with_preprocessor(db: Pool<Postgres>) -> anyhow::Res
                     debouncing_settings:
                         windmill_common::runnable_settings::DebouncingSettings::default(),
                     labels: None,
+                    job_token_scopes: None,
                 })
                 .arg("who", json!("alice"))
                 .arg("count", json!(7))

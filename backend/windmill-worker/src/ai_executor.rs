@@ -2745,6 +2745,7 @@ mod tests {
             let mut its = HashMap::new();
             its.insert(key.to_string(), js(expr));
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: None,
                 description: None,
@@ -2772,6 +2773,7 @@ mod tests {
             script_tool("a", "x", "authoring_flow_expr"),
             script_tool("b", "y", "keep_me"),
             AgentTool {
+                job_token_scopes: None,
                 id: "m".to_string(),
                 summary: None,
                 description: None,
@@ -2819,6 +2821,7 @@ mod tests {
     fn narrow_roster_keeps_the_entries_a_run_named() {
         fn named(id: &str, summary: &str) -> AgentTool {
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: Some(summary.to_string()),
                 description: None,
@@ -2834,6 +2837,7 @@ mod tests {
         }
         fn mcp(id: &str, summary: &str, path: &str) -> AgentTool {
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: Some(summary.to_string()),
                 description: None,
@@ -2846,6 +2850,7 @@ mod tests {
         }
         fn websearch(id: &str, summary: Option<&str>) -> AgentTool {
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: summary.map(str::to_string),
                 description: None,

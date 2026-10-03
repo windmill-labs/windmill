@@ -235,6 +235,7 @@ async fn run_datatable_migration_job(
     args.insert("database".to_string(), database_arg.clone());
     let push_args = PushArgs { extra: None, args: &args };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, mut tx) = push(
         db,
         PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
@@ -278,6 +279,7 @@ async fn run_datatable_migration_job(
         None,
         None,
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
 
