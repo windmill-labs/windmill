@@ -9042,18 +9042,16 @@ async fn run_inline_script_inner(
             )
             .await?;
             let restricted = info.job_token_scopes.is_some();
-            (InlineScriptTarget::Path { path, hash: info.hash }, restricted)
+            (
+                InlineScriptTarget::Path { path, hash: info.hash },
+                restricted,
+            )
         }
         InlineScriptTarget::Hash(hash) => {
-            let restricted = sqlx::query_scalar!(
-                "SELECT job_token_scopes IS NOT NULL FROM script WHERE hash = $1 AND workspace_id = $2",
-                hash,
-                &w_id
-            )
-            .fetch_optional(&db)
-            .await?
-            .flatten()
-            .unwrap_or(false);
+            let restricted = windmill_common::get_script_info_for_hash(None, &db, &w_id, hash)
+                .await?
+                .job_token_scopes
+                .is_some();
             (InlineScriptTarget::Hash(hash), restricted)
         }
     };

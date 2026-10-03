@@ -63,7 +63,9 @@ Symbols, not line numbers, are cited: they drift less.
   triggers and error/success handlers start from the target's own setting. A restricted token
   keeps only the runtime routes about its own job (`is_own_job_runtime_route`) and the reads of
   its own flow run (`flow_run_read_route_job`, checked against its lineage: the orchestrator
-  evaluates a step's `results.x` with the token of the step that just finished); a route that
+  evaluates a step's `results.x` with the token of the step that just finished). That lineage is
+  trusted, so a restricted job token, even an admin's, can only place a job it starts in its own
+  run (`unclaimable_run_lineage`); a route that
   authenticates a token itself instead of through the route layer must call
   `check_job_token_scope`. A restricted job never runs on a dedicated worker, which uses its own
   unscoped token for every job. `$var:`/`$res:` args are resolved through the API with the job's

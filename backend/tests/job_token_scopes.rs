@@ -163,7 +163,7 @@ async fn test_restricted_job_token_is_confined(db: Pool<Postgres>) -> anyhow::Re
         "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups,
             workspace_id, job_token_scopes)
         VALUES ($1, 'test@windmill.dev', 'test-user', true, false, '{}', '{}', 'test-workspace',
-            '{jobs:write}')",
+            '{jobs:run}')",
     )
     .bind(admin_job)
     .execute(&db)
@@ -187,6 +187,27 @@ async fn test_restricted_job_token_is_confined(db: Pool<Postgres>) -> anyhow::Re
         .send()
         .await?;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN, "{}", resp.text().await?);
+    // Nor can it, even an admin's, place a child in an unrelated run: the flow-run routes
+    // trust that lineage.
+    let resp = client
+        .post(format!(
+            "{base}/jobs/run/p/u/test-user-3/open?root_job={RUN_JOB}"
+        ))
+        .bearer_auth(&admin_token)
+        .json(&json!({}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), StatusCode::CREATED, "{}", resp.text().await?);
+    let child = Uuid::parse_str(&resp.text().await?)?;
+    let claimed: bool = sqlx::query_scalar(
+        "SELECT $2 IN (parent_job, root_job, flow_innermost_root_job) IS TRUE FROM v2_job
+        WHERE id = $1",
+    )
+    .bind(child)
+    .bind(Uuid::parse_str(RUN_JOB)?)
+    .fetch_one(&db)
+    .await?;
+    assert!(!claimed);
 
     // A job it starts is capped at its own scopes, intersected with the target's setting.
     let run_token = job_token(&db, RUN_JOB).await?;
