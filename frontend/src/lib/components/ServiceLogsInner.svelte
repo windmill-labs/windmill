@@ -253,6 +253,10 @@
 		if (fetched.some(Boolean)) {
 			await tick()
 			onLogsAppended()
+		} else {
+			// Every file was cached: `jumpToEnd` already landed, and the next file that
+			// arrives extends the view, so it should animate.
+			jumpPending = false
 		}
 	}
 
