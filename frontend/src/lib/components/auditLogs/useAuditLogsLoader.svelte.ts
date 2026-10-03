@@ -13,7 +13,6 @@ export interface AuditLogsLoaderArgs {
 	actionKind: ActionKind | 'all'
 	before: string | undefined
 	after: string | undefined
-	pageIndex: number
 	perPage: number
 }
 
@@ -23,44 +22,32 @@ const SMALL_BATCH_SIZE = 25
 const MAX_PER_PAGE = 1000
 
 /**
- * Where the first batch of a page starts. Rows are ordered by descending id, so the batches after
- * it follow a `before_id` cursor and only this one needs an offset. `page` can only express
- * offsets that are multiples of `batchSize`: land on the closest one at or below the page start,
- * and report how many rows of that batch belong to the previous page.
- */
-export function computeFirstBatch(
-	pageIndex: number,
-	perPage: number,
-	batchSize: number
-): { firstPage: number; skipFirst: number } {
-	const startOffset = (Math.max(1, pageIndex) - 1) * perPage
-	const firstPage = Math.floor(startOffset / batchSize) + 1
-	return { firstPage, skipFirst: startOffset - (firstPage - 1) * batchSize }
-}
-
-/**
- * Loads one page of audit logs, optionally streaming it in smaller batches so rows show up as
- * they arrive on instances where a full page takes a long time to come back.
+ * Loads the newest audit logs, optionally streaming them in smaller batches so rows show up as
+ * they arrive on instances where a full load takes a long time to come back, and appends older
+ * ones on demand. Rows are ordered by descending id, so every batch after the first follows a
+ * `before_id` cursor.
  */
 export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 	let logs: AuditLog[] | undefined = $state()
 	let loading = $state(false)
+	let loadingExtra = $state(false)
 	let hasMore = $state(false)
 	let batchProgress = $state<{ loaded: number; total: number } | null>(null)
 	let currentBatchSize = $state<number | null>(null)
 
 	let pendingLoad: CancelablePromise<void> | undefined
 	let pendingLoadHasRows = false
+	let pendingExtra: CancelablePromise<void> | undefined
+	// The batch size the user last picked, so a load-more after a streamed load streams too.
+	let streamBatchSize: number | undefined
 
 	function fetchBatch(
 		a: AuditLogsLoaderArgs,
-		page: number,
 		limit: number,
 		beforeId: number | undefined
 	): CancelablePromise<AuditLog[]> {
 		return AuditService.listAuditLogs({
 			workspace: a.scope === 'instance' ? 'global' : a.workspace!,
-			page,
 			perPage: limit,
 			beforeId,
 			before: a.before,
@@ -96,6 +83,8 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		pendingLoad?.cancel()
 		pendingLoad = undefined
 		pendingLoadHasRows = false
+		cancelExtra()
+		streamBatchSize = batchSize
 
 		const a = args()
 		if (a.workspace == undefined && a.scope !== 'instance') {
@@ -106,7 +95,6 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		const total = Math.min(Math.max(1, Math.floor(a.perPage) || 1), MAX_PER_PAGE)
 		const size = Math.min(Math.max(1, batchSize ?? total), total)
 		const isBatched = size < total
-		const { firstPage, skipFirst } = computeFirstBatch(a.pageIndex, total, size)
 
 		loading = true
 		batchProgress = isBatched ? { loaded: 0, total } : null
@@ -115,8 +103,8 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		const acc: AuditLog[] = []
 		let slowBatchToastShown = false
 
-		function loadBatch(beforeId: number | undefined, skip: number): CancelablePromise<void> {
-			let fetch = fetchBatch(a, beforeId === undefined ? firstPage : 1, size, beforeId)
+		function loadBatch(beforeId: number | undefined): CancelablePromise<void> {
+			let fetch = fetchBatch(a, size, beforeId)
 			if (isBatched && size > 1) {
 				fetch = CancelablePromiseUtils.onTimeout(fetch, 4000, () => {
 					if (slowBatchToastShown) return
@@ -129,7 +117,7 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 				})
 			}
 			return CancelablePromiseUtils.then(fetch, (rows) => {
-				acc.push(...(skip > 0 ? rows.slice(skip) : rows).slice(0, total - acc.length))
+				acc.push(...rows.slice(0, total - acc.length))
 				logs = [...acc]
 				loading = false
 				pendingLoadHasRows = true
@@ -137,12 +125,12 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 					batchProgress = { loaded: acc.length, total }
 				}
 				if (rows.length < size || acc.length >= total) {
-					// Only once the page is complete: a half-streamed page says nothing about
-					// whether there is a next one.
+					// Only once the load is complete: a half-streamed one says nothing about
+					// whether older logs exist.
 					hasMore = acc.length >= total
 					return CancelablePromiseUtils.pure<void>(undefined)
 				}
-				return loadBatch(rows[rows.length - 1].id, 0)
+				return loadBatch(rows[rows.length - 1].id)
 			})
 		}
 
@@ -159,7 +147,7 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 			}, 15000)
 		}
 
-		let promise = loadBatch(undefined, skipFirst)
+		let promise = loadBatch(undefined)
 		if (!isBatched) {
 			promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
 				const smaller = total > SMALL_BATCH_SIZE ? SMALL_BATCH_SIZE : 1
@@ -213,6 +201,80 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		abandonLoad()
 	}
 
+	function cancelExtra() {
+		pendingExtra?.cancel()
+		pendingExtra = undefined
+		loadingExtra = false
+	}
+
+	function loadMore(batchSize: number | undefined = streamBatchSize) {
+		const last = logs?.[logs.length - 1]
+		if (!last || !hasMore || pendingLoad || pendingExtra) return
+		streamBatchSize = batchSize
+		const a = args()
+		const total = Math.min(Math.max(1, Math.floor(a.perPage) || 1), MAX_PER_PAGE)
+		const size = Math.min(Math.max(1, batchSize ?? total), total)
+		let appended = 0
+		loadingExtra = true
+
+		// Rows are appended as each batch lands, so stopping keeps them and the next load-more
+		// continues from the last one.
+		function extraBatch(beforeId: number): CancelablePromise<void> {
+			return CancelablePromiseUtils.then(fetchBatch(a, size, beforeId), (rows) => {
+				const kept = rows.slice(0, total - appended)
+				appended += kept.length
+				logs = [...(logs ?? []), ...kept]
+				if (rows.length < size) {
+					hasMore = false
+					return CancelablePromiseUtils.pure<void>(undefined)
+				}
+				if (appended >= total) return CancelablePromiseUtils.pure<void>(undefined)
+				return extraBatch(rows[rows.length - 1].id)
+			})
+		}
+
+		let promise = CancelablePromiseUtils.onTimeout(extraBatch(last.id), 4000, () => {
+			const smaller = total > SMALL_BATCH_SIZE ? SMALL_BATCH_SIZE : 1
+			const offerBatches = size === total && total > 1
+			sendUserToast('Loading more audit logs is taking longer than expected...', 'warning', [
+				{
+					label: 'Stop loading',
+					callback: () => {
+						if (pendingExtra === thisExtra) cancelExtra()
+					}
+				},
+				...(offerBatches
+					? [
+							{
+								label: smaller === 1 ? 'Stream 1 by 1' : `Stream by batches of ${smaller}`,
+								callback: () => {
+									if (pendingExtra !== thisExtra) return
+									cancelExtra()
+									loadMore(smaller)
+								}
+							}
+						]
+					: [])
+			])
+		})
+		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
+			if (e instanceof CancelError) return CancelablePromiseUtils.pure<void>(undefined)
+			sendUserToast(
+				'There was an issue loading more audit logs, see browser console for more details',
+				true
+			)
+			console.error(e)
+			return CancelablePromiseUtils.pure<void>(undefined)
+		})
+		const thisExtra = CancelablePromiseUtils.pipe(promise, () => {
+			if (pendingExtra === thisExtra) {
+				pendingExtra = undefined
+				loadingExtra = false
+			}
+		})
+		pendingExtra = thisExtra
+	}
+
 	$effect(() => {
 		// Building the args reads every filter, which is what registers this effect's dependencies.
 		args()
@@ -220,6 +282,7 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		return () => {
 			pendingLoad?.cancel()
 			pendingLoad = undefined
+			cancelExtra()
 		}
 	})
 
@@ -227,11 +290,15 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		reload: () => load(),
 		restreamWithBatchSize,
 		stopBatchLoading,
+		loadMore,
 		get logs() {
 			return logs
 		},
 		get loading() {
 			return loading
+		},
+		get loadingExtra() {
+			return loadingExtra
 		},
 		get hasMore() {
 			return hasMore

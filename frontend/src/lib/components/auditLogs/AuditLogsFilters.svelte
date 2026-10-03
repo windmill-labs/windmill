@@ -44,7 +44,6 @@
 	interface Props {
 		logs?: AuditLog[]
 		username?: string
-		pageIndex?: number | undefined
 		before?: string | undefined
 		after?: string | undefined
 		perPage?: number | undefined
@@ -59,7 +58,6 @@
 	let {
 		logs = undefined,
 		username = $bindable('all'),
-		pageIndex = $bindable(1),
 		before = $bindable(undefined),
 		after = $bindable(undefined),
 		perPage = $bindable(100),
@@ -100,7 +98,6 @@
 		}
 
 		addQueryParam('username', username)
-		addQueryParam('page', pageIndex)
 		addQueryParam('perPage', perPage)
 		addQueryParam('before', before)
 		addQueryParam('after', after)
@@ -120,7 +117,6 @@
 	function handlePopState() {
 		const urlSearchParams = new URLSearchParams(window.location.search)
 		username = urlSearchParams.get('username') ?? 'all'
-		pageIndex = Number(urlSearchParams.get('page')) || 1
 		before = urlSearchParams.get('before') ?? undefined
 		after = urlSearchParams.get('after') ?? undefined
 		perPage = Number(urlSearchParams.get('perPage')) || 100
@@ -263,12 +259,12 @@
 
 	// observe all the variables that should be reflected in the url
 	$effect(() => {
-		;[username, perPage, before, after, operation, resource, actionKind, scope, pageIndex]
+		;[username, perPage, before, after, operation, resource, actionKind, scope]
 		untrack(() => updateQueryParams())
 	})
 </script>
 
-<div class="flex flex-col gap-8 2xl:gap-2 2xl:flex-row mt-4 xl:mt-0 pr-2">
+<div class="flex flex-col gap-8 fhd:gap-2 fhd:flex-row mt-4 xl:mt-0 pr-2">
 	{#if $workspaceStore == 'admins'}
 		<div class="flex gap-1 relative">
 			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
@@ -406,7 +402,6 @@
 				username = 'all'
 				operation = 'all'
 				actionKind = 'all'
-				pageIndex = 1
 				perPage = 100
 				resource = 'all'
 				scope = undefined
