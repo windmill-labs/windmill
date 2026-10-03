@@ -57,7 +57,7 @@
 	})
 
 	let selectedId: number | undefined = $state(undefined)
-	// A selection the current rows no longer contain (filters or page changed) closes the pane.
+	// A selection the loaded rows no longer contain (a filter change or reload) closes the pane.
 	let detailOpen = $derived(
 		selectedId !== undefined && !!logs?.some((log) => log.id === selectedId)
 	)
@@ -119,7 +119,7 @@
 				</Tooltip>
 			</div>
 			<div class="flex flex-row flex-wrap justify-between py-2 my-2 px-4 gap-1 items-center">
-				<div class="hidden 2xl:block">
+				<div class="hidden fhd:block">
 					<AuditLogsFilters
 						{logs}
 						bind:username
@@ -134,7 +134,7 @@
 						onRefresh={() => auditLogsLoader.reload()}
 					/>
 				</div>
-				<div class="2xl:hidden">
+				<div class="fhd:hidden">
 					<AuditLogMobileFilters>
 						{#snippet filters()}
 							<AuditLogsFilters

@@ -38,6 +38,8 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 	let pendingLoad: CancelablePromise<void> | undefined
 	let pendingLoadHasRows = false
 	let pendingExtra: CancelablePromise<void> | undefined
+	// The batch size the user last picked, so a load-more after a streamed load streams too.
+	let streamBatchSize: number | undefined
 
 	function fetchBatch(
 		a: AuditLogsLoaderArgs,
@@ -82,6 +84,7 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		pendingLoad = undefined
 		pendingLoadHasRows = false
 		cancelExtra()
+		streamBatchSize = batchSize
 
 		const a = args()
 		if (a.workspace == undefined && a.scope !== 'instance') {
@@ -204,16 +207,55 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		loadingExtra = false
 	}
 
-	function loadMore() {
+	function loadMore(batchSize: number | undefined = streamBatchSize) {
 		const last = logs?.[logs.length - 1]
 		if (!last || !hasMore || pendingLoad || pendingExtra) return
+		streamBatchSize = batchSize
 		const a = args()
 		const total = Math.min(Math.max(1, Math.floor(a.perPage) || 1), MAX_PER_PAGE)
+		const size = Math.min(Math.max(1, batchSize ?? total), total)
+		let appended = 0
 		loadingExtra = true
-		let promise = CancelablePromiseUtils.then(fetchBatch(a, total, last.id), (rows) => {
-			logs = [...(logs ?? []), ...rows]
-			hasMore = rows.length >= total
-			return CancelablePromiseUtils.pure<void>(undefined)
+
+		// Rows are appended as each batch lands, so stopping keeps them and the next load-more
+		// continues from the last one.
+		function extraBatch(beforeId: number): CancelablePromise<void> {
+			return CancelablePromiseUtils.then(fetchBatch(a, size, beforeId), (rows) => {
+				const kept = rows.slice(0, total - appended)
+				appended += kept.length
+				logs = [...(logs ?? []), ...kept]
+				if (rows.length < size) {
+					hasMore = false
+					return CancelablePromiseUtils.pure<void>(undefined)
+				}
+				if (appended >= total) return CancelablePromiseUtils.pure<void>(undefined)
+				return extraBatch(rows[rows.length - 1].id)
+			})
+		}
+
+		let promise = CancelablePromiseUtils.onTimeout(extraBatch(last.id), 4000, () => {
+			const smaller = total > SMALL_BATCH_SIZE ? SMALL_BATCH_SIZE : 1
+			const offerBatches = size === total && total > 1
+			sendUserToast('Loading more audit logs is taking longer than expected...', 'warning', [
+				{
+					label: 'Stop loading',
+					callback: () => {
+						if (pendingExtra === thisExtra) cancelExtra()
+					}
+				},
+				...(offerBatches
+					? [
+							{
+								label: smaller === 1 ? 'Stream 1 by 1' : `Stream by batches of ${smaller}`,
+								callback: () => {
+									if (pendingExtra !== thisExtra) return
+									cancelExtra()
+									loadMore(smaller)
+								}
+							}
+						]
+					: [])
+			])
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.pure<void>(undefined)
