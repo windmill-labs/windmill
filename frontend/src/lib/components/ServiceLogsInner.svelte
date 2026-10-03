@@ -440,7 +440,9 @@
 		if (selected?.mode) params.set('mode', selected.mode)
 		if (selected?.workerGroup) params.set('workerGroup', selected.workerGroup)
 		if (selected?.hostname) params.set('hostname', selected.hostname)
-		goto(`?${params.toString()}`)
+		// Only syncs the URL: a navigation resets focus by default, which would pull it off
+		// the host button or search field the reader is using.
+		goto(`?${params.toString()}`, { keepFocus: true, noScroll: true })
 		if (searchTerm.trim() === '') {
 			debounceTimeout && clearTimeout(debounceTimeout)
 			logs = undefined
@@ -818,6 +820,7 @@
 														variant="subtle"
 														unifiedSize="md"
 														selected={isSelected(mode, wg, hn)}
+														aria-current={isSelected(mode, wg, hn) ? 'true' : undefined}
 														title={hn}
 														wrapperClasses="w-full"
 														btnClasses="w-full justify-start gap-2 px-2"
@@ -1052,7 +1055,7 @@
 										unifiedSize="sm"
 										iconOnly={!hasNewLogs}
 										title="Scroll to latest logs"
-										aria-label="Scroll to latest logs"
+										aria-label={hasNewLogs ? 'New logs, scroll to latest' : 'Scroll to latest logs'}
 										startIcon={{ icon: ArrowDown }}
 										onClick={() => scrollToEnd(true)}
 									>
@@ -1070,6 +1073,10 @@
 									{/if}
 								</div>
 							{/if}
+							<!-- The button is visual only; this tells screen readers new files arrived. -->
+							<span class="sr-only" aria-live="polite">
+								{hasNewLogs ? 'New logs available below' : ''}
+							</span>
 						</div>
 					{:else}
 						<div class="flex grow items-center justify-center p-3">
