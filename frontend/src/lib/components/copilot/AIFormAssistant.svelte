@@ -9,7 +9,8 @@
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	interface Props {
-		onEditInstructions: () => void
+		/** Unset for a viewer who cannot edit the item: the card then offers no way to the editor. */
+		onEditInstructions: (() => void) | undefined
 		instructions: string
 		runnableType: 'script' | 'flow'
 		path: string | undefined
@@ -78,21 +79,25 @@
 				{/snippet}
 			</OpenInSessionButton>
 		</div>
-		<div class="flex flex-row gap-2 items-center">
-			<p class="text-sm text-primary">
-				{instructions
-					? 'Instructions: ' + instructions
-					: 'No AI instructions provided. Click edit to add guidance for AI form filling.'}
-			</p>
-			<Button
-				color="light"
-				size="xs2"
-				startIcon={{
-					icon: Pencil
-				}}
-				iconOnly
-				on:click={onEditInstructions}
-			/>
-		</div>
+		{#if instructions || onEditInstructions}
+			<div class="flex flex-row gap-2 items-center">
+				<p class="text-sm text-primary">
+					{instructions
+						? 'Additional prompt for AI: ' + instructions
+						: 'No additional prompt for AI. Click edit to add guidance on how to choose these inputs.'}
+				</p>
+				{#if onEditInstructions}
+					<Button
+						variant="subtle"
+						unifiedSize="xs"
+						startIcon={{
+							icon: Pencil
+						}}
+						iconOnly
+						onclick={onEditInstructions}
+					/>
+				{/if}
+			</div>
+		{/if}
 	</div>
 {/if}

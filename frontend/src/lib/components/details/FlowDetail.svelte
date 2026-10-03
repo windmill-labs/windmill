@@ -852,12 +852,12 @@
 									</div>
 								{/if}
 
-								{#if flow.schema?.prompt_for_ai !== undefined}
+								{#if Object.keys(flow.schema?.properties ?? {}).length > 0}
 									<AIFormAssistant
-										instructions={flow.schema?.prompt_for_ai as string}
-										onEditInstructions={() => {
-											onNavigate(`/flows/edit/${flow?.path}`)
-										}}
+										instructions={(flow.schema?.prompt_for_ai as string | undefined) ?? ''}
+										onEditInstructions={can_write && canAuthorFlow
+											? () => onNavigate(`/flows/edit/${flow?.path}`)
+											: undefined}
 										runnableType="flow"
 										path={flow?.path}
 									/>
