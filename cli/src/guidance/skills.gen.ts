@@ -763,21 +763,23 @@ async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   \`{ scheduledInSeconds?, tag?, retry? }\`, e.g. \`{ retry: { constant: { attempts: 3, seconds: 10 } } }\`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a script asynchronously by its hash
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   \`{ scheduledInSeconds?, tag?, retry? }\`, e.g. \`{ retry: { constant: { attempts: 3, seconds: 10 } } }\`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a flow asynchronously by its path
@@ -1595,21 +1597,23 @@ async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   \`{ scheduledInSeconds?, tag?, retry? }\`, e.g. \`{ retry: { constant: { attempts: 3, seconds: 10 } } }\`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a script asynchronously by its hash
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   \`{ scheduledInSeconds?, tag?, retry? }\`, e.g. \`{ retry: { constant: { attempts: 3, seconds: 10 } } }\`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a flow asynchronously by its path
@@ -2532,21 +2536,23 @@ async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   \`{ scheduledInSeconds?, tag?, retry? }\`, e.g. \`{ retry: { constant: { attempts: 3, seconds: 10 } } }\`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a script asynchronously by its hash
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   \`{ scheduledInSeconds?, tag?, retry? }\`, e.g. \`{ retry: { constant: { attempts: 3, seconds: 10 } } }\`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a flow asynchronously by its path
@@ -4417,10 +4423,15 @@ def post(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
 def create_token(duration = dt.timedelta(days=1)) -> str
 
 # Create a script job by path and return its job id.
-def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
+# 
+# \`\`retry\`\` re-runs the job when it fails, with the policy a schedule takes,
+# e.g. \`\`{"constant": {"attempts": 3, "seconds": 10}}\`\`. The returned id is
+# the first attempt's, and a retried job is not recorded as a child of the
+# job that dispatched it.
+def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None, retry: dict = None) -> str
 
-# Create a script job by hash and return its job id.
-def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
+# Create a script job by hash and return its job id. See \`\`run_script_by_path_async\`\` for \`\`retry\`\`.
+def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None, retry: dict = None) -> str
 
 # Create a flow job and return its job id.
 def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True, tag: str = None) -> str

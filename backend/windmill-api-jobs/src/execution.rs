@@ -29,6 +29,7 @@ use windmill_common::{
     flow_conversations::{
         add_message_to_conversation_tx, message_attachments, MessageExtras, MessageType,
     },
+    flows::Retry,
     get_latest_flow_version_info_for_path,
     jobs::{
         check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
@@ -120,6 +121,75 @@ pub async fn drop_unclaimable_run_lineage(
         }
     }
     Ok(())
+}
+
+/// Applies the run's `retry` policy by handing `push` a one-step-flow request, which it
+/// materializes as a native retryable `Script`. A retry chain is rooted at an attempt without a
+/// `parent_job` (later attempts point at it, and their ids derive from it), so a retried run
+/// drops the caller's lineage: under a shared parent, two chains would collide.
+pub fn with_run_retry(
+    run_query: &mut RunJobQuery,
+    payload: JobPayload,
+    args: &PushArgs<'_>,
+    tag: &Option<String>,
+) -> error::Result<JobPayload> {
+    let Some(retry) = run_query.retry.as_deref() else {
+        return Ok(payload);
+    };
+    // Retry attempts are always pushed visible to the owner, which would leak a private run.
+    if run_query.invisible_to_owner.unwrap_or(false) {
+        return Err(Error::BadRequest(
+            "retry cannot be combined with invisible_to_owner".to_string(),
+        ));
+    }
+    let retry: Retry = serde_json::from_str(retry)
+        .map_err(|e| Error::BadRequest(format!("invalid retry policy: {e}")))?;
+    let JobPayload::ScriptHash {
+        hash,
+        path,
+        cache_ttl,
+        cache_ignore_s3_path,
+        language,
+        priority,
+        apply_preprocessor,
+        debouncing_settings,
+        concurrency_settings,
+        ..
+    } = payload
+    else {
+        return Err(Error::BadRequest(
+            "retry is only supported for workspace scripts".to_string(),
+        ));
+    };
+    // A failed attempt keeps its raw args and the retry re-push skips the preprocessor, so
+    // every retry would call `main` with un-preprocessed input.
+    if apply_preprocessor {
+        return Err(Error::BadRequest(
+            "retry is not supported for a script with a preprocessor unless skip_preprocessor is set"
+                .to_string(),
+        ));
+    }
+    run_query.parent_job = None;
+    run_query.root_job = None;
+    Ok(JobPayload::SingleStepFlow {
+        path,
+        hash: Some(hash),
+        flow_version: None,
+        language: Some(language),
+        args: HashMap::from(args),
+        retry: Some(retry),
+        error_handler_path: None,
+        error_handler_args: None,
+        skip_handler: None,
+        cache_ttl,
+        cache_ignore_s3_path,
+        priority,
+        tag_override: tag.clone(),
+        trigger_path: None,
+        apply_preprocessor,
+        concurrency_settings,
+        debouncing_settings,
+    })
 }
 
 /// The jobs of `referenced` that `authed` cannot claim as its own run lineage: anything but the
@@ -1115,6 +1185,8 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let has_lineage = run_query.parent_job.is_some() || run_query.root_job.is_some();
+    let job_payload = with_run_retry(&mut run_query, job_payload, &push_args, &tag)?;
 
     let return_tx = tx_o.is_some();
 
@@ -1166,11 +1238,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         timeout,
         None,
         // If the job has a parent job, set priority to 2 as it may be ran synchronously and block a current worker until being executed. Flow steps have a priority of 1 so this is higher.
-        if run_query.parent_job.is_some() || run_query.root_job.is_some() {
-            Some(2)
-        } else {
-            None
-        },
+        if has_lineage { Some(2) } else { None },
         push_authed.as_ref(),
         false,
         None,
@@ -1347,5 +1415,45 @@ mod result_to_response_tests {
 
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(body_bytes(resp).await, json.as_bytes());
+    }
+}
+
+#[cfg(test)]
+mod run_retry_tests {
+    use super::*;
+    use windmill_common::{
+        runnable_settings::{ConcurrencySettings, DebouncingSettings},
+        scripts::{ScriptHash, ScriptLang},
+    };
+
+    #[test]
+    fn retried_run_drops_caller_lineage() {
+        let mut run_query = RunJobQuery {
+            parent_job: Some(Uuid::new_v4()),
+            root_job: Some(Uuid::new_v4()),
+            retry: Some(r#"{"constant":{"attempts":2,"seconds":1}}"#.to_string()),
+            ..Default::default()
+        };
+        let payload = JobPayload::ScriptHash {
+            hash: ScriptHash(1),
+            path: "u/admin/s".to_string(),
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            language: ScriptLang::Bun,
+            priority: None,
+            apply_preprocessor: false,
+            concurrency_settings: ConcurrencySettings::default(),
+            debouncing_settings: DebouncingSettings::default(),
+            labels: None,
+        };
+        let args = HashMap::new();
+        let push_args = PushArgs { args: &args, extra: None };
+        let payload = with_run_retry(&mut run_query, payload, &push_args, &None).unwrap();
+        assert!(matches!(
+            payload,
+            JobPayload::SingleStepFlow { language: Some(_), retry: Some(_), .. }
+        ));
+        assert_eq!((run_query.parent_job, run_query.root_job), (None, None));
     }
 }
