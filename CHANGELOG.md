@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.822.0](https://github.com/windmill-labs/windmill/compare/v1.821.0...v1.822.0) (2026-10-03)
+
+
+### Features
+
+* add a cancel-only jobs:cancel token scope, optionally path-scoped ([#11479](https://github.com/windmill-labs/windmill/issues/11479)) ([4bc7e0d](https://github.com/windmill-labs/windmill/commit/4bc7e0d7bad22e9e1a3532ca747ed863f90213ba))
+* add an instance setting routing all dependency jobs to one tag ([#11486](https://github.com/windmill-labs/windmill/issues/11486)) ([3d1d249](https://github.com/windmill-labs/windmill/commit/3d1d2495567274b4c48babb374e7716c4ed24ecc))
+* add trigger, tag, run-as and digest claims to job OIDC tokens ([#11481](https://github.com/windmill-labs/windmill/issues/11481)) ([4beb1f9](https://github.com/windmill-labs/windmill/commit/4beb1f9420524425c354e82729e4e35c5bf65451))
+* log pg job progress, warn on stalls, detect dead db connections ([#11491](https://github.com/windmill-labs/windmill/issues/11491)) ([d722772](https://github.com/windmill-labs/windmill/commit/d7227726be2b082bbfb204abb75a3ff081db77de))
+* read the OIDC signing key from a file and rotate it ([#11482](https://github.com/windmill-labs/windmill/issues/11482)) ([d949484](https://github.com/windmill-labs/windmill/commit/d949484e7ba9911cf128387e096f78c917fb3f35))
+* replace the AI input filling toggle with an additional prompt ([#11501](https://github.com/windmill-labs/windmill/issues/11501)) ([e952298](https://github.com/windmill-labs/windmill/commit/e952298f84d04cbb11f0c44c32435f0b711bf3bf))
+* restricted job tokens per script and flow ([#11484](https://github.com/windmill-labs/windmill/issues/11484)) ([e7fc1b2](https://github.com/windmill-labs/windmill/commit/e7fc1b2e2e9b358b414d0ca0eaf2753e142dded7))
+
+
+### Bug Fixes
+
+* keep a resource default set in the schema when the script is redeployed ([#11495](https://github.com/windmill-labs/windmill/issues/11495)) ([68f8f19](https://github.com/windmill-labs/windmill/commit/68f8f19b33768451ebab267b36f931a6f386c678))
+* let instances withhold signing secrets from the settings API ([#11483](https://github.com/windmill-labs/windmill/issues/11483)) ([99e96d3](https://github.com/windmill-labs/windmill/commit/99e96d3f781decda8fed2cbd5409cbc5c3520eaa))
+* let legacy draft-only items be discarded from the home page ([#11488](https://github.com/windmill-labs/windmill/issues/11488)) ([98274a7](https://github.com/windmill-labs/windmill/commit/98274a73361618ff37a929584e5b5f519b71a912))
+* never reuse a pg connection a script left inside a transaction ([#11497](https://github.com/windmill-labs/windmill/issues/11497)) ([b7f74cd](https://github.com/windmill-labs/windmill/commit/b7f74cd56294cdb7052e311c5a68de9ee0bb4122))
+* read inet and cidr results with their prefix, including arrays ([#11476](https://github.com/windmill-labs/windmill/issues/11476)) ([ae093b7](https://github.com/windmill-labs/windmill/commit/ae093b7666cefc3777be0e45144bb272732846d0))
+* stop the pg executor cache from pinning a pooler slot ([#11490](https://github.com/windmill-labs/windmill/issues/11490)) ([eed7e7d](https://github.com/windmill-labs/windmill/commit/eed7e7d9e6bb375daebbb323b1288c36a278f977))
+* unstick postgres jobs on large results with custom-typed columns ([#11475](https://github.com/windmill-labs/windmill/issues/11475)) ([14801fd](https://github.com/windmill-labs/windmill/commit/14801fdd68407add824bfa2c679c0e8cb4788610))
+
+
+### Performance Improvements
+
+* keep a pg executor connection per database ([#11492](https://github.com/windmill-labs/windmill/issues/11492)) ([013b302](https://github.com/windmill-labs/windmill/commit/013b302d484b967443cbf747fb9f2ecbb1145033))
+
 ## [1.821.0](https://github.com/windmill-labs/windmill/compare/v1.820.0...v1.821.0) (2026-10-01)
 
 
