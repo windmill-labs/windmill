@@ -446,7 +446,8 @@ async fn hold_migration_lock(
 ) -> Result<()> {
     // A session whose client vanished without closing the socket otherwise keeps the lock for
     // the server's keepalive default, two hours on Linux. `SET` rather than startup `options`,
-    // which PgBouncer rejects; a server refusing them still gets the bounded wait below.
+    // which PgBouncer rejects. Behind a pooler they only cover the pooler's own connection to
+    // the server: there, as on a server refusing them, the bounded wait below is the recovery.
     if let Err(e) = client
         .batch_execute(
             "SET tcp_keepalives_idle = 60; SET tcp_keepalives_interval = 10; \
