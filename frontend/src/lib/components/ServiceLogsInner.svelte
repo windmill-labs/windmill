@@ -204,18 +204,25 @@
 	const fetchingFiles = new Set<string>()
 
 	/** Resolves to true when this call fetched the file, false when it was already there. */
+	// File names are per-minute timestamps, the same on every host, so a file is only
+	// identified by its host and name together.
+	function fileKey(hostname: string, path: string): string {
+		return `${hostname}/${path}`
+	}
+
 	export async function getLogFile(hostname: string, path: string): Promise<boolean> {
-		if (logsContent[path] || fetchingFiles.has(path)) {
+		const key = fileKey(hostname, path)
+		if (logsContent[key] || fetchingFiles.has(key)) {
 			return false
 		}
-		fetchingFiles.add(path)
+		fetchingFiles.add(key)
 		try {
-			const res = await ServiceLogsService.getLogFile({ path: `${hostname}/${path}` })
-			logsContent[path] = { content: res }
+			const res = await ServiceLogsService.getLogFile({ path: key })
+			logsContent[key] = { content: res }
 		} catch (e) {
-			logsContent[path] = { error: `${e.message}: ${e.body}` }
+			logsContent[key] = { error: `${e.message}: ${e.body}` }
 		} finally {
-			fetchingFiles.delete(path)
+			fetchingFiles.delete(key)
 		}
 		return true
 	}
@@ -428,6 +435,18 @@
 	let sumOtherDocCount: number = $state(0)
 	let searchError: string | undefined = $state(undefined)
 
+	// `searchLogs` runs on every refresh too, so leaving a search is detected as a
+	// transition rather than on each empty-term call.
+	let searching = false
+
+	// A search stops the refresh poll and replaces the files with hits.
+	function leaveSearch() {
+		if (autoRefresh && !maxTsManual && maxTs) {
+			getAllLogs(new Date(new Date(maxTs).getTime() - REFRESH_OVERLAP_MS).toISOString(), undefined)
+		}
+		jumpToEnd()
+	}
+
 	async function searchLogs(
 		searchTerm: string,
 		selected: Selected | undefined,
@@ -451,8 +470,13 @@
 			loadingLogs = false
 			loadingLogCounts = false
 			searchError = undefined
+			if (searching) {
+				searching = false
+				leaveSearch()
+			}
 			return
 		}
+		searching = true
 		timeout && clearTimeout(timeout)
 
 		loadingLogCounts = true
@@ -775,7 +799,10 @@
 					{:else}
 						<div class="px-3 pt-3">
 							<Select
-								bind:value={selected}
+								bind:value={
+									() => selected,
+									(v) => (v ? selectHost(v.mode, v.workerGroup, v.hostname) : (selected = v))
+								}
 								items={getSelectItems(allLogs, countsPerHost)}
 								onClear={() => {
 									selected = undefined
@@ -999,9 +1026,10 @@
 									     block would swap its content in place, so the browser could not keep
 									     the line being read where it is. -->
 									{#each getLogs(selected, upTo) as file (file.file_path)}
+										{@const entry = logsContent[fileKey(selected.hostname, file.file_path)]}
 										<div
 											class="relative"
-											style="min-height: {logsContent[file.file_path]
+											style="min-height: {entry
 												? 10
 												: Math.min(file.ok_lines + file.err_lines, 30) * 16}px;"
 										>
@@ -1010,11 +1038,11 @@
 											>
 												{formatTime(file.ts)}
 											</div>
-											{#if logsContent[file.file_path] == undefined}
+											{#if entry == undefined}
 												<div class="p-3"><Skeleton layout={[[4]]} /></div>
-											{:else if logsContent[file.file_path].error}
+											{:else if entry.error}
 												<div class="p-3">
-													{#if logsContent[file.file_path].error?.startsWith('Not Found')}
+													{#if entry.error?.startsWith('Not Found')}
 														<Alert type="info" size="xs" title="Log file not reachable">
 															Servers and workers need a shared log volume, or the EE object storage
 															for logs set in the instance settings, for their log files to be
@@ -1022,21 +1050,18 @@
 														</Alert>
 													{:else}
 														<Alert type="error" size="xs" title="Could not load this log file">
-															{logsContent[file.file_path].error}
+															{entry.error}
 														</Alert>
 													{/if}
 												</div>
-											{:else if logsContent[file.file_path].content}
+											{:else if entry.content}
 												<LogViewer
 													noAutoScroll
 													noMaxH
 													isLoading={false}
 													tag={undefined}
 													{tagLabel}
-													content={processLogWithJsonFmt(
-														logsContent[file.file_path].content,
-														file.json_fmt
-													)}
+													content={processLogWithJsonFmt(entry.content, file.json_fmt)}
 												/>
 											{:else}
 												<p class="px-3 py-2 text-xs text-secondary">This log file is empty.</p>
