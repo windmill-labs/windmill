@@ -342,6 +342,12 @@
 				</div>
 			{/if}
 
+			{#if loopSubset}
+				<div data-setting="mock">
+					<FlowModuleMock bind:flowModule />
+				</div>
+			{/if}
+
 			<div data-setting="job-token">
 				<JobTokenScopesSetting
 					bind:value={flowModule.job_token_scopes}
@@ -350,12 +356,6 @@
 					textClass="text-xs font-normal text-primary"
 				/>
 			</div>
-
-			{#if loopSubset}
-				<div data-setting="mock">
-					<FlowModuleMock bind:flowModule />
-				</div>
-			{/if}
 		</div></section
 	>
 

@@ -519,6 +519,11 @@ pub async fn caller_scope_ceiling(
     let Some(job_id) = authed.job_id else {
         return Ok(None);
     };
+    // A job token is minted with scopes exactly when its job is restricted, so an unscoped one
+    // has nothing to read.
+    if authed.scopes.is_none() {
+        return Ok(None);
+    }
     let row = sqlx::query_scalar!(
         "SELECT job_token_scopes FROM job_perms WHERE job_id = $1",
         job_id

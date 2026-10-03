@@ -727,9 +727,11 @@ async fn restart_perpetual_runs_at_path(
         PerpetualRunToRestart,
         "SELECT q.id AS \"id!\", j.created_by, j.permissioned_as, j.permissioned_as_email, \
          j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.preprocessed, \
-         j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" \
+         j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\", \
+         p.job_token_scopes AS \"job_token_scopes?\" \
          FROM v2_job_queue q JOIN v2_job j USING (id) \
          JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
+         LEFT JOIN job_perms p ON p.job_id = q.id \
          WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.kind = 'script' \
          AND j.flow_step_id IS NULL AND j.runnable_id != $3 AND q.canceled_by IS NULL \
          AND s.restart_unless_cancelled",
@@ -767,28 +769,6 @@ async fn restart_perpetual_runs_at_path(
     Ok(true)
 }
 
-/// The effective token scopes of an earlier job, as the ceiling of a job that re-runs it
-/// (a retry, a perpetual restart): the re-run never holds a wider token than the run it
-/// replaces. Read from its `job_perms` row, or from `carried` (the scopes it was pulled with)
-/// once the monitor has swept that row after the job left the queue.
-async fn stored_job_token_scopes(
-    db: &DB,
-    job_id: Uuid,
-    carried: Option<&Vec<String>>,
-) -> Result<Option<Vec<String>>, Error> {
-    let row = sqlx::query_scalar!(
-        "SELECT job_token_scopes FROM job_perms WHERE job_id = $1",
-        job_id
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(match row {
-        Some(scopes) => scopes,
-        // Swept since the job left the queue: the scopes carried from its pull.
-        None => carried.cloned(),
-    })
-}
-
 /// A worker older than `job_token_scopes` ignores a step's or agent tool's own restriction, so
 /// a flow that sets one is refused while such a worker is live, whichever way the flow arrived
 /// (a deploy, a restart, a preview, a standalone agent, an eval). Free when every worker is
@@ -815,6 +795,8 @@ struct PerpetualRunToRestart {
     /// completion swaps in what a preprocessor returned.
     preprocessed: Option<bool>,
     args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    /// Its effective token scopes: the replacement never holds a wider token.
+    job_token_scopes: Option<Vec<String>>,
 }
 
 /// What every run at the path moves to.
@@ -895,7 +877,7 @@ async fn restart_perpetual_run(
         // an earlier version the next pass picks up.
         return Ok(());
     }
-    let scope_ceiling = stored_job_token_scopes(db, run.id, None).await?;
+    let scope_ceiling = run.job_token_scopes;
     let (_, tx) = push(
         db,
         PushIsolationLevel::Transaction(tx),
@@ -1291,7 +1273,7 @@ lazy_static::lazy_static! {
     pub static ref MAX_RESULT_SIZE_MB: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
 
     // Cache for perpetual-restart settings (restart_unless_cancelled, timeout) - keyed by (hash, workspace_id)
-    static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), (bool, Option<i32>)> = Cache::new(10000);
+    static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), (bool, Option<i32>, Option<Vec<String>>)> = Cache::new(10000);
 
     // Cache for workspace error handler settings with 60s TTL
     // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, report_to_instance_alerts, expiry_timestamp)
@@ -2077,13 +2059,13 @@ async fn restart_job_if_perpetual_inner(
 ) -> Result<(), Error> {
     let cache_key = (hash.0, queued_job.workspace_id.clone());
 
-    let (restart, script_timeout) = if let Some(cached) =
+    let (restart, script_timeout, script_job_token_scopes) = if let Some(cached) =
         RESTART_UNLESS_CANCELLED_CACHE.get(&cache_key)
     {
         cached
     } else {
         let row = sqlx::query!(
-            "SELECT restart_unless_cancelled, timeout FROM script WHERE hash = $1 AND workspace_id = $2",
+            "SELECT restart_unless_cancelled, timeout, job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
             hash.0,
             &queued_job.workspace_id
         )
@@ -2094,10 +2076,12 @@ async fn restart_job_if_perpetual_inner(
             .as_ref()
             .and_then(|r| r.restart_unless_cancelled)
             .unwrap_or(false);
-        let script_timeout = row.and_then(|r| r.timeout);
+        let script_timeout = row.as_ref().and_then(|r| r.timeout);
+        let script_job_token_scopes = row.and_then(|r| r.job_token_scopes);
 
-        RESTART_UNLESS_CANCELLED_CACHE.insert(cache_key, (restart, script_timeout));
-        (restart, script_timeout)
+        let cached = (restart, script_timeout, script_job_token_scopes);
+        RESTART_UNLESS_CANCELLED_CACHE.insert(cache_key, cached.clone());
+        cached
     };
 
     if restart {
@@ -2143,9 +2127,8 @@ async fn restart_job_if_perpetual_inner(
         .await?
         .flatten()
         .unwrap_or_default();
-        let scope_ceiling =
-            stored_job_token_scopes(db, queued_job.id, queued_job.job_token_scopes.as_ref())
-                .await?;
+        // The replacement never holds a wider token than the run it replaces.
+        let scope_ceiling = queued_job.job_token_scopes.clone();
         let (_uuid, tx) = push(
             db,
             tx,
@@ -2170,16 +2153,7 @@ async fn restart_job_if_perpetual_inner(
                 // TODO(debouncing): handle properly
                 debouncing_settings: DebouncingSettings::default(),
                 labels: None, // labels already set on original job
-                // Read from the script, not only from the run it replaces: that run's
-                // `job_perms` row (the ceiling) may already be swept once it left the queue.
-                job_token_scopes: sqlx::query_scalar!(
-                    "SELECT job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
-                    hash.0,
-                    &queued_job.workspace_id
-                )
-                .fetch_optional(db)
-                .await?
-                .flatten(),
+                job_token_scopes: script_job_token_scopes,
             },
             PushArgs::from(&args.0),
             &queued_job.created_by,
@@ -2465,8 +2439,8 @@ pub async fn maybe_enqueue_native_script_retry(
         )
         .await?;
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
-    let scope_ceiling =
-        stored_job_token_scopes(db, job.id, job.job_token_scopes.as_ref()).await?;
+    // The retry never holds a wider token than the attempt it replaces.
+    let scope_ceiling = job.job_token_scopes.clone();
     let (new_id, mut tx) = match push(
         db,
         tx,

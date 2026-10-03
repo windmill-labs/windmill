@@ -460,13 +460,6 @@
 					}}
 				/>
 
-				<JobTokenScopesSetting
-					bind:value={flowStore.val.job_token_scopes}
-					kind="flow"
-					size="xs"
-					textClass="font-medium"
-				/>
-
 				<!-- On behalf of last editor section -->
 				<span class="inline-flex gap-2">
 					<Toggle
@@ -737,6 +730,13 @@
 						type="flow"
 					/>
 				{/if}
+
+				<JobTokenScopesSetting
+					bind:value={flowStore.val.job_token_scopes}
+					kind="flow"
+					size="xs"
+					textClass="font-medium"
+				/>
 			</Section>
 		</div>
 	</FlowCard>
