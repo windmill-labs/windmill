@@ -406,6 +406,10 @@ Unless the user asked for new code, look for a workspace script or flow that alr
 
 The step's `input_transforms` must cover the reused item's inputs, so read its input schema first.
 
+## Additional Prompt for AI
+
+A flow's input schema may carry a top-level `prompt_for_ai` string, as a script's can: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that flow, and keep it when you rewrite the schema.
+
 ## Organizing Flows: Groups and Notes
 
 Groups and notes shape how a flow reads in the editor; neither changes what it does.
