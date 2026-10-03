@@ -1072,7 +1072,7 @@ impl TokioPgConnection {
 /// Without these, a server that vanishes without closing the socket (a failover,
 /// a dropped route) leaves a query waiting on a read for the OS default of two
 /// hours. The server's kernel answers the probes, so a slow query is unaffected.
-fn set_pg_keepalive(config: &mut tokio_postgres::Config) {
+pub fn set_pg_keepalive(config: &mut tokio_postgres::Config) {
     config
         .keepalives(true)
         .keepalives_idle(std::time::Duration::from_secs(60))
