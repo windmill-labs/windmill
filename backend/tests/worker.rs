@@ -1795,6 +1795,72 @@ async fn test_postgresql_cached_connection_released_for_other_key(
     Ok(())
 }
 
+/// A transaction a script leaves open must not carry over into the next job
+/// that would reuse the connection.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_open_transaction_not_reused(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_worker::pg_executor::clear_pg_cache;
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let dbname: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&db)
+        .await?;
+
+    let run = |content: &str| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content: content.to_string(),
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+            tag: None,
+        }))
+        .arg(
+            "database",
+            json!({"host": "localhost", "port": 5432, "dbname": dbname, "user": "postgres", "password": "changeme"}),
+        )
+        .run_until_complete(&db, false, port)
+    };
+
+    run("SELECT 1 as n;").await.json_result().unwrap();
+    let opened = run("BEGIN; SELECT 1 as n;").await.json_result().unwrap();
+    assert_eq!(opened, json!([{"n": 1}]));
+    run("SELECT 2 as n;").await.json_result().unwrap();
+
+    // A connection kept in the cache with the transaction open would sit idle
+    // in it, holding its locks, and run the next job inside it.
+    let mut idle_in_transaction = -1;
+    for _ in 0..20 {
+        idle_in_transaction = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE datname = current_database() AND state LIKE 'idle in transaction%'",
+        )
+        .fetch_one(&db)
+        .await?;
+        if idle_in_transaction == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(idle_in_transaction, 0);
+
+    clear_pg_cache().await;
+    Ok(())
+}
+
 /// Runs multiple PG jobs through a SINGLE worker (like production) to verify
 /// that SET ROLE / search_path changes do not leak across jobs.
 #[sqlx::test(fixtures("base"))]

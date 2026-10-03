@@ -235,8 +235,9 @@ impl PgConnectionLease {
         Self { slot, conn, cache_on_release: false }
     }
 
-    /// Gives up a cached connection that failed its probe; the job then
-    /// connects on its own.
+    /// Closes the lease's connection so it is never cached again: a cached one
+    /// that failed its probe (the job then connects on its own), or one a job
+    /// failed on or left inside a transaction.
     fn discard(&mut self) {
         let conn = self.conn.take();
         if self.slot == PgLeaseSlot::CheckedOut {
@@ -1380,11 +1381,37 @@ pub async fn do_postgresql(
         )
         .await
     }
-    .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input))?;
+    .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input));
+    // A failed job can leave the connection inside a transaction, or with its
+    // query still running after a timeout or cancel, and the status byte can
+    // lag behind an error. Never reuse it.
+    let result = match result {
+        Ok(result) => result,
+        Err(e) => {
+            lease.discard();
+            return Err(e);
+        }
+    };
 
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
-    if !*CLOUD_HOSTED && lease.slot == PgLeaseSlot::Uncached {
+    // A transaction the script left open would otherwise carry over into the
+    // next job that reuses the connection. Closing the connection rolls it
+    // back, as it always has without the cache. The status comes with the last
+    // reply, so a script that ends cleanly pays nothing for this check.
+    if lease.client().transaction_status() != tokio_postgres::TransactionStatus::Idle {
+        lease.discard();
+        if !run_inline {
+            windmill_queue::append_logs(
+                &job.id,
+                &job.workspace_id,
+                "The script ended inside an open transaction, which was rolled back. \
+                 End it with COMMIT to keep its changes.\n",
+                conn,
+            )
+            .await;
+        }
+    } else if !*CLOUD_HOSTED && lease.slot == PgLeaseSlot::Uncached {
         lease.cache_on_release = is_most_used_conn(&database_string).await;
     }
     drop(lease);
