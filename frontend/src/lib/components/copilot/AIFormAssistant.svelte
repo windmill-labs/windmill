@@ -68,6 +68,15 @@
 				>
 					Additional prompt for AI
 				</Button>
+			{:else if onEditInstructions}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: Pencil }}
+					onclick={onEditInstructions}
+				>
+					Add a prompt for AI
+				</Button>
 			{:else}
 				<span></span>
 			{/if}
