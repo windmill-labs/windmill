@@ -1894,6 +1894,7 @@ async fn test_postgresql_cancelled_job_stops_its_query(db: Pool<Postgres>) -> an
          WHERE datname = current_database() AND state = 'active'
            AND pid <> pg_backend_pid() AND query LIKE '%pg_sleep(30)%'";
 
+    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let job = RunJob::from(JobPayload::Code(RawCode {
         hash: None,
         content: "SELECT pg_sleep(30);".to_string(),
@@ -1914,7 +1915,7 @@ async fn test_postgresql_cancelled_job_stops_its_query(db: Pool<Postgres>) -> an
         json!({"host": "localhost", "port": 5432, "dbname": dbname, "user": "postgres", "password": "changeme"}),
     )
     .run_until_complete_with(&db, false, port, |id| {
-        let db = db.clone();
+        let (db, cancelled) = (db.clone(), cancelled.clone());
         async move {
             tokio::spawn(async move {
                 while sqlx::query_scalar::<_, i64>(still_running)
@@ -1930,11 +1931,14 @@ async fn test_postgresql_cancelled_job_stops_its_query(db: Pool<Postgres>) -> an
                     .execute(&db)
                     .await
                     .unwrap();
+                cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
             });
         }
     })
     .await;
     assert!(!job.success);
+    // Otherwise the job failed before its query ran, and there was nothing to stop.
+    assert!(cancelled.load(std::sync::atomic::Ordering::Relaxed));
 
     let mut running = -1;
     for _ in 0..50 {
