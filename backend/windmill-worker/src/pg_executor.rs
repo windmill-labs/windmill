@@ -75,6 +75,10 @@ const PG_MAX_IDLE_CONNECTIONS: usize = 8;
 /// longer than this may be waiting on such a slot, so no idle connection is
 /// kept, in any scope, until it finishes.
 const PG_OWN_CONNECTION_STALL: Duration = Duration::from_secs(5);
+/// The session reset run before reusing a cached connection is a few trivial
+/// statements. A server that vanished without closing the socket never answers
+/// it, and waiting for TCP to notice takes the keepalive budget (~2 min).
+const PG_RESET_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct PgConnectionCache {
     /// Least recently used first.
@@ -1243,19 +1247,18 @@ pub async fn do_postgresql(
         // script workloads).
         //
         // Doubles as a liveness probe — if the connection is broken any
-        // statement in the chain fails and we replace it.
-        if lease
-            .client()
-            .batch_execute(
-                "RESET ALL; \
-                     RESET SESSION AUTHORIZATION; \
-                     UNLISTEN *; \
-                     CLOSE ALL; \
-                     SELECT pg_advisory_unlock_all();",
-            )
-            .await
-            .is_ok()
-        {
+        // statement in the chain fails, or it never answers, and we replace it.
+        let reset = lease.client().batch_execute(
+            "RESET ALL; \
+                 RESET SESSION AUTHORIZATION; \
+                 UNLISTEN *; \
+                 CLOSE ALL; \
+                 SELECT pg_advisory_unlock_all();",
+        );
+        if matches!(
+            tokio::time::timeout(PG_RESET_PROBE_TIMEOUT, reset).await,
+            Ok(Ok(()))
+        ) {
             tracing::info!("Using cached connection");
             CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             reused_cached_connection = true;
