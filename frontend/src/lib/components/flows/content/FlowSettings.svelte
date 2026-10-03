@@ -644,11 +644,7 @@
 					{#snippet right()}
 						<input
 							type="number"
-							class={twMerge(
-								inputBaseClass,
-								inputBorderClass(),
-								'!w-16 text-xs ml-4 absolute left-52'
-							)}
+							class={twMerge(inputBaseClass, inputBorderClass(), '!w-16 text-xs ml-4')}
 							disabled={flowStore.val.value.priority === undefined}
 							bind:value={flowStore.val.value.priority}
 							onfocus={bubble('focus')}

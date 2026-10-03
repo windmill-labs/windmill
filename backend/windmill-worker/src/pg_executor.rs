@@ -1463,14 +1463,30 @@ pub async fn do_postgresql(
     }
     .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input))?;
 
-    // Keep the connection only after a query that read its results to the end.
-    // An error may have stopped reading early (the result cap, a decode failure),
-    // as a timeout, a dropped future or a first-row collection do: the server
-    // keeps sending, and the next job's reset probe would wait on it.
-    lease.keep = !*CLOUD_HOSTED && !collection_strategy.collect_first_row_only();
-
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
+    // A transaction the script left open would otherwise carry over into the
+    // next job that reuses the connection. Closing the connection rolls it
+    // back, as it always has without the cache. The status comes with the last
+    // reply, so a script that ends cleanly pays nothing for this check.
+    if lease.client().transaction_status() != tokio_postgres::TransactionStatus::Idle {
+        if !run_inline {
+            windmill_queue::append_logs(
+                &job.id,
+                &job.workspace_id,
+                "The script ended inside an open transaction, which was rolled back. \
+                 End it with COMMIT to keep its changes.\n",
+                conn,
+            )
+            .await;
+        }
+    } else {
+        // Keep the connection only after a query that read its results to the end.
+        // An error may have stopped reading early (the result cap, a decode failure),
+        // as a timeout, a dropped future or a first-row collection do: the server
+        // keeps sending, and the next job's reset probe would wait on it.
+        lease.keep = !*CLOUD_HOSTED && !collection_strategy.collect_first_row_only();
+    }
     drop(lease);
 
     *mem_peak = (result.get().len() / 1000) as i32;
