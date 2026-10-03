@@ -17,6 +17,7 @@ use crate::workspaces::{
 
 use axum::{
     extract::{Extension, Path, Query},
+    http::StatusCode,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -403,6 +404,12 @@ async fn connection_identity(client: &tokio_postgres::Client) -> Option<(String,
     })
 }
 
+const MIGRATION_LOCK_KEY: &str = "hashtext('windmill_datatable_migrations')::int8";
+
+/// How long a run, rollback or edit waits for the one ahead of it. A migration may run for
+/// longer than any request should wait, so past this the caller is told to retry.
+const MIGRATION_LOCK_WAIT_SECS: u64 = 30;
+
 /// Open a connection to a data table's own database and hold the session-level
 /// advisory lock that serializes migration runs/rollbacks. The lock is released
 /// when the returned client is dropped, so callers must keep it in scope for the
@@ -428,16 +435,82 @@ async fn lock_datatable_migration_runs(
             tracing::error!("Datatable connection error: {}", e);
         }
     });
-    client
-        .batch_execute("SELECT pg_advisory_lock(hashtext('windmill_datatable_migrations')::int8)")
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!(
-                "Failed to acquire migration lock: {}",
-                pg_error_message(&e)
-            ))
-        })?;
+    hold_migration_lock(&client, datatable_name, MIGRATION_LOCK_WAIT_SECS).await?;
     Ok(client)
+}
+
+async fn hold_migration_lock(
+    client: &tokio_postgres::Client,
+    datatable_name: &str,
+    wait_secs: u64,
+) -> Result<()> {
+    // A session whose client vanished without closing the socket otherwise keeps the lock for
+    // the server's keepalive default, two hours on Linux. `SET` rather than startup `options`,
+    // which PgBouncer rejects; a server refusing them still gets the bounded wait below.
+    if let Err(e) = client
+        .batch_execute(
+            "SET tcp_keepalives_idle = 60; SET tcp_keepalives_interval = 10; \
+             SET tcp_keepalives_count = 6",
+        )
+        .await
+    {
+        tracing::debug!(
+            "Could not set server keepalives on the migration lock connection: {}",
+            pg_error_message(&e)
+        );
+    }
+    let locked = client
+        .batch_execute(&format!(
+            "SET lock_timeout = '{wait_secs}s'; \
+             SELECT pg_advisory_lock({MIGRATION_LOCK_KEY}); \
+             RESET lock_timeout"
+        ))
+        .await;
+    match locked {
+        Ok(()) => Ok(()),
+        Err(e) if e.code() == Some(&SqlState::LOCK_NOT_AVAILABLE) => {
+            // The key as `pg_locks` splits it: high half in `classid`, low half in `objid`.
+            let holder = client
+                .query_opt(
+                    &format!(
+                        "SELECT pid FROM pg_locks
+                         WHERE locktype = 'advisory' AND granted AND objsubid = 1
+                           AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+                           AND ((classid::bigint << 32) | objid::bigint) = {MIGRATION_LOCK_KEY}"
+                    ),
+                    &[],
+                )
+                .await
+                .ok()
+                .flatten()
+                .map(|row| row.get::<_, i32>(0));
+            let held_by = match holder {
+                Some(pid) => format!(
+                    " The lock is held by backend pid {pid}: if nothing is running, a lost \
+                     connection left that session behind, and \
+                     `SELECT pg_terminate_backend({pid})` on the data table's database releases it."
+                ),
+                None => String::new(),
+            };
+            Err(Error::Generic(
+                StatusCode::CONFLICT,
+                format!(
+                    "Another migration run, rollback or edit on the database of data table \
+                     '{datatable_name}' was still in progress after {wait_secs}s. \
+                     Retry once it is done.{held_by}"
+                ),
+            ))
+        }
+        Err(e) => Err(Error::internal_err(format!(
+            "Failed to acquire migration lock: {}",
+            pg_error_message(&e)
+        ))),
+    }
+}
+
+/// Whether `e` is the lock wait running out, as opposed to the database being unreachable.
+fn is_migration_lock_busy(e: &Error) -> bool {
+    matches!(e, Error::Generic(StatusCode::CONFLICT, _))
 }
 
 /// Read the versions recorded as applied in a data table's `_wm_migrations`,
@@ -1360,7 +1433,13 @@ async fn delete_datatable_migration(
     };
     let lock_client = lock_datatable_migration_runs(&db, &w_id, &datatable_name)
         .await
-        .map_err(unreachable)?;
+        .map_err(|e| {
+            if is_migration_lock_busy(&e) {
+                e
+            } else {
+                unreachable(e)
+            }
+        })?;
     let applied = read_applied_versions_on_client(&lock_client, &datatable_name)
         .await
         .map_err(unreachable)?;
@@ -1535,7 +1614,13 @@ async fn upsert_datatable_migration(
             };
             let client = lock_datatable_migration_runs(&db, &w_id, &datatable_name)
                 .await
-                .map_err(unreachable)?;
+                .map_err(|e| {
+                    if is_migration_lock_busy(&e) {
+                        e
+                    } else {
+                        unreachable(e)
+                    }
+                })?;
             let applied = read_applied_versions_on_client(&client, &datatable_name)
                 .await
                 .map_err(unreachable)?;
@@ -2042,6 +2127,32 @@ pub(crate) async fn clone_datatable_migrations(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The holder is found by reassembling the key from the two halves `pg_locks` shows.
+    #[sqlx::test(migrations = false)]
+    async fn a_held_migration_lock_is_reported_with_its_holder(pool: DB) {
+        let mut config: tokio_postgres::Config =
+            std::env::var("DATABASE_URL").unwrap().parse().unwrap();
+        config.dbname(pool.connect_options().get_database().unwrap());
+        let (holder, connection) = config.connect(tokio_postgres::NoTls).await.unwrap();
+        tokio::spawn(connection);
+        let (waiter, connection) = config.connect(tokio_postgres::NoTls).await.unwrap();
+        tokio::spawn(connection);
+        hold_migration_lock(&holder, "main", 1).await.unwrap();
+        let holder_pid = holder
+            .query_one("SELECT pg_backend_pid()", &[])
+            .await
+            .unwrap()
+            .get::<_, i32>(0);
+
+        let busy = hold_migration_lock(&waiter, "main", 1).await.unwrap_err();
+
+        assert!(is_migration_lock_busy(&busy), "{busy:?}");
+        assert!(
+            busy.to_string().contains(&format!("pid {holder_pid}:")),
+            "{busy}"
+        );
+    }
 
     #[test]
     fn validate_migration_name_accepts_safe_names() {
