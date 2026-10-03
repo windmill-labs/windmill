@@ -1875,6 +1875,87 @@ async fn test_postgresql_open_transaction_not_reused(db: Pool<Postgres>) -> anyh
     Ok(())
 }
 
+/// Closing the connection of a cancelled job does not stop its query: the server
+/// only notices once it next writes to the client.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_cancelled_job_stops_its_query(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_worker::pg_executor::clear_pg_cache;
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let dbname: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&db)
+        .await?;
+    let still_running = "SELECT count(*) FROM pg_stat_activity
+         WHERE datname = current_database() AND state = 'active'
+           AND pid <> pg_backend_pid() AND query LIKE '%pg_sleep(30)%'";
+
+    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content: "SELECT pg_sleep(30);".to_string(),
+        path: None,
+        lock: None,
+        language: ScriptLang::Postgresql,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
+        tag: None,
+    }))
+    .arg(
+        "database",
+        json!({"host": "localhost", "port": 5432, "dbname": dbname, "user": "postgres", "password": "changeme"}),
+    )
+    .run_until_complete_with(&db, false, port, |id| {
+        let (db, cancelled) = (db.clone(), cancelled.clone());
+        async move {
+            tokio::spawn(async move {
+                while sqlx::query_scalar::<_, i64>(still_running)
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+                    == 0
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                sqlx::query("UPDATE v2_job_queue SET canceled_by = 'test-user' WHERE id = $1")
+                    .bind(id)
+                    .execute(&db)
+                    .await
+                    .unwrap();
+                cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+            });
+        }
+    })
+    .await;
+    assert!(!job.success);
+    // Otherwise the job failed before its query ran, and there was nothing to stop.
+    assert!(cancelled.load(std::sync::atomic::Ordering::Relaxed));
+
+    let mut running = -1;
+    for _ in 0..50 {
+        running = sqlx::query_scalar::<_, i64>(still_running)
+            .fetch_one(&db)
+            .await?;
+        if running == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(running, 0);
+
+    clear_pg_cache().await;
+    Ok(())
+}
+
 /// A worker alternating between two databases keeps a connection for each.
 #[sqlx::test(fixtures("base"))]
 #[serial(pg_cache)]

@@ -79,6 +79,9 @@ const PG_OWN_CONNECTION_STALL: Duration = Duration::from_secs(5);
 /// statements. A server that vanished without closing the socket never answers
 /// it, and waiting for TCP to notice takes the keepalive budget (~2 min).
 const PG_RESET_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long an abandoned query gets to end once its cancellation is requested. Past this
+/// its connection is closed regardless.
+const PG_CANCEL_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct PgConnectionCache {
     /// Least recently used first.
@@ -246,6 +249,32 @@ impl Drop for PgConnectionLease {
             });
         }
     }
+}
+
+/// Asks the server to stop the query a timed out or cancelled job left behind, then closes
+/// the connection. In the background, so the job fails without waiting for it.
+fn cancel_abandoned_query(lease: PgConnectionLease, database: PgDatabase, token_auth: bool) {
+    if lease.conn.is_none() {
+        return;
+    }
+    tokio::spawn(async move {
+        let client = lease.client();
+        let cancelled = async {
+            database
+                .cancel_query(client.cancel_token(), token_auth)
+                .await?;
+            // The request is sent, not yet acted on, and a pooler drops one whose client has
+            // left. This is answered once the server is done with the abandoned query.
+            client.batch_execute("").await.map_err(to_anyhow)?;
+            Ok::<_, Error>(())
+        };
+        match tokio::time::timeout(PG_CANCEL_TIMEOUT, cancelled).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!("could not cancel an abandoned postgres query: {e}"),
+            Err(_) => tracing::warn!("timed out cancelling an abandoned postgres query"),
+        }
+        drop(lease);
+    });
 }
 
 async fn sweep_idle_pg_connections() {
@@ -1451,6 +1480,14 @@ pub async fn do_postgresql(
             result_f.await
         }
     };
+    // Still unset once the job is over: the query was abandoned mid-flight, by the timeout or
+    // a cancellation, rather than ended by an error of its own.
+    let query_ended = std::sync::atomic::AtomicBool::new(false);
+    let result_f = async {
+        let result = result_f.await;
+        query_ended.store(true, Ordering::Relaxed);
+        result
+    };
 
     let result = if run_inline {
         result_f.await
@@ -1468,8 +1505,16 @@ pub async fn do_postgresql(
             Box::pin(futures::stream::once(async { 0 })),
         )
         .await
-    }
-    .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input))?;
+    };
+    let result = match result {
+        Ok(result) => result,
+        Err(e) => {
+            if !query_ended.load(Ordering::Relaxed) {
+                cancel_abandoned_query(lease, database, auth_mode != PgAuthMode::Password);
+            }
+            return Err(map_s3object_jsonb_overflow(e, had_s3object_input));
+        }
+    };
 
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
