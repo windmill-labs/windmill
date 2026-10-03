@@ -53,6 +53,30 @@ export async function hubResourceTypePicks(workspace: string): Promise<Popularit
 	return Object.fromEntries(info.map((rt) => [rt.name, rt.picks]))
 }
 
+const hubCategoriesCached = createCache(
+	async ({ workspace }: { workspace: string }): Promise<Record<string, string>> => {
+		try {
+			const categories = await ResourceService.listHubResourceTypeCategories({ workspace })
+			return Object.fromEntries(categories.map((c) => [c.name, c.category]))
+		} catch {
+			return {}
+		}
+	},
+	{ invalidateMs: CACHE_MS }
+)
+
+/**
+ * The hub's category for each resource type ("Databases", "AI", …), inherited from its
+ * integration. Types whose integration has none are absent, as is everything when the hub is
+ * switched off.
+ */
+export async function hubResourceTypeCategories(
+	workspace: string
+): Promise<Record<string, string>> {
+	if (get(disableHubStore)) return {}
+	return hubCategoriesCached({ workspace })
+}
+
 /**
  * How many resources of each type this workspace holds — the only evidence about this
  * particular team. Keyed by resource type, which is what the add-resource drawer lists.

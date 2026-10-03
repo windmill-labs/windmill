@@ -94,6 +94,10 @@ pub fn workspaced_service() -> Router {
         .route("/type/listnames", get(list_resource_types_names))
         .route("/type/resource_counts", get(list_resource_counts_by_type))
         .route("/type/hub/info", get(list_hub_resource_type_info))
+        .route(
+            "/type/hub/categories",
+            get(list_hub_resource_type_categories),
+        )
         .route("/type/hub/pick/{name}", post(pick_hub_resource_type))
         .route("/type/get/{name}", get(get_resource_type))
         .route("/type/exists/{name}", get(exists_resource_type))
@@ -3073,6 +3077,37 @@ mod hub_picks_tests {
         }
     }
 
+    /// The category cache mirrors the index cache's invariants by hand: keyed on the hub, and
+    /// an incomplete read forgotten long before a complete one.
+    #[test]
+    fn the_category_cache_is_keyed_on_the_hub_and_forgets_incomplete_reads_sooner() {
+        let categories = HashMap::from([("slack".to_string(), "Communication".to_string())]);
+        hub_cache_put(
+            &HUB_APP_CATEGORIES,
+            "https://hub.example",
+            HubAppCategories { categories: categories.clone(), complete: false },
+        );
+        assert_eq!(
+            hub_app_categories_cached("https://hub.example"),
+            Some(categories)
+        );
+        assert!(hub_app_categories_cached("https://other.example").is_none());
+        assert!(HUB_APP_CATEGORIES_INCOMPLETE_TTL < HUB_APP_CATEGORIES_TTL);
+
+        if let Ok(mut guard) = HUB_APP_CATEGORIES.write() {
+            *guard = None;
+        }
+    }
+
+    /// An integration whose content is null carries no category; it must not read as a
+    /// failure, or the cache would never reach its day-long TTL.
+    #[test]
+    fn null_integration_content_decodes_as_no_category() {
+        let parsed: HubIntegrationContent =
+            serde_json::from_str(r#"{"app":"x","content":null}"#).unwrap();
+        assert!(parsed.content.is_none());
+    }
+
     /// The hub counts picks in a bigint, which postgres.js serialises as a string. Typing
     /// the field as a plain i64 fails the whole response, and the ranking silently empties.
     #[test]
@@ -3169,6 +3204,186 @@ async fn list_hub_resource_type_info(
     );
 
     Ok(Json(info))
+}
+
+/// Categories are editorial and change rarely, and reading them fans out one hub request per
+/// integration — so a complete read is kept for a day. A read where any request failed
+/// (timeout, rate limit, 5xx — anything but the 404 meaning "no category") is kept only
+/// briefly, or those integrations would drop out of their filter for the whole day.
+const HUB_APP_CATEGORIES_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+const HUB_APP_CATEGORIES_INCOMPLETE_TTL: std::time::Duration =
+    std::time::Duration::from_secs(30 * 60);
+const HUB_APP_CATEGORIES_CONCURRENCY: usize = 16;
+/// Bounds the whole fan-out: callers queue behind it, and a slow or rate-limiting hub would
+/// otherwise hold them for minutes. What landed by then is kept as an incomplete read.
+const HUB_APP_CATEGORIES_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
+
+#[derive(Clone)]
+struct HubAppCategories {
+    categories: HashMap<String, String>,
+    complete: bool,
+}
+
+static HUB_APP_CATEGORIES: LazyLock<std::sync::RwLock<Option<HubCached<HubAppCategories>>>> =
+    LazyLock::new(|| std::sync::RwLock::new(None));
+/// Drawers opened while the fan-out runs wait for it rather than each starting their own.
+static HUB_APP_CATEGORIES_REFRESH: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+#[derive(Deserialize)]
+struct HubIntegrationContent {
+    #[serde(default)]
+    content: Option<HubIntegrationContentBody>,
+}
+
+#[derive(Deserialize)]
+struct HubIntegrationContentBody {
+    #[serde(default)]
+    category: Option<String>,
+}
+
+fn hub_app_categories_cached(hub_base_url: &str) -> Option<HashMap<String, String>> {
+    let guard = HUB_APP_CATEGORIES.read().ok()?;
+    let entry = guard.as_ref()?;
+    let ttl = if entry.value.complete {
+        HUB_APP_CATEGORIES_TTL
+    } else {
+        HUB_APP_CATEGORIES_INCOMPLETE_TTL
+    };
+    (entry.hub_base_url == hub_base_url && entry.fetched_at.elapsed() < ttl)
+        .then(|| entry.value.categories.clone())
+}
+
+enum HubAppCategoryRead {
+    Found(String, String),
+    /// The hub answered that this integration has no content, or content without a category.
+    Absent,
+    Failed,
+}
+
+/// The hub's category for each integration that has one, keyed by the integration name as
+/// the resource type index spells it. The hub only serves categories one integration at a
+/// time (`/integrations/<app>/content`, 404 when it has none).
+async fn hub_app_categories(
+    db: &DB,
+    hub_base_url: &str,
+    apps: HashSet<String>,
+) -> HashMap<String, String> {
+    if let Some(cached) = hub_app_categories_cached(hub_base_url) {
+        return cached;
+    }
+    let _refresh = HUB_APP_CATEGORIES_REFRESH.lock().await;
+    if let Some(cached) = hub_app_categories_cached(hub_base_url) {
+        return cached;
+    }
+
+    use futures::StreamExt;
+    // The name goes into a URL path; a hub slug never needs escaping, so anything that
+    // would is skipped rather than requested.
+    let slug = |app: &str| {
+        app.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            .then(|| app.to_lowercase())
+    };
+    let app_count = apps.len();
+    let pending = futures::stream::iter(apps)
+        .filter_map(|app| async move { slug(&app).map(|slug| (app, slug)) })
+        .map(|(app, slug)| async move {
+            let Ok(response) = windmill_common::utils::http_get_from_hub(
+                &windmill_common::utils::HTTP_CLIENT,
+                &format!("{hub_base_url}/integrations/{slug}/content"),
+                false,
+                None,
+                Some(db),
+            )
+            .await
+            else {
+                return HubAppCategoryRead::Failed;
+            };
+            if response.status().as_u16() == 404 {
+                return HubAppCategoryRead::Absent;
+            }
+            if !response.status().is_success() {
+                return HubAppCategoryRead::Failed;
+            }
+            match response.json::<HubIntegrationContent>().await {
+                Ok(HubIntegrationContent {
+                    content: Some(HubIntegrationContentBody { category: Some(category) }),
+                }) => HubAppCategoryRead::Found(app, category),
+                Ok(_) => HubAppCategoryRead::Absent,
+                Err(_) => HubAppCategoryRead::Failed,
+            }
+        })
+        .buffer_unordered(HUB_APP_CATEGORIES_CONCURRENCY);
+    futures::pin_mut!(pending);
+
+    let mut reads: Vec<HubAppCategoryRead> = Vec::with_capacity(app_count);
+    let finished = tokio::time::timeout(HUB_APP_CATEGORIES_DEADLINE, async {
+        while let Some(read) = pending.next().await {
+            reads.push(read);
+        }
+    })
+    .await
+    .is_ok();
+
+    let failed = reads
+        .iter()
+        .filter(|read| matches!(read, HubAppCategoryRead::Failed))
+        .count();
+    let complete = finished && failed == 0;
+    if !complete {
+        tracing::warn!(
+            "hub category read incomplete: {} of {app_count} integrations answered, {failed} failed; retrying in {}s",
+            reads.len(),
+            HUB_APP_CATEGORIES_INCOMPLETE_TTL.as_secs()
+        );
+    }
+    let categories: HashMap<String, String> = reads
+        .into_iter()
+        .filter_map(|read| match read {
+            HubAppCategoryRead::Found(app, category) => Some((app, category)),
+            _ => None,
+        })
+        .collect();
+
+    hub_cache_put(
+        &HUB_APP_CATEGORIES,
+        hub_base_url,
+        HubAppCategories { categories: categories.clone(), complete },
+    );
+    categories
+}
+
+#[derive(Serialize)]
+struct HubResourceTypeCategory {
+    name: String,
+    category: String,
+}
+
+/// The hub's category for each resource type, inherited from its integration. Types whose
+/// integration has no category are left out; an unreachable hub yields an empty list.
+async fn list_hub_resource_type_categories(
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<HubResourceTypeCategory>> {
+    let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
+    // An unreadable index must not reach the category cache as an empty set of apps, where
+    // it would be remembered as a hub with no categories; the index's own failure cache
+    // already retries it soon.
+    let Some(index) = hub_resource_types(&db, &hub_base_url).await else {
+        return Ok(Json(vec![]));
+    };
+    let apps = index.values().map(|rt| rt.app.clone()).collect();
+    let categories = hub_app_categories(&db, &hub_base_url, apps).await;
+
+    Ok(Json(
+        index
+            .into_iter()
+            .filter_map(|(name, rt)| {
+                let category = categories.get(&rt.app)?.clone();
+                Some(HubResourceTypeCategory { name, category })
+            })
+            .collect(),
+    ))
 }
 
 async fn get_resource_type(

@@ -25,7 +25,7 @@
 	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
 	import { createEventDispatcher, onDestroy, tick } from 'svelte'
 	import Path from './Path.svelte'
-	import { ListRow, RadioCard, Skeleton } from './common'
+	import { Badge, Button, ListRow, RadioCard, Skeleton } from './common'
 	import { useListHighlight } from './common/listRow/listHighlight.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
@@ -46,6 +46,7 @@
 	import {
 		alphabetical,
 		byPopularity,
+		hubResourceTypeCategories,
 		hubResourceTypePicks,
 		localResourceTypeCounts,
 		recordHubResourceTypePick
@@ -90,16 +91,6 @@
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 
 	let isValid = $state(true)
-
-	const nativeLanguagesCategory = [
-		'postgresql',
-		'mysql',
-		'bigquery',
-		'snowflake',
-		'mssql',
-		'graphql',
-		'oracledb'
-	]
 
 	const SEARCH_INPUT_ID = 'search-resource-type'
 	let searchInput: { focus: () => void } | undefined = $state(undefined)
@@ -467,14 +458,31 @@
 	 * alphabetically and re-sort when this lands.
 	 */
 	let popularity: (a: string, b: string) => number = $state(alphabetical)
+	/** The hub's most picked types, tagged "Popular" wherever they land in the list. */
+	let hubPopular: Set<string> = $state(new Set())
+	let hubPicks: Record<string, number> = $state({})
+	/** Hub category per type; fetched apart from the picks since the first read is slow. */
+	let categories: Record<string, string> = $state({})
+	let selectedCategory: string | undefined = $state(undefined)
+
+	const POPULAR_TAG_COUNT = 10
 
 	async function loadPopularity() {
 		if (!effectiveWorkspace) return
+		hubResourceTypeCategories(effectiveWorkspace).then((c) => (categories = c))
 		const [hub, local] = await Promise.all([
 			hubResourceTypePicks(effectiveWorkspace),
 			localResourceTypeCounts(effectiveWorkspace)
 		])
 		popularity = byPopularity(hub, local)
+		hubPicks = hub
+		hubPopular = new Set(
+			Object.entries(hub)
+				.filter(([, picks]) => picks > 0)
+				.sort(([a, pa], [b, pb]) => pb - pa || a.localeCompare(b))
+				.slice(0, POPULAR_TAG_COUNT)
+				.map(([name]) => name)
+		)
 	}
 
 	async function loadConnects() {
@@ -576,18 +584,6 @@
 					})
 				}) as { key: string; img?: string; instructions: string[] }
 		)
-		const filteredNativeLanguages = filteredConnectsManual?.filter(
-			(o) => nativeLanguagesCategory?.includes(o[0]) ?? false
-		)
-
-		try {
-			filteredConnectsManual = [
-				...(filteredNativeLanguages ?? []),
-				...(filteredConnectsManual ?? []).filter(
-					({ key }) => !nativeLanguagesCategory.includes(key)
-				)
-			]
-		} catch (e) {}
 	}
 
 	function popupListener(event) {
@@ -1104,6 +1100,8 @@
 	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
 	let searching = $derived(filter.trim() !== '')
+	/** A narrowed list: sections that end up empty are dropped rather than explained. */
+	let filtering = $derived(searching || selectedCategory !== undefined)
 
 	// Searching, the query owns the order: uFuzzy scores the name and the description as one
 	// string, so "google" ranks every type whose description mentions Google alongside the
@@ -1132,21 +1130,28 @@
 		rank(filteredConnectsManual) as typeof filteredConnectsManual | undefined
 	)
 
-	// Browsing, the "Others" list leads with the native database types. Searching, that
-	// grouping would outrank the search itself — `ms_sql_server` sorting under `mysql` on
-	// "sql" — so the ranked order stands on its own.
+	const categoryOf = (key: string): string | undefined => categories[stripSandboxSuffix(key)]
+	const inSelectedCategory = (key: string) =>
+		selectedCategory === undefined || categoryOf(key) === selectedCategory
+
+	// The filters on offer: every category some listed type falls in, the most picked first
+	// so the ones people reach for lead the row.
+	let categoryFilters = $derived.by(() => {
+		const picks = new Map<string, number>()
+		for (const { key } of connectsManual ?? []) {
+			const category = categoryOf(key)
+			if (!category) continue
+			picks.set(category, (picks.get(category) ?? 0) + (hubPicks[stripSandboxSuffix(key)] ?? 0))
+		}
+		return [...picks.entries()]
+			.sort(([a, pa], [b, pb]) => pb - pa || a.localeCompare(b))
+			.map(([category]) => category)
+	})
+
 	let manualOrderedKeys = $derived(
-		!searching
-			? [
-					...(rankedConnectsManual ?? [])
-						.filter((x) => nativeLanguagesCategory.includes(x.key))
-						.map((x) => x.key),
-					...(rankedConnectsManual ?? [])
-						.filter((x) => !nativeLanguagesCategory.includes(x.key))
-						.map((x) => x.key)
-				]
-			: (rankedConnectsManual ?? []).map((x) => x.key)
+		(rankedConnectsManual ?? []).map((x) => x.key).filter(inSelectedCategory)
 	)
+	let filteredRankedConnects = $derived(rankedConnects?.filter((x) => inSelectedCategory(x.key)))
 
 	let customKeys = $derived(manualOrderedKeys.filter((key) => customResourceTypes.has(key)))
 	let otherKeys = $derived(manualOrderedKeys.filter((key) => !customResourceTypes.has(key)))
@@ -1155,7 +1160,7 @@
 	// A provider appears in more than one, so rows are addressed by index, not by name.
 	let navItems = $derived([
 		...customKeys.map((key) => ({ key, oauth: false })),
-		...(rankedConnects ?? []).map((x) => ({ key: x.key, oauth: true })),
+		...(filteredRankedConnects ?? []).map((x) => ({ key: x.key, oauth: true })),
 		...otherKeys.map((key) => ({ key, oauth: false }))
 	])
 	// Both lists start undefined and render skeletons; "nothing found" only means something
@@ -1164,7 +1169,7 @@
 	const rowDomId = (index: number) => `resource-type-row-${index}`
 
 	const oauthRowOffset = $derived(customKeys.length)
-	const otherRowOffset = $derived(customKeys.length + (rankedConnects?.length ?? 0))
+	const otherRowOffset = $derived(customKeys.length + (filteredRankedConnects?.length ?? 0))
 
 	// Sections are rendered in a fixed order, so the best match is not necessarily the first
 	// row: rank the rows against the query to find it.
@@ -1239,11 +1244,26 @@
 						class="pl-7 text-xs w-full"
 					/>
 				</div>
+				{#if categoryFilters.length > 0}
+					<div class="flex flex-wrap gap-1 mt-2" role="group" aria-label="Filter by category">
+						{#each [undefined, ...categoryFilters] as category (category ?? '')}
+							<Button
+								variant="subtle"
+								unifiedSize="xs"
+								selected={selectedCategory === category}
+								aria-pressed={selectedCategory === category}
+								onClick={() => (selectedCategory = category)}
+							>
+								{category ?? 'All'}
+							</Button>
+						{/each}
+					</div>
+				{/if}
 			</div>
 
 			{#snippet sectionHeading(title: string, count: number)}
 				<h2 class="mb-3 text-2xs font-normal uppercase text-secondary">
-					{title}{#if searching}<span class="ml-2 text-hint">{count}</span>{/if}
+					{title}{#if filtering}<span class="ml-2 text-hint">{count}</span>{/if}
 				</h2>
 			{/snippet}
 
@@ -1254,6 +1274,9 @@
 				{#snippet title()}
 					<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
 					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
+					{#if hubPopular.has(stripSandboxSuffix(key))}
+						<Badge color="blue" small wrapperClass="ml-auto shrink-0 self-center">Popular</Badge>
+					{/if}
 				{/snippet}
 				{#snippet subtitle()}
 					{plainDescription(resourceTypeDescriptions[key])}
@@ -1268,6 +1291,7 @@
 					{title}
 					subtitle={resourceTypeDescriptions[key] ? subtitle : undefined}
 					highlighted={index === highlight.index}
+					class="py-2"
 					onMouseEnter={() => highlight.hovered(index)}
 					onClick={() => (oauth ? connectOauth(key) : selectFromOthers(key))}
 				/>
@@ -1276,11 +1300,24 @@
 			<div class="flex-1 min-h-0 overflow-y-auto">
 				{#if searching && listsLoaded && navItems.length === 0}
 					<div class="flex flex-col items-center gap-1 py-16 text-center">
-						<span class="text-sm text-primary">No resource type matches “{filter.trim()}”</span>
-						<span class="text-xs text-secondary">
-							Search on the name, the product or what the resource holds — or sync resource types
-							with the hub for more.
-						</span>
+						{#if selectedCategory}
+							<span class="text-sm text-primary">
+								No {selectedCategory} resource type matches “{filter.trim()}”
+							</span>
+							<Button
+								variant="subtle"
+								unifiedSize="sm"
+								onClick={() => (selectedCategory = undefined)}
+							>
+								Search all categories
+							</Button>
+						{:else}
+							<span class="text-sm text-primary">No resource type matches “{filter.trim()}”</span>
+							<span class="text-xs text-secondary">
+								Search on the name, the product or what the resource holds — or sync resource types
+								with the hub for more.
+							</span>
+						{/if}
 					</div>
 				{:else}
 					<!-- One gap between sections, owned by the column: a section that a search empties
@@ -1297,15 +1334,15 @@
 							</section>
 						{/if}
 
-						{#if !searching || (rankedConnects?.length ?? 0) > 0}
+						{#if !filtering || !filteredRankedConnects || filteredRankedConnects.length > 0}
 							<section>
 								{@render sectionHeading(
 									'Instance-configured OAuth APIs',
-									rankedConnects?.length ?? 0
+									filteredRankedConnects?.length ?? 0
 								)}
 								<div class="flex flex-col gap-0.5">
-									{#if rankedConnects}
-										{#each rankedConnects as { key }, i}
+									{#if filteredRankedConnects}
+										{#each filteredRankedConnects as { key }, i}
 											{@render resourceButton(key, oauthRowOffset + i, true)}
 										{/each}
 									{:else}
@@ -1325,9 +1362,9 @@
 							</section>
 						{/if}
 
-						{#if !searching || otherKeys.length > 0}
+						{#if !filtering || !rankedConnectsManual || otherKeys.length > 0}
 							<section>
-								{@render sectionHeading('Others', otherKeys.length)}
+								{@render sectionHeading(selectedCategory ?? 'Others', otherKeys.length)}
 
 								{#if !searching && connectsManual && connectsManual?.length < 10}
 									<div class="text-secondary text-xs p-2">
