@@ -2056,6 +2056,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             add_tool_message_to_conversation(
                 db,
                 &job_id_for_status,
+                flow,
                 success,
                 skipped,
                 chat_ai_info.is_ai_agent_step,
@@ -2233,6 +2234,7 @@ fn extract_chat_message_from_flow_result(result: &RawValue) -> error::Result<Opt
 async fn add_tool_message_to_conversation(
     db: &DB,
     job_id: &Uuid,
+    flow: Uuid,
     success: bool,
     skipped: bool,
     is_ai_agent_step: bool,
@@ -2261,7 +2263,8 @@ async fn add_tool_message_to_conversation(
                 add_message_to_conversation_tx(
                     &mut tx,
                     conversation_id,
-                    Some(job_id.clone()),
+                    Some(*job_id),
+                    flow,
                     &content,
                     MessageType::Assistant,
                     None,

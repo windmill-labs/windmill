@@ -278,6 +278,8 @@ pub async fn add_message_to_conversation_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     conversation_id: Uuid,
     job_id: Option<Uuid>,
+    // The flow run the user message started; retention deletes the turn's rows by it.
+    turn_job_id: Uuid,
     content: &str,
     message_type: MessageType,
     step_name: Option<&str>,
@@ -303,12 +305,13 @@ pub async fn add_message_to_conversation_tx(
 
     // Insert the message
     sqlx::query!(
-        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name, success, tool_arguments, tool_result, reasoning, attachments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, turn_job_id, step_name, success, tool_arguments, tool_result, reasoning, attachments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         conversation_id,
         message_type as MessageType,
         content,
         job_id,
+        turn_job_id,
         step_name,
         success,
         extras.and_then(|e| e.tool_arguments.as_deref()),

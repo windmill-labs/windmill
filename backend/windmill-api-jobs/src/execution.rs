@@ -828,6 +828,7 @@ pub async fn handle_chat_conversation_messages(
         tx,
         memory_id,
         Some(job_id),
+        job_id,
         &user_message,
         MessageType::User,
         None,

@@ -718,7 +718,8 @@ pub async fn delete_jobs(
     let mut conversation_ids: Vec<Uuid> = sqlx::query_scalar!(
         "DELETE FROM flow_conversation_message m
          USING flow_conversation c
-         WHERE m.conversation_id = c.id AND c.workspace_id = $1 AND m.job_id = ANY($2)
+         WHERE m.conversation_id = c.id AND c.workspace_id = $1
+           AND COALESCE(m.turn_job_id, m.job_id) = ANY($2)
          RETURNING m.conversation_id",
         &w_id,
         &job_ids
