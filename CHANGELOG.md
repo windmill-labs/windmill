@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.823.0](https://github.com/windmill-labs/windmill/compare/v1.822.0...v1.823.0) (2026-10-04)
+
+
+### Features
+
+* redesign the service logs page ([#11506](https://github.com/windmill-labs/windmill/issues/11506)) ([0f65df2](https://github.com/windmill-labs/windmill/commit/0f65df24d2cabd9d8daa71c103969e6392e37b4f))
+
+
+### Bug Fixes
+
+* apply the pg keepalive settings to the postgres trigger connection ([#11512](https://github.com/windmill-labs/windmill/issues/11512)) ([33f6de0](https://github.com/windmill-labs/windmill/commit/33f6de0cd20f45ff56770f946a4731e5b13bf677))
+* bound the datatable migration lock wait and reap a dead holder ([#11510](https://github.com/windmill-labs/windmill/issues/11510)) ([711e08c](https://github.com/windmill-labs/windmill/commit/711e08c1d20a326142235c83d8805b7990bf6e6d))
+* bound the pg cached-connection reset probe so a vanished server fails fast ([#11505](https://github.com/windmill-labs/windmill/issues/11505)) ([d4a423f](https://github.com/windmill-labs/windmill/commit/d4a423f567e1fb5e21016a2be61d858ab61a4d4f))
+* cancel an abandoned pg query and close failed connections cleanly ([#11511](https://github.com/windmill-labs/windmill/issues/11511)) ([26856b8](https://github.com/windmill-labs/windmill/commit/26856b8061c28eade191c7d85a32b74ca44c4fea))
+* delete a flow chat turn with its flow run, not its step jobs ([#11477](https://github.com/windmill-labs/windmill/issues/11477)) ([35ec16d](https://github.com/windmill-labs/windmill/commit/35ec16d12728531ab90632116913e98f80d1cc05))
+* drop a fork's datatable database despite connected sessions ([#11509](https://github.com/windmill-labs/windmill/issues/11509)) ([fa419af](https://github.com/windmill-labs/windmill/commit/fa419af9b3f7d65a607bb8ea2bcea58223f743c4))
+
 ## [1.822.0](https://github.com/windmill-labs/windmill/compare/v1.821.0...v1.822.0) (2026-10-03)
 
 
