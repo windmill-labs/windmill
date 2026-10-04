@@ -1500,29 +1500,6 @@ export function orderedJsonStringify(obj: any, space?: string | number) {
 	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
 }
 
-function evalJs(expr: string) {
-	let template = `
-return function (fields) {
-"use strict";
-return ${expr.startsWith('return ') ? expr.substring(7) : expr}
-}
-`
-	let functor = Function(template)
-	return functor()
-}
-export function computeShow(argName: string, expr: string | undefined, args: any) {
-	if (expr) {
-		try {
-			let r = evalJs(expr)(args ?? {})
-			return r
-		} catch (e) {
-			console.error(`Impossible to eval ${expr}:`, e)
-			return true
-		}
-	}
-	return true
-}
-
 function urlizeTokenInternal(token: string, formatter: 'html' | 'md'): string {
 	if (token.startsWith('http://') || token.startsWith('https://')) {
 		if (formatter == 'html') {
