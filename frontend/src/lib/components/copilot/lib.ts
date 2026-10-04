@@ -746,6 +746,20 @@ function getAnthropicStreamingCompletion({
 					model: params.modelProvider.model,
 					choices: [{ index: 0, delta: { content: event.delta.text }, finish_reason: null }]
 				}
+			} else if (event.type === 'message_delta' && event.delta.stop_reason) {
+				yield {
+					id: '',
+					object: 'chat.completion.chunk',
+					created: 0,
+					model: params.modelProvider.model,
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: event.delta.stop_reason === 'max_tokens' ? 'length' : 'stop'
+						}
+					]
+				}
 			}
 		}
 	}
@@ -1247,12 +1261,18 @@ export async function getStreamedCompletionText(
 			maxTokensCap: options?.maxTokensCap
 		})
 		let text = ''
+		let finished = false
 		for await (const chunk of stream) {
 			text += getResponseFromEvent(chunk)
+			finished ||= !!chunk.choices?.[0]?.finish_reason
 		}
-		// The OpenAI SDK ends an aborted stream without throwing: partial text
-		// must not pass for the whole completion.
+		// The OpenAI SDK ends an aborted stream, and one closed early by a hop in
+		// between, without throwing: partial text must not pass for the whole
+		// completion.
 		abortController.signal.throwIfAborted()
+		if (!finished) {
+			throw new Error('The completion stream ended before the model finished')
+		}
 		return text
 	}
 

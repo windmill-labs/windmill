@@ -99,6 +99,7 @@ async function setupClients() {
 				textDelta('Hel'),
 				{ type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: '{' } },
 				textDelta('lo'),
+				{ type: 'message_delta', delta: { stop_reason: 'end_turn' } },
 				{ type: 'message_stop' }
 			])
 		)
@@ -175,8 +176,9 @@ describe('Anthropic Messages API routing', () => {
 		}
 
 		expect(anthropicStream).toHaveBeenCalledTimes(1)
-		// only the two text deltas surface; message_start/stop and input_json are dropped
-		expect(chunks).toBe(2)
+		// the two text deltas and the stop reason surface; message_start/stop and
+		// input_json are dropped
+		expect(chunks).toBe(3)
 		expect(text).toBe('Hello')
 	})
 
@@ -248,6 +250,7 @@ describe('Anthropic Messages API routing', () => {
 			streamOf([
 				{ choices: [{ delta: { content: 'chat ' } }] },
 				{ choices: [{ delta: { content: 'text' } }] },
+				{ choices: [{ delta: {}, finish_reason: 'stop' }] },
 				{ choices: [], usage: {} }
 			])
 		)
@@ -265,9 +268,17 @@ describe('Anthropic Messages API routing', () => {
 		expect(openaiCreate.mock.calls[0][0]).toMatchObject({ stream: true, max_tokens: 8000 })
 	})
 
-	it('getStreamedCompletionText rejects when the stream is stopped midway', async () => {
+	it('getStreamedCompletionText rejects when the stream is cut or stopped midway', async () => {
 		const { getStreamedCompletionText } = await import('./lib')
 		h.currentModel = { provider: 'deepseek', model: 'deepseek-chat' }
+
+		// A hop closing the response early ends the iteration cleanly, with no
+		// finish reason.
+		openaiCreate.mockResolvedValue(streamOf([{ choices: [{ delta: { content: 'partial' } }] }]))
+		await expect(getStreamedCompletionText(messages, new AbortController())).rejects.toThrow(
+			'ended before the model finished'
+		)
+
 		const abortController = new AbortController()
 		// The OpenAI SDK swallows the abort and just ends the iteration.
 		openaiCreate.mockResolvedValue(

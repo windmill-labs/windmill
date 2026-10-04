@@ -385,6 +385,20 @@ export async function* getOpenAIResponsesCompletionStream(
 					}
 				]
 			} as OpenAI.Chat.Completions.ChatCompletionChunk
+		} else if (event.type === 'response.completed' || event.type === 'response.incomplete') {
+			yield {
+				id: 'chatcmpl-' + Date.now(),
+				object: 'chat.completion.chunk',
+				created: Date.now(),
+				model: responsesConfig.model,
+				choices: [
+					{
+						index: 0,
+						delta: {},
+						finish_reason: event.type === 'response.completed' ? 'stop' : 'length'
+					}
+				]
+			} as OpenAI.Chat.Completions.ChatCompletionChunk
 		}
 	}
 }
