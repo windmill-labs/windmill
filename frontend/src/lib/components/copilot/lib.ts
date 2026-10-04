@@ -1250,6 +1250,9 @@ export async function getStreamedCompletionText(
 		for await (const chunk of stream) {
 			text += getResponseFromEvent(chunk)
 		}
+		// The OpenAI SDK ends an aborted stream without throwing: partial text
+		// must not pass for the whole completion.
+		abortController.signal.throwIfAborted()
 		return text
 	}
 

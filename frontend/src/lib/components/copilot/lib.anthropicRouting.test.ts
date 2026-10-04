@@ -265,6 +265,23 @@ describe('Anthropic Messages API routing', () => {
 		expect(openaiCreate.mock.calls[0][0]).toMatchObject({ stream: true, max_tokens: 8000 })
 	})
 
+	it('getStreamedCompletionText rejects when the stream is stopped midway', async () => {
+		const { getStreamedCompletionText } = await import('./lib')
+		h.currentModel = { provider: 'deepseek', model: 'deepseek-chat' }
+		const abortController = new AbortController()
+		// The OpenAI SDK swallows the abort and just ends the iteration.
+		openaiCreate.mockResolvedValue(
+			(async function* () {
+				yield { choices: [{ delta: { content: 'partial' } }] }
+				abortController.abort('user_cancelled')
+			})()
+		)
+
+		await expect(getStreamedCompletionText(messages, abortController)).rejects.toBe(
+			'user_cancelled'
+		)
+	})
+
 	it('caps max_output_tokens for metadata completions on the OpenAI Responses path', async () => {
 		const { getNonStreamingCompletion, getNonStreamingMetadataCompletion, METADATA_MAX_TOKENS } =
 			await import('./lib')

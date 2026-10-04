@@ -3580,8 +3580,8 @@ describe('AIChatManager manual compaction', () => {
 		expect(summaryReq[0].content).toBe('q1')
 		expect(summaryReq[3].content).toBe('a2')
 		expect(summaryReq[4].content).toContain('detailed summary')
-		// The summarizer's output must stay capped: without it the model default
-		// applies and the Anthropic SDK rejects the non-streaming call pre-flight.
+		// The summarizer's output must stay capped at the budget reserved for the
+		// summary: without it the model default applies.
 		expect(mocks.getStreamedCompletionText.mock.calls[0][2]).toEqual({ maxTokensCap: 8000 })
 
 		// Nothing kept verbatim: messages collapse to just the summary user message.
