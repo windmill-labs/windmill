@@ -240,6 +240,24 @@ describe('Anthropic Messages API routing', () => {
 		expect(anthropicCreate).not.toHaveBeenCalled()
 		expect(anthropicStream.mock.calls[0][0].max_tokens).toBe(8000)
 
+		h.currentModel = { provider: 'openai', model: 'gpt-4o' }
+		const completedResponses = vi
+			.fn()
+			.mockReturnValue(
+				streamOf([
+					{ type: 'response.created' },
+					{ type: 'response.output_text.delta', delta: 'responses ' },
+					{ type: 'response.output_text.delta', delta: 'text' },
+					{ type: 'response.completed' }
+				])
+			)
+		vi.spyOn(workspaceAIClients, 'getOpenaiClient').mockReturnValue({
+			chat: { completions: { create: openaiCreate } },
+			responses: { stream: completedResponses }
+		} as any)
+		expect(await getStreamedCompletionText(messages, new AbortController())).toBe('responses text')
+		expect(openaiCreate).not.toHaveBeenCalled()
+
 		// The Responses stream fails on iteration, not on creation.
 		const responsesStream = vi.fn().mockReturnValue(
 			(async function* () {
