@@ -317,13 +317,22 @@ fn close_unclean_connection(
                 }
             };
             answer.map_err(to_anyhow)?;
-            let in_transaction =
-                client.transaction_status() != tokio_postgres::TransactionStatus::Idle;
-            let rollback = if in_transaction { "ROLLBACK; " } else { "" };
-            client
-                .batch_execute(&format!("{rollback}{PG_SESSION_RESET}"))
-                .await
-                .map_err(to_anyhow)?;
+            let reset = || async {
+                let in_transaction =
+                    client.transaction_status() != tokio_postgres::TransactionStatus::Idle;
+                let rollback = if in_transaction { "ROLLBACK; " } else { "" };
+                client
+                    .batch_execute(&format!("{rollback}{PG_SESSION_RESET}"))
+                    .await
+            };
+            let mut done = reset().await;
+            // A cancel request that found the query already over can land on the reset.
+            if done.as_ref().is_err_and(|e| {
+                e.code() == Some(&tokio_postgres::error::SqlState::QUERY_CANCELED)
+            }) {
+                done = reset().await;
+            }
+            done.map_err(to_anyhow)?;
             Ok::<_, Error>(())
         };
         match tokio::time::timeout(PG_CLOSE_CLEANUP_TIMEOUT, cleanup).await {
@@ -334,7 +343,7 @@ fn close_unclean_connection(
             }
             Ok(Err(_)) => {}
             Err(_) => tracing::warn!(
-                "a postgres connection did not settle within {}s of its job failing, closing it",
+                "a postgres connection did not settle within {}s of its job ending, closing it",
                 PG_CLOSE_CLEANUP_TIMEOUT.as_secs()
             ),
         }
