@@ -47,6 +47,10 @@ pub async fn upload_image_to_s3(
     })
 }
 
+/// Maximum supported file size for inline AI media (30 MB).
+/// Larger files cannot be processed inline by LLM vision/document APIs and risk server memory exhaustion.
+pub const MAX_S3_MEDIA_BYTES: usize = 30 * 1024 * 1024;
+
 /// Download an S3 image and convert it to a base64 data URL.
 ///
 /// The caller must provide an AuthedClient authorized for `workspace_id`.
@@ -60,6 +64,15 @@ pub async fn download_and_encode_s3_image(
         .download_s3_file(workspace_id, &image.s3, image.storage.clone())
         .await
         .map_err(|e| Error::internal_err(format!("Failed to download S3 image: {}", e)))?;
+
+    if image_bytes.len() > MAX_S3_MEDIA_BYTES {
+        return Err(Error::internal_err(format!(
+            "S3 media file '{}' ({} bytes) exceeds maximum supported size of {} bytes for AI processing",
+            image.s3,
+            image_bytes.len(),
+            MAX_S3_MEDIA_BYTES
+        )));
+    }
 
     // Encode as base64 data URL
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
@@ -144,4 +157,106 @@ pub async fn prepare_messages_for_api(
     }
 
     Ok(prepared_messages)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn download_and_encode_s3_image_rejects_oversized_media() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let oversized_len = MAX_S3_MEDIA_BYTES + 1;
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    oversized_len
+                );
+                let _ = socket.write_all(header.as_bytes()).await;
+                let chunk = vec![b'A'; 64 * 1024];
+                let mut remaining = oversized_len;
+                while remaining > 0 {
+                    let to_write = remaining.min(chunk.len());
+                    if socket.write_all(&chunk[..to_write]).await.is_err() {
+                        break;
+                    }
+                    remaining -= to_write;
+                }
+                let _ = socket.flush().await;
+            }
+        });
+
+        let client = AuthedClient::new(
+            format!("http://{}", addr),
+            "test_ws".to_string(),
+            "dummy_token".to_string(),
+            None,
+        );
+
+        let image = S3Object {
+            s3: "large_image.png".to_string(),
+            storage: None,
+            filename: None,
+            presigned: None,
+        };
+
+        let result = download_and_encode_s3_image(&image, &client, "test_ws").await;
+        assert!(result.is_err(), "Expected error for oversized S3 media");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("exceeds maximum supported size"),
+            "Error message should mention size limit, got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_and_encode_s3_image_accepts_valid_media() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let dummy_data = b"small image payload";
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    dummy_data.len()
+                );
+                let _ = socket.write_all(header.as_bytes()).await;
+                let _ = socket.write_all(dummy_data).await;
+                let _ = socket.flush().await;
+            }
+        });
+
+        let client = AuthedClient::new(
+            format!("http://{}", addr),
+            "test_ws".to_string(),
+            "dummy_token".to_string(),
+            None,
+        );
+
+        let image = S3Object {
+            s3: "small.png".to_string(),
+            storage: None,
+            filename: None,
+            presigned: None,
+        };
+
+        let (mime, encoded) = download_and_encode_s3_image(&image, &client, "test_ws")
+            .await
+            .expect("Valid media should succeed");
+        assert_eq!(mime, "image/png");
+        assert_eq!(
+            encoded,
+            base64::engine::general_purpose::STANDARD.encode(dummy_data)
+        );
+    }
 }
