@@ -174,7 +174,10 @@ impl Drop for PgConnection {
         match tokio::runtime::Handle::try_current() {
             Ok(runtime) => {
                 runtime.spawn(async move {
-                    if tokio::time::timeout(PG_CLOSE_GRACE, &mut task).await.is_err() {
+                    if tokio::time::timeout(PG_CLOSE_GRACE, &mut task)
+                        .await
+                        .is_err()
+                    {
                         task.abort();
                     }
                 });
@@ -316,7 +319,13 @@ fn close_unclean_connection(
                     }
                 }
             };
-            answer.map_err(to_anyhow)?;
+            // A cancel request that found the query already over lands on what comes next.
+            let cancelled = |e: &tokio_postgres::Error| {
+                e.code() == Some(&tokio_postgres::error::SqlState::QUERY_CANCELED)
+            };
+            answer
+                .or_else(|e| if cancelled(&e) { Ok(()) } else { Err(e) })
+                .map_err(to_anyhow)?;
             let reset = || async {
                 let in_transaction =
                     client.transaction_status() != tokio_postgres::TransactionStatus::Idle;
@@ -326,10 +335,7 @@ fn close_unclean_connection(
                     .await
             };
             let mut done = reset().await;
-            // A cancel request that found the query already over can land on the reset.
-            if done.as_ref().is_err_and(|e| {
-                e.code() == Some(&tokio_postgres::error::SqlState::QUERY_CANCELED)
-            }) {
+            if done.as_ref().is_err_and(cancelled) {
                 done = reset().await;
             }
             done.map_err(to_anyhow)?;
