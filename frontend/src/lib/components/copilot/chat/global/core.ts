@@ -907,14 +907,14 @@ const backgroundArgSchema = z
 	.boolean()
 	.optional()
 	.describe(
-		'Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.'
+		"Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow. Has no effect where the call hands a deployed run to the item's own page: nothing is waited on there, because the user starts the job themselves."
 	)
 
 const waitSecondsArgSchema = z
 	.number()
 	.optional()
 	.describe(
-		'How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.'
+		"How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true, and where the call hands a deployed run to the item's own page — there is no job to wait for until the user starts one. Do not use this to poll — larger values just hold the turn longer."
 	)
 
 /** Translate the model's `wait_seconds` into executeTestRun's `detachAfterMs`
@@ -948,7 +948,7 @@ const runScriptSchema = z.object({
 const runScriptToolDef = createToolDef(
 	runScriptSchema,
 	'run_script',
-	'Run a DEPLOYED script for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
+	'Run a DEPLOYED script for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. Inside an AI session this opens the script\'s own deployed page with that form filled in and the call ENDS THERE — the user runs it from the page, so do not report it as started, and read the call\'s result for which happened. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
 	{ strict: false }
 )
 
@@ -987,7 +987,7 @@ const runFlowSchema = z.object({
 const runFlowToolDef = createToolDef(
 	runFlowSchema,
 	'run_flow',
-	'Run a DEPLOYED flow for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
+	'Run a DEPLOYED flow for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. Inside an AI session this opens the flow\'s own deployed page with that form filled in and the call ENDS THERE — the user runs it from the page, so do not report it as started, and read the call\'s result for which happened. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
 	{ strict: false }
 )
 
@@ -3917,7 +3917,9 @@ export const globalTools: SessionTool<{}>[] = [
 		// No requiresConfirmation, for the reason test_run_script carries.
 		bypassedByAutoAccept: true,
 		confirmationMessage: 'Run a deployed script',
-		streamingLabel: 'Preparing the run form...',
+		// Both endings start the same way: the arguments are read, then either a form opens
+		// here or the script's own deployed page does.
+		streamingLabel: 'Preparing the arguments...',
 		queuedLabel: (args) => `Run ${args?.path ?? 'a script'}`,
 		showDetails: true,
 		autoCollapseDetails: false
@@ -3945,7 +3947,7 @@ export const globalTools: SessionTool<{}>[] = [
 			return runDeployedFlow(parsed, ctx)
 		},
 		bypassedByAutoAccept: true,
-		streamingLabel: 'Preparing the run form...',
+		streamingLabel: 'Preparing the arguments...',
 		confirmationMessage: 'Run a deployed flow',
 		queuedLabel: (args) => `Run ${args?.path ?? 'a flow'}`,
 		showDetails: true,
@@ -6038,6 +6040,13 @@ async function testRunScriptByPath(
 	)
 }
 
+/** Nothing ran, and saying so is the whole point: the model is about to report back, and a
+ * "started" it inferred would be wrong. The "do not call again" half is load-bearing for the
+ * same reason as the cancelled one below — a re-proposal would reopen the page the reader is
+ * already looking at. */
+const deployedPageOpened = (path: string, noun: string, toolName: string) =>
+	`Opened the deployed page for "${path}" in the preview panel, with these arguments put in front of the user there. The ${noun} has NOT run: the user starts it from that page, where they can also edit the arguments, schedule it, override the tag or pick a version. Do not call ${toolName} again for this. Tell the user it is ready to run; if you need the result afterwards, ask them or call get_run once they say it has run.`
+
 /** The "do not call again" half is load-bearing: without it the model re-proposes the
  * call, which re-opens the form the user just dismissed, and Stop becomes their only
  * way out. */
@@ -6178,6 +6187,41 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// Files only: nothing rewrites `runForm.args` after this, so bytes left in it outlive the
 	// size guard that covers `parameters`.
 	const persisted = { ...form, args: redactFileArgs(proposed, schema as any) }
+
+	// A DEPLOYED run is handed to the item's own page and this call ends there. The reader
+	// runs it from the page they would have run it from anyway — with its scheduling, tag
+	// override and pinned version in reach, none of which this tool could carry — so there is
+	// no form to park on and no job for the tool to own.
+	//
+	// A TEST run has no such page: it executes the draft being written, which the deployed
+	// page does not show, so it keeps the form below. So does the bypass posture, which
+	// answers for a reader who already consented and would leave nobody to press Run.
+	if (spec.kind === 'run' && !autoAccepted && toolCallbacks.openDeployedRunPage) {
+		const handedOver = toolCallbacks.openDeployedRunPage({
+			kind: spec.contextName === 'flow' ? 'flow' : 'script',
+			path: spec.path,
+			summary: spec.summary ?? spec.path,
+			args: proposed
+		})
+		if (handedOver) {
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Opened the deployed page for "${spec.path}"`,
+				// Carried without `isLoading`, so `isActiveRunForm` reads it as settled: the card
+				// shows what was proposed and offers to reopen the page, rather than mounting a
+				// second form for a call that is already over. Without the schema for the same
+				// reason a submitted or cancelled form drops it — no form will mount from this,
+				// so keeping it would persist the script's declarations, password and file
+				// defaults included, for the life of the chat.
+				runForm: { ...persisted, schema: undefined, code: undefined, lang: undefined },
+				// The card settles on what the page opened with, as it would on what a form
+				// opened with: it is the record of what this call proposed.
+				parameters: persisted.args,
+				isLoading: false,
+				isStreamingArguments: false
+			})
+			return deployedPageOpened(spec.path, noun, spec.toolName)
+		}
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: autoAccepted

@@ -27,6 +27,8 @@
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import { processSecretArgs } from '$lib/components/secretArgUtils'
+	import type { Schema } from '$lib/common'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
@@ -101,6 +103,10 @@
 		onNavigate = goto,
 		active = true,
 		embedded = false,
+		seededRun,
+		seededByAgent = false,
+		onSeedApplied,
+		onClearSeededRun,
 		onLoadState
 	}: {
 		/** The `[...path]` route segment: the flow's path. */
@@ -116,6 +122,18 @@
 		/** Rendered inside a page that is not the flow's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
+		/** Arguments a chat tool filled this form with when it opened the page. Nothing waits
+		 * on them: the page runs as it always does, and these only seed the fields and put a
+		 * note above them. `seq` identifies the request, so a second one re-seeds a page that
+		 * is already open. */
+		seededRun?: { args: Record<string, any>; seq: number }
+		/** Whether to say the agent filled them. Outlives `seededRun`, since the note stands
+		 * until the reader dismisses it. */
+		seededByAgent?: boolean
+		/** Applied, so the host stops offering them. */
+		onSeedApplied?: () => void
+		/** The reader dismissed the note. The values stay in the fields. */
+		onClearSeededRun?: () => void
 		/** How the load ended, for a host that renders its own state around this page. */
 		onLoadState?: (state: 'loaded' | 'not_found') => void
 	} = $props()
@@ -314,11 +332,21 @@
 		conversationId: string,
 		additionalInputs?: Record<string, any>
 	): Promise<string> {
+		// A chat flow's inputs reach the job straight from the composer, with no RunForm in
+		// between to mint a secret as it is typed — so this is the only place a value the
+		// schema marks `password` can become a reference. Without it the literal is stored in
+		// the job's arguments, where anyone who can read the run can read it. Idempotent, so a
+		// reference that was already minted costs a walk and no round trip.
+		const requestBody = await processSecretArgs(
+			{ user_message: userMessage, ...(additionalInputs ?? {}) },
+			flow?.schema as Schema | undefined,
+			workspace
+		)
 		const run = await JobService.runFlowByPath({
 			workspace: workspace!,
 			path,
 			memoryId: conversationId,
-			requestBody: { user_message: userMessage, ...(additionalInputs ?? {}) },
+			requestBody,
 			skipPreprocessor: true
 		})
 		return run
@@ -351,6 +379,43 @@
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let runForm: RunForm | undefined = $state()
+
+	// Seeded once the surface exists, and again whenever another request arrives for a page
+	// already open — latched on the request rather than on "seeded once", which would leave
+	// the previous turn's values on screen. The arguments were narrowed against this flow's
+	// deployed schema before they got here, by the tool that opened the page.
+	//
+	// A chat flow has no run form to fill: its page is a conversation, so the proposed
+	// `user_message` goes into the composer for the reader to edit and send. The composer
+	// declines if they were already typing, which leaves their draft alone.
+	let flowChat: FlowChat | undefined = $state()
+	let seededSeq: number | undefined = undefined
+	$effect(() => {
+		if (!seededRun || seededSeq === seededRun.seq) return
+		if (chatInputEnabled) {
+			// The composer mounts a flush or two after the panel does, so until it is there this
+			// effect waits — it reads the host's registration through `composerReady`, and runs
+			// again when that lands. Not latching is what keeps the proposal alive across those
+			// flushes.
+			if (!flowChat?.composerReady()) return
+			seededSeq = seededRun.seq
+			// A chat flow's schema can declare more than `user_message`, and a message sent
+			// without the rest would run on saved values or schema defaults — a different run
+			// from the one proposed. These land whether or not the message does.
+			const { user_message: message, ...inputs } = seededRun.args ?? {}
+			flowChat.applyInputs(inputs)
+			// A composer already holding a draft declines, and the message is then dropped
+			// rather than held: injecting it whenever the reader happens to clear their draft
+			// would put words in the box long after they were proposed. The card still shows
+			// what was asked for.
+			if (typeof message === 'string' && message) flowChat.offerMessage(message)
+			onSeedApplied?.()
+		} else if (runForm) {
+			seededSeq = seededRun.seq
+			runForm.setArgs(seededRun.args)
+			onSeedApplied?.()
+		}
+	})
 
 	// The dev workspace's editor is not one the session panel can host, so from a preview tab
 	// it opens in a new browser tab, as the session editors' own entry does.
@@ -812,6 +877,7 @@
 						{#if chatInputEnabled}
 							<!-- Chat Layout with Sidebar -->
 							<FlowChat
+								bind:this={flowChat}
 								onRunFlow={runFlowForChat}
 								{deploymentInProgress}
 								path={flow?.path ?? ''}
@@ -861,6 +927,10 @@
 										runnableType="flow"
 										path={flow?.path}
 									/>
+								{/if}
+
+								{#if seededByAgent}
+									<InputSelectedBadge inputSelected="agent" onReject={() => onClearSeededRun?.()} />
 								{/if}
 
 								<RunForm

@@ -6,7 +6,11 @@
 	import type { Snippet } from 'svelte'
 
 	interface Props {
-		inputSelected: 'history' | 'captures' | 'saved' | 'ai' | undefined
+		/** `agent` is the odd one: the others name where the arguments in the form came from
+		 * and put them back on reject, while this one reports that a chat tool filled the form
+		 * when it opened the page — rejecting only drops the note, since there is nothing to
+		 * put back. */
+		inputSelected: 'history' | 'captures' | 'saved' | 'ai' | 'agent' | undefined
 		labelColor?: string
 		className?: string
 		acceptButton?: Snippet
@@ -26,13 +30,17 @@
 		)}
 	>
 		<p class={twMerge(classes['info'].descriptionClass, 'text-xs px-2', labelColor)}>
-			Using {inputSelected === 'history'
-				? 'historic'
-				: inputSelected === 'captures'
-					? 'captures'
-					: inputSelected === 'ai'
-						? 'AI generated'
-						: 'saved'} input arguments
+			{#if inputSelected === 'agent'}
+				The agent filled these arguments
+			{:else}
+				Using {inputSelected === 'history'
+					? 'historic'
+					: inputSelected === 'captures'
+						? 'captures'
+						: inputSelected === 'ai'
+							? 'AI generated'
+							: 'saved'} input arguments
+			{/if}
 		</p>
 		{#if acceptButton}
 			{@render acceptButton()}

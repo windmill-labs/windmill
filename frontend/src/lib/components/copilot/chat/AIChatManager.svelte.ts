@@ -570,6 +570,16 @@ export class AIChatManager implements ChatViewHost {
 	 * chat card holds. Unset outside a session: a chat-bound form has nowhere else to go,
 	 * so the card hides the control rather than offering a tab that cannot run. */
 	openRunForm?: (a: { toolCallId: string; label: string }) => void
+	/** Set by a host that can show a deployed page — a session's preview panel. Nothing calls
+	 * it directly: the reader's own way in is `openDeployedRunPage`, and a run tool's is the
+	 * private `#handOverDeployedRun`, which refuses after a stop. The turn is the manager's to
+	 * know about, not the host's. */
+	openDeployedRunPageHandler?: (a: {
+		kind: 'script' | 'flow'
+		path: string
+		summary: string
+		args: Record<string, any>
+	}) => boolean
 	closeRunForm?: (toolCallId: string) => void
 	/** Hands that tab from the form to the run it just started, in place: the tab keeps its
 	 * position in the strip and stays active if it was. */
@@ -2085,6 +2095,38 @@ export class AIChatManager implements ChatViewHost {
 	get hasPendingRunForm(): boolean {
 		for (const entry of this.#runForms.values()) if (entry.resolve) return true
 		return false
+	}
+
+	/** A DEPLOYED run shows the item's own page instead, with the model's arguments in the run
+	 * form already there. The tool call ends at the open — the run belongs to the reader, who
+	 * starts it from that page with its scheduling, tag and version controls in reach.
+	 *
+	 * This is the reader's own way in — the card's eye, reopening a page they closed — so it
+	 * carries no turn check. False means there is no session to show it in. The tool's way in
+	 * is {@link #handOverDeployedRun}, which additionally refuses after a stop. */
+	openDeployedRunPage = (a: {
+		kind: 'script' | 'flow'
+		path: string
+		summary: string
+		args: Record<string, any>
+	}): boolean => this.openDeployedRunPageHandler?.(a) ?? false
+
+	/** What the run tools call. Opening after a stop would act on a turn the reader ended, and
+	 * would write a form onto a card the stop already settled — which the card then reads as
+	 * `Opened`, hiding the cancellation. Declining hands the call on to `requestRunArgs`,
+	 * whose own stop guard settles it as cancelled.
+	 *
+	 * The controller is per-turn and stays aborted once stopped, so this check belongs here
+	 * rather than on `openDeployedRunPage`: the reader's eye button must keep working on a
+	 * card whose turn was stopped long ago. */
+	#handOverDeployedRun = (a: {
+		kind: 'script' | 'flow'
+		path: string
+		summary: string
+		args: Record<string, any>
+	}): boolean => {
+		if (this.abortController?.signal.aborted) return false
+		return this.openDeployedRunPage(a)
 	}
 
 	/** False when the form is no longer pending, so the caller can say so instead of
@@ -4149,6 +4191,7 @@ export class AIChatManager implements ChatViewHost {
 					requestUserQuestion: this.requestUserQuestion,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
+					openDeployedRunPage: this.#handOverDeployedRun,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
 					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),

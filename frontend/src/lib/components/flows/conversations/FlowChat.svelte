@@ -177,6 +177,44 @@
 	// The panel on screen. Every other panel the pool holds stays mounted behind it.
 	const shownKey = $derived(poolState?.shownKey)
 
+	/** Put a message in the composer of the conversation on screen, for the reader to edit and
+	 * send. Returns false when that composer already holds a draft — it is never overwritten,
+	 * and the caller drops the message rather than holding it. The run's other arguments go
+	 * through {@link applyInputs}, which is deliberately not conditional on this: they belong
+	 * to the proposal whether or not its message could land. */
+	export function offerMessage(text: string): boolean {
+		const panel = shownKey ? pool?.get(shownKey) : undefined
+		return panel?.host.offerMessage(text) ?? false
+	}
+
+	/** Set the flow's non-message inputs to the run a chat tool proposed. Separate from the
+	 * message because the two can land apart: a composer the reader is typing in declines the
+	 * message, and the inputs still belong to the proposal they can send afterwards.
+	 *
+	 * Every input the schema declares is taken from the proposal, including the ones it leaves
+	 * out — those go back to their default. Merging instead would let a value the reader saved
+	 * on an earlier visit ride along in a run the agent announced without it, which is a
+	 * different run from the one the chat described. Inputs the composer owns rather than the
+	 * schema (its model wiring, its attachments) are not the proposal's to touch. */
+	export function applyInputs(inputs: Record<string, any>): void {
+		const declared = Object.keys(additionalInputsSchema?.properties ?? {})
+		if (declared.length === 0) return
+		const next = { ...inputValues }
+		for (const key of declared) {
+			if (key in inputs) next[key] = inputs[key]
+			else delete next[key]
+		}
+		inputValues = next
+	}
+
+	/** Whether the conversation on screen has a composer to offer a message to. A caller that
+	 * gets `false` from `offerMessage` reads this to tell "mounting, try again" from "the
+	 * reader is writing, leave them alone". */
+	export function composerReady(): boolean {
+		const panel = shownKey ? pool?.get(shownKey) : undefined
+		return panel?.host.composerReady ?? false
+	}
+
 	// Derive additional inputs schema (excluding user_message) for chat mode
 	const additionalInputsSchema = $derived.by(() => {
 		const props = inputSchema?.properties ?? {}

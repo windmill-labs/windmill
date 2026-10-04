@@ -126,6 +126,10 @@
 		onNavigate = goto,
 		active = true,
 		embedded = false,
+		seededRun,
+		seededByAgent = false,
+		onSeedApplied,
+		onClearSeededRun,
 		onLoadState
 	}: {
 		/** The `[...hash]` route segment: either a script hash or a script path. */
@@ -141,6 +145,20 @@
 		/** Rendered inside a page that is not the script's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
+		/** Arguments a chat tool proposed when it opened the page, for as long as they have
+		 * still to be applied. Nothing waits on them: the page runs as it always does, and
+		 * these only fill the fields. `seq` identifies the request, so a second one re-seeds a
+		 * page already open. Gone once applied — this page remounts under its host on a
+		 * deploy, a refresh or a version pin, and applying again would overwrite what the
+		 * reader has typed since. */
+		seededRun?: { args: Record<string, any>; seq: number }
+		/** Whether to say the agent filled them. Outlives `seededRun`, since the note stands
+		 * until the reader dismisses it. */
+		seededByAgent?: boolean
+		/** Applied, so the host stops offering them. */
+		onSeedApplied?: () => void
+		/** The reader dismissed the note. The values stay in the fields. */
+		onClearSeededRun?: () => void
 		/** How the load ended, for a host that renders its own state around this page.
 		 * Providing it also suppresses the "could not load" toast: a 404 here is the normal
 		 * state of a not-yet-deployed path, which the host explains in place instead. */
@@ -412,6 +430,19 @@
 	}
 
 	let args: Record<string, any> | undefined = $state(undefined)
+
+	// Seeded once the form exists, and again whenever another request arrives for a page
+	// already open — latched on the request rather than on "seeded once", which would leave
+	// the previous turn's values on screen. The arguments were narrowed against this script's
+	// deployed schema before they got here, by the tool that opened the page.
+	let seededSeq: number | undefined = undefined
+	$effect(() => {
+		if (!seededRun || !runForm) return
+		if (seededSeq === seededRun.seq) return
+		seededSeq = seededRun.seq
+		runForm.setArgs(seededRun.args)
+		onSeedApplied?.()
+	})
 
 	// Read once on purpose: these args seed the form, so tracking the fragment would
 	// overwrite what the user has typed whenever it changes.
@@ -1084,6 +1115,9 @@
 								/>
 							{/if}
 
+							{#if seededByAgent}
+								<InputSelectedBadge inputSelected="agent" onReject={() => onClearSeededRun?.()} />
+							{/if}
 							<RunForm
 								bind:scheduledForStr
 								bind:invisible_to_owner

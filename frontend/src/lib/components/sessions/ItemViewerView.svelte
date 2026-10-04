@@ -66,6 +66,47 @@
 		reloadKey++
 	})
 
+	// Arguments a chat tool filled this item's run form with when it opened the page. Nothing
+	// is waiting on them: the reader runs the page as they would with no chat open, and the
+	// note above the form only says where the values came from.
+	//
+	// Taken from the runtime once and held here, because the request belongs to the turn that
+	// made it: left in the map it would re-seed every later open of this item's page. The item
+	// it was filed under rides along, since this tab re-points to another item in place rather
+	// than remounting — a seed held without its key would land in the next item's form,
+	// replacing its own defaults, under a note crediting the agent for them.
+	//
+	// `pending` is what the page has still to apply, and the detail page clears it by reporting
+	// that it has. The two are separate because the detail page remounts under this one (a
+	// deploy, a refresh, a version pin) and comes back with its own latch reset: without that,
+	// each remount would push the proposal in again, over whatever the reader has since typed,
+	// and bring back a note they had dismissed. The agent proposed once.
+	let held = $state<
+		| {
+				kind: SessionTargetKind
+				path: string
+				args: Record<string, any>
+				seq: number
+				pending: boolean
+		  }
+		| undefined
+	>(undefined)
+	const forThisItem = $derived(held?.kind === kind && held.path === path ? held : undefined)
+	const seededRun = $derived(
+		forThisItem?.pending ? { args: forThisItem.args, seq: forThisItem.seq } : undefined
+	)
+	/** The note stands until the reader dismisses it, which outlives the one application. */
+	const seededByAgent = $derived(!!forThisItem)
+	$effect(() => {
+		const incoming = runtime.seededRunArgsFor(kind, path)
+		if (!incoming) return
+		const [k, p] = [kind, path]
+		untrack(() => {
+			held = { kind: k, path: p, ...incoming, pending: true }
+			runtime.clearSeededRunArgs(k, p)
+		})
+	})
+
 	/** Refetch the deployed item. The host calls this for the reload signals that reach a
 	 * tab from outside it; nothing about becoming visible triggers it, so a form the reader
 	 * filled in survives switching tabs away and back. */
@@ -179,50 +220,58 @@
 
 <!-- Remount to refetch: both detail components load on mount, so a deploy lands here
      rather than as a refresh path of their own. -->
-	{#key loadKey}
-		{@const mountedKey = loadKey}
-		{@const setLoadState = (state: 'loaded' | 'not_found') => onLoadState(mountedKey, state)}
-		{#if notDeployed}
-			<!-- This side shows the DEPLOYED item, and there isn't one. Without this the detail
+{#key loadKey}
+	{@const mountedKey = loadKey}
+	{@const setLoadState = (state: 'loaded' | 'not_found') => onLoadState(mountedKey, state)}
+	{#if notDeployed}
+		<!-- This side shows the DEPLOYED item, and there isn't one. Without this the detail
 		     page renders nothing and the panel is simply blank, which reads as a failure
 		     rather than as the ordinary state of a draft nobody has deployed yet. -->
-			<div class="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
-				<div class="text-sm text-primary">Not deployed yet</div>
-				<div class="text-xs text-tertiary max-w-sm">
-					Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
-					version to view. Deploy it from the editor to see it here.
-				</div>
-				<Button unifiedSize="sm" variant="default" startIcon={{ icon: Pen }} on:click={toEditSide}>
-					Back to editor
-				</Button>
+		<div class="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
+			<div class="text-sm text-primary">Not deployed yet</div>
+			<div class="text-xs text-tertiary max-w-sm">
+				Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
+				version to view. Deploy it from the editor to see it here.
 			</div>
-		{:else if kind === 'script'}
-			<ScriptDetail
-				hash={path}
-				workspace={workspaceId}
-				{searchParams}
-				{onNavigate}
-				{active}
-				embedded
-				onLoadState={setLoadState}
-			/>
-		{:else if kind === 'flow'}
-			<FlowDetail
-				{path}
-				workspace={workspaceId}
-				{searchParams}
-				{onNavigate}
-				{active}
-				embedded
-				onLoadState={setLoadState}
-			/>
-		{:else}
-			<InWorkspaceAppViewer
-				workspace={workspaceId}
-				{path}
-				onEdit={() => onNavigate(`/apps_raw/edit/${path}`)}
-				onLoadState={setLoadState}
-				syncHashToUrl={false}
-			/>
-		{/if}
-	{/key}
+			<Button unifiedSize="sm" variant="default" startIcon={{ icon: Pen }} on:click={toEditSide}>
+				Back to editor
+			</Button>
+		</div>
+	{:else if kind === 'script'}
+		<ScriptDetail
+			hash={path}
+			workspace={workspaceId}
+			{searchParams}
+			{onNavigate}
+			{active}
+			embedded
+			{seededRun}
+			{seededByAgent}
+			onSeedApplied={() => held && (held = { ...held, pending: false })}
+			onClearSeededRun={() => (held = undefined)}
+			onLoadState={setLoadState}
+		/>
+	{:else if kind === 'flow'}
+		<FlowDetail
+			{path}
+			workspace={workspaceId}
+			{searchParams}
+			{onNavigate}
+			{active}
+			embedded
+			{seededRun}
+			{seededByAgent}
+			onSeedApplied={() => held && (held = { ...held, pending: false })}
+			onClearSeededRun={() => (held = undefined)}
+			onLoadState={setLoadState}
+		/>
+	{:else}
+		<InWorkspaceAppViewer
+			workspace={workspaceId}
+			{path}
+			onEdit={() => onNavigate(`/apps_raw/edit/${path}`)}
+			onLoadState={setLoadState}
+			syncHashToUrl={false}
+		/>
+	{/if}
+{/key}
