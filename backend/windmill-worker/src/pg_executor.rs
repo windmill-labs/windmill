@@ -85,6 +85,9 @@ const PG_CLOSE_GRACE: Duration = Duration::from_secs(2);
 /// How long the connection of a failed job gets to end its query and reset its session.
 /// Past this it is closed regardless.
 const PG_CLOSE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a failed job's last query gets to be answered before it is taken to be still
+/// sending results, and cancelled.
+const PG_UNREAD_RESULT_GRACE: Duration = Duration::from_millis(250);
 /// Clears the session state a job can leave behind. Each statement is explained where a
 /// cached connection is probed with it.
 const PG_SESSION_RESET: &str = "RESET ALL; RESET SESSION AUTHORIZATION; UNLISTEN *; CLOSE ALL; \
@@ -279,25 +282,46 @@ impl Drop for PgConnectionLease {
 /// to its next client the way this one leaves it, and one closed inside a transaction it may
 /// not get back at all, so the transaction is ended and the session reset first.
 ///
-/// `abandoned` is set for a query the timeout or a cancellation cut short: closing does not
-/// stop it, the server works on until it next writes to the client, so it is cancelled too.
-fn close_unclean_connection(lease: PgConnectionLease, abandoned: Option<(PgDatabase, bool)>) {
+/// `abandoned` is set for a query the timeout or a cancellation cut short. Closing does not
+/// stop it, the server works on until it next writes to the client, so it is cancelled. So
+/// is one still sending results the job stopped reading, which would otherwise be drained.
+fn close_unclean_connection(
+    lease: PgConnectionLease,
+    database: PgDatabase,
+    token_auth: bool,
+    abandoned: bool,
+) {
     if lease.conn.is_none() {
         return;
     }
     tokio::spawn(async move {
         let client = lease.client();
-        let was_abandoned = abandoned.is_some();
         let cleanup = async {
-            if let Some((database, token_auth)) = abandoned {
-                database
-                    .cancel_query(client.cancel_token(), token_auth)
-                    .await?;
+            let cancel = || database.cancel_query(client.cancel_token(), token_auth);
+            if abandoned {
+                cancel().await?;
             }
             // Answered once the server is done with the job's last query. A cancel request
             // is only sent by then, not acted on, and a pooler drops one whose client left.
+            let settled = client.batch_execute("");
+            tokio::pin!(settled);
+            let answer = if abandoned {
+                settled.await
+            } else {
+                match tokio::time::timeout(PG_UNREAD_RESULT_GRACE, &mut settled).await {
+                    Ok(answer) => answer,
+                    Err(_) => {
+                        cancel().await?;
+                        settled.await
+                    }
+                }
+            };
+            answer.map_err(to_anyhow)?;
+            let in_transaction =
+                client.transaction_status() != tokio_postgres::TransactionStatus::Idle;
+            let rollback = if in_transaction { "ROLLBACK; " } else { "" };
             client
-                .batch_execute(&format!("ROLLBACK; {PG_SESSION_RESET}"))
+                .batch_execute(&format!("{rollback}{PG_SESSION_RESET}"))
                 .await
                 .map_err(to_anyhow)?;
             Ok::<_, Error>(())
@@ -305,7 +329,7 @@ fn close_unclean_connection(lease: PgConnectionLease, abandoned: Option<(PgDatab
         match tokio::time::timeout(PG_CLOSE_CLEANUP_TIMEOUT, cleanup).await {
             Ok(Ok(())) => {}
             // A connection that failed the job has nothing left to clean up.
-            Ok(Err(e)) if was_abandoned => {
+            Ok(Err(e)) if abandoned => {
                 tracing::warn!("could not cancel an abandoned postgres query: {e}")
             }
             Ok(Err(_)) => {}
@@ -1544,9 +1568,12 @@ pub async fn do_postgresql(
     let result = match result {
         Ok(result) => result,
         Err(e) => {
-            let abandoned = (!query_ended.load(Ordering::Relaxed))
-                .then(|| (database, auth_mode != PgAuthMode::Password));
-            close_unclean_connection(lease, abandoned);
+            close_unclean_connection(
+                lease,
+                database,
+                auth_mode != PgAuthMode::Password,
+                !query_ended.load(Ordering::Relaxed),
+            );
             return Err(map_s3object_jsonb_overflow(e, had_s3object_input));
         }
     };
@@ -1554,9 +1581,9 @@ pub async fn do_postgresql(
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
     // A transaction the script left open would otherwise carry over into the
-    // next job that reuses the connection. Closing the connection rolls it
-    // back, as it always has without the cache. The status comes with the last
-    // reply, so a script that ends cleanly pays nothing for this check.
+    // next job that reuses the connection, so it is rolled back and the connection
+    // closed. The status comes with the last reply, so a script that ends cleanly
+    // pays nothing for this check.
     if lease.client().transaction_status() != tokio_postgres::TransactionStatus::Idle {
         if !run_inline {
             windmill_queue::append_logs(
@@ -1568,7 +1595,7 @@ pub async fn do_postgresql(
             )
             .await;
         }
-        close_unclean_connection(lease, None);
+        close_unclean_connection(lease, database, auth_mode != PgAuthMode::Password, false);
     } else {
         // Keep the connection only after a query that read its results to the end.
         // An error may have stopped reading early (the result cap, a decode failure),
