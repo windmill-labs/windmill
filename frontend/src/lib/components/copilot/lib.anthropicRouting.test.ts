@@ -228,6 +228,43 @@ describe('Anthropic Messages API routing', () => {
 		expect(METADATA_MAX_TOKENS).toBeLessThanOrEqual(21333)
 	})
 
+	it('getStreamedCompletionText streams the capped request and falls back off the Responses API', async () => {
+		const { getStreamedCompletionText, workspaceAIClients } = await import('./lib')
+
+		h.currentModel = { provider: 'anthropic', model: 'claude-sonnet-4-6' }
+		expect(
+			await getStreamedCompletionText(messages, new AbortController(), { maxTokensCap: 8000 })
+		).toBe('Hello')
+		expect(anthropicCreate).not.toHaveBeenCalled()
+		expect(anthropicStream.mock.calls[0][0].max_tokens).toBe(8000)
+
+		// The Responses stream fails on iteration, not on creation.
+		const responsesStream = vi.fn().mockReturnValue(
+			(async function* () {
+				throw new Error('responses api not served')
+			})()
+		)
+		openaiCreate.mockResolvedValue(
+			streamOf([
+				{ choices: [{ delta: { content: 'chat ' } }] },
+				{ choices: [{ delta: { content: 'text' } }] },
+				{ choices: [], usage: {} }
+			])
+		)
+		vi.spyOn(workspaceAIClients, 'getOpenaiClient').mockReturnValue({
+			chat: { completions: { create: openaiCreate } },
+			responses: { stream: responsesStream }
+		} as any)
+		vi.spyOn(console, 'error').mockImplementation(() => {})
+		h.currentModel = { provider: 'openai', model: 'gpt-4o' }
+
+		expect(
+			await getStreamedCompletionText(messages, new AbortController(), { maxTokensCap: 8000 })
+		).toBe('chat text')
+		expect(responsesStream.mock.calls[0][0].max_output_tokens).toBe(8000)
+		expect(openaiCreate.mock.calls[0][0]).toMatchObject({ stream: true, max_tokens: 8000 })
+	})
+
 	it('caps max_output_tokens for metadata completions on the OpenAI Responses path', async () => {
 		const { getNonStreamingCompletion, getNonStreamingMetadataCompletion, METADATA_MAX_TOKENS } =
 			await import('./lib')

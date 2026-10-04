@@ -328,6 +328,7 @@ export async function* getOpenAIResponsesCompletionStream(
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
 		reasoningEffort?: string
+		maxTokensCap?: number
 	}
 ): AsyncGenerator<OpenAI.Chat.Completions.ChatCompletionChunk> {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -335,6 +336,7 @@ export async function* getOpenAIResponsesCompletionStream(
 		stream: true,
 		tools,
 		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap,
 		reasoningEffort: options?.reasoningEffort
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)

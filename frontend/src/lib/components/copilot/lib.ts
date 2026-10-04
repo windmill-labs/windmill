@@ -1158,12 +1158,18 @@ export async function getCompletion(
 		openaiClient?: OpenAI
 		reasoningEffort?: string
 		promptCaching?: boolean
+		maxTokensCap?: number
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
 
 	if (usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)) {
-		return getAnthropicStreamingCompletion({ messages, modelProvider, abortController })
+		return getAnthropicStreamingCompletion({
+			messages,
+			modelProvider,
+			abortController,
+			maxTokensCap: options?.maxTokensCap
+		})
 	}
 
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -1171,6 +1177,7 @@ export async function getCompletion(
 		stream: true,
 		tools,
 		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap,
 		promptCaching: options?.promptCaching,
 		reasoningEffort: options?.reasoningEffort
 	})
@@ -1181,7 +1188,8 @@ export async function getCompletion(
 			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools, {
 				forceModelProvider: options?.forceModelProvider,
 				openaiClient: options?.openaiClient,
-				reasoningEffort: options?.reasoningEffort
+				reasoningEffort: options?.reasoningEffort,
+				maxTokensCap: options?.maxTokensCap
 			}) as any
 			return stream
 		} catch (error) {
@@ -1221,6 +1229,42 @@ export async function getCompletion(
 		}
 	})
 	return completion
+}
+
+/**
+ * Streams a completion and returns its whole text. For a generation that can run
+ * for minutes: a non-streaming request sends no byte until the model is done, so
+ * an idle timeout on any hop between the browser and the provider cuts it.
+ */
+export async function getStreamedCompletionText(
+	messages: ChatCompletionMessageParam[],
+	abortController: AbortController,
+	options?: { maxTokensCap?: number }
+): Promise<string> {
+	const drain = async (forceCompletions: boolean) => {
+		const stream = await getCompletion(messages, abortController, undefined, {
+			forceCompletions,
+			maxTokensCap: options?.maxTokensCap
+		})
+		let text = ''
+		for await (const chunk of stream) {
+			text += getResponseFromEvent(chunk)
+		}
+		return text
+	}
+
+	try {
+		return await drain(false)
+	} catch (error) {
+		// The Responses API stream only fails once iterated, so the fallback to
+		// chat completions for a deployment that doesn't serve it lives here.
+		const { provider } = getCurrentModel()
+		if (abortController.signal.aborted || (provider !== 'openai' && provider !== 'azure_openai')) {
+			throw error
+		}
+		console.error('Error using Responses API:', error)
+		return drain(true)
+	}
 }
 
 function extractFirstJSON(str: string) {
