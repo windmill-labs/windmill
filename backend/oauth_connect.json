@@ -31,7 +31,8 @@
     "scopes": ["https://www.googleapis.com/auth/spreadsheets"],
     "scope_options": [
       "https://www.googleapis.com/auth/spreadsheets",
-      "https://www.googleapis.com/auth/spreadsheets.readonly"
+      "https://www.googleapis.com/auth/spreadsheets.readonly",
+      "https://www.googleapis.com/auth/drive.metadata.readonly"
     ],
     "extra_params": {
       "access_type": "offline",
@@ -127,7 +128,8 @@
       "https://www.googleapis.com/auth/admin.directory.group.readonly",
       "https://www.googleapis.com/auth/admin.directory.orgunit",
       "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
-      "https://www.googleapis.com/auth/admin.directory.user.security"
+      "https://www.googleapis.com/auth/admin.directory.user.security",
+      "https://www.googleapis.com/auth/admin.reports.audit.readonly"
     ],
     "extra_params": {
       "access_type": "offline",
