@@ -9503,7 +9503,14 @@ async fn push_flow_dependencies_job(
     req: RunFlowDependenciesRequest,
 ) -> error::Result<Uuid> {
     check_scopes(authed, || format!("jobs:run"))?;
-    check_operator_can_build(db, w_id, authed.is_operator, BuilderKind::Flows, "run dependencies jobs").await?;
+    check_operator_can_build(
+        db,
+        w_id,
+        authed.is_operator,
+        BuilderKind::Flows,
+        "run dependencies jobs",
+    )
+    .await?;
     // The dependency job locks whatever inline code this request carries, on a worker. A
     // composition-only flow has none, so validating here costs a builder nothing and keeps the
     // lock step from becoming the way to run code the write path refuses.
@@ -9918,7 +9925,14 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    check_operator_can_build(&db, &w_id, authed.is_operator, BuilderKind::Flows, "run preview jobs").await?;
+    check_operator_can_build(
+        &db,
+        &w_id,
+        authed.is_operator,
+        BuilderKind::Flows,
+        "run preview jobs",
+    )
+    .await?;
     // Flow preview runs an arbitrary, request-supplied flow definition; require the broad
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
