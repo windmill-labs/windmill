@@ -87,6 +87,9 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	class={twMerge(
 		'flex items-center gap-1 shrink-0 min-w-0 bg-surface transition-shadow duration-150',
 		phone ? 'flex-wrap content-center min-h-11 py-1 pl-1 pr-2' : 'h-11 pl-2 pr-4',
+		// The filling surface is what meets the right edge, so the bar keeps no gutter of its own
+		// there — and it cannot wrap, since that surface is as tall as the bar.
+		content?.actionsFill && 'pr-0 flex-nowrap',
 		// The small left padding is there to sit a button against: the sidebar handle, or the
 		// workspace disc, both of which carry their own visual margin. Embedded there is neither,
 		// and the page's name would start as bare text 8px from the edge.
@@ -171,11 +174,19 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		     here that can give width back, and it can only do that if this box may shrink. A phone
 		     only tightens the gutter — pages fold their own buttons into a menu at that width, and
 		     a box that refused to shrink would make the one flexible field take its max instead. -->
+		<!-- `actionsFill`: the actions are a surface rather than a row, so they take the rest of the
+		     bar and run to its right edge, and they stretch its full height because that surface
+		     sits on the bottom edge. -->
 		<div
 			class={twMerge(
-				'ml-auto flex items-center',
-				phone && !content?.actionsFlexible ? 'shrink-0' : 'min-w-0',
-				phone ? 'gap-1 pl-1' : 'gap-2 pl-4'
+				'flex',
+				// pl-4: the gap between the breadcrumb and the filling surface is bare bar, so it
+				// belongs here rather than inside that surface, where it would be filled.
+				content?.actionsFill
+					? 'flex-1 min-w-0 self-stretch items-stretch pl-4'
+					: 'ml-auto items-center',
+				!content?.actionsFill && (phone && !content?.actionsFlexible ? 'shrink-0' : 'min-w-0'),
+				!content?.actionsFill && (phone ? 'gap-1 pl-1' : 'gap-2 pl-4')
 			)}
 		>
 			{#each actions as entry, i (i)}
