@@ -198,15 +198,7 @@
 	function handleKeydown(e: KeyboardEvent, tab: TabItem) {
 		if (e.target !== e.currentTarget) return // let nested controls (close ×) act
 		// A modified key is the host page's shortcut (e.g. Cmd+Enter to run), not a tab action.
-		// svelte-dnd-action's item listener claims every Enter/Space (starting a keyboard drag)
-		// and stops it there, so those are re-sent from the strip, above the dnd zone.
-		if (e.ctrlKey || e.metaKey || e.altKey) {
-			if (e.key === 'Enter' || e.key === ' ') {
-				e.stopPropagation()
-				stripEl?.dispatchEvent(new KeyboardEvent(e.type, e))
-			}
-			return
-		}
+		if (e.ctrlKey || e.metaKey || e.altKey) return
 		if (e.key === 'Delete' || e.key === 'Backspace') {
 			if (tab.closable !== false) {
 				e.preventDefault()
@@ -229,6 +221,19 @@
 			e.stopPropagation()
 			activate(tab)
 		}
+	}
+
+	// svelte-dnd-action claims every Enter/Space on a focused tab or on its (also focusable)
+	// item wrapper to start a keyboard drag, and stops it there — so a modified one, the host
+	// page's shortcut, is stopped first and re-sent from the strip, above the dnd zone. The
+	// target test mirrors dnd's own skip, leaving nested buttons and inputs alone.
+	function forwardModifiedKey(e: KeyboardEvent) {
+		if (!(e.ctrlKey || e.metaKey || e.altKey) || (e.key !== 'Enter' && e.key !== ' ')) return
+		const target = e.target as HTMLElement & { disabled?: boolean; href?: string }
+		if (target === stripEl || target.disabled !== undefined || target.href) return
+		if (target.isContentEditable) return
+		e.stopPropagation()
+		stripEl?.dispatchEvent(new KeyboardEvent(e.type, e))
 	}
 
 	function handleAuxClick(e: MouseEvent, tab: TabItem) {
@@ -279,7 +284,12 @@
 	</div>
 {/snippet}
 
-<div bind:this={stripEl} class={twMerge('flex items-center bg-surface min-h-8', c)}>
+<div
+	bind:this={stripEl}
+	class={twMerge('flex items-center bg-surface min-h-8', c)}
+	onkeydowncapture={forwardModifiedKey}
+	role="presentation"
+>
 	<!-- The tabs centre in the full strip and the bar overlays the air under them,
 	     flush with the strip's bottom edge — it takes no height of its own, so the
 	     strip never resizes and the tabs sit at the same place whether or not they
