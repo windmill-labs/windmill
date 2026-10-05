@@ -94,7 +94,8 @@
     "scopes": ["https://www.googleapis.com/auth/spreadsheets"],
     "scope_options": [
       { "value": "https://www.googleapis.com/auth/spreadsheets", "label": "Read, edit, create and delete spreadsheets" },
-      { "value": "https://www.googleapis.com/auth/spreadsheets.readonly", "label": "Read spreadsheets" }
+      { "value": "https://www.googleapis.com/auth/spreadsheets.readonly", "label": "Read spreadsheets" },
+      { "value": "https://www.googleapis.com/auth/drive.metadata.readonly", "label": "List and search your spreadsheets in Drive" }
     ],
     "extra_params": {
       "access_type": "offline",
@@ -226,7 +227,8 @@
       { "value": "https://www.googleapis.com/auth/admin.directory.group.readonly", "label": "Read groups" },
       { "value": "https://www.googleapis.com/auth/admin.directory.orgunit", "label": "Read and manage organizational units" },
       { "value": "https://www.googleapis.com/auth/admin.directory.orgunit.readonly", "label": "Read organizational units" },
-      { "value": "https://www.googleapis.com/auth/admin.directory.user.security", "label": "Manage user security settings" }
+      { "value": "https://www.googleapis.com/auth/admin.directory.user.security", "label": "Manage user security settings" },
+      { "value": "https://www.googleapis.com/auth/admin.reports.audit.readonly", "label": "Read audit logs (login, admin, Drive, token activity)" }
     ],
     "extra_params": {
       "access_type": "offline",
