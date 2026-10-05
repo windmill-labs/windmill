@@ -56,7 +56,7 @@ pub async fn fetch_s3object_as_json_text(
         crate::worker_utils::JobPingHeartbeat::start(conn, job_id, "s3object materialization");
 
     let bytes = client
-        .download_s3_file(workspace_id, &obj.s3, obj.storage.clone())
+        .download_s3_file(workspace_id, &obj.s3, obj.storage.clone(), None)
         .await
         .with_context(|| format!("Failed to download S3 object `{}`", obj.s3))?;
 
