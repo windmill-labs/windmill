@@ -141,6 +141,11 @@ that already have one on, is a zero delta and never blocks.
   `RestrictAnonymousAppDeployment` protection rule. A `Guest` app is the same with a login in
   front: anyone the instance's identity provider admits, member or not, once guest access is
   enabled. `RestrictGuestAppDeployment` refuses it.
+- A builder raw app may set `allow_user_resources` on a runnable's inputs, and the bundle picks the
+  `$res:` path it sends. `build_args` resolves that path as the *viewer*, with no prompt, into a
+  job that runs as the builder. Getting a value out takes a guessable path and a readable script
+  that returns, logs or sends its input. Developers can do the same; the lever is refusing a
+  non-empty `allow_user_resources` (and `s3_inputs[].allow_user_resources`) for builders.
 - A builder's delete or settings-only update reads the app's kind before the write, not under a
   lock held through it. An admin converting that app to low-code in between lets the builder's
   request land on the low-code app; the builder already has write access to its path.
