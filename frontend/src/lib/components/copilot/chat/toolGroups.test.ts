@@ -102,8 +102,18 @@ describe('groupToolRuns', () => {
 		]
 		expect(shape(batch)).toEqual([0, { waiting: [1, 2] }])
 		expect(header(batch)).toBe('2 more calls waiting: Execute SQL on "main", Search workspace')
-		// The call next in line, before anything runs, shows as itself.
+		// The call next in line shows as itself, before anything runs and between two calls.
 		expect(shape([assistant(''), sql(queued), sql(queued)])).toEqual([0, 1, { waiting: [2] }])
+		expect(shape([sql(), sql(queued), sql(queued)])).toEqual([0, 1, { waiting: [2] }])
+		// Queued edits of one flow keep their edit group.
+		const flow = { path: 'f/a/flow' }
+		expect(
+			shape([
+				tool('search_workspace', {}, { isLoading: true }),
+				tool('patch_flow_json', flow, queued),
+				tool('patch_flow_json', flow, queued)
+			])
+		).toEqual([0, { edit: [1, 2] }])
 	})
 
 	it('keeps an edit whose arguments are still streaming in the group it follows', () => {

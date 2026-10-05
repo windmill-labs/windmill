@@ -234,16 +234,26 @@ function isWaitingCall(message: DisplayMessage): boolean {
 	return message.role === 'tool' && message.isQueued === true && message.error === undefined
 }
 
+function inFlight(message: DisplayMessage): boolean {
+	return (
+		message.role === 'tool' &&
+		Boolean(message.isLoading || message.isQueued || message.isStreamingArguments)
+	)
+}
+
 // Calls of one turn run one at a time, so the ones queued behind a call fold into a single
-// row whatever they are: each would otherwise sit as its own row until its turn. Only after
-// another call's row, so the call next in line still shows as itself.
+// row: each would otherwise sit as its own row until its turn. Only behind a call still in
+// flight: between two calls the previous one has settled, and the call next in line must
+// still show as itself rather than dip into the row and back out.
 function waitingGroupAt(
 	messages: DisplayMessage[],
 	start: number,
 	previous: ChatItem | undefined
 ): ToolGroup | undefined {
-	if (!isWaitingCall(messages[start])) return undefined
-	if (previous?.kind !== 'group' && previous?.message.role !== 'tool') return undefined
+	if (!isWaitingCall(messages[start]) || !previous) return undefined
+	const ahead =
+		previous.kind === 'group' ? previous.entries.map((e) => e.message) : [previous.message]
+	if (!ahead.some(inFlight)) return undefined
 	const end = runEnd(messages, start, isWaitingCall)
 	return {
 		kind: 'group',
@@ -259,15 +269,15 @@ export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
 	let i = 0
 	while (i < messages.length) {
 		// An edit group wins over an explore group: its reads belong to the edits they prepare,
-		// so an explore run also stops before a read that starts one. A group keeps the queued
-		// calls of its own kind, so a waiting row only holds the queued calls a group would not take.
+		// so an explore run also stops before a read that starts one. Both win over a waiting
+		// row, whose header says less than `Edit f/a/flow · 2 changes`.
 		const explores = (m: DisplayMessage, j: number) => isReadCall(m) && !editGroupAt(messages, j)
 		const group =
-			waitingGroupAt(messages, i, items.at(-1)) ??
 			editGroupAt(messages, i) ??
 			(isReadCall(messages[i])
 				? toolGroup(messages, i, runEnd(messages, i, explores), 'explore', '')
-				: undefined)
+				: undefined) ??
+			waitingGroupAt(messages, i, items.at(-1))
 		if (group) {
 			items.push(group)
 			i = group.entries.at(-1)!.index + 1
