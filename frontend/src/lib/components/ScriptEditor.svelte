@@ -2628,17 +2628,16 @@
 								{@render renameModuleForm(tab.id, close)}
 							{/snippet}
 						</Popover>
-						<button
-							type="button"
-							class="opacity-0 group-hover:opacity-100 focus:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
+						<Button
+							variant="subtle"
+							unifiedSize="2xs"
+							iconOnly
+							startIcon={{ icon: X }}
+							wrapperClasses="opacity-0 group-hover:opacity-100 focus-within:opacity-100"
 							aria-label={`Delete ${tab.id}`}
-							onclick={(e) => {
-								e.stopPropagation()
-								removeModule(tab.id)
-							}}
-						>
-							<X size={10} />
-						</button>
+							title={`Delete ${tab.id}`}
+							onClick={() => removeModule(tab.id)}
+						/>
 					{/if}
 				{/snippet}
 				{#snippet afterTabs()}
