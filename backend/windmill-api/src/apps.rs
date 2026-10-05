@@ -3439,10 +3439,7 @@ async fn create_app_raw_source(
     Path(w_id): Path<String>,
     Json(mut app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
-    // Stays closed to operators even with builder rights, unlike `create_app_raw`/`update_app_raw`
-    // next to it: this path compiles caller-supplied sources with a bundler job on a worker, which
-    // is arbitrary code execution. Builders lose nothing: the browser and the CLI both bundle
-    // locally and deploy through the multipart endpoints.
+    // Closed to builders too, for the reason on `update_app_raw_source`.
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot create apps for security reasons".to_string(),
@@ -4378,8 +4375,8 @@ async fn execute_component(
             Error::NotAuthorized("App component preview requires authentication".to_string())
         })?;
         // A builder testing the app it is composing only ever previews a deployed runnable
-        // (`path`) or a persisted app script (`id`), both confined below to what it may read.
-        // Inline `raw_code` is authoring code, so it stays closed to every operator. So is a hub
+        // (`path`), confined below to what it may read. Inline `raw_code`, which an `id` also
+        // requires, is authoring code, so it stays closed to every operator. So is a hub
         // path, which `require_path_read_access_for_preview` admits for everyone and
         // `get_payload_tag_from_prefixed_path` then downloads and enqueues: it is exactly the
         // unreviewed code the composition check refuses in a flow.
