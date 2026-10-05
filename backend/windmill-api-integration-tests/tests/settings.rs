@@ -200,3 +200,81 @@ async fn test_alert_job_queue_waiting_in_global_settings(db: Pool<Postgres>) -> 
 
     Ok(())
 }
+
+async fn read_secret_surfaces(
+    base: &str,
+    names: &[&str],
+) -> anyhow::Result<Vec<(String, u16, String)>> {
+    let mut paths = vec![
+        "instance_config".to_string(),
+        "instance_config/yaml".to_string(),
+    ];
+    #[cfg(feature = "enterprise")]
+    paths.push("list_global".to_string());
+    paths.extend(names.iter().map(|n| format!("global/{n}")));
+    let mut out = vec![];
+    for path in paths {
+        let resp = authed(client().get(format!("{base}/{path}")))
+            .send()
+            .await?;
+        let status = resp.status().as_u16();
+        out.push((path, status, resp.text().await?));
+    }
+    Ok(out)
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_server_secrets_follow_export_flag(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let secrets = [
+        ("jwt_secret", json!("planted-jwt-secret")),
+        ("rsa_keys", json!({"private_key": "planted-rsa-key"})),
+        (
+            "custom_instance_replication_pwd",
+            json!("planted-replication-pwd"),
+        ),
+        (
+            "external_instance_pg_state",
+            json!({"admin_pwd": "planted-pg-state"}),
+        ),
+    ];
+    for (name, value) in &secrets {
+        sqlx::query(
+            "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+             ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
+        )
+        .bind(name)
+        .bind(value)
+        .execute(&db)
+        .await?;
+    }
+    let names: Vec<&str> = secrets.iter().map(|(n, _)| *n).collect();
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api/settings", server.addr.port());
+
+    // Default: a full export, so `get-config` and `pull` can migrate an instance.
+    std::env::remove_var("EXPORT_SERVER_SECRETS");
+    for (path, status, body) in read_secret_surfaces(&base, &names).await? {
+        assert_2xx(status, &body, &path);
+        assert!(
+            body.contains("planted-"),
+            "{path} dropped a server secret: {body}"
+        );
+    }
+
+    std::env::set_var("EXPORT_SERVER_SECRETS", "0");
+    let withheld = read_secret_surfaces(&base, &names).await;
+    std::env::remove_var("EXPORT_SERVER_SECRETS");
+    for (path, status, body) in withheld? {
+        if path.starts_with("global/") {
+            assert_eq!(status, 400, "GET {path} returned {status}");
+        } else {
+            assert_2xx(status, &body, &path);
+        }
+        assert!(
+            !body.contains("planted-"),
+            "{path} returned a server secret: {body}"
+        );
+    }
+    Ok(())
+}

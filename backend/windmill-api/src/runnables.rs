@@ -371,7 +371,8 @@ fn draft_branch_sql(kind: &str) -> String {
         "SELECT '{kind}' as kind, o.path, o.summary, o.workspace_id, '{{}}'::jsonb as extra_perms, \
                 false as starred, false as archived, \
                 true as is_draft, true as draft_only, o.draft_path, \
-                json_build_array(json_build_object('username', $2::text)) as draft_users, \
+                json_build_array(json_build_object('username', \
+                    CASE WHEN o.legacy THEN NULL ELSE $2::text END)) as draft_users, \
                 NULL::text[] as labels, NULL::text[] as inherited_labels, \
                 NULL::bool as ws_error_handler_muted, o.created_at as edited_at, \
                 NULL::bigint as hash, o.language, o.script_kind, o.auto_kind, \
@@ -380,6 +381,7 @@ fn draft_branch_sql(kind: &str) -> String {
                 o.created_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.draft_path, o.path)) as sort_name, 0::bigint as tiebreak \
          FROM ( \
              SELECT DISTINCT ON (d.path) d.workspace_id, d.path, d.created_at, \
+                    d.email IS NULL as legacy, \
                     COALESCE(d.value->>'summary', '') as summary, \
                     NULLIF(NULLIF(d.value->>'{typed_path}', ''), d.path) as draft_path, \
                     {kind_cols} \

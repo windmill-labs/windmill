@@ -52,7 +52,7 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { workspaceAIClients, getStreamedCompletionText } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
 import { getEffectiveModelContextWindow } from '../modelConfig'
@@ -1596,10 +1596,8 @@ export class AIChatManager implements ChatViewHost {
 		this.compacting = true
 		try {
 			// Cap the summarizer's output at the budget already reserved for the
-			// summary. Without a cap the model's default max_tokens applies, and the
-			// Anthropic SDK rejects non-streaming requests whose max_tokens implies
-			// >10 minutes of generation (~21k tokens) before anything is sent.
-			const raw = await getNonStreamingCompletion(
+			// summary: without a cap the model's default max_tokens applies.
+			const raw = await getStreamedCompletionText(
 				[
 					// Strip image blobs from the summarizer input — the summary text stands in
 					// for them, so re-sending base64 to the summarizer only wastes tokens.
@@ -1609,7 +1607,7 @@ export class AIChatManager implements ChatViewHost {
 				abortController,
 				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS }
 			)
-			const formatted = formatCompactSummary(raw ?? '')
+			const formatted = formatCompactSummary(raw)
 			if (!formatted) {
 				return 'empty'
 			}

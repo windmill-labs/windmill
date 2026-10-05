@@ -2896,6 +2896,9 @@ pub async fn handle_wac_v2_output(
                             concurrency_settings: ConcurrencySettings::default(),
                             debouncing_settings: DebouncingSettings::default(),
                             labels: None,
+                            // Capped by the parent at push, which already holds this
+                            // script's setting.
+                            job_token_scopes: None,
                         })
                     } else {
                         Err(error::Error::internal_err(
@@ -3023,6 +3026,7 @@ pub async fn handle_wac_v2_output(
                             apply_preprocessor: false,
                             version: flow_info.version,
                             labels: flow_info.labels.clone(),
+                            job_token_scopes: flow_info.job_token_scopes.clone(),
                         };
                         let on_behalf_of = flow_info.on_behalf_of(&job.workspace_id, db).await?;
                         (ChildRunnable::Deployed(payload), on_behalf_of)
@@ -3272,6 +3276,7 @@ pub async fn handle_wac_v2_output(
                         None,  // end_user_email
                         None,  // trigger
                         None,  // suspended_mode
+                        job.job_token_scopes.as_deref(),
                     )
                     .await?;
 
