@@ -84,6 +84,7 @@
 		if (blockedByUnparseable) {
 			return
 		}
+		if (claimRun && !claimRun.claim()) return
 		let processedArgs: Record<string, any>
 		const { args: withDefaults, resetKeys } = enforceDisabledDefaults(args ?? {}, runnable?.schema)
 		if (resetKeys.length > 0) {
@@ -92,6 +93,7 @@
 		try {
 			processedArgs = await processSecretArgs(withDefaults, runnable?.schema, $operatingWorkspace)
 		} catch (e) {
+			claimRun?.release()
 			sendUserToast('Failed to process sensitive args: ' + e, true)
 			return
 		}
@@ -133,6 +135,11 @@
 			invisible_to_owner: boolean | undefined,
 			overrideTag: string | undefined
 		) => void
+		/** Asked before anything is written, for a `runAction` whose own guards must beat
+		 * `processSecretArgs` to the workspace: false abandons the press. `release` is called
+		 * if the press then ends before `runAction`, so a guard that counts presses can stop
+		 * counting this one. */
+		claimRun?: { claim: () => boolean; release: () => void }
 		buttonText?: string
 		schedulable?: boolean
 		detailed?: boolean
@@ -160,6 +167,7 @@
 	let {
 		runnable,
 		runAction,
+		claimRun = undefined,
 		buttonText = 'Run',
 		schedulable = true,
 		detailed = true,

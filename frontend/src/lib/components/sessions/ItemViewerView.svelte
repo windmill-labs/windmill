@@ -69,7 +69,12 @@
 	// The call waiting on this item's run form, when the reader chose to confirm it here
 	// rather than on the card. Read live from the runtime, so it disappears the moment the
 	// call settles — by Run, by Cancel, by a stopped turn or by this tab closing.
-	const pendingRun = $derived(runtime.pendingRunFor(kind, path))
+	//
+	// Never on a version: the tool starts its job by path, so it would run the deployed
+	// version while this page shows the one the reader pinned. Picking a version hands the
+	// page back to itself — its own Run executes what is on screen — and the card takes its
+	// form back, which is the only place the call can still be confirmed as proposed.
+	const pendingRun = $derived(version ? undefined : runtime.pendingRunFor(kind, path))
 
 	/** Refetch the deployed item. The host calls this for the reload signals that reach a
 	 * tab from outside it; nothing about becoming visible triggers it, so a form the reader

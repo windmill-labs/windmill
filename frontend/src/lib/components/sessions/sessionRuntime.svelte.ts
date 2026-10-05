@@ -26,6 +26,8 @@ import {
 // the response type still need an explicit cast).
 type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScript }
 type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
+import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
+import { sendUserToast } from '$lib/toast'
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userWorkspaces, workspaceStore } from '$lib/stores'
@@ -581,9 +583,26 @@ function createRuntime(session: Session): SessionRuntime {
 	function pendingRunFor(kind: SessionTargetKind, path: string): PendingRun | undefined {
 		const adopted = adoptedRuns.get(adoptionKey(kind, path))
 		if (!adopted) return undefined
+		// The map says which call chose this page; whether that call is still waiting is the
+		// manager's to answer. Asking it here rather than dropping the adoption from each way
+		// a call can end is what covers the ways that reach no hook at all — a submit whose
+		// job never started, because the server refused it or plan mode blocked it after the
+		// arguments were already handed over.
+		if (!manager.isRunFormPending(adopted.toolCallId)) return undefined
 		return {
 			toolCallId: adopted.toolCallId,
 			args: adopted.args,
+			// Both guards belong ahead of the form's own `processSecretArgs`, which writes
+			// ephemeral variables to the workspace: plan mode can be switched on while the form
+			// sits here, and a second press would mint a second set of them.
+			claim: () => {
+				if (manager.planModeActive) {
+					sendUserToast(PLAN_MODE_MESSAGES.runFormRefused, true)
+					return false
+				}
+				return manager.beginRunFormSubmit(adopted.toolCallId)
+			},
+			release: () => manager.endRunFormSubmit(adopted.toolCallId),
 			// False when the call is no longer waiting — a turn stopped out from under the page,
 			// or a job that failed to start. The page says so rather than leaving Run dead.
 			submit: (args) => manager.handleRunFormSubmit(adopted.toolCallId, args),
@@ -680,8 +699,8 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.closeRunForm = (toolCallId) => {
 		// The page outlives the call it adopted — it is still the item's deployed page — so
 		// settling only drops the adoption, and the form goes back to running on its own.
-		// Reached however the call ends, a job that failed to start included, which is what
-		// keeps a settled call from leaving an inert Run button behind.
+		// Reached on a cancel; a call that ends any other way stops being pending, which
+		// `pendingRunFor` reads, so the entry left here is inert either way.
 		dropAdoption(toolCallId)
 		previewTabs.closeRunForm(toolCallId)
 	}
@@ -706,9 +725,25 @@ function createRuntime(session: Session): SessionRuntime {
 	// to `tabs` through it, and the runtime is not inside an effect root to push from.
 	// An adopted deployed page counts: its form is this call's form, so the card must not
 	// mount a second one there either.
+	// The card folds its form away only while something else is showing it. For an adopted
+	// page that means an unpinned viewer on the item: a tab the reader pinned to a version
+	// hands the call back (`ItemViewerView`), and a card that kept pointing at it would leave
+	// the call confirmable nowhere.
 	manager.isRunFormInPreview = (toolCallId) =>
 		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId) ||
-		[...adoptedRuns.values()].some((a) => a.toolCallId === toolCallId)
+		[...adoptedRuns].some(([key, a]) => {
+			if (a.toolCallId !== toolCallId) return false
+			const [kind, path] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
+			return previewTabs.tabs.some((t) => {
+				const slot = resolvePreviewTab(t.url)
+				return (
+					slot.kind === 'viewer' &&
+					slot.viewerKind === kind &&
+					slot.path === path &&
+					!t.url.includes('version=')
+				)
+			})
+		})
 
 	manager.openArtifact = (id, name, version) => {
 		previewTabs.open({ type: 'artifact', id, name, version })

@@ -15,6 +15,14 @@ export type PendingRun = {
 	toolCallId: string
 	/** What the model proposed, already narrowed to the deployed schema by the tool. */
 	args: Record<string, any>
+	/** Take the call, before the form mints a `password` field into an ephemeral workspace
+	 * variable. False means this press runs nothing: plan mode is on, or a press is already
+	 * in flight. Both have to be answered here rather than in {@link submit}, which the form
+	 * only reaches after it has written those variables. */
+	claim: () => boolean
+	/** Give the call back when a claimed press ends without reaching {@link submit}, so the
+	 * next one is not refused as a double press. */
+	release: () => void
 	/** Hand the form's current arguments to the waiting call. False when it is no longer
 	 * waiting — a stopped turn, or a job that failed to start — so the page can say so
 	 * instead of leaving Run looking live. */

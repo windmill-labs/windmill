@@ -413,7 +413,9 @@
 		previewTarget === 'form'
 			? `Open this form in the preview panel: ${path}`
 			: previewTarget === 'deployed'
-				? `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and its run form: ${path}`
+				? // Not "and its run form": a chat-enabled flow's deployed page is a conversation,
+					// and nothing here can tell one from an ordinary flow.
+					`Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and confirm this run there: ${path}`
 				: aiChatManager.openRunInPreview
 					? `Open this run in the preview panel: ${path || runnableName}`
 					: `Open this run in a new tab: ${path || runnableName}`

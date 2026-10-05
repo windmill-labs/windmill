@@ -407,7 +407,13 @@
 			// without the rest would run on saved values or schema defaults — a different run
 			// from the one proposed. These land whether or not the message does.
 			const { user_message: message, ...inputs } = pendingRun.args ?? {}
-			flowChat.applyInputs(inputs)
+			// Minted before they are applied, not only before the run: the composer's inputs
+			// are saved to localStorage as soon as the reader touches any of them, so a
+			// `password` the model proposed as a literal would be written there in the clear.
+			const chat = flowChat
+			processSecretArgs(inputs, flow?.schema as Schema | undefined, workspace)
+				.then((minted) => chat.applyInputs(minted))
+				.catch((e) => sendUserToast('Failed to process sensitive args: ' + e, true))
 			// A composer already holding a draft declines, and the message is then dropped
 			// rather than held: injecting it whenever the reader happens to clear their draft
 			// would put words in the box long after they were proposed. The strip above it
@@ -960,6 +966,7 @@
 									bind:isValid
 									runnable={flow}
 									{runAction}
+									claimRun={pendingRun}
 									bind:args
 									schedulable={!pendingRun}
 									bind:this={runForm}

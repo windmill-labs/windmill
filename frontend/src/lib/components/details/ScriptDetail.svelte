@@ -419,10 +419,6 @@
 
 	let args: Record<string, any> | undefined = $state(undefined)
 
-	// Seeded once the form exists, and again whenever another request arrives for a page
-	// already open — latched on the request rather than on "seeded once", which would leave
-	// the previous turn's values on screen. The arguments were narrowed against this script's
-	// deployed schema before they got here, by the tool that opened the page.
 	// Run hands the arguments to the waiting call instead of starting a job: the tool that
 	// parked on this form starts one itself when it resumes.
 	const runAction = $derived(
@@ -1136,6 +1132,7 @@
 								bind:isValid
 								runnable={script}
 								{runAction}
+								claimRun={pendingRun}
 								bind:args
 								schedulable={!pendingRun}
 								bind:this={runForm}

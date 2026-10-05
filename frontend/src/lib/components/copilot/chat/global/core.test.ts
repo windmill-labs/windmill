@@ -5294,6 +5294,37 @@ describe('global AI tools', () => {
 		expect(refused).toContain('cannot show a run form')
 	})
 
+	// A page that settled the call by running the item its own way — a chat flow, whose page is
+	// a conversation with no Run button — is not a refusal. Told it was cancelled, the model
+	// reports that nothing ran while the run is in that conversation.
+	it('run_flow reports the run when a page settled the call instead of refusing it', async () => {
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValue({
+			path: 'f/flows/chat',
+			schema: { properties: { user_message: { type: 'string' } } }
+		} as any)
+
+		const statuses: any[] = []
+		const reason = 'The user ran "f/flows/chat" themselves by sending the message.'
+		const answer = await callGlobalTool(
+			'run_flow',
+			{ path: 'f/flows/chat', args: { user_message: 'hi' } },
+			{
+				...toolCallbacks,
+				setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+				requestRunArgs: async () => undefined,
+				runFormDeclineReason: () => reason
+			}
+		)
+
+		expect(JobService.runFlowByPath).not.toHaveBeenCalled()
+		expect(answer).toContain(reason)
+		const settled = statuses.at(-1)
+		expect(settled.content).toBe(reason)
+		// Both: the call did start nothing, and the card must still not call that a cancellation.
+		expect(settled.declinedByUser).toBe(true)
+		expect(settled.ranElsewhere).toBe(true)
+	})
+
 	// The posture answers wherever it is set, form or no form: what it answers is consent, and a
 	// host without one has nothing left to ask. A secret still becomes a reference first, which
 	// is the only thing the missing form would have done.
