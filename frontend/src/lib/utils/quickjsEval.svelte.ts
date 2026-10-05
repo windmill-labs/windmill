@@ -12,6 +12,10 @@ import type { QuickJSWASMModule } from 'quickjs-emscripten-core'
 const TIMEOUT_MS = 1000
 // WebAssembly memory never shrinks, so one greedy expression would keep the engine's peak forever.
 const MEMORY_LIMIT = 256 * 1024 * 1024
+// The engine runs on the page's own stack. Past this, it raises a catchable "stack overflow";
+// without it, the page's stack overflows mid-step and leaves the runtime unfreeable. 192 KB already
+// lets deeply nested JSON through to the page's limit.
+const STACK_LIMIT = 128 * 1024
 
 let engine = $state.raw<QuickJSWASMModule>()
 let failed = $state(false)
@@ -61,6 +65,12 @@ const LOOKUP = new RegExp(
 	`^\\s*(${IDENT})((?:${ANY_KEY})*)\\s*` +
 		`(?:(===|!==|==|!=)\\s*(${STRING}|-?(?:0|[1-9]\\d*)(?:\\.\\d+)?|true|false|null)\\s*)?;?\\s*$`
 )
+
+/** What `expr` returns. A leading line break would otherwise follow `return` and end the
+ *  statement, while `LOOKUP` skips it: the two paths would disagree. */
+function bodyOf(expr: string): string {
+	return (expr.startsWith('return ') ? expr.slice(7) : expr).trimStart()
+}
 
 /** A literal `LOOKUP` matched; a single-quoted string is rewritten as JSON first. */
 function literal(text: string): unknown {
@@ -163,7 +173,7 @@ export function evalSandboxed(
 	scope: Record<string, unknown>,
 	placeholders = false
 ): any {
-	const body = expr.startsWith('return ') ? expr.slice(7) : expr
+	const body = bodyOf(expr)
 	const cheap = cheapAnswer(body, scope)
 	if (cheap) return cheap.value
 	quickjsReady()
@@ -172,6 +182,7 @@ export function evalSandboxed(
 	}
 	const rt = engine.newRuntime()
 	rt.setMemoryLimit(MEMORY_LIMIT)
+	rt.setMaxStackSize(STACK_LIMIT)
 	const deadline = Date.now() + TIMEOUT_MS
 	rt.setInterruptHandler(() => Date.now() > deadline)
 	const vm = rt.newContext()
@@ -209,8 +220,12 @@ return ${body}
 			result.dispose()
 		}
 	} finally {
-		vm.dispose()
-		rt.dispose()
+		// A runtime interrupted by the page's own stack overflow fails its leak check here, and that
+		// error would replace the one the expression raised. Its memory is lost either way.
+		try {
+			vm.dispose()
+			rt.dispose()
+		} catch {}
 	}
 }
 
@@ -221,7 +236,7 @@ return ${body}
 export function computeShow(expr: string | undefined, args: any): boolean | undefined {
 	if (!expr) return true
 	const scope = { fields: args ?? {} }
-	const cheap = cheapAnswer(expr.startsWith('return ') ? expr.slice(7) : expr, scope)
+	const cheap = cheapAnswer(bodyOf(expr), scope)
 	if (cheap) return Boolean(cheap.value)
 	quickjsReady()
 	if (!quickjsSettled()) return undefined

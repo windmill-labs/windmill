@@ -20,6 +20,7 @@ describe('quickjsEval', () => {
 		expect(computeShow('fields.constructor', { a: 1 })).toBeUndefined()
 		await quickjsReady()
 		expect(computeShow('fields.a + 1 === 2', { a: 1 })).toBe(true)
+		expect(computeShow('\nfields.a + 1 === 2', { a: 1 })).toBe(true)
 		expect(computeShow('fields.x === "\\x41"', { x: 'A' })).toBe(true)
 		expect(computeShow('fields["\\x41"] === 1', { A: 1 })).toBe(true)
 		expect(computeShow('fields.', {})).toBe(true)
@@ -35,6 +36,9 @@ describe('quickjsEval', () => {
 		expect(() => evalSandboxed('(() => { while (true) {} })()', scope)).toThrow()
 		expect(evalSandboxed('1 + 1', scope)).toBe(2)
 		expect(evalSandboxed('1 + 1', {})).toBe(2)
+		expect(() =>
+			evalSandboxed('(() => { function f() { return f() } return f() })()', scope)
+		).toThrow(/stack overflow/)
 		const rows = Array.from({ length: 110_000 }, (_, i) => `item-${i}-xxxxxx`)
 		const started = performance.now()
 		expect(() =>
