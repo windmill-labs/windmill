@@ -100,3 +100,11 @@ describe('appDraftCodec — fork base round-trip', () => {
 		)
 	})
 })
+
+describe('appDraftCodec — loaded draft owner round-trip', () => {
+	it('keeps whose draft it was, so the editor keeps the preview paused', () => {
+		const draft = runtimeRawAppToDraft(runtime({ loaded_from: 'operator' }))
+		expect(draft.loaded_from).toBe('operator')
+		expect(applyDraftToRuntimeRawApp(runtime(), draft).loaded_from).toBe('operator')
+	})
+})

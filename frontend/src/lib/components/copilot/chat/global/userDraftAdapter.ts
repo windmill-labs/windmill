@@ -73,7 +73,8 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 		parent_version: value.parent_version,
 		// Same for the friendly path of a draft-only app: dropping it here would
 		// rename the app back to its `draft_<uuid>` storage key on every chat edit.
-		draft_path: value.draft_path
+		draft_path: value.draft_path,
+		loaded_from: value.loaded_from
 	}
 }
 
