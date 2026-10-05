@@ -981,7 +981,7 @@ try:
         raise ValueError("{main_override} function is missing")
     res = _await(inner_script.{main_override}(**args))
     typ = type(res)
-    if hasattr(typ, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
+    if hasattr(res, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
         for chunk in res:
             print("WM_STREAM: " + chunk.replace('\n', '\\n'))
         res = None

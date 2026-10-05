@@ -496,8 +496,8 @@ async def main(x: int):
         );
     }
 
-    // `wmill.S3Object` is such a dict: its `__getattr__` raises KeyError, which
-    // `hasattr` does not swallow.
+    // `hasattr` does not swallow the KeyError this `__getattr__` raises; released
+    // `wmill` clients ship an `S3Object` built this way.
     #[test]
     fn test_python_execd_result_with_keyerror_getattr() {
         let script = r#"
