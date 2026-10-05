@@ -73,13 +73,18 @@
 	// fits inside itself, which it always does, and the filters would never fold.
 	let filtersRowWidth = $state(0)
 	/** What the breadcrumb takes before the filters get any: the workspace disc and name, the
-	 *  page's name and the hint beside it. Measured at 361-398px across bar widths; the round
-	 *  number above that is what keeps a row that only just fits from overrunning the bar. */
+	 *  page's name and the hint beside it. Measured at 361-398px across bar widths. */
 	const BREADCRUMB_WIDTH = 400
+	/** Clear space held between the breadcrumb and the first filter. The breadcrumb yields width
+	 *  grudgingly and the filter row not at all, so when the two are sized to just meet they
+	 *  overlap instead of compressing — and mid-resize, before the breadcrumb has settled, the
+	 *  tooltip at the end of it lands on the timeframe button. Measured without this: the gap
+	 *  reached 4px across a 1600->1200 sweep. */
+	const BREADCRUMB_GAP = 48
 	let inlineFilters = $derived(
 		filtersRowWidth > 0 &&
 			pageHeader.barWidth > 0 &&
-			filtersRowWidth <= pageHeader.barWidth - BREADCRUMB_WIDTH
+			filtersRowWidth <= pageHeader.barWidth - BREADCRUMB_WIDTH - BREADCRUMB_GAP
 	)
 
 	// Function to fetch missing job execution audit logs

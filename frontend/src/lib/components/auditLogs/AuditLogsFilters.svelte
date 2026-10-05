@@ -18,7 +18,10 @@
 	import type { ActionKind } from '$lib/common'
 
 	import Button from '$lib/components/common/button/Button.svelte'
-	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
+	import TimeframeSelect, {
+		auditTimeframes,
+		useSyncedTimeframe
+	} from '$lib/components/runs/TimeframeSelect.svelte'
 	import {
 		type AuditLog,
 		ResourceService,
@@ -29,7 +32,7 @@
 	} from '$lib/gen'
 
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { ChevronDown, Download, Loader2, RefreshCcw } from 'lucide-svelte'
+	import { ChevronDown, Download } from 'lucide-svelte'
 	import { onDestroy, onMount, untrack } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -266,22 +269,34 @@
 		untrack(() => updateQueryParams())
 	})
 
-	// `leading-none`: the label's own line box is what decides whether a stacked field fits the
-	// header band. At the default leading the field is 52px against a 50px bar and the label is
-	// clipped off the top; at the font's own height it is 44px.
-	const fieldLabel = 'text-xs font-semibold text-emphasis shrink-0 leading-none'
+	// The bounds stay the filters' own `after`/`before`, because the timeline's zoom writes them
+	// too; picking a preset resolves it to a concrete pair here rather than keeping a label that
+	// the chart could then contradict.
+	const _timeframe = useSyncedTimeframe(
+		auditTimeframes,
+		() => ({ minTs: after, maxTs: before }),
+		(v) => {
+			const { minTs, maxTs } = v.timeframe
+				? (auditTimeframes.find((t) => t.label === v.timeframe)?.computeMinMax() ?? {
+						minTs: null,
+						maxTs: null
+					})
+				: { minTs: v.minTs ?? null, maxTs: v.maxTs ?? null }
+			after = minTs ?? undefined
+			before = maxTs ?? undefined
+		}
+	)
 </script>
 
-<!-- Label above input, 4px apart, fields 8px apart — the form layout in brand-guidelines.md. The
-     labels used to be positioned absolutely above the controls, which put them outside the box and
-     clipped them against the top of the window once these filters moved into the header band. -->
-<!-- `inline` rather than a breakpoint: the caller measures whether the row fits the width the band
+<!-- No labels above the controls: each one says what it filters while it is unset ("all usernames"),
+     and once it is set the value names the field by itself. That halves the row's height, which is
+     what lets it sit in the header band, and halves its width, which is what lets it stay there.
+     `inline` rather than a breakpoint: the caller measures whether the row fits the width the band
      leaves it, which a media query cannot see — the sidebar, a side panel and the filters' own
      values all move that width without moving the viewport's. -->
-<div class={inline ? 'flex flex-row gap-2 items-end pr-2' : 'flex flex-col gap-2'}>
+<div class={inline ? 'flex flex-row gap-2 items-center pr-2' : 'flex flex-col gap-2'}>
 	{#if $workspaceStore == 'admins'}
-		<div class="flex flex-col gap-1 min-w-0">
-			<span class={fieldLabel}>Scope</span>
+		<div class="flex min-w-0 shrink-0">
 			<ToggleButtonGroup
 				selected={scope ?? 'admins'}
 				on:selected={({ detail }) => {
@@ -311,45 +326,22 @@
 			</ToggleButtonGroup>
 		</div>
 	{/if}
-	<div class="flex flex-col gap-1 min-w-0">
-		<span class={fieldLabel}>From</span>
-		<div class="flex items-center relative min-w-0 bg-surface-input">
-			<input type="text" class="!h-7 !text-xs" value={after ?? ''} disabled />
-			<CalendarPicker
-				clearable
-				date={after}
-				placement="bottom-end"
-				label="From"
-				on:change={({ detail }) => {
-					after = new Date(detail).toISOString()
-				}}
-				on:clear={() => {
-					after = undefined
-				}}
-			/>
-		</div>
-	</div>
-	<div class="flex flex-col gap-1 min-w-0">
-		<span class={fieldLabel}>To</span>
-		<div class="flex items-center relative min-w-0 bg-surface-input">
-			<input type="text" class="!h-7 !text-xs" value={before ?? ''} disabled />
-			<CalendarPicker
-				clearable
-				bind:date={before}
-				label="To"
-				placement="bottom-end"
-				on:change={({ detail }) => {
-					before = new Date(detail).toISOString()
-				}}
-				on:clear={() => {
-					before = undefined
-				}}
-			/>
-		</div>
-	</div>
+	<!-- The same control the runs page uses: presets and a two-calendar range in one popover,
+	     in place of the two date fields this row used to carry. -->
+	<TimeframeSelect
+		unifiedSize="sm"
+		items={auditTimeframes}
+		bind:value={_timeframe.val}
+		{loading}
+		wrapperClasses="shrink-0"
+		onClick={() => {
+			loadUsers()
+			resources.refresh()
+			onRefresh?.()
+		}}
+	/>
 
-	<div class="flex flex-col gap-1 min-w-0">
-		<span class={fieldLabel}>Username</span>
+	<div class="w-40 min-w-0 shrink">
 		<Select
 			class="w-full"
 			size="sm"
@@ -358,7 +350,7 @@
 			items={usernames
 				? [
 						...($userStore?.is_admin || $userStore?.is_super_admin
-							? [{ value: 'all', label: 'all' }]
+							? [{ value: 'all', label: 'all usernames' }]
 							: []),
 						...usernames.map((e) => ({
 							value: e,
@@ -369,41 +361,41 @@
 				: []}
 		/>
 	</div>
-	<div class="flex flex-col gap-1 min-w-0">
-		<span class={fieldLabel}>Resource</span>
+	<div class="w-40 min-w-0 shrink">
 		<Select
 			class="w-full"
 			size="sm"
 			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
 			createText="Press enter to use this value"
 			bind:value={resource}
-			items={safeSelectItems(['all', ...(resources.value ?? [])])}
+			items={[{ value: 'all', label: 'all resources' }, ...safeSelectItems(resources.value ?? [])]}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
 		/>
 	</div>
 
-	<div class="flex flex-col gap-1 min-w-0">
-		<span class={fieldLabel}>Operation</span>
+	<div class="w-40 min-w-0 shrink">
 		<Select
 			class="w-full"
 			size="sm"
 			bind:value={operation}
-			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
+			items={[
+				{ value: 'all', label: 'all operations' },
+				...Object.values(operations).map((r) => ({ value: r, label: r }))
+			]}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
 		/>
 	</div>
 
-	<div class="flex flex-col gap-1 min-w-0">
-		<span class={fieldLabel}>Action</span>
+	<div class="w-36 min-w-0 shrink">
 		<Select
 			class="w-full"
 			size="sm"
 			bind:value={actionKind}
 			RightIcon={ChevronDown}
 			items={[
-				{ value: 'all', label: 'all' },
+				{ value: 'all', label: 'all actions' },
 				{ value: 'create', label: 'Create' },
 				{ value: 'update', label: 'Update' },
 				{ value: 'delete', label: 'Delete' },
@@ -412,8 +404,6 @@
 		/>
 	</div>
 
-	<!-- The buttons carry no label of their own, so they line up with the inputs beside them rather
-	     than with the labels above those. -->
 	<div class="flex flex-row items-center gap-1">
 		<Button
 			variant="subtle"
@@ -439,24 +429,5 @@
 			startIcon={{ icon: Download }}
 			iconOnly
 		/>
-		<Button
-			variant="accent"
-			on:click={() => {
-				loadUsers()
-				resources.refresh()
-				onRefresh?.()
-			}}
-			unifiedSize="sm"
-			wrapperClasses="ml-auto"
-		>
-			<div class="flex flex-row gap-1 items-center">
-				{#if loading}
-					<Loader2 size={14} class="animate-spin" />
-				{:else}
-					<RefreshCcw size={14} />
-				{/if}
-				Refresh
-			</div>
-		</Button>
 	</div>
 </div>
