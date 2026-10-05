@@ -2024,7 +2024,7 @@ You should get the schema of the script or flow before creating the schedule to 
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "description": "Retry with exponential backoff: delay = multiplier × seconds^attempt",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",
@@ -2037,7 +2037,7 @@ You should get the schema of the script or flow before creating the schedule to 
                                                 "seconds": {
                                                         "type": "integer",
                                                         "minimum": 1,
-                                                        "description": "Initial delay in seconds"
+                                                        "description": "Base of the exponential (seconds); the n-th retry waits multiplier × seconds^n, where n counts constant retries too"
                                                 },
                                                 "random_factor": {
                                                         "type": "integer",
@@ -2231,7 +2231,7 @@ You should get the schema of the script or flow before updating the schedule to 
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "description": "Retry with exponential backoff: delay = multiplier × seconds^attempt",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",
@@ -2244,7 +2244,7 @@ You should get the schema of the script or flow before updating the schedule to 
                                                 "seconds": {
                                                         "type": "integer",
                                                         "minimum": 1,
-                                                        "description": "Initial delay in seconds"
+                                                        "description": "Base of the exponential (seconds); the n-th retry waits multiplier × seconds^n, where n counts constant retries too"
                                                 },
                                                 "random_factor": {
                                                         "type": "integer",
