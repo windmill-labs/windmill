@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.823.1](https://github.com/windmill-labs/windmill/compare/v1.823.0...v1.823.1) (2026-10-05)
+
+
+### Bug Fixes
+
+* python results with a KeyError-raising __getattr__ fail the job ([#11517](https://github.com/windmill-labs/windmill/issues/11517)) ([3fff1bd](https://github.com/windmill-labs/windmill/commit/3fff1bd3dcedce22c58d988ad2e725e3d4e96e0e))
+* stream the ai chat compaction request ([#11514](https://github.com/windmill-labs/windmill/issues/11514)) ([289d3c3](https://github.com/windmill-labs/windmill/commit/289d3c3941c2d9997bf0476bf9bfdfd948542c55))
+
 ## [1.823.0](https://github.com/windmill-labs/windmill/compare/v1.822.0...v1.823.0) (2026-10-04)
 
 
