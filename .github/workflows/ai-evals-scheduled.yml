@@ -50,7 +50,7 @@ jobs:
             def words: split(" ") | map(select(. != ""));
             [ $modes | words[] | select(IN("global", "flow", "app", "script", "cli")) as $mode
               | $models | words[]
-              | select($mode != "cli" or test("^(haiku|sonnet|opus)"))
+              | select($mode != "cli" or test("^(claude-)?(haiku|sonnet|opus)"; "i"))
               | {mode: $mode, model: .} ]')" >> "$GITHUB_OUTPUT"
 
   evals:
