@@ -197,6 +197,8 @@
 	// would fire, so the tab must claim its keys first via stopPropagation.
 	function handleKeydown(e: KeyboardEvent, tab: TabItem) {
 		if (e.target !== e.currentTarget) return // let nested controls (close ×) act
+		// A modified key is the host page's shortcut (e.g. Cmd+Enter to run), not a tab action.
+		if (e.ctrlKey || e.metaKey || e.altKey) return
 		if (e.key === 'Delete' || e.key === 'Backspace') {
 			if (tab.closable !== false) {
 				e.preventDefault()

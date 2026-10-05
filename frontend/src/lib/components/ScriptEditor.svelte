@@ -586,6 +586,7 @@
 		delete modules[modulePath]
 		delete moduleTestState[modulePath]
 		modules = { ...modules }
+		moduleTabOrder = moduleTabOrder.filter((p) => p !== modulePath)
 	}
 
 	function validateRenameModulePath(newPath: string, oldPath: string): string {
@@ -2603,31 +2604,32 @@
 			>
 				{#snippet tabAccessory(tab)}
 					{#if tab.id !== MAIN_FILE_TAB_ID}
-						<Popover
-							placement="bottom-start"
-							openFocus={renameModuleInputEl}
-							contentClasses="p-3 w-72"
-							class="inline-flex"
-							triggerAttrs={{
-								'aria-label': `Rename ${tab.id}`,
-								onpointerdown: () => prefillRename(tab.id),
-								onkeydown: (e: KeyboardEvent) =>
-									(e.key === 'Enter' || e.key === ' ') && prefillRename(tab.id)
-							}}
-						>
-							{#snippet trigger()}
-								<span
-									class="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
-									role="presentation"
-									onclick={(e) => e.stopPropagation()}
-								>
-									<Pencil size={10} />
-								</span>
-							{/snippet}
-							{#snippet content({ close })}
-								{@render renameModuleForm(tab.id, close)}
-							{/snippet}
-						</Popover>
+						<!-- Stops the trigger's click, mouse or Enter/Space alike, from also selecting the tab. -->
+						<span role="presentation" class="inline-flex" onclick={(e) => e.stopPropagation()}>
+							<Popover
+								placement="bottom-start"
+								openFocus={renameModuleInputEl}
+								contentClasses="p-3 w-72"
+								class="inline-flex"
+								triggerAttrs={{
+									'aria-label': `Rename ${tab.id}`,
+									onpointerdown: () => prefillRename(tab.id),
+									onkeydown: (e: KeyboardEvent) =>
+										(e.key === 'Enter' || e.key === ' ') && prefillRename(tab.id)
+								}}
+							>
+								{#snippet trigger()}
+									<span
+										class="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
+									>
+										<Pencil size={10} />
+									</span>
+								{/snippet}
+								{#snippet content({ close })}
+									{@render renameModuleForm(tab.id, close)}
+								{/snippet}
+							</Popover>
+						</span>
 						<Button
 							variant="subtle"
 							unifiedSize="2xs"
