@@ -2281,6 +2281,8 @@
 		{#if ownsPageHeader}
 			<!-- The editor's own top bar is the page header on this route: the script's path and
 			     summary are the breadcrumb's, and its buttons are the header's actions. -->
+			<!-- `separator="none"`: the toolbar right below the bar draws its own `border-b`, and the
+			     bar's edge would be a second line on top of it. -->
 			<PageHeaderContent
 				item={{
 					// Frozen while the pen's popover is open so the trail holds still as the user types.
@@ -2290,6 +2292,7 @@
 				}}
 				afterName={scriptMarks}
 				actions={scriptHeaderActions}
+				separator="none"
 			/>
 		{:else}
 			<div

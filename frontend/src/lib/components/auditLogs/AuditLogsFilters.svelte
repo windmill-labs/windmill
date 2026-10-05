@@ -266,12 +266,20 @@
 		;[username, perPage, before, after, operation, resource, actionKind, scope, pageIndex]
 		untrack(() => updateQueryParams())
 	})
+
+	// `leading-none`: the label's own line box is what decides whether a stacked field fits the
+	// header band. At the default leading the field is 52px against a 50px bar and the label is
+	// clipped off the top; at the font's own height it is 44px.
+	const fieldLabel = 'text-xs font-semibold text-emphasis shrink-0 leading-none'
 </script>
 
-<div class="flex flex-col gap-8 2xl:gap-2 2xl:flex-row mt-4 xl:mt-0 pr-2">
+<!-- Label above input, 4px apart, fields 8px apart — the form layout in brand-guidelines.md. The
+     labels used to be positioned absolutely above the controls, which put them outside the box and
+     clipped them against the top of the window once these filters moved into the header band. -->
+<div class="flex flex-col gap-2 2xl:flex-row 2xl:items-end pr-2">
 	{#if $workspaceStore == 'admins'}
-		<div class="flex gap-1 relative">
-			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
+		<div class="flex flex-col gap-1 min-w-0">
+			<span class={fieldLabel}>Scope</span>
 			<ToggleButtonGroup
 				selected={scope ?? 'admins'}
 				on:selected={({ detail }) => {
@@ -301,43 +309,48 @@
 			</ToggleButtonGroup>
 		</div>
 	{/if}
-	<div class="flex relative bg-surface-input">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">From</span>
-		<input type="text" value={after ?? 'From'} disabled />
-		<CalendarPicker
-			clearable
-			date={after}
-			placement="bottom-end"
-			label="From"
-			on:change={({ detail }) => {
-				after = new Date(detail).toISOString()
-			}}
-			on:clear={() => {
-				after = undefined
-			}}
-		/>
+	<div class="flex flex-col gap-1 min-w-0">
+		<span class={fieldLabel}>From</span>
+		<div class="flex items-center relative min-w-0 bg-surface-input">
+			<input type="text" class="!h-7 !text-xs" value={after ?? ''} disabled />
+			<CalendarPicker
+				clearable
+				date={after}
+				placement="bottom-end"
+				label="From"
+				on:change={({ detail }) => {
+					after = new Date(detail).toISOString()
+				}}
+				on:clear={() => {
+					after = undefined
+				}}
+			/>
+		</div>
 	</div>
-	<div class="flex relative bg-surface-input">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">To</span>
-		<input type="text" value={before ?? 'To'} disabled />
-		<CalendarPicker
-			clearable
-			bind:date={before}
-			label="To"
-			placement="bottom-end"
-			on:change={({ detail }) => {
-				before = new Date(detail).toISOString()
-			}}
-			on:clear={() => {
-				before = undefined
-			}}
-		/>
+	<div class="flex flex-col gap-1 min-w-0">
+		<span class={fieldLabel}>To</span>
+		<div class="flex items-center relative min-w-0 bg-surface-input">
+			<input type="text" class="!h-7 !text-xs" value={before ?? ''} disabled />
+			<CalendarPicker
+				clearable
+				bind:date={before}
+				label="To"
+				placement="bottom-end"
+				on:change={({ detail }) => {
+					before = new Date(detail).toISOString()
+				}}
+				on:clear={() => {
+					before = undefined
+				}}
+			/>
+		</div>
 	</div>
 
-	<div class="flex relative">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">Username</span>
+	<div class="flex flex-col gap-1 min-w-0">
+		<span class={fieldLabel}>Username</span>
 		<Select
 			class="w-full"
+			size="sm"
 			bind:value={username}
 			RightIcon={ChevronDown}
 			items={usernames
@@ -354,11 +367,11 @@
 				: []}
 		/>
 	</div>
-	<div class="flex relative">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">Resource</span>
-
+	<div class="flex flex-col gap-1 min-w-0">
+		<span class={fieldLabel}>Resource</span>
 		<Select
 			class="w-full"
+			size="sm"
 			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
 			createText="Press enter to use this value"
 			bind:value={resource}
@@ -368,11 +381,11 @@
 		/>
 	</div>
 
-	<div class="flex relative">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">Operation</span>
-
+	<div class="flex flex-col gap-1 min-w-0">
+		<span class={fieldLabel}>Operation</span>
 		<Select
 			class="w-full"
+			size="sm"
 			bind:value={operation}
 			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
 			inputClass="dark:!bg-gray-700"
@@ -380,11 +393,11 @@
 		/>
 	</div>
 
-	<div class="flex relative">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">Action</span>
-
+	<div class="flex flex-col gap-1 min-w-0">
+		<span class={fieldLabel}>Action</span>
 		<Select
 			class="w-full"
+			size="sm"
 			bind:value={actionKind}
 			RightIcon={ChevronDown}
 			items={[
@@ -397,7 +410,9 @@
 		/>
 	</div>
 
-	<div class="flex flex-row">
+	<!-- The buttons carry no label of their own, so they line up with the inputs beside them rather
+	     than with the labels above those. -->
+	<div class="flex flex-row items-center gap-1">
 		<Button
 			variant="subtle"
 			on:click={() => {
@@ -411,14 +426,14 @@
 				resource = 'all'
 				scope = undefined
 			}}
-			unifiedSize="md"
+			unifiedSize="sm"
 		>
 			Clear filters
 		</Button>
 		<Button
 			variant="subtle"
 			on:click={downloadAuditLogsAsJson}
-			unifiedSize="md"
+			unifiedSize="sm"
 			title="Downloads currently displayed logs only (up to {perPage} entries)"
 			startIcon={{ icon: Download }}
 			iconOnly
@@ -430,7 +445,7 @@
 				resources.refresh()
 				onRefresh?.()
 			}}
-			unifiedSize="md"
+			unifiedSize="sm"
 			wrapperClasses="ml-auto"
 		>
 			<div class="flex flex-row gap-1 items-center">

@@ -634,6 +634,22 @@
 						icon: $breakpoint === 'sm' ? Laptop2 : Smartphone,
 						action: () => ($breakpoint = $breakpoint === 'sm' ? 'lg' : 'sm')
 					},
+					// The setting the mobile view is edited for, which otherwise lives beside the
+					// toggle group that stood down: without it here a deployed app could be put on
+					// the mobile layout at this width and never taken off it.
+					...($breakpoint === 'sm'
+						? [
+								{
+									displayName: $app?.mobileViewOnSmallerScreens
+										? 'Mobile view on small screens: on'
+										: 'Mobile view on small screens: off',
+									icon: Smartphone,
+									action: () => {
+										if ($app) $app.mobileViewOnSmallerScreens = !$app.mobileViewOnSmallerScreens
+									}
+								}
+							]
+						: []),
 					{
 						displayName: $app?.fullscreen ? 'Centered canvas' : 'Full-width canvas',
 						icon: $app?.fullscreen ? AlignHorizontalSpaceAround : Expand,
@@ -989,6 +1005,7 @@
 		}}
 		actions={appHeaderActions}
 		contexts={headerContexts}
+		separator="always"
 	/>
 {:else}
 	<div

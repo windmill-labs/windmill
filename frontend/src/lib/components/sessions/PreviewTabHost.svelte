@@ -361,6 +361,7 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
+							onSeeDetails={seeDetails}
 							{isActiveSession}
 							{active}
 						/>

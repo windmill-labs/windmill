@@ -143,6 +143,8 @@
 		 *  it as `draft_path` so the home row shows the friendly name, not `draft_{uuid}`. */
 		pendingDraftPath?: string | undefined
 		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
+		/** `Exit & see details`: see RawAppEditorHeader. */
+		onDetails?: (e: { path: string }) => void
 		onResetToDeployed?: () => void | Promise<void>
 		/** The app_version the draft forked from, for the deploy-time "new version
 		 *  deployed" guard: deploying is refused with a confirmation while it is not
@@ -212,6 +214,7 @@
 		autosavePath = undefined,
 		defaultSplitWithPreview = true,
 		pendingDraftPath = $bindable(undefined),
+		onDetails,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -2445,6 +2448,7 @@
 		{getBundle}
 		{onNavigate}
 		{onDeploy}
+		{onDetails}
 		{onResetToDeployed}
 		{loadedFromDraft}
 		{othersDraftsCount}

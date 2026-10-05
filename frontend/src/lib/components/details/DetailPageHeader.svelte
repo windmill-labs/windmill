@@ -50,6 +50,9 @@
 		tag?: string | undefined
 		/** Unset for what has no workspace error handler to mute, such as an agent. */
 		errorHandlerKind?: 'flow' | 'script'
+		/** What the rename popover is renaming, when that is not the error handler's kind — an
+		 *  agent has no error handler but is still renamed from here. */
+		itemKind?: 'flow' | 'script' | 'agent'
 		scriptOrFlowPath?: string
 		errorHandlerMuted?: boolean | undefined
 		labels?: string[] | undefined
@@ -76,6 +79,7 @@
 		path,
 		tag,
 		errorHandlerKind,
+		itemKind,
 		scriptOrFlowPath,
 		errorHandlerMuted = $bindable(),
 		labels = $bindable(),
@@ -90,13 +94,19 @@
 
 	const dispatch = createEventDispatcher()
 
+	// A flow and a script are renamed as what their error handler already names them; an agent has
+	// no error handler and says so itself.
+	const renameKind = $derived(itemKind ?? errorHandlerKind)
+
 	// Two reasons the row can be too tight, and either one collapses it. The host knows when its
 	// own box is narrow while the window is not — a session's preview panel — and says so through
 	// `wide`. The band knows its own width, which the host cannot see: these buttons share that row
-	// with the breadcrumb, and the trail and summary want ~560px against the set's ~530. Unmeasured
+	// with the breadcrumb, and the trail and summary want ~580px against the set's ~530. Unmeasured
 	// (0) counts as wide, because the bar measures itself on mount and starting narrow would pop
 	// the buttons out of the menu a frame later.
-	const COLLAPSE_BELOW = 1150
+	// Measured on a flow's page: a 1192px bar leaves the last button 4px past the edge, so the row
+	// has to fold before that rather than at the ~1150 the two parts add up to on paper.
+	const COLLAPSE_BELOW = 1250
 	const roomInBar = $derived(pageHeader.barWidth === 0 || pageHeader.barWidth >= COLLAPSE_BELOW)
 	const wideRow = $derived(wide && roomInBar)
 
@@ -172,7 +182,7 @@
 		bind:labels
 		{inheritedLabels}
 		{onSaved}
-		kind={errorHandlerKind}
+		kind={renameKind}
 		compact
 	/>
 {/snippet}
@@ -245,6 +255,7 @@
 		item={{ kind: errorHandlerKind, path, summaryContent }}
 		{actions}
 		contexts={headerContexts}
+		separator="always"
 	/>
 {:else}
 	<!-- Nested in a session's preview panel, which has a band of its own above it naming the
@@ -263,7 +274,7 @@
 							bind:labels
 							{inheritedLabels}
 							{onSaved}
-							kind={errorHandlerKind}
+							kind={renameKind}
 						/>
 					</div>
 					{@render badges('md')}

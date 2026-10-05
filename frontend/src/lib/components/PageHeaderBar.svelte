@@ -70,21 +70,24 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	// A page left while scrolled would otherwise hand its edge to the next one, which may have
 	// nothing to scroll at all.
 	afterNavigate(() => (scrolledUnder = false))
+
+	const separator = $derived(pageHeader.content?.separator ?? 'onScroll')
+	const showEdge = $derived(separator === 'always' || (separator === 'onScroll' && scrolledUnder))
 </script>
 
 <svelte:window onscrollcapture={onScrollCapture} />
 
-<!-- The band draws its own bottom edge, and only while a page is scrolled under it: at the top of
-     a page there is nothing to divide, and pages that draw their own first line have dropped it —
-     two would stack. An inset shadow rather than a border: a border would make the row 45px and
-     every page below it would move a pixel the moment the edge appeared. -->
+<!-- The band owns its bottom edge, so a page never draws a second one under it. A page says which
+     rule it wants (see `separator` in the registry); the default shows the edge only while
+     something is passing under the bar. An inset shadow rather than a border: a border would make
+     the row 45px and every page below it would move a pixel the moment the edge appeared. -->
 <div
 	data-page-header
 	bind:clientWidth={() => pageHeader.barWidth, (w) => pageHeader.setBarWidth(w)}
 	class={twMerge(
 		'flex items-center gap-1 shrink-0 min-w-0 bg-surface transition-shadow duration-150',
 		phone ? 'flex-wrap content-center min-h-11 py-1 pl-1 pr-2' : 'h-11 pl-2 pr-4',
-		scrolledUnder &&
+		showEdge &&
 			'shadow-[inset_0_-1px_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_0_-1px_0_0_#374151] [html.github-dark_&]:shadow-[inset_0_-1px_0_0_rgb(var(--color-border-light))]'
 	)}
 >

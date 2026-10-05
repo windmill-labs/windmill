@@ -27,6 +27,8 @@
 	let path = $derived(page.params.path ?? '')
 	let ws = $derived($workspaceStore)
 
+	/** Bumped to read the agent again after it was renamed in place. */
+	let reloaded = $state(0)
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let agent = $derived(host?.draftHandle())
 	let testPane = $derived(host?.testPaneHandle())
@@ -89,9 +91,18 @@
 <main class="h-full w-full flex flex-col">
 	<DetailPageHeader
 		ownsPageHeader
+		itemKind="agent"
 		summary={config ? agent?.state?.description : undefined}
 		{path}
 		{menuItems}
+		onSaved={canEdit
+			? async (newPath) => {
+					// A rename moves the page; a summary saved in place has to be read again, since
+					// what is shown here came from the load this page keys on.
+					if (newPath !== path) await goto(`${base}/agents/get/${newPath}`)
+					else reloaded++
+				}
+			: undefined}
 		mainButtons={[
 			// Evaluating an agent builds datasets and runs against it: authoring, as editing is.
 			...(canEdit
@@ -155,7 +166,7 @@
 		{/snippet}
 	</DetailPageHeader>
 	<div class="flex-1 min-h-0">
-		{#key `${ws}:${path}`}
+		{#key `${ws}:${path}:${reloaded}`}
 			<AgentEditorHost
 				bind:this={host}
 				{path}

@@ -1570,6 +1570,8 @@
 			{#if ownsPageHeader}
 				<!-- The editor's own top bar is the page header on this route: its breadcrumb and
 				     summary are the header's, and its buttons are the header's actions. -->
+				<!-- `separator="none"`: the canvas right below the bar draws its own top line, and the
+				     bar's edge would be a second one on top of it. -->
 				<PageHeaderContent
 					item={{
 						// Frozen while the pen's popover is open so the trail holds still as the user types.
@@ -1579,6 +1581,7 @@
 					}}
 					actions={flowHeaderActions}
 					contexts={headerContexts}
+					separator="none"
 				/>
 			{:else}
 				<!-- Nav between steps-->

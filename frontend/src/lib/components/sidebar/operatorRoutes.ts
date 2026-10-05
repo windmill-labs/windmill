@@ -4,10 +4,10 @@ import type { UserWorkspace } from '$lib/stores'
 /**
  * An `operator_settings` key that admits an operator to one page (`triggers` to all of them).
  *
- * Only the visibility flags: the same object also carries write rights (`builder_flows`,
- * `manage_schedules`, `manage_triggers`) and the fork comparison preferences, and neither answers
- * to the `=== true` rule below. A write right is granted unless withdrawn, so its absence means
- * "never configured" rather than "no" — see `docs/operator-write-rights.md`.
+ * Only the visibility flags: the same object also carries the write rights `builder_flows`,
+ * `manage_schedules` and `manage_triggers`, which the `=== true` rule below answers wrongly. A
+ * write right is granted unless withdrawn, so its absence means "never configured" rather than
+ * "no" — see `docs/operator-write-rights.md`.
  */
 export type OperatorPageKey = Extract<
 	keyof NonNullable<OperatorSettings>,

@@ -17,6 +17,7 @@ the header, so nesting is decided by the caller rather than guessed from context
 		actions,
 		actionsOrder,
 		actionsFlexible,
+		separator,
 		contexts,
 		actingWorkspaceId,
 		barRightInset
@@ -30,6 +31,7 @@ the header, so nesting is decided by the caller rather than guessed from context
 			actions,
 			actionsOrder,
 			actionsFlexible,
+			separator,
 			contexts,
 			actingWorkspaceId,
 			barRightInset

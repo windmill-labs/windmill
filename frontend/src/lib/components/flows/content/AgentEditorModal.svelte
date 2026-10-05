@@ -319,6 +319,7 @@
 				item={{ path: pathSnapshot ?? shownPath, summaryContent: agentSummary }}
 				afterName={agentHint}
 				actions={settings}
+				separator="always"
 			/>
 			<div class="h-full min-h-0 flex flex-col">
 				<div class="flex-1 min-h-0 px-4 sm:px-6">

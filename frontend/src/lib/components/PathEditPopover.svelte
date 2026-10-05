@@ -8,8 +8,8 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 -->
 <script lang="ts">
 	import type { ComponentProps } from 'svelte'
-	import { Pencil } from 'lucide-svelte'
-	import { Alert, Button } from '$lib/components/common'
+	import { Alert } from '$lib/components/common'
+	import PathEditPen from '$lib/components/PathEditPen.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -100,17 +100,7 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 	bind:isOpen={() => open, setOpen}
 >
 	{#snippet trigger()}
-		<Button
-			variant="subtle"
-			unifiedSize="xs"
-			iconOnly
-			startIcon={{ icon: Pencil }}
-			title={penLabel}
-			aria-label={penLabel}
-			btnClasses={penVisibility === 'hover' && !open
-				? 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
-				: ''}
-		/>
+		<PathEditPen label={penLabel} visibility={penVisibility} {open} />
 	{/snippet}
 	{#snippet content()}
 		<div class="flex flex-col gap-6 w-[480px]">
@@ -136,15 +126,19 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 				</Label>
 			{/if}
 			{#if own}
-				<!-- allowedExistingPath: the item already occupies its saved path, so typing it back
-				     after a rename that has not been deployed is not a collision. `initialPath`
-				     cannot say so — it is the working path, which moves with the rename. -->
+				<!-- Both of these say the same thing — the item's own saved path is not a collision —
+				     and both are needed, because `Path` skips the whole existence check while the
+				     typed path equals `initialPath`. Seeding that from the working path instead
+				     would make a rename to a taken path look untaken the moment the popover is
+				     reopened on it. With no saved path there is nothing the item occupies, so every
+				     path is checked. -->
 				<Path
 					autofocus
 					bind:path
 					bind:error
-					initialPath={snapshotPath ?? path ?? ''}
+					initialPath={savedPath ?? path ?? ''}
 					allowedExistingPath={savedPath}
+					checkInitialPathExistence={savedPath == undefined}
 					namePlaceholder={kind}
 					{kind}
 					size="sm"

@@ -112,7 +112,7 @@
 	<div class="flex flex-col w-full h-full">
 		<!-- `afterName`, not an action: the hint explains what audit logs are, so it belongs beside
 		     the page's name rather than at the far end of the bar with the filters. -->
-		<PageHeaderContent afterName={auditHint} actions={auditActions} />
+		<PageHeaderContent afterName={auditHint} actions={auditActions} actionsFlexible />
 
 		{#snippet auditHint()}
 			<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs">
@@ -121,7 +121,10 @@
 		{/snippet}
 
 		{#snippet auditActions()}
-			<div class="hidden 2xl:block">
+			<!-- Six labelled filters are wider than any bar, so the set scrolls inside its own box
+			     rather than pushing the last ones off the end. `actionsFlexible` on the registration
+			     is what lets this box shrink far enough for that to matter. -->
+			<div class="hidden 2xl:block min-w-0 overflow-x-auto scrollbar-hidden whitespace-nowrap">
 				<AuditLogsFilters
 					{logs}
 					bind:username

@@ -187,10 +187,12 @@
 			<div
 				class={twMerge(
 					// `flex-col` matches the pre-sandbox in-workspace viewer exactly;
-					// the public viewer always used a plain `flex` wrapper. The height comes from
-					// the host, like the raw branch above: a viewport floor here would overhang the
-					// page box by the height of the page header band.
-					inWorkspace ? 'h-full w-full flex flex-col' : 'h-full w-full flex',
+					// the public viewer always used a plain `flex` wrapper. `min-h-full`, not
+					// `h-full`: the box has to reach the bottom of what the host gives it so the
+					// app's own background covers the window, and still grow with a grid taller
+					// than that. A viewport floor instead would overhang the page box by the
+					// height of the page header band.
+					inWorkspace ? 'min-h-full w-full flex flex-col' : 'min-h-full w-full flex',
 					app?.value?.['css']?.['app']?.['viewer']?.class,
 					'wm-app-viewer'
 				)}

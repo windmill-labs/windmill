@@ -14,12 +14,15 @@
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import type { Item } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import { AppService, OpenAPI } from '$lib/gen'
 	import type { UserExt } from '$lib/stores'
 	import { canWrite } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
-	import { Pen } from 'lucide-svelte'
+	import { ExternalLink, Pen } from 'lucide-svelte'
 	import { page } from '$app/state'
 	import { isMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
 	import {
@@ -172,9 +175,53 @@
 		}
 	}
 
+	/** The app's public url, undefined until it is known and for anything that has none — an app
+	 *  that was never deployed has no row for `secret_of` to answer about. Only fetched where the
+	 *  button that opens it is shown. */
+	let publicUrl = $state<string | undefined>(undefined)
+	async function loadPublicUrl() {
+		try {
+			const secret = await AppService.getPublicSecretOfApp({ workspace, path })
+			// Built from this viewer's workspace rather than the navigation one, like everything
+			// else here: the two differ inside a session's preview panel.
+			publicUrl = secret
+				? `${window.location.origin}${base}/public/${workspace}/${secret}`
+				: undefined
+		} catch (_) {
+			publicUrl = undefined
+		}
+	}
+
 	$effect(() => {
 		if (workspace && path) loadPerms()
 	})
+	$effect(() => {
+		publicUrl = undefined
+		if (ownsPageHeader && !menuHidden && workspace && path) loadPublicUrl()
+	})
+
+	// Both of this page's buttons carry a label, and a phone's bar has room for neither beside the
+	// app's path — so below that width they become one menu. Unmeasured (0) counts as wide: the bar
+	// measures itself on mount, and starting compact would pop them out a frame later.
+	const compact = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
+	const compactItems: Item[] = $derived([
+		...(publicUrl
+			? [
+					{
+						displayName: 'Public url',
+						icon: ExternalLink,
+						href: publicUrl,
+						hrefTarget: '_blank' as const
+					}
+				]
+			: []),
+		{
+			displayName: 'Edit',
+			icon: Pen,
+			href: onEdit ? undefined : editHref,
+			action: onEdit ? () => onEdit() : undefined
+		}
+	])
 </script>
 
 <div class="h-full">
@@ -208,14 +255,15 @@
 {#if ownsPageHeader}
 	<PageHeaderContent
 		item={{ kind: 'app', path }}
-		afterName={showEdit && !menuHidden ? editAction : undefined}
+		actions={showEdit && !menuHidden ? editAction : undefined}
+		separator="always"
 	/>
 {/if}
 
-<!-- Edit sits with the app's name when this viewer owns the band, and floats over the canvas
-     otherwise: an embed has no band — it would cost the app 44px of the iframe to carry one
-     button — and inside a session's preview panel the band belongs to the session, so an Edit
-     up there would sit beside the session's name and act on the panel below it. -->
+<!-- Edit is the bar's action when this viewer owns the bar, and floats over the canvas otherwise:
+     an embed has no bar — it would cost the app 44px of the iframe to carry one button — and
+     inside a session's preview panel the bar belongs to the session, so an Edit up there would
+     sit beside the session's name and act on the panel below it. -->
 {#if showEdit && (menuHidden || !ownsPageHeader)}
 	<div class="absolute bottom-4 right-4 z-50">
 		{@render editAction()}
@@ -223,14 +271,34 @@
 {/if}
 
 {#snippet editAction()}
-	<!-- `onEdit` wins over the href: a host that embeds this viewer opens its own editor rather
-	     than navigating the frame to one. -->
-	<Button
-		unifiedSize="sm"
-		startIcon={{ icon: Pen }}
-		variant="subtle"
-		href={onEdit ? undefined : editHref}
-		on:click={() => onEdit?.()}
-		id="app-edit-btn">Edit</Button
-	>
+	{#if compact}
+		<!-- Too little bar to seat both: they fold into one menu rather than losing their labels,
+		     which are what say where each one goes. -->
+		<DropdownV2 items={compactItems} placement="bottom-end" size="sm" />
+	{:else}
+		{#if publicUrl}
+			<!-- The app on its own, at the url anyone it is shared with uses. A new tab rather than
+			     this one: the viewer here is the same app, so replacing it would look like nothing
+			     happened. -->
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				startIcon={{ icon: ExternalLink }}
+				href={publicUrl}
+				target="_blank"
+				title="Open the app's public url in a new tab">Public url</Button
+			>
+		{/if}
+		<!-- `onEdit` wins over the href: a host that embeds this viewer opens its own editor rather
+		     than navigating the frame to one. -->
+		<Button
+			unifiedSize="sm"
+			startIcon={{ icon: Pen }}
+			variant="default"
+			href={onEdit ? undefined : editHref}
+			on:click={() => onEdit?.()}
+			title="Edit this app"
+			id="app-edit-btn">Edit</Button
+		>
+	{/if}
 {/snippet}

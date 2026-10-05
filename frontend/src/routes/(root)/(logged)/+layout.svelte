@@ -19,7 +19,6 @@
 		isSessionPreviewFrame,
 		rememberMenuHidden
 	} from '$lib/components/sessions/sessionMode.svelte'
-	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
 	import SidebarUsage from '$lib/components/sidebar/SidebarUsage.svelte'
@@ -1349,12 +1348,16 @@
 				></div>
 			{/if}
 			{#if useDrawer}
+				<!-- `inert` while closed, not only `pointer-events-none`: the card stays mounted so it
+				     can slide rather than pop, and a card parked off the left edge still holds every
+				     one of its links in the tab order. -->
 				<div
 					class={classNames(
 						'relative',
 						menuOpen ? 'z-40' : 'pointer-events-none',
 						devOnly ? 'hidden' : ''
 					)}
+					inert={!menuOpen}
 					role="dialog"
 				>
 					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -1407,101 +1410,6 @@
 					{@render sidebarColumn(false)}
 				</div>
 			{/if}
-			<!-- Legacy menu -->
-			<div
-				class={classNames(
-					'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300',
-					'opacity-0 pointer-events-none'
-				)}
-			>
-				<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
-					<div
-						class={classNames(
-							'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-100 transform',
-							'-translate-x-full'
-						)}
-					>
-						<div
-							class={classNames(
-								'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-100',
-								'opacity-0'
-							)}
-						>
-							<button
-								type="button"
-								onclick={() => {
-									// menuSlide = !menuSlide
-								}}
-								aria-label="Close"
-								class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
-							>
-								<svg
-									class="h-6 w-6 text-white"
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke-width="2"
-									stroke="currentColor"
-									aria-hidden="true"
-								>
-									<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-								</svg>
-							</button>
-						</div>
-						<div class="h-full" style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
-							<div
-								class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-10"
-								class:w-40={!isCollapsed}
-							>
-								<WindmillIcon white={darkMode} height="20px" width="20px" />
-								{#if !isCollapsed}{#if $whitelabelNameStore}{capitalize(
-											$whitelabelNameStore
-										)}{:else}Windmill{/if}{/if}
-							</div>
-
-							<div class="px-2 py-4 space-y-2 border-y border-light dark:border-gray-700">
-								<Menubar>
-									{#snippet children({ createMenu })}
-										<WorkspaceMenu {createMenu} />
-										<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
-									{/snippet}
-								</Menubar>
-								<MenuButton
-									stopPropagationOnClick={true}
-									on:click={() => openSearchModal()}
-									{isCollapsed}
-									icon={Search}
-									label="Search"
-									class="!text-xs"
-									shortcut={`${getModifierKey()}k`}
-								/>
-								{#if !$copilotInfo.workspaceDisabled}
-									<MenuButton
-										stopPropagationOnClick={true}
-										on:click={() => aiChatManager.toggleOpen()}
-										{isCollapsed}
-										icon={WandSparkles}
-										iconProps={{
-											forceDarkMode: true
-										}}
-										label="Ask AI"
-										class="!text-xs"
-										iconClasses="!text-ai"
-										shortcut={`${getModifierKey()}L`}
-									/>
-								{/if}
-							</div>
-
-							<SidebarContent
-								{isCollapsed}
-								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-									? 0
-									: numUnacknowledgedCriticalAlerts}
-							/>
-						</div>
-					</div>
-				</div>
-			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full relative">
 			<!-- Not gated on `$enterpriseLicense`: it paints the cached accent before the license
