@@ -15,6 +15,8 @@
 		class?: string
 		/** Renders above the scope-list card, below the Selected Scopes summary. */
 		topSlot?: Snippet
+		/** What an empty selection means, shown when no scope is selected. */
+		emptyLabel?: string
 	}
 
 	interface ScopeState {
@@ -38,7 +40,8 @@
 		selectedScopes = $bindable([]),
 		disabled = false,
 		class: className = '',
-		topSlot
+		topSlot,
+		emptyLabel = 'No scopes selected. Token will have full access.'
 	}: Props = $props()
 
 	let scopeDomains = $state<ScopeDomain[] | null>(null)
@@ -532,7 +535,7 @@
 			</div>
 
 			{#if selectedScopes.length === 0}
-				<p class="text-xs text-secondary">No scopes selected. Token will have full access.</p>
+				<p class="text-xs text-secondary">{emptyLabel}</p>
 			{:else if hasAdministratorScope}
 				<p class="text-xs text-secondary"
 					>Administrator scope grants full access to all resources.</p

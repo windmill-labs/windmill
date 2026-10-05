@@ -16,8 +16,6 @@ use tokio::time::timeout;
 // Re-export proxy env-var snapshots so callers (including EE modules)
 // can keep importing them via `crate::{NO_PROXY, HTTP_PROXY, HTTPS_PROXY}`.
 use windmill_common::client::AuthedClient;
-use windmill_common::db::UserDbWithAuthed;
-use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::InlineScriptTarget;
 use windmill_common::jobs::RunInlineScriptFnParams;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
@@ -3595,8 +3593,12 @@ pub async fn run_worker(
                     // dispatch by path and return before that check, so a job sent down them
                     // would run with whatever arguments survived the failure.
                     let fails_before_running = job.pre_run_error.is_some();
+                    // A dedicated worker or flow runner runs every job it gets with its own
+                    // unscoped worker token, so a job with a restricted token runs here, with the
+                    // token minted for it, whichever tag brought it.
+                    let restricted = job.job_token_scopes.is_some();
 
-                    if !dedicated_workers.is_empty() && !fails_before_running {
+                    if !dedicated_workers.is_empty() && !fails_before_running && !restricted {
                         let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
                             // For flow steps inside branches/loops, runnable_path includes
                             // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
@@ -3641,7 +3643,9 @@ pub async fn run_worker(
                         NextJob::Http(_) => None,
                     };
 
-                    if let Some(flow_runners) = flow_runners.filter(|_| !fails_before_running) {
+                    if let Some(flow_runners) =
+                        flow_runners.filter(|_| !fails_before_running && !restricted)
+                    {
                         let key_o = job.flow_step_id.as_ref().map(|x| x.to_string());
                         if let Some(key) = key_o {
                             if let Some(flow_runner_tx) = flow_runners.runners.get(&key) {
@@ -7234,30 +7238,8 @@ pub fn init_worker_internal_server_inline_utils(
         run_inline_script: Arc::new(|params: RunInlineScriptFnParams| {
             Box::pin(async move {
                 let (script_hash, runnable_path) = match params.target {
-                    InlineScriptTarget::Path(ref path) => {
-                        let db = params
-                            .conn
-                            .as_sql()
-                            .ok_or_else(|| {
-                                error::Error::InternalErr(
-                                    "run_inline_script by path requires a SQL connection"
-                                        .to_string(),
-                                )
-                            })?
-                            .clone();
-                        let authed_ref = params.user_db.as_ref().map(|(_, a)| a.to_authed_ref());
-                        let user_db_authed =
-                            params.user_db.as_ref().zip(authed_ref.as_ref()).map(
-                                |((udb, _), ar)| UserDbWithAuthed { db: udb.clone(), authed: ar },
-                            );
-                        let script_hash_info = get_latest_deployed_hash_for_path(
-                            user_db_authed,
-                            db,
-                            &params.workspace_id,
-                            path,
-                        )
-                        .await?;
-                        (ScriptHash(script_hash_info.hash), Some(path.clone()))
+                    InlineScriptTarget::Path { ref path, hash } => {
+                        (ScriptHash(hash), Some(path.clone()))
                     }
                     InlineScriptTarget::Hash(hash) => (ScriptHash(hash), None),
                 };

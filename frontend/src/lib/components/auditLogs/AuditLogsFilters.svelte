@@ -44,7 +44,6 @@
 	interface Props {
 		logs?: AuditLog[]
 		username?: string
-		pageIndex?: number | undefined
 		before?: string | undefined
 		after?: string | undefined
 		perPage?: number | undefined
@@ -53,13 +52,14 @@
 		actionKind?: ActionKind | 'all'
 		scope?: undefined | 'all_workspaces' | 'instance'
 		loading?: boolean
+		/** Lay the filters out in a row (the page header band) rather than stacked (the popover). */
+		inline?: boolean
 		onRefresh?: () => void
 	}
 
 	let {
 		logs = undefined,
 		username = $bindable('all'),
-		pageIndex = $bindable(1),
 		before = $bindable(undefined),
 		after = $bindable(undefined),
 		perPage = $bindable(100),
@@ -68,6 +68,7 @@
 		actionKind = $bindable(undefined),
 		scope = $bindable(undefined),
 		loading = false,
+		inline = false,
 		onRefresh
 	}: Props = $props()
 
@@ -100,7 +101,6 @@
 		}
 
 		addQueryParam('username', username)
-		addQueryParam('page', pageIndex)
 		addQueryParam('perPage', perPage)
 		addQueryParam('before', before)
 		addQueryParam('after', after)
@@ -120,7 +120,6 @@
 	function handlePopState() {
 		const urlSearchParams = new URLSearchParams(window.location.search)
 		username = urlSearchParams.get('username') ?? 'all'
-		pageIndex = Number(urlSearchParams.get('page')) || 1
 		before = urlSearchParams.get('before') ?? undefined
 		after = urlSearchParams.get('after') ?? undefined
 		perPage = Number(urlSearchParams.get('perPage')) || 100
@@ -263,7 +262,7 @@
 
 	// observe all the variables that should be reflected in the url
 	$effect(() => {
-		;[username, perPage, before, after, operation, resource, actionKind, scope, pageIndex]
+		;[username, perPage, before, after, operation, resource, actionKind, scope]
 		untrack(() => updateQueryParams())
 	})
 
@@ -276,7 +275,10 @@
 <!-- Label above input, 4px apart, fields 8px apart — the form layout in brand-guidelines.md. The
      labels used to be positioned absolutely above the controls, which put them outside the box and
      clipped them against the top of the window once these filters moved into the header band. -->
-<div class="flex flex-col gap-2 2xl:flex-row 2xl:items-end pr-2">
+<!-- `inline` rather than a breakpoint: the caller measures whether the row fits the width the band
+     leaves it, which a media query cannot see — the sidebar, a side panel and the filters' own
+     values all move that width without moving the viewport's. -->
+<div class={inline ? 'flex flex-row gap-2 items-end pr-2' : 'flex flex-col gap-2'}>
 	{#if $workspaceStore == 'admins'}
 		<div class="flex flex-col gap-1 min-w-0">
 			<span class={fieldLabel}>Scope</span>
@@ -421,7 +423,6 @@
 				username = 'all'
 				operation = 'all'
 				actionKind = 'all'
-				pageIndex = 1
 				perPage = 100
 				resource = 'all'
 				scope = undefined

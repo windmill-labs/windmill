@@ -331,7 +331,7 @@ pub const SCRIPT_COLUMNS: &str = concat!(
     "timeout, delete_after_use, delete_after_secs, restart_unless_cancelled, ",
     "visible_to_runner_only, auto_kind, codebase, has_preprocessor, ",
     "on_behalf_of, ",
-    "assets, modules, labels, concurrency_key, concurrent_limit, ",
+    "assets, modules, labels, job_token_scopes, concurrency_key, concurrent_limit, ",
     "concurrency_time_window_s, debounce_key, debounce_delay_s, runnable_settings_handle",
 );
 
@@ -401,6 +401,9 @@ pub struct Script<SR> {
     pub modules: Option<HashMap<String, ScriptModule>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Caps the scopes of the token minted for each job of this script; `None` = unrestricted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time. Not stored on the script row.
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -580,6 +583,14 @@ pub struct NewScript {
     pub auto_parent: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Absent keeps the parent version's value, so a client unaware of the setting
+    /// cannot drop a restriction by redeploying; `null` clears it.
+    #[serde(
+        default,
+        deserialize_with = "crate::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub job_token_scopes: Option<Option<Vec<String>>>,
     /// Caller-intent flag (set by the CLI / git sync): when true, deploying
     /// this script must NOT delete an existing user draft at the same path.
     /// Transient — never persisted. Deliberately excluded from `impl Hash`
@@ -628,6 +639,7 @@ impl Hash for NewScript {
         self.preserve_on_behalf_of.hash(state);
         self.assets.hash(state);
         self.labels.hash(state);
+        self.job_token_scopes.hash(state);
         if let Some(modules) = &self.modules {
             let mut sorted: Vec<_> = modules.iter().collect();
             sorted.sort_by_key(|(k, _)| *k);

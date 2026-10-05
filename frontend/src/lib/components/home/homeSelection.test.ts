@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { HomeSelection, type BulkItem } from './homeSelection.svelte'
+import { HomeSelection, toBulkItem, type BulkItem } from './homeSelection.svelte'
 
 function bulk(key: string, over: Partial<BulkItem> = {}): BulkItem {
 	return {
@@ -13,6 +13,7 @@ function bulk(key: string, over: Partial<BulkItem> = {}): BulkItem {
 		archived: false,
 		draftOnly: false,
 		isDraft: false,
+		legacyDraft: false,
 		rawApp: false,
 		...over
 	}
@@ -79,5 +80,15 @@ describe('HomeSelection.register', () => {
 		s.register(bulk('script/f/a/one', { archived: true }))
 
 		expect(s.items[0].archived).toBe(true)
+	})
+})
+
+describe('toBulkItem', () => {
+	it('flags a draft-only row owned by nobody as legacy, so its discard can reach it', () => {
+		const row = { type: 'script', path: 'f/a/one', draft_only: true, is_draft: true }
+		const legacy = toBulkItem({ ...row, draft_users: [{ username: null }] }, undefined, 'ws')
+		const own = toBulkItem({ ...row, draft_users: [{ username: 'me' }] }, undefined, 'ws')
+		expect(legacy.legacyDraft).toBe(true)
+		expect(own.legacyDraft).toBe(false)
 	})
 })

@@ -1074,12 +1074,12 @@
 								</div>
 							{/if}
 
-							{#if script?.schema?.prompt_for_ai !== undefined}
+							{#if Object.keys(script?.schema?.properties ?? {}).length > 0}
 								<AIFormAssistant
-									instructions={script.schema?.prompt_for_ai as string}
-									onEditInstructions={() => {
-										onNavigate(`/scripts/edit/${script?.path}?metadata_open=true`)
-									}}
+									instructions={(script?.schema?.prompt_for_ai as string | undefined) ?? ''}
+									onEditInstructions={can_write && !actingUser?.operator
+										? () => onNavigate(`/scripts/edit/${script?.path}?metadata_open=true`)
+										: undefined}
 									runnableType="script"
 									path={script?.path}
 								/>

@@ -201,6 +201,11 @@ lazy_static! {
                     requires_resource_path: false,
                 },
                 ScopeOption {
+                    value: "jobs:cancel".to_string(),
+                    label: "Cancel".to_string(),
+                    requires_resource_path: true,
+                },
+                ScopeOption {
                     value: "jobs:run:scripts".to_string(),
                     label: "Run scripts".to_string(),
                     requires_resource_path: true,

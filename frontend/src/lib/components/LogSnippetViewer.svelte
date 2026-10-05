@@ -36,9 +36,10 @@
 	let html = highlightSnippet(untrack(() => content))
 </script>
 
-<button onclick={onClick} class="font-light !m-0 !p-0">
-	<pre
-		class="bg-surface-secondary hover:bg-surface px-2 py-1 text-secondary text-xs w-[100%] whitespace-pre border min-w-full text-start">
-{@html html}
-</pre>
-</button>
+<button
+	type="button"
+	onclick={onClick}
+	title="Show in context"
+	class="block w-full min-w-full px-3 py-0.5 text-left font-mono text-2xs text-primary whitespace-pre hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-border-accent"
+	>{@html html}</button
+>

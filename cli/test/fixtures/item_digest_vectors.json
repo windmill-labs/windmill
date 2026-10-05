@@ -1,0 +1,67 @@
+{
+  "script": {
+    "path": "f/digest/script",
+    "language": "bun",
+    "content": "import { helper } from \"./helper.ts\";\r\n\r\nexport async function main(name = \"wörld 🌍\") {\n  return helper(name);\n}\n",
+    "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+    "modules": {
+      "helper.ts": {
+        "content": "export const helper = (s: string) => `hi ${s}\\t`;\n",
+        "language": "bun"
+      }
+    },
+    "digest": "fcf85b60c3d9aef073e6911f417fdd19bedeb6d9e0f36b2589df07900997f29d"
+  },
+  "flow": {
+    "path": "f/digest/flow",
+    "value": {
+      "modules": [
+        {
+          "id": "a",
+          "value": {
+            "type": "rawscript",
+            "content": "export async function main(x: number) {\n  return x * 1.5;\n}\n",
+            "language": "bun",
+            "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+            "input_transforms": {
+              "x": { "type": "static", "value": 1.0 },
+              "y": { "type": "static", "value": [92.46585493017267, 15624.632993405901, 1e-7] },
+              "z": { "type": "static", "value": [{ "type": "flowscript", "id": 1, "modules_node": 2 }, { "id": "a", "value": { "type": "rawscript", "content": "data" } }] }
+            }
+          },
+          "summary": "Multiply",
+          "retry": { "constant": { "attempts": 2, "seconds": 5 } }
+        },
+        {
+          "id": "b",
+          "value": {
+            "type": "forloopflow",
+            "iterator": { "type": "javascript", "expr": "[1, 2, 3]" },
+            "skip_failures": false,
+            "parallel": true,
+            "modules": [
+              {
+                "id": "c",
+                "value": {
+                  "type": "rawscript",
+                  "content": "def main(x: int):\n    return {\"é\": x}\n",
+                  "language": "python3",
+                  "input_transforms": {
+                    "x": { "type": "javascript", "expr": "flow_input.iter.value" }
+                  },
+                  "tag": null
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "same_worker": false
+    },
+    "digest": "0d8ae0dd8eb7272264ee802481a5abfe67501a759268fb2aa7e8277f0a2ab44c",
+    "steps": {
+      "a": "abf4646174c8d6984ea9f6d9c6746b61c3d95cd0cb91a4ca89b884b0f61600ae",
+      "c": "ee70e41e8647bab22bc4f7ac943c76355e2157015e71538a8f3adbb492c76a45"
+    }
+  }
+}
