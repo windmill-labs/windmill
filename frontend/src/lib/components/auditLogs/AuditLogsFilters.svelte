@@ -52,6 +52,8 @@
 		actionKind?: ActionKind | 'all'
 		scope?: undefined | 'all_workspaces' | 'instance'
 		loading?: boolean
+		/** Lay the filters out in a row (page header) rather than stacked (popover). */
+		inline?: boolean
 		onRefresh?: () => void
 	}
 
@@ -66,6 +68,7 @@
 		actionKind = $bindable(undefined),
 		scope = $bindable(undefined),
 		loading = false,
+		inline = false,
 		onRefresh
 	}: Props = $props()
 
@@ -264,7 +267,7 @@
 	})
 </script>
 
-<div class="flex flex-col gap-8 fhd:gap-2 fhd:flex-row mt-4 xl:mt-0 pr-2">
+<div class={inline ? 'flex flex-row gap-2' : 'flex flex-col gap-8 mt-4 xl:mt-0'}>
 	{#if $workspaceStore == 'admins'}
 		<div class="flex gap-1 relative">
 			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>

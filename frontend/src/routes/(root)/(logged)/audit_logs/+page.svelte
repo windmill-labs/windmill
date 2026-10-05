@@ -47,10 +47,11 @@
 	let batchProgress = $derived(auditLogsLoader.batchProgress)
 
 	// Regrouping the timeline can fire extra requests to fill in missing job spans, so it gets the
-	// result of a batched load once it settles rather than every intermediate batch.
+	// result of a batched load or load-more once it settles rather than every intermediate batch.
 	let timelineLogs: AuditLog[] | undefined = $state()
 	$effect(() => {
-		const settledLogs = batchProgress ? undefined : auditLogsLoader.logs
+		const settledLogs =
+			batchProgress || auditLogsLoader.loadingExtra ? undefined : auditLogsLoader.logs
 		if (settledLogs) {
 			timelineLogs = settledLogs
 		}
@@ -62,6 +63,12 @@
 		selectedId !== undefined && !!logs?.some((log) => log.id === selectedId)
 	)
 	let auditLogDrawer: Drawer | undefined = $state()
+
+	// The inline filters show only when their one-line width fits in the space the title leaves.
+	// Both are measured, so the sidebar, side panels, zoom and filter values are all accounted for.
+	let filtersSlotWidth = $state(0)
+	let filtersRowWidth = $state(0)
+	let inlineFilters = $derived(filtersRowWidth > 0 && filtersRowWidth <= filtersSlotWidth)
 
 	// Function to fetch missing job execution audit logs
 	async function fetchMissingJobSpan(jobId: string, jobLogs: AuditLog[]): Promise<AuditLog[]> {
@@ -111,16 +118,27 @@
 	</div>
 {:else}
 	<div class="flex flex-col w-full h-screen">
-		<div class="flex items-center space-x-2 flex-row justify-between">
-			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
+		<div class="flex flex-row items-center justify-between gap-4 px-4 py-2 my-4">
+			<div class="flex flex-row shrink-0 gap-1 items-center">
 				<h1 class="text-2xl font-semibold text-emphasis">Audit logs</h1>
 				<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs">
 					You can only see your own audit logs unless you are an admin.
 				</Tooltip>
 			</div>
-			<div class="flex flex-row flex-wrap justify-between py-2 my-2 px-4 gap-1 items-center">
-				<div class="hidden fhd:block">
+			<!-- flex-1 min-w-0: the slot's width is what the title leaves, whatever its content. -->
+			<div
+				class="relative flex flex-row flex-1 min-w-0 justify-end items-center"
+				bind:clientWidth={filtersSlotWidth}
+			>
+				<!-- Kept laid out (invisible, out of flow) while unused, so its width stays measurable. -->
+				<div
+					class={inlineFilters
+						? 'w-max shrink-0'
+						: 'w-max shrink-0 invisible absolute right-0 pointer-events-none'}
+					bind:clientWidth={filtersRowWidth}
+				>
 					<AuditLogsFilters
+						inline
 						{logs}
 						bind:username
 						bind:before
@@ -134,7 +152,7 @@
 						onRefresh={() => auditLogsLoader.reload()}
 					/>
 				</div>
-				<div class="fhd:hidden">
+				<div class:hidden={inlineFilters}>
 					<AuditLogMobileFilters>
 						{#snippet filters()}
 							<AuditLogsFilters
