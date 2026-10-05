@@ -224,11 +224,13 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 				const kept = rows.slice(0, total - appended)
 				appended += kept.length
 				logs = [...(logs ?? []), ...kept]
+				// Checked before the short-batch end: a short batch trimmed to fit `total` still has
+				// rows left past the cut.
+				if (appended >= total) return CancelablePromiseUtils.pure<void>(undefined)
 				if (rows.length < size) {
 					hasMore = false
 					return CancelablePromiseUtils.pure<void>(undefined)
 				}
-				if (appended >= total) return CancelablePromiseUtils.pure<void>(undefined)
 				return extraBatch(rows[rows.length - 1].id)
 			})
 		}
