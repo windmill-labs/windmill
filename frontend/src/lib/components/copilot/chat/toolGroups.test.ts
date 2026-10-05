@@ -91,6 +91,40 @@ describe('groupToolRuns', () => {
 		).toEqual([0, 1, 2, 3])
 	})
 
+	it('folds the calls queued behind another call into one waiting row', () => {
+		const sql = (extra = {}) =>
+			tool('exec_datatable_sql', { datatable_name: 'main', sql: 'select 1' }, extra)
+		const queued = { isQueued: true, content: 'Execute SQL on "main"' }
+		const batch = [
+			sql({ needsConfirmation: true, isLoading: true }),
+			sql(queued),
+			tool('search_workspace', {}, { ...queued, content: 'Search workspace' })
+		]
+		expect(shape(batch)).toEqual([0, { waiting: [1, 2] }])
+		expect(header(batch)).toBe('2 more calls waiting: Execute SQL on "main", Search workspace')
+		// The call next in line shows as itself, before anything runs and between two calls.
+		expect(shape([assistant(''), sql(queued), sql(queued)])).toEqual([0, 1, { waiting: [2] }])
+		expect(shape([sql(), sql(queued), sql(queued)])).toEqual([0, 1, { waiting: [2] }])
+		// Queued edits of one flow keep their edit group.
+		const flow = { path: 'f/a/flow' }
+		expect(
+			shape([
+				tool('search_workspace', {}, { isLoading: true }),
+				tool('patch_flow_json', flow, queued),
+				tool('patch_flow_json', flow, queued)
+			])
+		).toEqual([0, { edit: [1, 2] }])
+		// A waiting row stops before queued calls that form their own group.
+		expect(
+			shape([
+				sql({ needsConfirmation: true, isLoading: true }),
+				sql(queued),
+				tool('patch_flow_json', flow, queued),
+				tool('patch_flow_json', flow, queued)
+			])
+		).toEqual([0, { waiting: [1] }, { edit: [2, 3] }])
+	})
+
 	it('keeps an edit whose arguments are still streaming in the group it follows', () => {
 		const flow = { path: 'f/a/flow' }
 		expect(
@@ -115,7 +149,10 @@ describe('groupToolRuns', () => {
 	it('lets a call with no arguments yet join a group but not start one', () => {
 		const queued = (toolName: string) =>
 			tool(toolName, {}, { parameters: undefined, isQueued: true })
-		expect(shape([queued('delete_app_file'), queued('delete_app_runnable')])).toEqual([0, 1])
+		expect(shape([queued('delete_app_file'), queued('delete_app_runnable')])).toEqual([
+			0,
+			{ waiting: [1] }
+		])
 		expect(shape([tool('patch_app_file', { path: 'f/a/x' }), queued('delete_app_file')])).toEqual([
 			{ edit: [0, 1] }
 		])
