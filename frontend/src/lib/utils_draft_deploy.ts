@@ -510,6 +510,7 @@ export async function deployDraft(
 				// deploying user without this flag, gated by can_preserve_on_behalf_of.
 				preserve_on_behalf_of: d.on_behalf_of_email ? true : undefined,
 				labels: d.labels,
+				job_token_scopes: d.job_token_scopes,
 				deployment_message: deploymentMessage
 			}
 			// Draft-only flows have NO flow row (they live solely in the

@@ -41,6 +41,7 @@ async fn test_api_restart_at_step_nested_happy(db: Pool<Postgres>) -> anyhow::Re
         apply_preprocessor: true,
         version: 1443253234253454,
         labels: None,
+        job_token_scopes: None,
     })
     .run_until_complete(&db, false, port)
     .await;
@@ -85,6 +86,7 @@ async fn test_api_restart_at_step_top_level_happy(db: Pool<Postgres>) -> anyhow:
         apply_preprocessor: true,
         version: 1443253234253454,
         labels: None,
+        job_token_scopes: None,
     })
     .run_until_complete(&db, false, port)
     .await;
@@ -118,6 +120,7 @@ async fn test_api_restart_at_step_rejects_unknown_step(db: Pool<Postgres>) -> an
         apply_preprocessor: true,
         version: 1443253234253454,
         labels: None,
+        job_token_scopes: None,
     })
     .run_until_complete(&db, false, port)
     .await;
@@ -161,6 +164,7 @@ async fn test_api_restart_at_step_rejects_out_of_range_iteration(
         apply_preprocessor: true,
         version: 1443253234253454,
         labels: None,
+        job_token_scopes: None,
     })
     .run_until_complete(&db, false, port)
     .await;

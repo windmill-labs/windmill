@@ -88,6 +88,9 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 	if (flow.tag) {
 		o['tag'] = flow.tag
 	}
+	if (flow.job_token_scopes != null) {
+		o['job_token_scopes'] = flow.job_token_scopes
+	}
 	return o
 }
 
@@ -100,6 +103,7 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
 	on_behalf_of?: string
+	job_token_scopes?: string[] | null
 } {
 	const newFlow: Flow = $state.snapshot(flow)
 

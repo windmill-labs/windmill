@@ -2309,6 +2309,7 @@ mod tests {
             visible_to_owner: false,
             permissioned_as_end_user_email: None,
             runnable_settings_handle: None,
+            job_token_scopes: None,
         }
     }
 

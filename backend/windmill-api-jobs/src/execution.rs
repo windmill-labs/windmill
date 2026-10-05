@@ -124,7 +124,9 @@ pub async fn drop_unclaimable_run_lineage(
 
 /// The jobs of `referenced` that `authed` cannot claim as its own run lineage: anything but the
 /// token's own job and that job's `parent_job`, `root_job` and `flow_innermost_root_job`, or for
-/// a workspace admin anything outside the workspace.
+/// a workspace admin anything outside the workspace. A restricted job token never gets the admin
+/// latitude: its flow-run routes trust this lineage (`job_in_same_flow_run`), so a claimed
+/// unrelated run would escape its scopes.
 pub async fn unclaimable_run_lineage(
     db: &DB,
     w_id: &str,
@@ -157,7 +159,8 @@ pub async fn unclaimable_run_lineage(
     if referenced.is_empty() {
         return Ok(referenced);
     }
-    let in_workspace = if authed.is_admin {
+    let restricted_job_token = authed.job_id.is_some() && authed.scopes.is_some();
+    let in_workspace = if authed.is_admin && !restricted_job_token {
         sqlx::query_scalar!(
             "SELECT id FROM v2_job WHERE id = ANY($1) AND workspace_id = $2",
             &referenced,
@@ -825,6 +828,7 @@ pub async fn handle_chat_conversation_messages(
         tx,
         memory_id,
         Some(job_id),
+        job_id,
         &user_message,
         MessageType::User,
         None,
@@ -865,6 +869,7 @@ pub async fn run_flow<'c>(
         chat_input_enabled,
         early_return,
         labels,
+        job_token_scopes,
         ..
     } = flow_version_info;
 
@@ -914,6 +919,7 @@ pub async fn run_flow<'c>(
         )
     };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -924,6 +930,7 @@ pub async fn run_flow<'c>(
             version,
             apply_preprocessor,
             labels,
+            job_token_scopes,
         },
         push_args,
         authed.display_username(),
@@ -950,6 +957,7 @@ pub async fn run_flow<'c>(
         None,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
 
@@ -1141,6 +1149,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         )
     };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -1176,6 +1185,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         None,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
 

@@ -618,7 +618,9 @@
 						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
-						labels: (flow as any).labels
+						labels: (flow as any).labels,
+						// Sent explicitly: an omitted field keeps the deployed value.
+						job_token_scopes: flow.job_token_scopes ?? null
 					}
 				})
 				// Gated for operators without `manage_triggers`, who cannot have captures to move.
@@ -670,7 +672,9 @@
 						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
-						labels: (flow as any).labels
+						labels: (flow as any).labels,
+						// Sent explicitly: an omitted field keeps the deployed value.
+						job_token_scopes: flow.job_token_scopes ?? null
 					}
 				})
 			}
