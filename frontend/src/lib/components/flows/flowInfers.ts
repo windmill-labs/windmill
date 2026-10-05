@@ -228,7 +228,7 @@ export const AI_DECISION_SCHEMA: Schema = {
 			type: undefined,
 			description:
 				'The content to evaluate: a text, or an object with named parts. Extra detail makes the answers less accurate.',
-			placeholder: '"Checkout is failing for every customer"'
+			placeholder: 'e.g. "My order is late" or { "message": "..." }'
 		},
 		questions: {
 			type: 'object',
