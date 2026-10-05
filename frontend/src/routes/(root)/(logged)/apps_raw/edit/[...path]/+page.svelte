@@ -417,9 +417,12 @@
 		const pendingLoad = getDraft
 			? OtherUserDraftLoad.takePending($workspaceStore!, 'raw_app', path)
 			: undefined
-		// A draft loaded from a developer who never ran it still carries the operator's mark.
+		// Another user's draft carrying a mark holds code its owner never ran, and the name in the
+		// mark is theirs to write: '' keeps the preview paused without trusting it.
 		loadedDraftOwner = pendingLoad
-			? ((pendingLoad.value as RawAppDraft).loaded_from ?? pendingLoad.ownerLabel)
+			? (pendingLoad.value as RawAppDraft).loaded_from !== undefined
+				? ''
+				: pendingLoad.ownerLabel
 			: savedRawAppDraft?.loaded_from
 		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
 		// lock so editing our own draft works again. See /scripts/edit's loader.

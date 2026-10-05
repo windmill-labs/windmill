@@ -107,7 +107,8 @@ sandboxed apps also preview isolated, `RawAppEditor` holds the preview until the
 unless the code's author is a known developer: the last deployer, or for a draft loaded from
 another user's, its owner. The draft records that owner (`loaded_from`) until its preview is run or
 it is deployed, since loading it saves it as the viewer's own. An author no longer in the workspace
-counts as unknown. That is a speed bump, not a boundary.
+counts as unknown, and so does a loaded draft that already carries a `loaded_from`: its owner wrote
+that name, so it is never trusted. That is a speed bump, not a boundary.
 
 ## Billing
 

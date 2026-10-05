@@ -1564,7 +1564,7 @@
 	const actingUser = useActingUser(() => opWorkspace)
 
 	function previewGateKeyOf(draftOwner: string | undefined) {
-		return `${opWorkspace ?? ''}|${path}|${newApp}|${actingUser.current?.username ?? ''}|${draftOwner ?? ''}`
+		return `${opWorkspace ?? ''}|${path}|${newApp}|${actingUser.current?.username ?? ''}|${draftOwner === undefined ? '' : `@${draftOwner}`}`
 	}
 
 	$effect(() => {
@@ -1573,7 +1573,7 @@
 		const key = previewGateKeyOf(loadedDraftOwner)
 		if (key === previewGateKey) return
 		previewGateKey = key
-		if ((newApp && !loadedDraftOwner) || me?.operator) {
+		if ((newApp && loadedDraftOwner === undefined) || me?.operator) {
 			untrack(() => runHeldPreview())
 			return
 		}
@@ -1589,7 +1589,7 @@
 				(app) => app.created_by,
 				(e) => (e instanceof ApiError && e.status === 404 ? null : undefined)
 			))
-		let held = author === undefined
+		let held = author === undefined || author === ''
 		let operator: string | undefined
 		if (author && author !== me) {
 			const users = await UserService.listUsers({ workspace: ws }).catch(() => undefined)
@@ -1599,7 +1599,7 @@
 		}
 		if (key !== previewGateKey) return
 		if (held) {
-			previewGate = { kind: 'held', draft: !!loadedDraftOwner, operator }
+			previewGate = { kind: 'held', draft: loadedDraftOwner !== undefined, operator }
 		} else {
 			runHeldPreview()
 		}
@@ -2812,7 +2812,7 @@
 													{previewGate.operator
 														? `${previewGate.draft ? 'This draft was saved by' : 'This app was last deployed by'} ${previewGate.operator}, an operator.`
 														: previewGate.draft
-															? 'Who saved this draft could not be checked.'
+															? "Who wrote this draft's code could not be checked."
 															: 'Who last deployed this app could not be checked.'}
 													Running the preview runs its code with your session, so review its files first.
 												</span>
