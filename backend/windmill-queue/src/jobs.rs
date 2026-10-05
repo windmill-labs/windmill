@@ -359,6 +359,22 @@ ORDER BY depth, id
     .filter_map(|r| r.id.clone())
     .collect_vec();
 
+    // A native retry is the child of its first attempt, which has completed by the time the
+    // retry is queued, so the walk above stops before reaching it.
+    let tree = [&[job.id][..], &jobs_to_cancel[..]].concat();
+    let pending_retries = sqlx::query_scalar!(
+        "SELECT q.id FROM v2_job_queue q
+            JOIN native_retry_attempt n ON n.job_id = q.id
+            JOIN v2_job r ON r.id = q.id
+            JOIN v2_job a ON a.id = r.parent_job
+            WHERE q.workspace_id = $2 AND a.parent_job = ANY($1)",
+        tree.as_slice(),
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    jobs_to_cancel.extend(pending_retries);
+
     jobs_to_cancel.reverse();
     if !jobs_to_cancel.is_empty() {
         tracing::info!("Found {} child jobs to cancel", jobs_to_cancel.len());
@@ -2338,6 +2354,18 @@ pub async fn maybe_enqueue_native_script_retry(
     };
     let policy: Retry = retry_settings.into();
     if !policy.has_attempts() {
+        return Ok(false);
+    }
+    // Cancelling a job that has a parent (every retry attempt does) only flags its queue row,
+    // and the worker that pulls it completes it without a `canceled_by`: read the flag here.
+    let soft_canceled = sqlx::query_scalar!(
+        "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
+        job.id,
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false);
+    if soft_canceled {
         return Ok(false);
     }
 

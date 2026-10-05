@@ -580,4 +580,70 @@ mod native_retry {
         );
         Ok(())
     }
+
+    // Cancelling the job that dispatched a script reaches that script's pending retry, which
+    // hangs off a first attempt that has already completed.
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn cancelling_the_caller_cancels_a_pending_retry(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let retry = Retry {
+            constant: ConstantDelay { attempts: 2, seconds: 60 },
+            exponential: Default::default(),
+            retry_if: None,
+        };
+        let handle = insert_rs(
+            RunnableSettings {
+                debouncing_settings: None,
+                concurrency_settings: None,
+                retry_settings: RetrySettings::from(&retry).insert_cached(&db).await?,
+            },
+            &db,
+        )
+        .await?;
+        let (caller, first) = (Uuid::new_v4(), Uuid::new_v4());
+        sqlx::query(
+            "INSERT INTO v2_job (id, workspace_id, kind, runnable_path) VALUES ($1, $2, 'script', $3)",
+        )
+        .bind(caller)
+        .bind(WS)
+        .bind(SCRIPT)
+        .execute(&db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running) VALUES ($1, $2, now(), true)",
+        )
+        .bind(caller)
+        .bind(WS)
+        .execute(&db)
+        .await?;
+        seed_job(&db, first, Some(caller), false, "failure").await;
+        let attempt = mini(first, Some(caller), handle);
+        assert!(maybe_enqueue_native_script_retry(&db, &attempt, &None, &no_result).await?);
+        let (retry_id, ..) = retry_by_attempt(&db, first, 1)
+            .await
+            .expect("retry is queued");
+
+        let tx = db.begin().await?;
+        let (tx, _) =
+            windmill_queue::jobs::cancel_job("test-user", None, caller, WS, tx, &db, false, false)
+                .await?;
+        tx.commit().await?;
+
+        let canceled_by: Option<String> =
+            sqlx::query_scalar("SELECT canceled_by FROM v2_job_queue WHERE id = $1")
+                .bind(retry_id)
+                .fetch_one(&db)
+                .await?;
+        assert_eq!(canceled_by.as_deref(), Some("test-user"));
+
+        // The worker that pulls the canceled retry completes it without a `canceled_by`.
+        let (_, _, _, _, retry_handle) = retry_by_attempt(&db, first, 1).await.unwrap();
+        let canceled_retry = mini(retry_id, Some(first), retry_handle);
+        assert!(
+            !maybe_enqueue_native_script_retry(&db, &canceled_retry, &None, &no_result).await?,
+            "a canceled retry does not enqueue the next attempt"
+        );
+        Ok(())
+    }
 }
