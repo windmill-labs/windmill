@@ -585,11 +585,19 @@
 	// show becomes a page pushed over the list. Selection modes keep the split: their rows are
 	// picked in the list while the pane holds the action.
 	const pagedLayout = $derived(innerWidth < 1024 && !manualSelectionMode)
-	const runPageOpen = $derived(batchRerunOptionsIsOpen || selectedIds.length === 1)
+	// Set only by a plain row click, a chart point or the arrow keys, never by a modifier click:
+	// a Ctrl/Cmd/Shift-click starting a multi-selection selects one run first, and opening it would
+	// hide the list before the second click.
+	let openedRunId: string | undefined = $state()
+	const runPageOpen = $derived(
+		batchRerunOptionsIsOpen || (selectedIds.length === 1 && selectedIds[0] === openedRunId)
+	)
 
+	// Clears the selection too: a re-run selection of one job would otherwise land on that job.
 	function backToList() {
-		if (batchRerunOptionsIsOpen) batchRerunOptionsIsOpen = false
-		else selectedIds = []
+		batchRerunOptionsIsOpen = false
+		selectedIds = []
+		openedRunId = undefined
 	}
 	let resolutionNote = $state('')
 </script>
@@ -932,6 +940,7 @@
 						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
 					}}
 					onPointClicked={(ids) => {
+						openedRunId = ids.length === 1 ? ids[0] : undefined
 						runsTable?.scrollToRun(ids)
 					}}
 				/>
@@ -950,12 +959,12 @@
 
 		<div class="grow min-h-0 bottom-splitpane-wrapper">
 			{#if pagedLayout}
+				<!-- No `onNavigate`: its arrow keys are read at `window`, where they would take
+				     ArrowRight from the table's horizontal scroll and ArrowLeft from a modal or drawer
+				     opened over the run. -->
 				<PagedContent
 					class="h-full"
 					current={runPageOpen ? 'run' : 'list'}
-					onNavigate={(key) => {
-						if (key === 'list') backToList()
-					}}
 					pages={[
 						{ key: 'list', content: runsList },
 						{ key: 'run', content: runPage, placeholder: runPagePlaceholder }
@@ -1009,6 +1018,7 @@
 						loadingExtra={jobsLoader.loadingExtra}
 						bind:selectedIds
 						bind:selectedWorkspace
+						on:select={() => (openedRunId = selectedIds.length === 1 ? selectedIds[0] : undefined)}
 						on:loadExtra={loadExtra}
 						on:filterByPath={filterByPath}
 						on:filterByUser={filterByUser}
