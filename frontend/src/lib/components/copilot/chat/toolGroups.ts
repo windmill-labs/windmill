@@ -259,8 +259,8 @@ export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
 	let i = 0
 	while (i < messages.length) {
 		// An edit group wins over an explore group: its reads belong to the edits they prepare,
-		// so an explore run also stops before a read that starts one. A group already absorbs
-		// the calls queued behind its own, so a waiting row only follows a call outside one.
+		// so an explore run also stops before a read that starts one. A group keeps the queued
+		// calls of its own kind, so a waiting row only holds the queued calls a group would not take.
 		const explores = (m: DisplayMessage, j: number) => isReadCall(m) && !editGroupAt(messages, j)
 		const group =
 			waitingGroupAt(messages, i, items.at(-1)) ??
