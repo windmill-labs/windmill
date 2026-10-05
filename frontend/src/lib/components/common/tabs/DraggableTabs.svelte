@@ -198,7 +198,15 @@
 	function handleKeydown(e: KeyboardEvent, tab: TabItem) {
 		if (e.target !== e.currentTarget) return // let nested controls (close ×) act
 		// A modified key is the host page's shortcut (e.g. Cmd+Enter to run), not a tab action.
-		if (e.ctrlKey || e.metaKey || e.altKey) return
+		// svelte-dnd-action's item listener claims every Enter/Space (starting a keyboard drag)
+		// and stops it there, so those are re-sent from the strip, above the dnd zone.
+		if (e.ctrlKey || e.metaKey || e.altKey) {
+			if (e.key === 'Enter' || e.key === ' ') {
+				e.stopPropagation()
+				stripEl?.dispatchEvent(new KeyboardEvent(e.type, e))
+			}
+			return
+		}
 		if (e.key === 'Delete' || e.key === 'Backspace') {
 			if (tab.closable !== false) {
 				e.preventDefault()
