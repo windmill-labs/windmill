@@ -467,12 +467,7 @@
 		if (reducedMotion.val) return
 		panesAnimating = true
 		clearTimeout(panesAnimationTimer)
-		panesAnimationTimer = setTimeout(() => {
-			panesAnimating = false
-			// The panel's final width was measured while the writes above were suppressed, and a
-			// settled panel may get no further resize to publish it.
-			if (!fullscreen) panelWidth = previewWidth
-		}, PANES_MOVE_MS)
+		panesAnimationTimer = setTimeout(() => (panesAnimating = false), PANES_MOVE_MS)
 	}
 	onDestroy(() => clearTimeout(panesAnimationTimer))
 	/** The arriving strip fades in over the expansion; the leaving one goes quickly, so the two
@@ -490,12 +485,21 @@
 	}
 	// Width of the preview panel, so the band can stop where it starts.
 	let previewWidth = $state(0)
-	/** The same width, excluding what the panel measures while it is expanding or contracting for
-	 *  a full-screen switch. The band's inset is read from this: fed the live measurement, the bar
-	 *  would be sized against a panel that has not arrived yet, and on the way back from full
-	 *  screen it starts at 146px — narrow enough that the bar wraps to two rows for a tenth of a
-	 *  second before the panel settles. */
-	let panelWidth = $state(0)
+	/** Width of the row the panes share, so the panel can be remembered as a share of it. */
+	let contentWidth = $state(0)
+	/** What share of that row the panel takes, sampled only while it is standing still. The band's
+	 *  inset is read from this for the length of a full-screen switch: fed the live measurement,
+	 *  the bar would be sized against a panel that has not arrived yet, and on the way back from
+	 *  full screen it starts at 146px — narrow enough that the bar wraps to two rows before the
+	 *  panel settles. A share rather than a width, so a window resized while full screen still
+	 *  gives the right inset on the way out. */
+	let panelShare = $state(0)
+	const bandInset = $derived.by(() => {
+		if (fullscreen) return 0
+		if (panesAnimating && panelShare > 0 && contentWidth > 0)
+			return Math.round(panelShare * contentWidth)
+		return previewCollapsed || previewWidth === 0 ? undefined : previewWidth
+	})
 	// Fullscreen is page state, not per-session, so it outlives a session switch —
 	// tell the incoming session's model, whose own collapsed flag it overrides, or
 	// re-opening the item plainly on screen would be judged invisible and not flash.
@@ -955,15 +959,12 @@
 
 <!-- The session showing fills the band's breadcrumb. The band is the layout's, but it stops
      where the preview panel starts so that panel can run from the top of the viewport. -->
-<!-- Full screen drops the chat column, and with it the SessionWrapper that names the band — so the
-     page names it instead, and hands the band the preview's own strip and controls as one filling
-     surface. -->
+<!-- In full screen the band carries the session's name and, as one filling surface, the preview's
+     own strip and controls. The name here is only what shows until the active session's
+     SessionWrapper has mounted: it registers after this does, and the registry merges later-wins,
+     so from then on the name comes from there, with its pen and its menu. -->
 <PageHeaderContent
-	barRightInset={fullscreen
-		? 0
-		: previewCollapsed || panelWidth === 0
-			? undefined
-			: panelWidth}
+	barRightInset={bandInset}
 	section={fullscreen ? { label: activeSession?.summary ?? 'Untitled session' } : undefined}
 	actions={fullscreen ? fullscreenBand : sessionPageActions}
 	actionsFill={fullscreen}
@@ -1075,6 +1076,7 @@
 			     length of the move instead, uncovering it as it settles. Entering full screen needs
 			     none of this: the band is full width from the first frame and the panel stays below. -->
 			<div
+				bind:clientWidth={contentWidth}
 				class="flex-1 min-h-0 flex flex-row relative {panesAnimating && !fullscreen
 					? 'z-[31]'
 					: 'z-0'}"
@@ -1083,6 +1085,7 @@
 			>
 				<Splitpanes
 					horizontal={false}
+					style="--panes-move: {PANES_MOVE_MS}ms"
 					class="flex-1 min-h-0 session-splitter {previewCollapsed || fullscreen
 						? 'splitter-off'
 						: ''} {panesAnimating ? 'panes-animating' : ''}"
@@ -1134,7 +1137,8 @@
 							bind:clientWidth={() => previewWidth,
 							(w) => {
 								previewWidth = w
-								if (!fullscreen && !panesAnimating) panelWidth = w
+								if (!fullscreen && !panesAnimating && contentWidth > 0)
+									panelShare = w / contentWidth
 							}}
 							class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0 pt-11' : 'p-2 pl-0'}"
 						>
@@ -1321,9 +1325,9 @@
 {/snippet}
 
 {#snippet previewTabStrip(inBand: boolean)}
-	<!-- Both layouts render this one snippet, so the move between them is described once. The
-	     wrapper exists to carry it: `stripArrive` measures this box against where the strip stood
-	     before the switch. -->
+	<!-- Both layouts render this one snippet, so the strip is described once. The wrapper is here to
+	     own its fade: the two strips stand in different places, and what carries the switch is the
+	     panel moving under them, not the strip travelling. -->
 	<div
 		class={inBand ? 'flex items-center h-full min-w-0' : 'shrink-0'}
 		in:stripArrive
@@ -1450,9 +1454,10 @@
 	   the panes' widths are animated — but only while that switch is in flight (`panes-animating`),
 	   since a splitter drag sets the same inline width and would trail the pointer. */
 	:global(.splitpanes--vertical.panes-animating) > :global(.splitpanes__pane) {
-		/* `!important` to beat app.css's blanket `transition: none !important` on vertical panes,
+		/* The duration comes from PANES_MOVE_MS, which also times how long the class stays on.
+		   `!important` to beat app.css's blanket `transition: none !important` on vertical panes,
 		   which is there so a splitter drag tracks the pointer exactly. */
-		transition: width 240ms cubic-bezier(0.33, 1, 0.68, 1) !important;
+		transition: width var(--panes-move) cubic-bezier(0.33, 1, 0.68, 1) !important;
 	}
 
 	/* Collapsed preview: the pane is resized to 0 but stays mounted, so remove

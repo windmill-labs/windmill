@@ -197,8 +197,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 			<!-- bind:clientWidth: the menu hangs from the chevron, so it is shifted back by the width of
 		     the name to line its left edge up with the disc. -->
 			<div class="flex items-center min-w-0" bind:clientWidth={nameWidth}>
-				<svelte:element
-					this={'a'}
+				<a
 					href={homeHref}
 					class={scopeChipClass}
 					title={showFork ? `${familyName} / ${scopeName}` : familyName}
@@ -231,7 +230,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 							{@render envBadgeMark()}
 						{/if}
 					{/if}
-				</svelte:element>
+				</a>
 			</div>
 			<Menubar>
 				{#snippet children({ createMenu })}
