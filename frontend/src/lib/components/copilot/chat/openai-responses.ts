@@ -328,6 +328,7 @@ export async function* getOpenAIResponsesCompletionStream(
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
 		reasoningEffort?: string
+		maxTokensCap?: number
 	}
 ): AsyncGenerator<OpenAI.Chat.Completions.ChatCompletionChunk> {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -335,6 +336,7 @@ export async function* getOpenAIResponsesCompletionStream(
 		stream: true,
 		tools,
 		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap,
 		reasoningEffort: options?.reasoningEffort
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
@@ -380,6 +382,20 @@ export async function* getOpenAIResponsesCompletionStream(
 							content: event.delta || ''
 						},
 						finish_reason: null
+					}
+				]
+			} as OpenAI.Chat.Completions.ChatCompletionChunk
+		} else if (event.type === 'response.completed' || event.type === 'response.incomplete') {
+			yield {
+				id: 'chatcmpl-' + Date.now(),
+				object: 'chat.completion.chunk',
+				created: Date.now(),
+				model: responsesConfig.model,
+				choices: [
+					{
+						index: 0,
+						delta: {},
+						finish_reason: event.type === 'response.completed' ? 'stop' : 'length'
 					}
 				]
 			} as OpenAI.Chat.Completions.ChatCompletionChunk
