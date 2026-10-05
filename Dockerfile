@@ -142,7 +142,7 @@ FROM ${DEBIAN_IMAGE}
 
 ARG TARGETPLATFORM
 ARG POWERSHELL_VERSION=7.5.0
-ARG KUBECTL_VERSION=1.36.2
+ARG KUBECTL_VERSION=1.37.1
 ARG HELM_VERSION=3.21.4
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
 ARG GO_VERSION=1.27.1
