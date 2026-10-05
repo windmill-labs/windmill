@@ -57,6 +57,7 @@
 		Terminal,
 		Pencil,
 		WandSparkles,
+		X,
 		Zap
 	} from 'lucide-svelte'
 	import {
@@ -409,22 +410,27 @@
 
 	// A module path always ends in a file extension, so this id can't collide with one.
 	const MAIN_FILE_TAB_ID = '__main__'
-	let fileTabs = $derived<TabItem[]>([
-		{ id: MAIN_FILE_TAB_ID, label: mainFileName, closable: false, pinned: 'left' },
-		...Object.keys(modules ?? {}).map((modulePath) => ({
-			id: modulePath,
-			label: modulePath,
-			title: modulePath
-		}))
-	])
-
-	function reorderModules(next: TabItem[]) {
-		const current = modules
-		if (!current) return
-		modules = Object.fromEntries(
-			next.filter((t) => t.id !== MAIN_FILE_TAB_ID).map((t) => [t.id, current[t.id]])
-		)
-	}
+	// Tab order is view state only: `modules` is stored as JSONB, which re-sorts its keys on
+	// deploy, so an order written into it would not survive.
+	let moduleTabOrder: string[] = $state([])
+	let fileTabs = $derived.by<TabItem[]>(() => {
+		const paths = Object.keys(modules ?? {})
+		const rank = new Map(paths.map((p, i) => [p, i + moduleTabOrder.length]))
+		moduleTabOrder.forEach((p, i) => rank.has(p) && rank.set(p, i))
+		return [
+			{ id: MAIN_FILE_TAB_ID, label: mainFileName, closable: false, pinned: 'left' },
+			// Not closable through the strip: closing deletes the module's code, so it stays on
+			// the explicit × rather than Delete/Backspace and middle-click.
+			...paths
+				.sort((a, b) => rank.get(a)! - rank.get(b)!)
+				.map((modulePath) => ({
+					id: modulePath,
+					label: modulePath,
+					title: modulePath,
+					closable: false
+				}))
+		]
+	})
 
 	let modulePathInput = $state('')
 	let showAddModulePopover = $state(false)
@@ -610,6 +616,11 @@
 		return 'path' in canonical && canonical.path === oldPath
 	}
 
+	function prefillRename(modulePath: string) {
+		renameModuleInput = modulePath
+		renameModuleError = ''
+	}
+
 	function renameModule(oldPath: string) {
 		if (!renameModuleInput.trim()) return
 		const canonical = canonicalModulePath(renameModuleInput)
@@ -630,6 +641,7 @@
 		delete modules[oldPath]
 		modules[newPath] = { ...mod, language: newLang ?? mod.language }
 		modules = { ...modules }
+		moduleTabOrder = moduleTabOrder.map((p) => (p === oldPath ? newPath : p))
 		if (moduleTestState[oldPath]) {
 			moduleTestState[newPath] = moduleTestState[oldPath]
 			delete moduleTestState[oldPath]
@@ -2586,8 +2598,7 @@
 				tabs={fileTabs}
 				activeId={activeModuleTab ?? MAIN_FILE_TAB_ID}
 				onSelect={(id) => (id === MAIN_FILE_TAB_ID ? switchToMain() : switchToModule(id))}
-				onClose={removeModule}
-				onReorder={reorderModules}
+				onReorder={(next) => (moduleTabOrder = next.map((t) => t.id))}
 				class="shrink-0 border-b border-light bg-surface-secondary/50"
 			>
 				{#snippet tabAccessory(tab)}
@@ -2597,17 +2608,18 @@
 							openFocus={renameModuleInputEl}
 							contentClasses="p-3 w-72"
 							class="inline-flex"
-							triggerAttrs={{ 'aria-label': `Rename ${tab.id}`, tabindex: -1 }}
+							triggerAttrs={{
+								'aria-label': `Rename ${tab.id}`,
+								onpointerdown: () => prefillRename(tab.id),
+								onkeydown: (e: KeyboardEvent) =>
+									(e.key === 'Enter' || e.key === ' ') && prefillRename(tab.id)
+							}}
 						>
 							{#snippet trigger()}
 								<span
-									class="opacity-0 group-hover:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
+									class="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
 									role="presentation"
-									onclick={(e) => {
-										e.stopPropagation()
-										renameModuleInput = tab.id
-										renameModuleError = ''
-									}}
+									onclick={(e) => e.stopPropagation()}
 								>
 									<Pencil size={10} />
 								</span>
@@ -2616,6 +2628,17 @@
 								{@render renameModuleForm(tab.id, close)}
 							{/snippet}
 						</Popover>
+						<button
+							type="button"
+							class="opacity-0 group-hover:opacity-100 focus:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
+							aria-label={`Delete ${tab.id}`}
+							onclick={(e) => {
+								e.stopPropagation()
+								removeModule(tab.id)
+							}}
+						>
+							<X size={10} />
+						</button>
 					{/if}
 				{/snippet}
 				{#snippet afterTabs()}
