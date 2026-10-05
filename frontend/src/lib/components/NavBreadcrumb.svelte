@@ -34,7 +34,8 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		section,
 		afterName,
 		actingWorkspaceId,
-		narrow = false
+		narrow = false,
+		nameOnly = false
 	}: {
 		item?: PageHeaderItem
 		section?: PageHeaderSection
@@ -45,6 +46,10 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		actingWorkspaceId?: string
 		/** The bar is short of room: the workspace part drops its names and keeps its marks. */
 		narrow?: boolean
+		/** Only the page's own name, with no workspace part and no picker — the band inside a
+		 *  session's preview frame, where the workspace is the host's and leading the reader out of
+		 *  it is exactly what that band must not offer. The page still has to say what it is. */
+		nameOnly?: boolean
 	} = $props()
 
 	const scopeId = $derived(actingWorkspaceId ?? $workspaceStore ?? undefined)
@@ -185,79 +190,81 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	aria-label="Breadcrumb"
 	class="flex items-center gap-1.5 min-w-0 text-xs font-normal text-primary"
 >
-	<!-- One part for where the user is: the name of the workspace they are standing in — a fork
+	{#if !nameOnly}
+		<!-- One part for where the user is: the name of the workspace they are standing in — a fork
 	     included, in its own colour — leading home, and one chevron whose picker changes it. The
 	     picker lists the families and expands one to reach its forks, so a fork needs no part of
 	     its own here. -->
-	<div class={narrow ? 'flex items-center shrink-0' : 'flex items-center min-w-0'}>
-		<!-- No hover fill on the name: the chevron beside it is the thing that lights up, and two
+		<div class={narrow ? 'flex items-center shrink-0' : 'flex items-center min-w-0'}>
+			<!-- No hover fill on the name: the chevron beside it is the thing that lights up, and two
 		     boxes reacting to one pass of the pointer read as two controls fighting. -->
-		<!-- bind:clientWidth: the menu hangs from the chevron, so it is shifted back by the width of
+			<!-- bind:clientWidth: the menu hangs from the chevron, so it is shifted back by the width of
 		     the name to line its left edge up with the disc. -->
-		<div class="flex items-center min-w-0" bind:clientWidth={nameWidth}>
-			<svelte:element
-				this={sessionMode ? 'span' : 'a'}
-				href={sessionMode ? undefined : homeHref}
-				class={scopeChipClass}
-				title={showFork ? `${familyName} / ${scopeName}` : familyName}
-			>
-				{#if narrow}
-					<!-- Short of room, the part keeps what it cannot be read without: the disc in the
+			<div class="flex items-center min-w-0" bind:clientWidth={nameWidth}>
+				<svelte:element
+					this={sessionMode ? 'span' : 'a'}
+					href={sessionMode ? undefined : homeHref}
+					class={scopeChipClass}
+					title={showFork ? `${familyName} / ${scopeName}` : familyName}
+				>
+					{#if narrow}
+						<!-- Short of room, the part keeps what it cannot be read without: the disc in the
 					     workspace's own colour, the fork mark, and the environment. The names go — the
 					     hover title still carries them, and the picker beside it names them all. -->
-					{@render workspaceDisc()}
-					{#if showFork}
-						<span class={forkChipClass} style={forkAccent}>
-							<GitFork size={ICON} class="flex-shrink-0" />
+						{@render workspaceDisc()}
+						{#if showFork}
+							<span class={forkChipClass} style={forkAccent}>
+								<GitFork size={ICON} class="flex-shrink-0" />
+								{@render envBadgeMark()}
+							</span>
+						{:else}
 							{@render envBadgeMark()}
-						</span>
+						{/if}
 					{:else}
-						{@render envBadgeMark()}
-					{/if}
-				{:else}
-					<BreadcrumbItemContent label={familyName} icon={workspaceDisc} />
-					{#if showFork}
-						<!-- Both names: the fork is where the work happens, the family is which product it
+						<BreadcrumbItemContent label={familyName} icon={workspaceDisc} />
+						{#if showFork}
+							<!-- Both names: the fork is where the work happens, the family is which product it
 					     is part of, and either alone leaves the other to be guessed. -->
-						{@render slash()}
-						<span class={forkChipClass} style={forkAccent}>
-							<GitFork size={ICON} class="flex-shrink-0" />
-							<span class="truncate">{scopeName}</span>
+							{@render slash()}
+							<span class={forkChipClass} style={forkAccent}>
+								<GitFork size={ICON} class="flex-shrink-0" />
+								<span class="truncate">{scopeName}</span>
+								{@render envBadgeMark()}
+							</span>
+						{:else}
 							{@render envBadgeMark()}
-						</span>
-					{:else}
-						{@render envBadgeMark()}
+						{/if}
 					{/if}
-				{/if}
-			</svelte:element>
+				</svelte:element>
+			</div>
+			<Menubar>
+				{#snippet children({ createMenu })}
+					<Menu
+						bind:this={workspaceMenu}
+						{createMenu}
+						usePointerDownOutside
+						placement="bottom-start"
+						contentStyle="margin-left: {-nameWidth}px"
+					>
+						{#snippet triggr({ trigger })}
+							<MeltButton
+								meltElement={trigger}
+								class="flex items-center p-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
+								title="Switch workspace"
+							>
+								<ChevronDown size={ICON} class="flex-shrink-0" />
+							</MeltButton>
+						{/snippet}
+						{#snippet children({ item: menuItem })}
+							<WorkspacePickerBody item={menuItem} closeMenu={() => workspaceMenu?.close()} />
+						{/snippet}
+					</Menu>
+				{/snippet}
+			</Menubar>
 		</div>
-		<Menubar>
-			{#snippet children({ createMenu })}
-				<Menu
-					bind:this={workspaceMenu}
-					{createMenu}
-					usePointerDownOutside
-					placement="bottom-start"
-					contentStyle="margin-left: {-nameWidth}px"
-				>
-					{#snippet triggr({ trigger })}
-						<MeltButton
-							meltElement={trigger}
-							class="flex items-center p-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
-							title="Switch workspace"
-						>
-							<ChevronDown size={ICON} class="flex-shrink-0" />
-						</MeltButton>
-					{/snippet}
-					{#snippet children({ item: menuItem })}
-						<WorkspacePickerBody item={menuItem} closeMenu={() => workspaceMenu?.close()} />
-					{/snippet}
-				</Menu>
-			{/snippet}
-		</Menubar>
-	</div>
+	{/if}
 
-	{#if item || section || routePage}
+	{#if !nameOnly && (item || section || routePage)}
 		{@render slash()}
 	{/if}
 

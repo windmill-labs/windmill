@@ -87,6 +87,10 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	class={twMerge(
 		'flex items-center gap-1 shrink-0 min-w-0 bg-surface transition-shadow duration-150',
 		phone ? 'flex-wrap content-center min-h-11 py-1 pl-1 pr-2' : 'h-11 pl-2 pr-4',
+		// The small left padding is there to sit a button against: the sidebar handle, or the
+		// workspace disc, both of which carry their own visual margin. Embedded there is neither,
+		// and the page's name would start as bare text 8px from the edge.
+		navHidden && 'pl-4',
 		showEdge &&
 			'shadow-[inset_0_-1px_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_0_-1px_0_0_#374151] [html.github-dark_&]:shadow-[inset_0_-1px_0_0_rgb(var(--color-border-light))]'
 	)}
@@ -121,28 +125,28 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	     On a phone it stops yielding at 10rem, and that floor is what makes the bar wrap: the
 	     page's buttons no longer fit beside a trail that wide, so they take the line below
 	     instead of squeezing the name down to an ellipsis.
-	     An embed (`navHidden`) gets the page's controls without the trail that would offer to
-	     navigate the host's workspace. -->
-	{#if !navHidden}
-		<div class={twMerge('flex min-w-0', phone ? 'shrink min-w-[10rem]' : 'shrink-[0.1]')}>
-			<!-- Bridged like the actions below: what a page hangs off its own name renders here, out
-			     of the tree that named it, and the pen in there asks that tree who the acting user is
-			     before it offers to rename anything. -->
-			{#key content?.contexts}
-				<ContextBridge contexts={content?.contexts}>
-					<NavBreadcrumb
-						{item}
-						{section}
-						{narrow}
-						afterName={content?.afterName}
-						actingWorkspaceId={content?.actingWorkspaceId}
-					/>
-				</ContextBridge>
-			{/key}
-		</div>
-	{/if}
+	     An embed (`navHidden`) keeps the page's own name but drops the workspace part around it:
+	     the trail would offer to navigate the host's workspace, while the name is what says which
+	     page the controls beside it belong to. -->
+	<div class={twMerge('flex min-w-0', phone ? 'shrink min-w-[10rem]' : 'shrink-[0.1]')}>
+		<!-- Bridged like the actions below: what a page hangs off its own name renders here, out
+		     of the tree that named it, and the pen in there asks that tree who the acting user is
+		     before it offers to rename anything. -->
+		{#key content?.contexts}
+			<ContextBridge contexts={content?.contexts}>
+				<NavBreadcrumb
+					{item}
+					{section}
+					{narrow}
+					nameOnly={navHidden}
+					afterName={content?.afterName}
+					actingWorkspaceId={content?.actingWorkspaceId}
+				/>
+			</ContextBridge>
+		{/key}
+	</div>
 
-	{#if item && !navHidden && (item.summaryContent || item.summary)}
+	{#if item && (item.summaryContent || item.summary)}
 		<!-- No kind icon: the page below is the item, and saying "this is a flow" above a flow
 		     editor tells the reader what they can already see. -->
 		<div class={twMerge('flex items-center gap-1 min-w-0', phone && 'shrink')}>
