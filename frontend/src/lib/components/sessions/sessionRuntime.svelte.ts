@@ -1,4 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
+import type { PendingRun } from '$lib/components/details/pendingRun'
 import { get } from 'svelte/store'
 import { base } from '$lib/base'
 import { invalidate as invalidateWorkspaceItems } from '$lib/components/workspacePicker'
@@ -223,13 +224,8 @@ export interface SessionRuntime {
 	 * viewer refetches when this changes — it reads the deployed version from the
 	 * API, so nothing else tells it the editor beside it just published. */
 	deployedRevision(kind: SessionTargetKind, path: string): number
-	/** What a chat tool filled this item's deployed run form with, if one opened the page. */
-	seededRunArgsFor(
-		kind: SessionTargetKind,
-		path: string
-	): { args: Record<string, any>; seq: number } | undefined
-	/** Drop that note; the arguments themselves stay in the form. */
-	clearSeededRunArgs(kind: SessionTargetKind, path: string): void
+	/** The chat tool call waiting on this item's deployed run form, if one adopted it. */
+	pendingRunFor(kind: SessionTargetKind, path: string): PendingRun | undefined
 	/** Record that a preview tab landed on `url`. Fires for a newly opened tab and
 	 * for an existing one switched to the other side of its item. */
 	logTabUsage(url: string): void
@@ -567,32 +563,65 @@ function createRuntime(session: Session): SessionRuntime {
 			// Only persist a real width; undefined means "never resized" (defaults to 50).
 			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
-		onTabsChanged: pruneEditorCells,
+		onTabsChanged: () => {
+			pruneEditorCells()
+			declineAdoptionsWithoutTab()
+		},
 		onTabOpened: logTabUsage
 	})
 
-	// Arguments a chat tool filled a deployed page's run form with, keyed by the item it
-	// showed. Not persisted: they belong to the turn that proposed them, and a restored tab
-	// comes back as a plain deployed page.
-	const seededRunArgs = new SvelteMap<string, { args: Record<string, any>; seq: number }>()
-	const seededKey = (kind: SessionTargetKind, path: string) => `${kind}:${path}`
-	let seededRunSeq = 0
+	// Deployed pages that have taken over a parked run form, keyed by the item they show. Not
+	// persisted: a parked call does not survive a reload, so a restored tab comes back as a
+	// plain deployed page.
+	const adoptedRuns = new SvelteMap<string, { toolCallId: string; args: Record<string, any> }>()
+	const adoptionKey = (kind: SessionTargetKind, path: string) => `${kind}:${path}`
 
-	/** What a tool filled this item's run form with, for the viewer that renders it. `seq`
-	 * identifies the request: a page already open is re-seeded rather than reopened, so a
-	 * latch on "seeded once" would leave the previous turn's arguments on screen. */
-	function seededRunArgsFor(
-		kind: SessionTargetKind,
-		path: string
-	): { args: Record<string, any>; seq: number } | undefined {
-		return seededRunArgs.get(seededKey(kind, path))
+	/** The call waiting on this item's run form, for the viewer that renders it. Read live
+	 * rather than copied, so it disappears the moment the call settles however it settles. */
+	function pendingRunFor(kind: SessionTargetKind, path: string): PendingRun | undefined {
+		const adopted = adoptedRuns.get(adoptionKey(kind, path))
+		if (!adopted) return undefined
+		return {
+			toolCallId: adopted.toolCallId,
+			args: adopted.args,
+			// False when the call is no longer waiting — a turn stopped out from under the page,
+			// or a job that failed to start. The page says so rather than leaving Run dead.
+			submit: (args) => manager.handleRunFormSubmit(adopted.toolCallId, args),
+			// Only a string is a reason. `decline` reads as an event handler, and a caller that
+			// wires it straight to a component's `on:click` would otherwise hand the model a
+			// `CustomEvent` as the explanation of why its call was settled.
+			decline: (reason) =>
+				manager.handleRunFormCancel(
+					adopted.toolCallId,
+					typeof reason === 'string' ? reason : undefined
+				)
+		}
 	}
 
-	/** The reader dismissed the note above the form. The arguments stay in the fields — there
-	 * is nothing to restore them to — so this only stops the page claiming they came from the
-	 * chat. */
-	function clearSeededRunArgs(kind: SessionTargetKind, path: string): void {
-		seededRunArgs.delete(seededKey(kind, path))
+	/** Drop the adoption, leaving the page as the plain deployed page it also is. Called when
+	 * the call settles by any route: Run, Cancel, a stopped turn, the tab closing. */
+	function dropAdoption(toolCallId: string): void {
+		for (const [key, adopted] of [...adoptedRuns]) {
+			if (adopted.toolCallId === toolCallId) adoptedRuns.delete(key)
+		}
+	}
+
+	// Closing the tab declines the call, the contract the run form tab already has: the tab is
+	// the call's presence in the panel. Driven off the tab set rather than a close handler so a
+	// tab dropped by a reset or a session switch counts too.
+	function declineAdoptionsWithoutTab() {
+		for (const [key, adopted] of [...adoptedRuns]) {
+			const [kind, path] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
+			const stillOpen = previewTabs.tabs.some((t) => {
+				const slot = resolvePreviewTab(t.url)
+				return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
+			})
+			if (stillOpen) continue
+			adoptedRuns.delete(key)
+			if (manager.isRunFormPending(adopted.toolCallId)) {
+				manager.handleRunFormCancel(adopted.toolCallId)
+			}
+		}
 	}
 
 	// Let the jobs tray open a run in this session's preview panel (as an iframe
@@ -612,18 +641,17 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.openRunForm = ({ toolCallId, label }) => {
 		previewTabs.open({ type: 'runform', toolCallId, label })
 	}
-	// A DEPLOYED run opens the item's own page instead, with the model's arguments filled
-	// into the run form that is already there. Nothing waits on it: the tool call ends at the
-	// open, and the run is the reader's, started from that page as it would be with no chat
-	// open. `seq` rather than a flag, so a second request for a page already open re-seeds it.
-	manager.openDeployedRunPageHandler = ({ kind, path, summary, args }) => {
+	// The reader asked, from the card, to confirm a DEPLOYED run on the item's own page rather
+	// than on the card's form. The page takes over the parked call: its Run hands the
+	// arguments back, so the tool still owns the run and the card still gets its logs.
+	manager.openRunOnDeployedPage = ({ toolCallId, kind, path, summary, args }) => {
 		// Through the shared adapter rather than building the item here: a session target
 		// spells a code-based app `raw_app` and a workspace item spells it `app` with a
 		// flag, and one place should know that. A script and a flow both resolve to an item,
 		// so this guard is the adapter's contract rather than a case that happens.
 		const target = previewTargetForSessionTarget(kind, path)
 		if (target?.type !== 'item') return false
-		seededRunArgs.set(seededKey(kind, path), { args, seq: ++seededRunSeq })
+		adoptedRuns.set(adoptionKey(kind, path), { toolCallId, args })
 		const viewTarget = { ...target, item: { ...target.item, summary }, mode: 'view' as const }
 		// A viewer already open on an older version of this item keeps that pin when it is
 		// merely focused, and Run there executes that version — not the deployment these
@@ -649,16 +677,38 @@ function createRuntime(session: Session): SessionRuntime {
 		}
 		return true
 	}
-	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
+	manager.closeRunForm = (toolCallId) => {
+		// The page outlives the call it adopted — it is still the item's deployed page — so
+		// settling only drops the adoption, and the form goes back to running on its own.
+		// Reached however the call ends, a job that failed to start included, which is what
+		// keeps a settled call from leaving an inert Run button behind.
+		dropAdoption(toolCallId)
+		previewTabs.closeRunForm(toolCallId)
+	}
 	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
-		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
+		const runHref = `${base}/run/${jobId}?workspace=${workspace}`
+		// Either surface the call was waiting on becomes the run it started, in place.
+		for (const [key, adopted] of [...adoptedRuns]) {
+			if (adopted.toolCallId !== toolCallId) continue
+			adoptedRuns.delete(key)
+			const [kind, path] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
+			const tab = previewTabs.tabs.find((t) => {
+				const slot = resolvePreviewTab(t.url)
+				return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
+			})
+			if (tab) previewTabs.retargetById(tab.id, runHref)
+		}
+		previewTabs.retargetRunForm(toolCallId, runHref)
 	}
 	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
 	// away from is unmounted but still open, and the card must keep its form hidden until it
 	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
 	// to `tabs` through it, and the runtime is not inside an effect root to push from.
+	// An adopted deployed page counts: its form is this call's form, so the card must not
+	// mount a second one there either.
 	manager.isRunFormInPreview = (toolCallId) =>
-		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
+		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId) ||
+		[...adoptedRuns.values()].some((a) => a.toolCallId === toolCallId)
 
 	manager.openArtifact = (id, name, version) => {
 		previewTabs.open({ type: 'artifact', id, name, version })
@@ -694,8 +744,7 @@ function createRuntime(session: Session): SessionRuntime {
 		flowCell,
 		loadedEditorPath,
 		deployedRevision,
-		seededRunArgsFor,
-		clearSeededRunArgs,
+		pendingRunFor,
 		logTabUsage,
 
 		async loadFlow(workspace: string, path: string, force = false) {

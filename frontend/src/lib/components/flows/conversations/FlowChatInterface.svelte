@@ -57,6 +57,9 @@
 		subject?: 'flow' | 'agent'
 		/** The host's own controls, after the model's in the composer's footer. */
 		extraSettings?: import('svelte').Snippet
+		/** A strip directly above the composer, for something the host has to say about the
+		 * message that is about to be sent. */
+		inputPreface?: import('svelte').Snippet
 	}
 
 	let {
@@ -74,7 +77,8 @@
 		wideLayout = false,
 		conversationKind = 'deployed',
 		subject = 'flow',
-		extraSettings = undefined
+		extraSettings = undefined,
+		inputPreface = undefined
 	}: Props = $props()
 
 	const operatingUser = useOperatingUser()
@@ -329,6 +333,7 @@
 		hideModeSelector
 		{wideLayout}
 		{emptyHint}
+		{inputPreface}
 		footerSettings={modalSchema || showModelButton || extraSettings ? footerSettings : undefined}
 		placeholder="Send a message to run the {subject}"
 		disabled={deploymentInProgress || !!modelGap || !!wrongKindReason}

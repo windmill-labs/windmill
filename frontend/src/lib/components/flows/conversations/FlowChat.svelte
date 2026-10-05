@@ -63,6 +63,11 @@
 		subject?: 'flow' | 'agent'
 		/** The host's own controls, after the model's in the composer's footer. */
 		composerSettings?: import('svelte').Snippet
+		/** A strip directly above the composer of the conversation on screen — the one
+		 * {@link offerMessage} puts a message in. The panels behind it get none: a banner about
+		 * the message in this composer would be false over a conversation the reader switched
+		 * away from. */
+		inputPreface?: import('svelte').Snippet
 	}
 
 	let {
@@ -78,7 +83,8 @@
 		frame = 'top',
 		conversationKind = 'deployed',
 		subject = 'flow',
-		composerSettings = undefined
+		composerSettings = undefined,
+		inputPreface = undefined
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -281,6 +287,7 @@
 							{conversationKind}
 							{subject}
 							extraSettings={composerSettings}
+							inputPreface={shown ? inputPreface : undefined}
 						/>
 					</div>
 				{/if}

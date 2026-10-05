@@ -27,6 +27,7 @@
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import type { PendingRun } from '$lib/components/details/pendingRun'
 	import { processSecretArgs } from '$lib/components/secretArgUtils'
 	import type { Schema } from '$lib/common'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -103,10 +104,7 @@
 		onNavigate = goto,
 		active = true,
 		embedded = false,
-		seededRun,
-		seededByAgent = false,
-		onSeedApplied,
-		onClearSeededRun,
+		pendingRun,
 		onLoadState
 	}: {
 		/** The `[...path]` route segment: the flow's path. */
@@ -122,18 +120,10 @@
 		/** Rendered inside a page that is not the flow's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
-		/** Arguments a chat tool filled this form with when it opened the page. Nothing waits
-		 * on them: the page runs as it always does, and these only seed the fields and put a
-		 * note above them. `seq` identifies the request, so a second one re-seeds a page that
-		 * is already open. */
-		seededRun?: { args: Record<string, any>; seq: number }
-		/** Whether to say the agent filled them. Outlives `seededRun`, since the note stands
-		 * until the reader dismisses it. */
-		seededByAgent?: boolean
-		/** Applied, so the host stops offering them. */
-		onSeedApplied?: () => void
-		/** The reader dismissed the note. The values stay in the fields. */
-		onClearSeededRun?: () => void
+		/** A chat tool call waiting on this form, when the reader chose to confirm it here
+		 * rather than on the card. Seeds the arguments it proposed and takes over Run; see
+		 * {@link PendingRun} for why the page must not run it itself. */
+		pendingRun?: PendingRun
 		/** How the load ended, for a host that renders its own state around this page. */
 		onLoadState?: (state: 'loaded' | 'not_found') => void
 	} = $props()
@@ -349,6 +339,12 @@
 			requestBody,
 			skipPreprocessor: true
 		})
+		// The reader ran the flow themselves, which is what the parked call was asking for.
+		// Settle it rather than leaving it waiting on a Run button this page never shows;
+		// submitting instead would have the tool start a second job for the same request.
+		pendingRun?.decline(
+			`The user ran "${path}" themselves by sending the message in the flow's own chat, so this call did not start a job. The run is in that conversation.`
+		)
 		return run
 	}
 
@@ -380,40 +376,46 @@
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let runForm: RunForm | undefined = $state()
 
-	// Seeded once the surface exists, and again whenever another request arrives for a page
-	// already open — latched on the request rather than on "seeded once", which would leave
-	// the previous turn's values on screen. The arguments were narrowed against this flow's
-	// deployed schema before they got here, by the tool that opened the page.
+	// Run hands the arguments to the waiting call instead of starting a job: the tool that
+	// parked on this form starts one itself when it resumes.
+	const runAction = $derived(
+		pendingRun
+			? (_scheduledForStr: string | undefined, a: Record<string, any>) => {
+					if (!pendingRun.submit(a)) {
+						sendUserToast('That request is no longer waiting on this form', true)
+					}
+				}
+			: runFlow
+	)
+
+	// Seeded once per call rather than once per mount: a tab already showing this item is
+	// reused for the next request, so a latch on "seeded" would leave the previous call's
+	// arguments on screen.
 	//
 	// A chat flow has no run form to fill: its page is a conversation, so the proposed
-	// `user_message` goes into the composer for the reader to edit and send. The composer
-	// declines if they were already typing, which leaves their draft alone.
+	// `user_message` goes into the composer for the reader to edit and send, and sending it
+	// settles the call — `runFlowForChat` says so. The composer mounts a flush or two after
+	// the panel, so the effect waits on `composerReady` rather than latching into a void.
 	let flowChat: FlowChat | undefined = $state()
-	let seededSeq: number | undefined = undefined
+	let seededCallId: string | undefined = undefined
 	$effect(() => {
-		if (!seededRun || seededSeq === seededRun.seq) return
+		if (!pendingRun || seededCallId === pendingRun.toolCallId) return
 		if (chatInputEnabled) {
-			// The composer mounts a flush or two after the panel does, so until it is there this
-			// effect waits — it reads the host's registration through `composerReady`, and runs
-			// again when that lands. Not latching is what keeps the proposal alive across those
-			// flushes.
 			if (!flowChat?.composerReady()) return
-			seededSeq = seededRun.seq
+			seededCallId = pendingRun.toolCallId
 			// A chat flow's schema can declare more than `user_message`, and a message sent
 			// without the rest would run on saved values or schema defaults — a different run
 			// from the one proposed. These land whether or not the message does.
-			const { user_message: message, ...inputs } = seededRun.args ?? {}
+			const { user_message: message, ...inputs } = pendingRun.args ?? {}
 			flowChat.applyInputs(inputs)
 			// A composer already holding a draft declines, and the message is then dropped
 			// rather than held: injecting it whenever the reader happens to clear their draft
-			// would put words in the box long after they were proposed. The card still shows
-			// what was asked for.
+			// would put words in the box long after they were proposed. The strip above it
+			// still says what was asked for.
 			if (typeof message === 'string' && message) flowChat.offerMessage(message)
-			onSeedApplied?.()
 		} else if (runForm) {
-			seededSeq = seededRun.seq
-			runForm.setArgs(seededRun.args)
-			onSeedApplied?.()
+			seededCallId = pendingRun.toolCallId
+			runForm.setArgs(pendingRun.args)
 		}
 	})
 
@@ -886,7 +888,16 @@
 								flowModules={flow?.value?.modules}
 								wideLayout
 								frame="none"
-							/>
+							>
+								{#snippet inputPreface()}
+									{#if pendingRun}
+										<InputSelectedBadge
+											inputSelected="pending_run"
+											onReject={() => pendingRun.decline()}
+										/>
+									{/if}
+								{/snippet}
+							</FlowChat>
 						{:else}
 							{@const hasSchema =
 								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
@@ -929,8 +940,11 @@
 									/>
 								{/if}
 
-								{#if seededByAgent}
-									<InputSelectedBadge inputSelected="agent" onReject={() => onClearSeededRun?.()} />
+								{#if pendingRun}
+									<InputSelectedBadge
+										inputSelected="pending_run"
+										onReject={() => pendingRun.decline()}
+									/>
 								{/if}
 
 								<RunForm
@@ -945,8 +959,9 @@
 									detailed={false}
 									bind:isValid
 									runnable={flow}
-									runAction={runFlow}
+									{runAction}
 									bind:args
+									schedulable={!pendingRun}
 									bind:this={runForm}
 									{jsonView}
 								/>

@@ -66,46 +66,10 @@
 		reloadKey++
 	})
 
-	// Arguments a chat tool filled this item's run form with when it opened the page. Nothing
-	// is waiting on them: the reader runs the page as they would with no chat open, and the
-	// note above the form only says where the values came from.
-	//
-	// Taken from the runtime once and held here, because the request belongs to the turn that
-	// made it: left in the map it would re-seed every later open of this item's page. The item
-	// it was filed under rides along, since this tab re-points to another item in place rather
-	// than remounting — a seed held without its key would land in the next item's form,
-	// replacing its own defaults, under a note crediting the agent for them.
-	//
-	// `pending` is what the page has still to apply, and the detail page clears it by reporting
-	// that it has. The two are separate because the detail page remounts under this one (a
-	// deploy, a refresh, a version pin) and comes back with its own latch reset: without that,
-	// each remount would push the proposal in again, over whatever the reader has since typed,
-	// and bring back a note they had dismissed. The agent proposed once.
-	let held = $state<
-		| {
-				kind: SessionTargetKind
-				path: string
-				args: Record<string, any>
-				seq: number
-				pending: boolean
-		  }
-		| undefined
-	>(undefined)
-	const forThisItem = $derived(held?.kind === kind && held.path === path ? held : undefined)
-	const seededRun = $derived(
-		forThisItem?.pending ? { args: forThisItem.args, seq: forThisItem.seq } : undefined
-	)
-	/** The note stands until the reader dismisses it, which outlives the one application. */
-	const seededByAgent = $derived(!!forThisItem)
-	$effect(() => {
-		const incoming = runtime.seededRunArgsFor(kind, path)
-		if (!incoming) return
-		const [k, p] = [kind, path]
-		untrack(() => {
-			held = { kind: k, path: p, ...incoming, pending: true }
-			runtime.clearSeededRunArgs(k, p)
-		})
-	})
+	// The call waiting on this item's run form, when the reader chose to confirm it here
+	// rather than on the card. Read live from the runtime, so it disappears the moment the
+	// call settles — by Run, by Cancel, by a stopped turn or by this tab closing.
+	const pendingRun = $derived(runtime.pendingRunFor(kind, path))
 
 	/** Refetch the deployed item. The host calls this for the reload signals that reach a
 	 * tab from outside it; nothing about becoming visible triggers it, so a form the reader
@@ -245,10 +209,7 @@
 			{onNavigate}
 			{active}
 			embedded
-			{seededRun}
-			{seededByAgent}
-			onSeedApplied={() => held && (held = { ...held, pending: false })}
-			onClearSeededRun={() => (held = undefined)}
+			{pendingRun}
 			onLoadState={setLoadState}
 		/>
 	{:else if kind === 'flow'}
@@ -259,10 +220,7 @@
 			{onNavigate}
 			{active}
 			embedded
-			{seededRun}
-			{seededByAgent}
-			onSeedApplied={() => held && (held = { ...held, pending: false })}
-			onClearSeededRun={() => (held = undefined)}
+			{pendingRun}
 			onLoadState={setLoadState}
 		/>
 	{:else}

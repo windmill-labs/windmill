@@ -683,6 +683,10 @@ export type ToolDisplayMessage = {
 	/** The user declined: the reject button, a Stop, or a posture switch. Set only there, so
 	 * a decision is distinguishable from every other way a call errors. */
 	declinedByUser?: boolean
+	/** The user settled the call by running the item themselves, elsewhere. Still a decline —
+	 * this tool started nothing — but the run happened, so the card must not call it
+	 * cancelled. */
+	ranElsewhere?: boolean
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -1418,21 +1422,12 @@ export interface ToolCallbacks {
 	) => Promise<Record<string, any> | undefined>
 	/** The submitted form's job is queued. Wired alongside requestRunArgs. */
 	markRunFormStarted?: (toolId: string) => void
-	/** Show a DEPLOYED run on the item's own page, with these arguments in the run form that
-	 * is already there, and end the call: the reader runs it from that page rather than
-	 * confirming a form the tool would then run itself. Wired only where that page can be
-	 * shown — a session's preview panel.
-	 *
-	 * False means it did not open, and the caller must fall through to its own form: there is
-	 * no session to show it in, or the turn was stopped while this tool read the item's
-	 * schema. The form path settles a stopped turn correctly; this one has no card left to
-	 * settle. */
-	openDeployedRunPage?: (a: {
-		kind: 'script' | 'flow'
-		path: string
-		summary: string
-		args: Record<string, any>
-	}) => boolean
+	/** Why a parked form settled without submitting, when it was not a refusal: a chat flow's
+	 * deployed page has no Run button, so sending the proposed message in its own composer is
+	 * what settles the call — and telling the model it was cancelled would have it report that
+	 * nothing ran. Read once, right after `requestRunArgs` resolves undefined; nothing here
+	 * means the user cancelled. */
+	runFormDeclineReason?: (toolId: string) => string | undefined
 	/** Records a workspace item the tool call created/edited/deleted, by its
 	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
 	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */

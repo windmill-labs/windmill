@@ -5126,75 +5126,6 @@ describe('global AI tools', () => {
 		})
 	})
 
-	// A DEPLOYED run inside a session is handed to the item's own page and the call ends
-	// there: the user runs it from the page, with the scheduling, tag and version controls
-	// this tool could never carry. The three things that must hold are that no job is
-	// started, that the model is told so rather than left to infer a run, and that a TEST
-	// run — which executes the draft, not what the page shows — never takes the branch.
-	it('hands a deployed run to the item’s page and starts no job', async () => {
-		const script = {
-			path: 'f/scripts/handed-over',
-			summary: 'Handed over',
-			content: 'export async function main(name: string) {}',
-			language: 'bun',
-			schema: { properties: { name: { type: 'string' } } }
-		} as any
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce(script)
-
-		const opened: any[] = []
-		const requestRunArgs = vi.fn(async (_toolId: string, form: any) => form.args)
-		const result = await callGlobalTool(
-			'run_script',
-			{ path: 'f/scripts/handed-over', args: { name: 'Ada' } },
-			{
-				...toolCallbacks,
-				requestRunArgs,
-				openDeployedRunPage: (a: any) => {
-					opened.push(a)
-					return true
-				}
-			}
-		)
-
-		expect(opened).toEqual([
-			{
-				kind: 'script',
-				path: 'f/scripts/handed-over',
-				summary: 'Handed over',
-				args: { name: 'Ada' }
-			}
-		])
-		// Never parks on a form: there is nothing to confirm when the page is the confirmation.
-		expect(requestRunArgs).not.toHaveBeenCalled()
-		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
-		// The model reports back from this string, so it has to deny the run outright — an
-		// "opened" it read as "started" would have it tell the user the job is away.
-		expect(result).toContain('has NOT run')
-	})
-
-	// The draft is what a test executes, and the deployed page does not show it. Handing one
-	// over would run the deployed version instead — a different script.
-	it('keeps a test run on its own form even where a page could be opened', async () => {
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/still-tested',
-			content: 'export async function main(name: string) {}',
-			language: 'bun',
-			schema: { properties: { name: { type: 'string' } } }
-		} as any)
-
-		const openDeployedRunPage = vi.fn(() => true)
-		await withCompletedTestJob(() =>
-			callGlobalTool(
-				'test_run_script',
-				{ path: 'f/scripts/still-tested', args: { name: 'Ada' } },
-				{ ...toolCallbacks, openDeployedRunPage }
-			)
-		)
-
-		expect(openDeployedRunPage).not.toHaveBeenCalled()
-		expect(JobService.runScriptPreview).toHaveBeenCalled()
-	})
-
 	// The bypass posture answers a run form as it answers any other confirmation, for a
 	// deployed run as much as a test. The card must never render one first: a form nobody
 	// will fill in is attached already settled, so no field is ever mounted, and the schema
@@ -5211,16 +5142,11 @@ describe('global AI tools', () => {
 
 		const statuses: any[] = []
 		const requestRunArgs = vi.fn(async (_toolId: string, form: any) => form.args)
-		// Wired on purpose: the posture answers for a reader who already consented, so a
-		// deployed run must still run here rather than being handed to a page with nobody
-		// left to press Run.
-		const openDeployedRunPage = vi.fn(() => true)
 		const yolo = {
 			...toolCallbacks,
 			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
 			shouldAutoAcceptToolConfirmations: () => true,
-			requestRunArgs,
-			openDeployedRunPage
+			requestRunArgs
 		}
 
 		await withCompletedTestJob(() =>
@@ -5250,7 +5176,6 @@ describe('global AI tools', () => {
 		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
 			expect.objectContaining({ requestBody: { name: 'Ada' }, skipPreprocessor: true })
 		)
-		expect(openDeployedRunPage).not.toHaveBeenCalled()
 	})
 
 	// The posture is the user's standing answer to whether to ask, so a run it answers starts on

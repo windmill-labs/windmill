@@ -676,6 +676,15 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	/** Point one known tab at `url`. For a caller that found the tab itself — the deployed
+	 * page that confirmed a run becomes that run, and only the caller knows which page. */
+	retargetById(id: string, url: string): void {
+		const tab = this.#tabs.find((t) => t.id === id)
+		if (!tab) return
+		retargetTab(tab, url)
+		this.#flush()
+	}
+
 	setCollapsed(collapsed: boolean): void {
 		if (this.#collapsed === collapsed) return
 		this.#collapsed = collapsed

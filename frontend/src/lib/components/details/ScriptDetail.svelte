@@ -46,6 +46,7 @@
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import type { PendingRun } from '$lib/components/details/pendingRun'
 	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import { goto } from '$lib/navigation'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
@@ -126,10 +127,7 @@
 		onNavigate = goto,
 		active = true,
 		embedded = false,
-		seededRun,
-		seededByAgent = false,
-		onSeedApplied,
-		onClearSeededRun,
+		pendingRun,
 		onLoadState
 	}: {
 		/** The `[...hash]` route segment: either a script hash or a script path. */
@@ -145,20 +143,10 @@
 		/** Rendered inside a page that is not the script's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
-		/** Arguments a chat tool proposed when it opened the page, for as long as they have
-		 * still to be applied. Nothing waits on them: the page runs as it always does, and
-		 * these only fill the fields. `seq` identifies the request, so a second one re-seeds a
-		 * page already open. Gone once applied — this page remounts under its host on a
-		 * deploy, a refresh or a version pin, and applying again would overwrite what the
-		 * reader has typed since. */
-		seededRun?: { args: Record<string, any>; seq: number }
-		/** Whether to say the agent filled them. Outlives `seededRun`, since the note stands
-		 * until the reader dismisses it. */
-		seededByAgent?: boolean
-		/** Applied, so the host stops offering them. */
-		onSeedApplied?: () => void
-		/** The reader dismissed the note. The values stay in the fields. */
-		onClearSeededRun?: () => void
+		/** A chat tool call waiting on this form, when the reader chose to confirm it here
+		 * rather than on the card. Seeds the arguments it proposed and takes over Run; see
+		 * {@link PendingRun} for why the page must not run it itself. */
+		pendingRun?: PendingRun
 		/** How the load ended, for a host that renders its own state around this page.
 		 * Providing it also suppresses the "could not load" toast: a 404 here is the normal
 		 * state of a not-yet-deployed path, which the host explains in place instead. */
@@ -435,13 +423,27 @@
 	// already open — latched on the request rather than on "seeded once", which would leave
 	// the previous turn's values on screen. The arguments were narrowed against this script's
 	// deployed schema before they got here, by the tool that opened the page.
-	let seededSeq: number | undefined = undefined
+	// Run hands the arguments to the waiting call instead of starting a job: the tool that
+	// parked on this form starts one itself when it resumes.
+	const runAction = $derived(
+		pendingRun
+			? (_scheduledForStr: string | undefined, a: Record<string, any>) => {
+					if (!pendingRun.submit(a)) {
+						sendUserToast('That request is no longer waiting on this form', true)
+					}
+				}
+			: runScript
+	)
+
+	// Seeded once per call rather than once per mount: a tab already showing this item is
+	// reused for the next request, so a latch on "seeded" would leave the previous call's
+	// arguments on screen.
+	let seededCallId: string | undefined = undefined
 	$effect(() => {
-		if (!seededRun || !runForm) return
-		if (seededSeq === seededRun.seq) return
-		seededSeq = seededRun.seq
-		runForm.setArgs(seededRun.args)
-		onSeedApplied?.()
+		if (!pendingRun || !runForm) return
+		if (seededCallId === pendingRun.toolCallId) return
+		seededCallId = pendingRun.toolCallId
+		runForm.setArgs(pendingRun.args)
 	})
 
 	// Read once on purpose: these args seed the form, so tracking the fragment would
@@ -1115,8 +1117,11 @@
 								/>
 							{/if}
 
-							{#if seededByAgent}
-								<InputSelectedBadge inputSelected="agent" onReject={() => onClearSeededRun?.()} />
+							{#if pendingRun}
+								<InputSelectedBadge
+									inputSelected="pending_run"
+									onReject={() => pendingRun.decline()}
+								/>
 							{/if}
 							<RunForm
 								bind:scheduledForStr
@@ -1130,9 +1135,9 @@
 								detailed={false}
 								bind:isValid
 								runnable={script}
-								runAction={runScript}
+								{runAction}
 								bind:args
-								schedulable={true}
+								schedulable={!pendingRun}
 								bind:this={runForm}
 								{jsonView}
 							/>

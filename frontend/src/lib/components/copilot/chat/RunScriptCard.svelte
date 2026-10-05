@@ -92,24 +92,12 @@
 	// "the run finished": a detached job keeps the card in its running state until
 	// the background poller lands an outcome on it or the tray sees the job end. An
 	// inspected run has no poller behind it — the status it was read at is the answer.
-	// The call ended by opening the item's deployed page: nothing ran, nothing is waiting, and
-	// the run is the reader's to start from there. An outcome of its own, so the card neither
-	// shimmers as if a job were in flight nor claims one finished.
-	const openedDeployedPage = $derived(
-		!pending &&
-			!message.isLoading &&
-			!ran &&
-			runForm?.kind === 'run' &&
-			!runForm?.submitted &&
-			!runForm?.canceled
-	)
 	const settled = $derived(
 		inspected
 			? ['success', 'failure', 'canceled'].includes(inspectedStatus ?? '')
 			: !pending &&
 					!message.isLoading &&
-					(openedDeployedPage ||
-						message.result !== undefined ||
+					(message.result !== undefined ||
 						failed ||
 						canceled ||
 						(chatJob !== undefined && ['success', 'failure', 'canceled'].includes(chatJob.status)))
@@ -182,33 +170,34 @@
 	// Inspecting is done the moment the tool returned, whatever the run it looked at is
 	// still doing — the tense belongs to the call, not to its subject.
 	const verb = $derived(
-		inspected
-			? 'Inspected'
-			: openedDeployedPage
-				? 'Opened'
-				: running
-					? verbs.present
-					: settled && ran
-						? verbs.past
-						: verbs.future
+		inspected ? 'Inspected' : running ? verbs.present : settled && ran ? verbs.past : verbs.future
 	)
 
 	// Being cancelled is an outcome like any other, and it is the one the card has to say out
 	// loud: nothing came back, so no other tab can carry it.
 	const outcomeTab = $derived(
-		failed ? 'Error' : canceled ? (ran ? 'Cancelled' : 'Not run') : 'Result'
+		failed
+			? 'Error'
+			: message.ranElsewhere
+				? 'Handed off'
+				: canceled
+					? ran
+						? 'Cancelled'
+						: 'Not run'
+					: 'Result'
 	)
+	// What the tool call ended as, which for a handover is not a cancellation: the job exists,
+	// it is just not this call's to report — the page the reader ran it from has it.
 	const cancelReason = $derived(
-		ran
-			? `This run was cancelled while the ${runnableKind} was running.`
-			: `This run was cancelled before the ${runnableKind} started.`
+		message.ranElsewhere
+			? `This ${runnableKind} was run from its own page, so this call started no job.`
+			: ran
+				? `This run was cancelled while the ${runnableKind} was running.`
+				: `This run was cancelled before the ${runnableKind} started.`
 	)
 	// Streaming opens the tab early: the result is already arriving, and one that appeared
 	// only at the end would hide the thing the user is waiting to read.
-	// A call that ended by opening the page has no outcome to show — no job ran, so an outcome
-	// tab could only say the run returned nothing, which reads as a run that came back empty.
-	// The arguments it filled are the whole story, and `Inputs` carries those.
-	const hasOutcome = $derived(!openedDeployedPage && (settled || streaming))
+	const hasOutcome = $derived(settled || streaming)
 	const tabs = $derived([
 		{ value: 'input', label: 'Inputs' },
 		...(ran ? [{ value: 'logs', label: 'Logs' }] : []),
@@ -392,31 +381,33 @@
 	// How long it took, which is the one thing the colour cannot say. A run that never started
 	// has no time to give, so its outcome takes the slot — as a word, never "Not run", which
 	// stutters against the "Run <name>" label beside it.
-	const outcome = $derived(failed ? 'Failed' : canceled ? 'Cancelled' : 'Done')
-	// A call that only opened the page has no outcome and no duration, and "Done" there would
-	// claim the completion the rest of this card is careful not to imply. The label already
-	// says `Opened`, which is the whole status.
-	const statusTime = $derived(openedDeployedPage ? '' : running ? elapsed : duration || outcome)
+	// A call the reader settled by running the item on its own page is a decline to this tool
+	// and a run to them: "Cancelled" would say the opposite of what they just watched happen.
+	const outcome = $derived(
+		failed ? 'Failed' : message.ranElsewhere ? 'Handed off' : canceled ? 'Cancelled' : 'Done'
+	)
+	const statusTime = $derived(running ? elapsed : duration || outcome)
 
 	// What the preview button opens changes with the card: the form while the call is still
 	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
 	// the button is not drawn at all — a form has nowhere to go outside a session, and a
 	// call cancelled before Run never became a run.
-	// A deployed run never waits on a form: the tool opened the item's own page and ended, so
-	// this reopens that page — the reader may have closed the tab, or moved on and come back.
+	// A deployed run can be confirmed on the item's own page instead of on this card: the page
+	// takes over the call, so Run there is Run here. A test run has no deployed page — it
+	// executes the draft being written — so it keeps the chat's own form tab.
 	const asDeployedPage = $derived(
-		openedDeployedPage && !!path && !!aiChatManager.openDeployedRunPage
+		pending && runForm?.kind === 'run' && !!path && !!aiChatManager.openRunOnDeployedPage
 	)
 	const previewTarget = $derived(
 		pending
-			? aiChatManager.openRunForm
-				? ('form' as const)
-				: undefined
+			? asDeployedPage
+				? ('deployed' as const)
+				: aiChatManager.openRunForm
+					? ('form' as const)
+					: undefined
 			: job
 				? ('run' as const)
-				: asDeployedPage
-					? ('deployed' as const)
-					: undefined
+				: undefined
 	)
 	const previewTitle = $derived(
 		previewTarget === 'form'
@@ -430,16 +421,21 @@
 
 	function openPreview() {
 		const label = runnableName
+		// The panel now shows what this card was showing, so the card folds away rather than
+		// holding a second copy open in the transcript. Through `toggled`, so it reads as an
+		// ordinary collapse the reader can undo.
+		if (previewTarget === 'deployed') toggled = { id: message.tool_call_id, open: false }
 		if (previewTarget === 'form') {
 			aiChatManager.openRunForm?.({ toolCallId: message.tool_call_id, label })
 			return
 		}
 		if (previewTarget === 'deployed') {
-			aiChatManager.openDeployedRunPage?.({
+			aiChatManager.openRunOnDeployedPage?.({
+				toolCallId: message.tool_call_id,
 				kind: runnableKind === 'flow' ? 'flow' : 'script',
 				path,
 				summary: label,
-				args: runForm?.args ?? {}
+				args: aiChatManager.runFormDraft(message.tool_call_id, runForm!).args ?? {}
 			})
 			return
 		}
@@ -685,7 +681,9 @@
 										<p class="text-2xs font-medium leading-4 text-secondary">{cancelReason}</p>
 										{#if !ran}
 											<p class="text-2xs leading-4 text-tertiary">
-												The inputs it would have run with are on the Inputs tab.
+												{message.ranElsewhere
+													? 'The inputs it was opened with are on the Inputs tab.'
+													: 'The inputs it would have run with are on the Inputs tab.'}
 											</p>
 										{/if}
 									</div>
