@@ -84,12 +84,13 @@
 		if (blockedByUnparseable) {
 			return
 		}
-		if (claimRun && !claimRun.claim()) return
-		// Captured for the whole press, not read again after the await below: a `runAction` that
-		// stands for something the press was started against — a chat tool call waiting on this
-		// form — is replaced by the page's own runner the moment that thing goes away, and a
-		// press that switched runners mid-flight would start a job nobody asked for.
+		// Both captured for the whole press, never read again after the await below: they stand
+		// for whatever the press was started against — a chat tool call waiting on this form —
+		// and that can settle and be replaced mid-press. A press that picked up the replacement
+		// would run it without its reader ever confirming it, and would release its guard.
+		const claim = claimRun
 		const action = runAction
+		if (claim && !claim.claim()) return
 		let processedArgs: Record<string, any>
 		const { args: withDefaults, resetKeys } = enforceDisabledDefaults(args ?? {}, runnable?.schema)
 		if (resetKeys.length > 0) {
@@ -98,7 +99,7 @@
 		try {
 			processedArgs = await processSecretArgs(withDefaults, runnable?.schema, $operatingWorkspace)
 		} catch (e) {
-			claimRun?.release()
+			claim?.release()
 			sendUserToast('Failed to process sensitive args: ' + e, true)
 			return
 		}

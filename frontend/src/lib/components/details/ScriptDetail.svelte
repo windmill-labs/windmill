@@ -421,15 +421,20 @@
 
 	// Run hands the arguments to the waiting call instead of starting a job: the tool that
 	// parked on this form starts one itself when it resumes.
-	const runAction = $derived(
-		pendingRun
-			? (_scheduledForStr: string | undefined, a: Record<string, any>) => {
-					if (!pendingRun.submit(a)) {
-						sendUserToast('That request is no longer waiting on this form', true)
-					}
-				}
-			: runScript
-	)
+	//
+	// Bound to the call it was built for, not to whichever one the page is carrying when the
+	// press lands: a press runs across `processSecretArgs`, and the call can settle and be
+	// replaced by the next request for this same item inside that round trip. Submitting to
+	// whatever is current would start that one without its reader ever confirming it.
+	const runAction = $derived.by(() => {
+		const call = pendingRun
+		if (!call) return runScript
+		return (_scheduledForStr: string | undefined, a: Record<string, any>) => {
+			if (!call.submit(a)) {
+				sendUserToast('That request is no longer waiting on this form', true)
+			}
+		}
+	})
 
 	// Seeded once per call rather than once per mount: a tab already showing this item is
 	// reused for the next request, so a latch on "seeded" would leave the previous call's

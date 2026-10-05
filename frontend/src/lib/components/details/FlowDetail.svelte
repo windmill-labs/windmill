@@ -322,6 +322,10 @@
 		conversationId: string,
 		additionalInputs?: Record<string, any>
 	): Promise<string> {
+		// Read before the two round trips below, so what this send settles is the call it was
+		// sent for: another request for this flow can arrive while the job is starting, and
+		// the one that lands later must not be told a message it never proposed was sent.
+		const call = pendingRun
 		// A chat flow's inputs reach the job straight from the composer, with no RunForm in
 		// between to mint a secret as it is typed — so this is the only place a value the
 		// schema marks `password` can become a reference. Without it the literal is stored in
@@ -342,7 +346,7 @@
 		// The reader ran the flow themselves, which is what the parked call was asking for.
 		// Settle it rather than leaving it waiting on a Run button this page never shows;
 		// submitting instead would have the tool start a second job for the same request.
-		pendingRun?.decline(
+		call?.decline(
 			`The user ran "${path}" themselves by sending the message in the flow's own chat, so this call did not start a job. The run is in that conversation.`
 		)
 		return run
@@ -378,15 +382,20 @@
 
 	// Run hands the arguments to the waiting call instead of starting a job: the tool that
 	// parked on this form starts one itself when it resumes.
-	const runAction = $derived(
-		pendingRun
-			? (_scheduledForStr: string | undefined, a: Record<string, any>) => {
-					if (!pendingRun.submit(a)) {
-						sendUserToast('That request is no longer waiting on this form', true)
-					}
-				}
-			: runFlow
-	)
+	//
+	// Bound to the call it was built for, not to whichever one the page is carrying when the
+	// press lands: a press runs across `processSecretArgs`, and the call can settle and be
+	// replaced by the next request for this same item inside that round trip. Submitting to
+	// whatever is current would start that one without its reader ever confirming it.
+	const runAction = $derived.by(() => {
+		const call = pendingRun
+		if (!call) return runFlow
+		return (_scheduledForStr: string | undefined, a: Record<string, any>) => {
+			if (!call.submit(a)) {
+				sendUserToast('That request is no longer waiting on this form', true)
+			}
+		}
+	})
 
 	// Seeded once per call rather than once per mount: a tab already showing this item is
 	// reused for the next request, so a latch on "seeded" would leave the previous call's
@@ -416,8 +425,14 @@
 			// would carry whatever the inputs were before — saved values or schema defaults,
 			// not the proposal the reader just agreed to send.
 			const chat = flowChat
+			const seeding = pendingRun.toolCallId
 			processSecretArgs(inputs, flow?.schema as Schema | undefined, workspace)
 				.then((minted) => {
+					// Only for the call the page is still carrying. Minting outlives the proposal
+					// that started it: the reader can refuse it, and the next request for this flow
+					// can be adopted and seed the same composer meanwhile. Either way these are the
+					// arguments of a proposal that is no longer on screen.
+					if (pendingRun?.toolCallId !== seeding) return
 					chat.applyInputs(minted)
 					// A composer already holding a draft declines, and the message is then dropped
 					// rather than held: injecting it whenever the reader happens to clear their
