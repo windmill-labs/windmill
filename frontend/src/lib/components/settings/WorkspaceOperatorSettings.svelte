@@ -166,7 +166,7 @@
 	<Section
 		small
 		label="Build flows and apps"
-		description="Let operators compose flows and full-code apps out of scripts and flows that are already deployed. They still cannot write code. Granting either right makes each operator consume a full seat instead of half a seat."
+		description="Let operators build flows out of deployed scripts and flows, and full-code apps whose frontend code they write. Apps always run sandboxed, and operators still cannot write backend scripts. Granting either right makes each operator consume a full seat instead of half a seat."
 		wrapperClass="mb-6"
 		class="flex flex-col gap-y-1"
 	>

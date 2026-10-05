@@ -2,8 +2,9 @@
 
 Two workspace settings, `operator_settings.builder_flows` and `operator_settings.builder_apps`,
 that let every operator of that workspace compose flows and full-code apps out of runnables that
-already exist. Neither makes them authors: the boundary the operator role draws is **authoring
-code and running arbitrary code**, and builder rights do not move it.
+already exist. Neither lets them author backend code or run arbitrary code on a worker, the
+boundary the operator role draws. The app right does let them write the app's frontend code,
+which runs in the viewer's browser and is why that right rests on sandbox isolation.
 
 They are granted **independently**, because the two are not equally verifiable. A composed flow is
 checked in full server-side (`check_flow_is_composition_only` refuses everything carrying code).
