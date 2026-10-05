@@ -10180,7 +10180,7 @@ pub async fn run_job_by_hash_inner(
             && has_preprocessor.unwrap_or(false),
         labels,
     };
-    let job_payload = with_run_retry(&mut run_query, job_payload, &push_args, &tag)?;
+    let job_payload = with_run_retry(&run_query, job_payload, &push_args, &tag)?;
 
     let (uuid, tx) = push(
         &db,

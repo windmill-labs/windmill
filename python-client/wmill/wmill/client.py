@@ -231,8 +231,7 @@ class Windmill:
 
         ``retry`` re-runs the job when it fails, with the policy a schedule takes,
         e.g. ``{"constant": {"attempts": 3, "seconds": 10}}``. The returned id is
-        the first attempt's, and a retried job is not recorded as a child of the
-        job that dispatched it.
+        the first attempt's; each retry is a job of its own, recorded as a child of it.
         """
         return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag, retry=retry)
 
