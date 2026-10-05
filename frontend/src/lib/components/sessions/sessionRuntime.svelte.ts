@@ -715,8 +715,8 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.closeRunForm = (toolCallId) => {
 		// The page outlives the call it adopted — it is still the item's deployed page — so
 		// settling only drops the adoption, and the form goes back to running on its own.
-		// Reached on a cancel; a call that ends any other way stops being pending, which
-		// `pendingRunFor` reads, so the entry left here is inert either way.
+		// Reached on a cancel, and on a submitted call the tool could not turn into a job
+		// (`markRunFormEnded`), which is the one end a page waiting for its job cannot see.
 		dropAdoption(toolCallId)
 		previewTabs.closeRunForm(toolCallId)
 	}

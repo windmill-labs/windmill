@@ -1422,6 +1422,11 @@ export interface ToolCallbacks {
 	) => Promise<Record<string, any> | undefined>
 	/** The submitted form's job is queued. Wired alongside requestRunArgs. */
 	markRunFormStarted?: (toolId: string) => void
+	/** The submitted form will never produce a job: the server refused it, a sensitive
+	 * argument could not be stored, or plan mode blocked it after the arguments were handed
+	 * over. The mirror of `markRunFormStarted`, and the only way a surface that confirmed the
+	 * run can tell that it is over — the call settles with neither a job nor a cancellation. */
+	markRunFormEnded?: (toolId: string) => void
 	/** Why a parked form settled without submitting, when it was not a refusal: a chat flow's
 	 * deployed page has no Run button, so sending the proposed message in its own composer is
 	 * what settles the call — and telling the model it was cancelled would have it report that

@@ -6214,7 +6214,10 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	}
 
 	const blockedBeforeRun = blockedByPlanMode()
-	if (blockedBeforeRun) return blockedBeforeRun
+	if (blockedBeforeRun) {
+		toolCallbacks.markRunFormEnded?.(toolId)
+		return blockedBeforeRun
+	}
 
 	// Every job leaves through here, so this is where a sensitive argument becomes a reference:
 	// the form mints as the user types and the bypass mints in its stead, but a host answering
@@ -6231,6 +6234,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 			isStreamingArguments: false,
 			error: message
 		})
+		toolCallbacks.markRunFormEnded?.(toolId)
 		return message
 	}
 
@@ -6249,7 +6253,15 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 
 	const outcome = await executeTestRun({
 		jobStarter: async () => {
-			const jobId = await spec.startJob(toRun)
+			let jobId: string
+			try {
+				jobId = await spec.startJob(toRun)
+			} catch (e) {
+				// The ordinary refusal — gone, renamed, not permitted — and the surface that
+				// confirmed the run is still waiting for the job it was promised.
+				toolCallbacks.markRunFormEnded?.(toolId)
+				throw e
+			}
 			// The form's own submitted flag flips a round trip earlier, when the user presses
 			// Run; only from here is there a job for a stopped turn to say it left running.
 			toolCallbacks.markRunFormStarted?.(toolId)

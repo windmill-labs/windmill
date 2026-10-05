@@ -2069,6 +2069,10 @@ export class AIChatManager implements ChatViewHost {
 
 	markRunFormStarted = (toolId: string) => this.#patchRunForm(toolId, { started: true })
 
+	// Nothing to patch on the card — it already carries the tool's own error — so this exists
+	// for the surfaces that confirmed the run and would otherwise wait forever for a job.
+	markRunFormEnded = (toolId: string) => this.closeRunForm?.(toolId)
+
 	// A form restored from history has an entry once it mounts, but no resolve: the loop
 	// that opened it is gone.
 	isRunFormPending = (toolId: string): boolean => !!this.#runForms.get(toolId)?.resolve
@@ -4177,6 +4181,7 @@ export class AIChatManager implements ChatViewHost {
 					requestUserQuestion: this.requestUserQuestion,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
+					markRunFormEnded: this.markRunFormEnded,
 					runFormDeclineReason: this.runFormDeclineReason,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),

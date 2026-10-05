@@ -5294,6 +5294,28 @@ describe('global AI tools', () => {
 		expect(refused).toContain('cannot show a run form')
 	})
 
+	// A surface that confirmed the run is waiting for the job it was promised, and a refused
+	// start is the one end it cannot see for itself: the call is neither pending nor cancelled,
+	// and nothing else tells it to stop offering a Run that would never reach a job.
+	it('run_script says the form is over when the job is refused', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/refused',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+		vi.mocked(JobService.runScriptByPath).mockRejectedValueOnce(new Error('not permitted'))
+		const markRunFormEnded = vi.fn()
+
+		await expect(
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/refused', args: { name: 'Ada' } },
+				{ ...toolCallbacks, markRunFormEnded }
+			)
+		).rejects.toThrow('not permitted')
+
+		expect(markRunFormEnded).toHaveBeenCalledWith(expect.any(String))
+	})
+
 	// A page that settled the call by running the item its own way — a chat flow, whose page is
 	// a conversation with no Run button — is not a refusal. Told it was cancelled, the model
 	// reports that nothing ran while the run is in that conversation.
