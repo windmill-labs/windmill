@@ -161,6 +161,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
         concurrency_settings: ConcurrencySettings::default(),
         debouncing_settings: DebouncingSettings::default(),
         labels: None,
+        job_token_scopes: None,
     })
     .run_until_complete(&db, false, server.addr.port())
     .await;
@@ -285,6 +286,7 @@ async fn test_error_handler_muted_on_script(db: Pool<Postgres>) -> anyhow::Resul
         concurrency_settings: ConcurrencySettings::default(),
         debouncing_settings: DebouncingSettings::default(),
         labels: None,
+        job_token_scopes: None,
     })
     .run_until_complete(&db, false, server.addr.port())
     .await;
@@ -381,6 +383,7 @@ async fn test_error_handler_not_triggered_on_success(db: Pool<Postgres>) -> anyh
         concurrency_settings: ConcurrencySettings::default(),
         debouncing_settings: DebouncingSettings::default(),
         labels: None,
+        job_token_scopes: None,
     })
     .run_until_complete(&db, false, server.addr.port())
     .await;

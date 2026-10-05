@@ -450,6 +450,7 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_TAGS_WORKSPACES: arc_swap::ArcSwap<Option<Vec<String>>> = arc_swap::ArcSwap::from_pointee(None);
     pub static ref FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX: AtomicBool = AtomicBool::new(false);
     pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
+    pub static ref DEPENDENCY_JOB_TAG: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -810,7 +811,7 @@ fn format_pull_query(peek: String) -> String {
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
-            j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
+            j.script_entrypoint_override, j.preprocessed, p.job_token_scopes, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
         FROM q, j

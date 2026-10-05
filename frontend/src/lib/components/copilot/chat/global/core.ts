@@ -51,6 +51,7 @@ import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
 import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
 import { evalValue } from '$lib/components/flows/utils.svelte'
+import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
 	FRAMEWORK_TEMPLATES,
@@ -900,7 +901,7 @@ const testRunArgsSchema = z
 	.nullable()
 	.optional()
 	.describe(
-		'Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format "resource-<type>" in the input schema) takes the bare string "$res:<path>" as its whole value — never an object wrapper like {"$res": "<path>"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with "$var:<path>". The prefixed string can also sit in a nested field, e.g. {"gh_auth": {"token": "$var:g/all/gh_token"}}.'
+		'Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format "resource-<type>" in the input schema) takes the bare string "$res:<path>" as its whole value — never an object wrapper like {"$res": "<path>"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with "$var:<path>". The prefixed string can also sit in a nested field, e.g. {"gh_auth": {"token": "$var:g/all/gh_token"}}. When the input schema carries a top-level "prompt_for_ai", it is the author\'s own instructions for choosing these arguments: follow it.'
 	)
 
 const backgroundArgSchema = z
@@ -5951,6 +5952,7 @@ async function agentStepRunForm(
 		.sort((a, b) => (position.get(a) ?? Infinity) - (position.get(b) ?? Infinity))
 
 	const evaluated: Record<string, any> = {}
+	await quickjsReady()
 	for (const key of keys) {
 		const value = evalValue(key, module, undefined, false)
 		if (value !== undefined) evaluated[key] = value

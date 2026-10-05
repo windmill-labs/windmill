@@ -65,7 +65,8 @@ use windmill_queue::{append_logs, cancel_single_job, CanceledBy, MiniPulledJob};
 use crate::{
     ai::stream_event_processor::StreamEventProcessor,
     common::{
-        build_args_map, resolve_job_timeout, transform_json_value, OccupancyMetrics, StreamNotifier,
+        build_args_map, get_root_job_id, resolve_job_timeout, transform_json_value,
+        OccupancyMetrics, StreamNotifier,
     },
     handle_child::{
         run_future_with_polling_update_job_poller,
@@ -2023,6 +2024,7 @@ pub async fn run_agent(
                                 db,
                                 &conversation_id,
                                 Some(job.id),
+                                get_root_job_id(job),
                                 "Used websearch tool",
                                 MessageType::Tool,
                                 &step_name,
@@ -2075,6 +2077,7 @@ pub async fn run_agent(
                                 db,
                                 &conversation_id,
                                 Some(job.id),
+                                get_root_job_id(job),
                                 response_content,
                                 MessageType::Assistant,
                                 &step_name,
@@ -2205,6 +2208,7 @@ pub async fn run_agent(
                             db,
                             &conversation_id,
                             Some(job.id),
+                            get_root_job_id(job),
                             answer,
                             MessageType::Assistant,
                             &step_name,
@@ -2256,6 +2260,7 @@ pub async fn run_agent(
                             db,
                             &conversation_id,
                             Some(job.id),
+                            get_root_job_id(job),
                             &message_content,
                             MessageType::Assistant,
                             &step_name,
@@ -2898,6 +2903,7 @@ mod tests {
             let mut its = HashMap::new();
             its.insert(key.to_string(), js(expr));
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: None,
                 description: None,
@@ -2925,6 +2931,7 @@ mod tests {
             script_tool("a", "x", "authoring_flow_expr"),
             script_tool("b", "y", "keep_me"),
             AgentTool {
+                job_token_scopes: None,
                 id: "m".to_string(),
                 summary: None,
                 description: None,
@@ -2972,6 +2979,7 @@ mod tests {
     fn narrow_roster_keeps_the_entries_a_run_named() {
         fn named(id: &str, summary: &str) -> AgentTool {
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: Some(summary.to_string()),
                 description: None,
@@ -2987,6 +2995,7 @@ mod tests {
         }
         fn mcp(id: &str, summary: &str, path: &str) -> AgentTool {
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: Some(summary.to_string()),
                 description: None,
@@ -2999,6 +3008,7 @@ mod tests {
         }
         fn websearch(id: &str, summary: Option<&str>) -> AgentTool {
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: summary.map(str::to_string),
                 description: None,

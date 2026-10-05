@@ -6,464 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use itertools::Itertools;
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use windmill_common::error::{Error, Result};
 
-/// Comprehensive scope system for JWT token authorization
-///
-/// Scopes follow the format: {domain}:{action}[:{resource}]
-/// Examples:
-/// - "jobs:read" - Read access to jobs
-/// - "scripts:write:f/folder/*" - Write access to scripts in a folder
-/// - "*" - Full access (superuser)
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScopeDefinition {
-    pub domain: String,
-    pub action: String,
-    pub kind: Option<String>, // For jobs:run:kind (optional)
-    pub resource: Option<Vec<String>>,
-}
-
-impl ScopeDefinition {
-    pub fn new(
-        domain: &str,
-        action: &str,
-        kind: Option<&str>,
-        resource: Option<Vec<String>>,
-    ) -> Self {
-        Self {
-            domain: domain.to_string(),
-            action: action.to_string(),
-            kind: kind.map(|s| s.to_string()),
-            resource: resource,
-        }
-    }
-
-    pub fn from_scope_string(scope: &str) -> Result<Self> {
-        let parts: Vec<&str> = scope.split(':').collect();
-
-        let into_owned_vec = |resources: &str| -> Vec<String> {
-            let resources = resources
-                .split(",")
-                .collect_vec()
-                .into_iter()
-                .map(ToOwned::to_owned)
-                .collect_vec();
-
-            resources
-        };
-
-        match parts.len() {
-            2 => Ok(Self::new(parts[0], parts[1], None, None)), // domain:action
-            3 => {
-                if parts[0] == "jobs" && parts[1] == "run" {
-                    Ok(Self::new(parts[0], parts[1], Some(parts[2]), None))
-                } else {
-                    Ok(Self::new(
-                        parts[0],
-                        parts[1],
-                        None,
-                        Some(into_owned_vec(parts[2])),
-                    ))
-                }
-            }
-            4 => {
-                if parts[0] == "jobs" && parts[1] == "run" {
-                    Ok(Self::new(
-                        parts[0],
-                        parts[1],
-                        Some(parts[2]),
-                        Some(into_owned_vec(parts[3])),
-                    ))
-                } else {
-                    Err(Error::BadRequest(format!(
-                        "Invalid 4-part scope: {}",
-                        scope
-                    )))
-                }
-            }
-            _ => Err(Error::BadRequest(format!(
-                "Invalid scope format: {}",
-                scope
-            ))),
-        }
-    }
-
-    pub fn as_string(&self) -> String {
-        match (&self.kind, &self.resource) {
-            (Some(kind), Some(resource)) => {
-                format!(
-                    "{}:{}:{}:{}",
-                    self.domain,
-                    self.action,
-                    kind,
-                    resource.join(",")
-                )
-            }
-            (Some(kind), None) => {
-                format!("{}:{}:{}", self.domain, self.action, kind)
-            }
-            (None, Some(resource)) => {
-                format!("{}:{}:{}", self.domain, self.action, resource.join(","))
-            }
-            (None, None) => format!("{}:{}", self.domain, self.action),
-        }
-    }
-
-    pub fn includes(&self, other: &ScopeDefinition) -> bool {
-        if self.domain != other.domain {
-            return false;
-        }
-
-        match (self.action.as_str(), other.action.as_str()) {
-            (a, b) if (a == "write" && b == "read") || (a == b) => {}
-            // Apps only: `write` can rewrite the app and its policy, so it also covers
-            // running its components. Not general — `jobs:write` must not grant
-            // `jobs:run`. The resource check below still confines it to the same app.
-            ("write", "run") if self.domain == "apps" => {}
-            _ => return false,
-        }
-
-        if self.domain == "jobs" && self.action == "run" {
-            match (&self.kind, &other.kind) {
-                (Some(self_kind), Some(other_kind)) => {
-                    if self_kind != other_kind {
-                        return false;
-                    }
-                }
-                (Some(_), None) => {
-                    return false;
-                }
-                (None, _) => {
-                    return true;
-                }
-            }
-        }
-
-        match (&self.resource, &other.resource) {
-            (Some(self_resources), Some(other_resources)) => {
-                resources_match(self_resources, other_resources)
-            }
-            // A requirement naming no path is the whole domain, so only a grant that
-            // itself spans every path satisfies it. `*` is that grant — the scope UI
-            // accepts it as a resource path and `resources_match` already reads it as
-            // everything — while any listed path leaves the collection unauthorized.
-            (Some(self_resources), None) => self_resources.iter().any(|r| r == "*"),
-            (None, _) => true,
-        }
-    }
-}
-
-fn resources_match(scope_resources: &[String], accepted_resources: &[String]) -> bool {
-    if scope_resources.contains(&"*".to_string()) || accepted_resources.contains(&"*".to_string()) {
-        return true;
-    }
-
-    if scope_resources.len() <= 4 && accepted_resources.len() <= 4 {
-        return resources_match_small(scope_resources, accepted_resources);
-    }
-
-    resources_match_large(scope_resources, accepted_resources)
-}
-
-fn resources_match_small(scope_resources: &[String], accepted_resources: &[String]) -> bool {
-    for required in accepted_resources {
-        for scope_resource in scope_resources {
-            if resource_matches_pattern(scope_resource, required) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn resources_match_large(scope_resources: &[String], accepted_resources: &[String]) -> bool {
-    let mut exact_matches = HashSet::new();
-    let mut patterns = Vec::new();
-
-    for scope_resource in scope_resources {
-        if scope_resource.contains('*') {
-            patterns.push(scope_resource);
-        } else {
-            exact_matches.insert(scope_resource);
-        }
-    }
-
-    for accepted_resource in accepted_resources {
-        if exact_matches.contains(accepted_resource) {
-            return true;
-        }
-
-        for pattern in &patterns {
-            if resource_matches_pattern(pattern, accepted_resource) {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-fn resource_matches_pattern(scope_resource: &str, accepted_resource: &str) -> bool {
-    if scope_resource == accepted_resource {
-        return true;
-    }
-
-    let matches_wildcard = |pattern: &str, resource: &str| -> bool {
-        if !pattern.ends_with("/*") {
-            return false;
-        }
-
-        let prefix = &pattern[..pattern.len() - 2];
-
-        if !resource.starts_with(prefix) {
-            return false;
-        }
-
-        // If the resource is exactly the prefix, it matches
-        if resource.len() == prefix.len() {
-            return true;
-        }
-
-        // If the resource is longer, the next character must be '/' for a valid match
-        // This prevents "u/user" from matching "u/use/*"
-        resource.chars().nth(prefix.len()) == Some('/')
-    };
-
-    // Check if either resource is a wildcard pattern and matches the other
-    matches_wildcard(scope_resource, accepted_resource)
-        || matches_wildcard(accepted_resource, scope_resource)
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Route-level scope checking
-// ─────────────────────────────────────────────────────────────────
-
-/// Available scope domains (top-level API categories)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ScopeDomain {
-    // Core resource domains
-    Jobs,
-    Scripts,
-    /// The `/data_metrics` catalog. Its own domain, NOT an alias of `Scripts`: a
-    /// `data_metrics:read` token must reach only this route, never the broader
-    /// `/scripts` routes (some of which do no further scope check).
-    DataMetrics,
-    Flows,
-    FlowConversations,
-    Apps,
-    Variables,
-    Resources,
-    Schedules,
-    Folders,
-    Users,
-    Groups,
-    Workspaces,
-
-    // Trigger domains
-    HttpTriggers,
-    WebsocketTriggers,
-    KafkaTriggers,
-    NatsTriggers,
-    MqttTriggers,
-    AmqpTriggers,
-    SqsTriggers,
-    GcpTriggers,
-    AzureTriggers,
-    PostgresTriggers,
-    EmailTriggers,
-
-    // Native trigger domains
-    NativeTriggers,
-    TriggersHistory,
-
-    // System domains
-    Audit,
-    Settings,
-    Workers,
-    ServiceLogs,
-    Configs,
-    OAuth,
-    AI,
-    AiEvals, // AI agent eval datasets
-
-    Indexer,
-    Teams,   // Microsoft Teams integration
-    GitSync, // Git synchronization
-
-    // Special domains
-    Capture,           // Webhook capture
-    Drafts,            // Draft resources
-    Favorites,         // User favorites
-    Inputs,            // Input templates
-    JobHelpers,        // Job helper functions
-    ConcurrencyGroups, // Concurrency groups
-    Oidc,              // OpenID Connect
-    Openapi,           // OpenAPI generation
-
-    // Additional domains
-    Acls,         // Granular access control lists
-    RawApps,      // Raw application data
-    AgentWorkers, // Agent workers management
-    Mcp,          // MCP
-    Docs,         // Self-hosted documentation search (read-only)
-}
-
-impl ScopeDomain {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Jobs => "jobs",
-            Self::Scripts => "scripts",
-            Self::DataMetrics => "data_metrics",
-            Self::Flows => "flows",
-            Self::FlowConversations => "flow_conversations",
-            Self::Apps => "apps",
-            Self::Variables => "variables",
-            Self::Resources => "resources",
-            Self::Schedules => "schedules",
-            Self::Folders => "folders",
-            Self::Users => "users",
-            Self::Groups => "groups",
-            Self::Workspaces => "workspaces",
-            Self::HttpTriggers => "http_triggers",
-            Self::WebsocketTriggers => "websocket_triggers",
-            Self::KafkaTriggers => "kafka_triggers",
-            Self::NatsTriggers => "nats_triggers",
-            Self::MqttTriggers => "mqtt_triggers",
-            Self::AmqpTriggers => "amqp_triggers",
-            Self::SqsTriggers => "sqs_triggers",
-            Self::GcpTriggers => "gcp_triggers",
-            Self::AzureTriggers => "azure_triggers",
-            Self::PostgresTriggers => "postgres_triggers",
-            Self::EmailTriggers => "email_triggers",
-            Self::NativeTriggers => "native_triggers",
-            Self::TriggersHistory => "triggers_history",
-            Self::Audit => "audit",
-            Self::Settings => "settings",
-            Self::Workers => "workers",
-            Self::ServiceLogs => "service_logs",
-            Self::Configs => "configs",
-            Self::OAuth => "oauth",
-            Self::AI => "ai",
-            Self::AiEvals => "ai_evals",
-            Self::Capture => "capture",
-            Self::Drafts => "drafts",
-            Self::Favorites => "favorites",
-            Self::Inputs => "inputs",
-            Self::JobHelpers => "job_helpers",
-            Self::ConcurrencyGroups => "concurrency_groups",
-            Self::Oidc => "oidc",
-            Self::Openapi => "openapi",
-            Self::Acls => "acls",
-            Self::RawApps => "raw_apps",
-            Self::AgentWorkers => "agent_workers",
-            Self::Indexer => "indexer",
-            Self::Teams => "teams",
-            Self::GitSync => "git_sync",
-            Self::Mcp => "mcp",
-            Self::Docs => "docs",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "jobs" | "jobs_u" => Some(Self::Jobs),
-            "scripts" => Some(Self::Scripts),
-            // A distinct domain, not an alias of `scripts` (see the enum variant):
-            // a `data_metrics:read` token must not reach the broader /scripts routes.
-            "data_metrics" => Some(Self::DataMetrics),
-            "flows" => Some(Self::Flows),
-            "flow_conversations" => Some(Self::FlowConversations),
-            "apps" | "apps_u" => Some(Self::Apps),
-            "variables" => Some(Self::Variables),
-            "resources" => Some(Self::Resources),
-            "schedules" => Some(Self::Schedules),
-            "folders" => Some(Self::Folders),
-            "users" => Some(Self::Users),
-            "groups" => Some(Self::Groups),
-            "workspaces" => Some(Self::Workspaces),
-            "http_triggers" => Some(Self::HttpTriggers),
-            "websocket_triggers" => Some(Self::WebsocketTriggers),
-            "kafka_triggers" => Some(Self::KafkaTriggers),
-            "nats_triggers" => Some(Self::NatsTriggers),
-            "mqtt_triggers" => Some(Self::MqttTriggers),
-            "amqp_triggers" => Some(Self::AmqpTriggers),
-            "sqs_triggers" => Some(Self::SqsTriggers),
-            "gcp_triggers" => Some(Self::GcpTriggers),
-            "azure_triggers" => Some(Self::AzureTriggers),
-            "postgres_triggers" => Some(Self::PostgresTriggers),
-            "email_triggers" => Some(Self::EmailTriggers),
-            "audit" => Some(Self::Audit),
-            "settings" => Some(Self::Settings),
-            "workers" => Some(Self::Workers),
-            "service_logs" => Some(Self::ServiceLogs),
-            "configs" => Some(Self::Configs),
-            "oauth" => Some(Self::OAuth),
-            "ai" => Some(Self::AI),
-            "ai_evals" => Some(Self::AiEvals),
-            "indexer" | "srch" => Some(Self::Indexer),
-            "teams" => Some(Self::Teams),
-            "native_triggers" => Some(Self::NativeTriggers),
-            "triggers_history" => Some(Self::TriggersHistory),
-            "git_sync" | "github_app" => Some(Self::GitSync),
-            "capture" => Some(Self::Capture),
-            "drafts" => Some(Self::Drafts),
-            "favorites" => Some(Self::Favorites),
-            "inputs" => Some(Self::Inputs),
-            "job_helpers" => Some(Self::JobHelpers),
-            "concurrency_groups" => Some(Self::ConcurrencyGroups),
-            "oidc" => Some(Self::Oidc),
-            "openapi" => Some(Self::Openapi),
-            "acls" => Some(Self::Acls),
-            "raw_apps" => Some(Self::RawApps),
-            "agent_workers" => Some(Self::AgentWorkers),
-            "mcp" => Some(Self::Mcp),
-            "docs" => Some(Self::Docs),
-            _ => None,
-        }
-    }
-}
-
-/// Available scope actions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ScopeAction {
-    Read,  // GET operations, list, view
-    Write, // POST, PUT, PATCH, DELETE operations, create, update, delete
-    Run,   // Special action for running (scripts, flows, etc.)
-}
-
-impl ScopeAction {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Read => "read",
-            Self::Write => "write",
-            Self::Run => "run",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "read" => Some(Self::Read),
-            "write" => Some(Self::Write),
-            "delete" => Some(Self::Write),
-            "run" => Some(Self::Run),
-            _ => None,
-        }
-    }
-
-    /// Check if this action includes another action
-    /// Write includes Read
-    pub fn includes(&self, other: &ScopeAction) -> bool {
-        match (self, other) {
-            (ScopeAction::Write, ScopeAction::Read) => true,
-            (ScopeAction::Run, ScopeAction::Read) => true,
-            (a, b) => a == b,
-        }
-    }
-}
+pub use windmill_common::scopes::{ScopeAction, ScopeDefinition, ScopeDomain};
 
 pub fn check_route_access(
     token_scopes: &[String],
@@ -636,7 +181,38 @@ lazy_static::lazy_static! {
     };
 }
 
+/// The job routes a `jobs:cancel` scope reaches, as workspaced route suffixes. A
+/// path-scoped `jobs:cancel:<paths>` is resource-blind here like every scope; the
+/// handlers confine it through `job_cancel_path_confinement`, so a cancel route added
+/// here without that check would serve a path-scoped token every job.
+const CANCEL_PATH_ACTIONS: [&'static str; 4] = [
+    "jobs_u/queue/cancel/",
+    "jobs_u/queue/force_cancel/",
+    "jobs_u/queue/cancel_persistent/",
+    "jobs/queue/cancel_selection",
+];
+
+fn is_cancel_route(method: &str, route_path: &str) -> bool {
+    if !method.eq_ignore_ascii_case("POST") {
+        return false;
+    }
+    let mut parts = route_path.splitn(5, '/');
+    let (Some(""), Some("api"), Some("w"), Some(_), Some(suffix)) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return false;
+    };
+    CANCEL_PATH_ACTIONS.iter().any(|p| suffix.starts_with(p))
+}
+
 fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
+    if is_cancel_route(method, route_path) {
+        return ScopeAction::Cancel;
+    }
     if RUN_PATH_ACTIONS
         .iter()
         .any(|run_path| route_path.contains(run_path))
@@ -974,6 +550,9 @@ pub fn job_read_run_confinement(scopes: Option<&[String]>) -> Option<Vec<ScopeDe
             Some(ScopeAction::Run) if scope.kind.is_some() || scope.resource.is_some() => {
                 confinement.push(scope)
             }
+            // Grants no reads (see `scope_grants_access`), so it neither confines nor
+            // frees them.
+            Some(ScopeAction::Cancel) => continue,
             Some(_) => return None,
             None => continue,
         }
@@ -992,6 +571,58 @@ pub fn run_confinement_admits(
         ScopeDomain::Jobs.as_str(),
         ScopeAction::Run.as_str(),
         Some(kind),
+        Some(vec![runnable_path.to_string()]),
+    );
+    confinement.iter().any(|scope| scope.includes(&required))
+}
+
+/// The `jobs:cancel:<paths>` scopes a token's cancels are confined to, or `None` when
+/// they are not confined: an unscoped token, or one whose cancel grant is not
+/// path-scoped (`jobs:cancel`, or `jobs:write`, which stays resource-blind here as on
+/// every other job write).
+///
+/// A job is within the confinement when its own `runnable_path` or that of any of its
+/// `parent_job` ancestors matches (see `cancel_confinement_admits`), so a token scoped
+/// to a flow can cancel the flow's steps.
+pub fn job_cancel_path_confinement(scopes: Option<&[String]>) -> Option<Vec<ScopeDefinition>> {
+    let mut confinement = Vec::new();
+    for scope in scopes?
+        .iter()
+        .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+    {
+        let Ok(scope) = ScopeDefinition::from_scope_string(scope) else {
+            continue;
+        };
+        if ScopeDomain::from_str(&scope.domain) != Some(ScopeDomain::Jobs) {
+            continue;
+        }
+        match ScopeAction::from_str(&scope.action) {
+            Some(ScopeAction::Cancel) if scope.resource.is_some() => confinement.push(scope),
+            Some(ScopeAction::Cancel | ScopeAction::Write) => return None,
+            _ => continue,
+        }
+    }
+    (!confinement.is_empty()).then_some(confinement)
+}
+
+/// Whether the token holds a `jobs:cancel` scope, path-scoped or not.
+pub fn has_job_cancel_grant(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|scopes| {
+        scopes.iter().any(|s| {
+            ScopeDefinition::from_scope_string(s).is_ok_and(|s| {
+                ScopeDomain::from_str(&s.domain) == Some(ScopeDomain::Jobs)
+                    && ScopeAction::from_str(&s.action) == Some(ScopeAction::Cancel)
+            })
+        })
+    })
+}
+
+/// Whether a job of `runnable_path` is inside a [`job_cancel_path_confinement`] set.
+pub fn cancel_confinement_admits(confinement: &[ScopeDefinition], runnable_path: &str) -> bool {
+    let required = ScopeDefinition::new(
+        ScopeDomain::Jobs.as_str(),
+        ScopeAction::Cancel.as_str(),
+        None,
         Some(vec![runnable_path.to_string()]),
     );
     confinement.iter().any(|scope| scope.includes(&required))
@@ -1202,6 +833,60 @@ pub fn scope_for_route(method: &str, path: &str) -> Option<String> {
     })
 }
 
+/// Routes the runtime of a job calls about that job alone: progress, its root id, its
+/// resume and approval urls, a workflow-as-code checkpoint or task. A job token restricted
+/// by `job_token_scopes` keeps these whatever its scopes, or the job could not run at all,
+/// but only for its own job: the job id in the path must be the token's.
+pub fn is_own_job_runtime_route(route_path: &str, http_method: &str, job_id: uuid::Uuid) -> bool {
+    let Some(rest) = route_path.strip_prefix("/api/w/") else {
+        return false;
+    };
+    let Some((_workspace, rest)) = rest.split_once('/') else {
+        return false;
+    };
+    let segments: Vec<&str> = rest.split('/').collect();
+    let (method_ok, id_index) = match segments.as_slice() {
+        ["jobs_u", "get" | "get_root_job_id", ..] => (http_method == "GET", 2),
+        ["job_metrics", "set_progress", ..] => (http_method == "POST", 2),
+        ["job_metrics", "get_progress", ..] => (http_method == "GET", 2),
+        ["jobs" | "jobs_u", "resume_urls" | "wac_approval_urls", ..] => (http_method == "GET", 2),
+        ["jobs", "wac", "inline_checkpoint", ..] => (http_method == "POST", 3),
+        ["jobs", "run", "workflow_as_code", ..] => (http_method == "POST", 3),
+        _ => return false,
+    };
+    method_ok
+        && segments
+            .get(id_index)
+            .and_then(|id| uuid::Uuid::parse_str(id).ok())
+            .is_some_and(|id| id == job_id)
+}
+
+/// Routes reading the state of a flow run: step results (`results.x` in input transforms,
+/// loop and branch results) and the run's user state. The flow orchestrator evaluates a
+/// step's inputs with the token of the step that just finished, and the SDK reads user state
+/// at the root job, so a restricted job token keeps these for every job of its own run.
+/// Returns the job id the path names; the caller checks it against the token's lineage.
+pub fn flow_run_read_route_job(route_path: &str, http_method: &str) -> Option<uuid::Uuid> {
+    let rest = route_path.strip_prefix("/api/w/")?;
+    let (_workspace, rest) = rest.split_once('/')?;
+    let segments: Vec<&str> = rest.split('/').collect();
+    let id = match segments.as_slice() {
+        ["jobs" | "jobs_u", "result_by_id", id, ..] if http_method == "GET" => id,
+        ["jobs_u", "completed", "get_result" | "get_result_maybe", id, ..]
+            if http_method == "GET" =>
+        {
+            id
+        }
+        ["jobs" | "jobs_u", "flow", "user_states", id, ..]
+            if http_method == "GET" || http_method == "POST" =>
+        {
+            id
+        }
+        _ => return None,
+    };
+    uuid::Uuid::parse_str(id).ok()
+}
+
 /// Helper function to check if scopes allow access to a route
 pub fn check_scopes_for_route(
     token_scopes: Option<&[String]>,
@@ -1220,6 +905,63 @@ pub fn check_scopes_for_route(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn own_job_runtime_routes_admit_only_the_tokens_job() {
+        let own = uuid::Uuid::new_v4();
+        let other = uuid::Uuid::new_v4();
+        let ok = |path: &str, method: &str| is_own_job_runtime_route(path, method, own);
+        assert!(ok(
+            &format!("/api/w/ws/job_metrics/set_progress/{own}"),
+            "POST"
+        ));
+        assert!(ok(
+            &format!("/api/w/ws/jobs_u/get_root_job_id/{own}"),
+            "GET"
+        ));
+        assert!(ok(&format!("/api/w/ws/jobs/resume_urls/{own}/0"), "GET"));
+        assert!(ok(
+            &format!("/api/w/ws/jobs/wac/inline_checkpoint/{own}"),
+            "POST"
+        ));
+        assert!(ok(
+            &format!("/api/w/ws/jobs/run/workflow_as_code/{own}/main"),
+            "POST"
+        ));
+        assert!(!ok(
+            &format!("/api/w/ws/job_metrics/set_progress/{other}"),
+            "POST"
+        ));
+        assert!(!ok(&format!("/api/w/ws/jobs_u/get/{own}"), "POST"));
+        assert!(!ok(&format!("/api/w/ws/jobs/run/p/{own}"), "POST"));
+        assert!(!ok("/api/w/ws/variables/get_value/u/admin/secret", "GET"));
+        let run = |path: &str, method: &str| flow_run_read_route_job(path, method);
+        assert_eq!(
+            run(&format!("/api/w/ws/jobs/result_by_id/{other}/b"), "GET"),
+            Some(other)
+        );
+        assert_eq!(
+            run(
+                &format!("/api/w/ws/jobs_u/completed/get_result/{other}"),
+                "GET"
+            ),
+            Some(other)
+        );
+        assert_eq!(
+            run(
+                &format!("/api/w/ws/jobs/flow/user_states/{other}/k"),
+                "POST"
+            ),
+            Some(other)
+        );
+        assert_eq!(
+            run(
+                &format!("/api/w/ws/jobs_u/completed/delete/{other}"),
+                "POST"
+            ),
+            None
+        );
+    }
 
     #[test]
     fn test_scope_definition_parsing() {
@@ -1780,5 +1522,69 @@ mod tests {
 
         // Unknown route -> None so the caller fails closed.
         assert!(scope_for_route("GET", "/healthz").is_none());
+    }
+
+    #[test]
+    fn jobs_cancel_grants_only_the_cancel_routes() {
+        let cancel = vec!["jobs:cancel:f/served/*".to_string()];
+        let id = "0190f4c2-0000-7000-8000-000000000000";
+        for route in [
+            format!("/api/w/ws/jobs_u/queue/cancel/{id}"),
+            format!("/api/w/ws/jobs_u/queue/force_cancel/{id}"),
+            "/api/w/ws/jobs_u/queue/cancel_persistent/f/served/s".to_string(),
+            "/api/w/ws/jobs/queue/cancel_selection".to_string(),
+        ] {
+            assert!(
+                check_route_access(&cancel, &route, "POST").is_ok(),
+                "{route}"
+            );
+            assert!(
+                check_route_access(&["jobs:write".to_string()], &route, "POST").is_ok(),
+                "{route}"
+            );
+            assert!(
+                check_route_access(&["jobs:read".to_string()], &route, "POST").is_err(),
+                "{route}"
+            );
+        }
+        for (route, method) in [
+            (format!("/api/w/ws/jobs_u/get/{id}"), "GET"),
+            ("/api/w/ws/jobs/list".to_string(), "GET"),
+            (format!("/api/w/ws/jobs/flow/resume_suspended/{id}"), "POST"),
+            (format!("/api/w/ws/jobs/queue/run_now/{id}"), "POST"),
+            ("/api/w/ws/jobs/run/p/f/served/s".to_string(), "POST"),
+        ] {
+            assert!(
+                check_route_access(&cancel, &route, method).is_err(),
+                "{route}"
+            );
+        }
+    }
+
+    #[test]
+    fn jobs_cancel_path_confinement() {
+        let scopes = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let conf =
+            job_cancel_path_confinement(Some(&scopes(&["jobs:cancel:f/served/*,u/svc/kill_me"])))
+                .unwrap();
+        assert!(cancel_confinement_admits(&conf, "f/served/etl"));
+        assert!(cancel_confinement_admits(&conf, "u/svc/kill_me"));
+        assert!(!cancel_confinement_admits(&conf, "f/other/etl"));
+        assert!(!cancel_confinement_admits(&conf, "f/served_not/etl"));
+
+        // A cancel grant that is not path-scoped leaves cancels unconfined.
+        for s in [
+            &["jobs:cancel"][..],
+            &["jobs:cancel:f/a/*", "jobs:write"],
+            &[],
+        ] {
+            assert!(
+                job_cancel_path_confinement(Some(&scopes(s))).is_none(),
+                "{s:?}"
+            );
+        }
+        // A cancel scope neither confines nor frees a run token's reads.
+        let run = scopes(&["jobs:run:flows:f/a/b", "jobs:cancel"]);
+        assert!(job_read_run_confinement(Some(&run)).is_some());
     }
 }

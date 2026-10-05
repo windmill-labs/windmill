@@ -5,6 +5,9 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
+	import TestAiKey from './copilot/TestAIKey.svelte'
+	import { aiResourceProvider } from './copilot/aiResourceProvider'
+	import { copilotInfo } from '$lib/aiStore'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -50,6 +53,8 @@
 		onCredentialStored,
 		onSynced = undefined
 	}: Props = $props()
+
+	let aiProvider = $derived(aiResourceProvider(resourceType))
 
 	let schema = $state(emptySchema())
 	let notFound = $state(false)
@@ -180,6 +185,14 @@
 			isFileset={resourceTypeInfo?.is_fileset ?? false}
 		/>
 		<TestConnection {resourceType} {args} />
+		{#if aiProvider}
+			<TestAiKey
+				{aiProvider}
+				workspace={workspace ?? $operatingWorkspace}
+				resourceValue={args}
+				model={$copilotInfo.aiModels.find((m) => m.provider === aiProvider)?.model}
+			/>
+		{/if}
 		{#if resourceType == 'postgresql'}
 			<Popover
 				floatingConfig={{

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.820.0
+  version: 1.823.1
   title: Windmill API
 
   contact:
@@ -30156,6 +30156,12 @@ components:
           items:
             type: string
           default: []
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job."
         inherited_labels:
           type: array
           items:
@@ -30313,6 +30319,12 @@ components:
           type: array
           items:
             type: string
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
         skip_draft_deletion:
           type: boolean
           description: "When true (set by the CLI / git sync), deploying this script does not delete an existing user draft at the same path."
@@ -36171,6 +36183,12 @@ components:
           items:
             type: string
           default: []
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job."
         inherited_labels:
           type: array
           items:
@@ -36217,6 +36235,12 @@ components:
               type: array
               items:
                 type: string
+            job_token_scopes:
+              type: array
+              nullable: true
+              items:
+                type: string
+              description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
           required:
             - path
     # Like OpenFlowWPath but `path` is optional: on update the flow is identified by
@@ -36253,6 +36277,12 @@ components:
               type: array
               items:
                 type: string
+            job_token_scopes:
+              type: array
+              nullable: true
+              items:
+                type: string
+              description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
 
     FlowPreview:
       type: object

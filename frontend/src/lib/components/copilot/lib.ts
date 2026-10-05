@@ -620,10 +620,39 @@ class WorkspacedAIClients {
 
 export const workspaceAIClients = new WorkspacedAIClients()
 
+interface TestedCredential {
+	apiKey?: string
+	resourcePath?: string
+	resourceValue?: Record<string, any>
+}
+
+/** The header naming the credential under test; a resource wins over a bare key. */
+export function testedCredentialHeaders({
+	apiKey,
+	resourcePath,
+	resourceValue
+}: TestedCredential): Record<string, string> {
+	if (resourceValue) {
+		// Header values must be ASCII, the resource may not be.
+		return { 'X-Resource-Value': encodeURIComponent(JSON.stringify(resourceValue)) }
+	} else if (resourcePath) {
+		return { 'X-Resource-Path': resourcePath }
+	} else if (apiKey) {
+		return { 'X-API-Key': apiKey }
+	}
+	return {}
+}
+
+/** A bare key has no workspace resource behind it, so it goes through the global proxy. */
+export function usesGlobalAiProxy({ apiKey, resourcePath, resourceValue }: TestedCredential) {
+	return !!apiKey && !resourcePath && !resourceValue
+}
+
 export async function testKey({
 	apiKey,
 	workspace,
 	resourcePath,
+	resourceValue,
 	model,
 	abortController,
 	messages,
@@ -632,13 +661,14 @@ export async function testKey({
 	apiKey?: string
 	workspace?: string
 	resourcePath?: string
+	resourceValue?: Record<string, any>
 	model: string | undefined
 	messages: ChatCompletionMessageParam[]
 	abortController: AbortController
 	aiProvider: AIProvider
 }) {
-	if (!apiKey && !resourcePath) {
-		throw new Error('API key or resource path is required')
+	if (!apiKey && !resourcePath && !resourceValue) {
+		throw new Error('API key, resource path or resource value is required')
 	}
 	const modelToTest = model ?? AI_PROVIDERS[aiProvider].defaultModels[0]
 
@@ -656,6 +686,7 @@ export async function testKey({
 		apiKey,
 		workspace,
 		resourcePath,
+		resourceValue,
 		forceModelProvider: {
 			model: modelToTest,
 			provider: aiProvider
@@ -677,6 +708,7 @@ interface AnthropicCompletionParams {
 	apiKey?: string
 	workspace?: string
 	resourcePath?: string
+	resourceValue?: Record<string, any>
 	maxTokensCap?: number
 }
 
@@ -686,6 +718,7 @@ function buildAnthropicProxyRequest({
 	apiKey,
 	workspace,
 	resourcePath,
+	resourceValue,
 	maxTokensCap
 }: Omit<AnthropicCompletionParams, 'abortController'>) {
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
@@ -694,16 +727,11 @@ function buildAnthropicProxyRequest({
 	// resolves the right credentials and Anthropic URL.
 	const headers: Record<string, string> = {
 		'X-Provider': modelProvider.provider,
-		'anthropic-version': '2023-06-01'
+		'anthropic-version': '2023-06-01',
+		...testedCredentialHeaders({ apiKey, resourcePath, resourceValue })
 	}
 
-	if (resourcePath) {
-		headers['X-Resource-Path'] = resourcePath
-	} else if (apiKey) {
-		headers['X-API-Key'] = apiKey
-	}
-
-	const client = apiKey
+	const client = usesGlobalAiProxy({ apiKey, resourcePath, resourceValue })
 		? createAnthropicProxyClient(getAiProxyBaseURL())
 		: workspace
 			? workspaceAIClients.createAnthropicClient(workspace)
@@ -756,6 +784,20 @@ function getAnthropicStreamingCompletion({
 					created: 0,
 					model: params.modelProvider.model,
 					choices: [{ index: 0, delta: { content: event.delta.text }, finish_reason: null }]
+				}
+			} else if (event.type === 'message_delta' && event.delta.stop_reason) {
+				yield {
+					id: '',
+					object: 'chat.completion.chunk',
+					created: 0,
+					model: params.modelProvider.model,
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: event.delta.stop_reason === 'max_tokens' ? 'length' : 'stop'
+						}
+					]
 				}
 			}
 		}
@@ -998,6 +1040,7 @@ export async function getNonStreamingCompletion(
 	options?: {
 		apiKey?: string // testing API KEY using the global ai proxy
 		resourcePath?: string // testing resource path passed as a header to the backend proxy
+		resourceValue?: Record<string, any> // testing an unsaved resource value, same route
 		workspace?: string // use a specific workspace proxy when testing a workspace resource
 		forceModelProvider?: AIProviderModel
 		maxTokensCap?: number // hard ceiling on output tokens (see METADATA_MAX_TOKENS)
@@ -1013,6 +1056,7 @@ export async function getNonStreamingCompletion(
 			apiKey: options?.apiKey,
 			workspace: options?.workspace,
 			resourcePath: options?.resourcePath,
+			resourceValue: options?.resourceValue,
 			maxTokensCap: options?.maxTokensCap
 		})
 	}
@@ -1048,22 +1092,11 @@ export async function getNonStreamingCompletion(
 			'X-Provider': provider
 		}
 	}
-	if (options?.resourcePath) {
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-Resource-Path': options.resourcePath
-		}
-	} else if (options?.apiKey) {
-		if (provider === 'customai') {
-			throw new Error('Cannot test API key for Custom AI, only resource path is supported')
-		}
-
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-API-Key': options.apiKey
-		}
+	if (usesGlobalAiProxy(options ?? {}) && provider === 'customai') {
+		throw new Error('Cannot test API key for Custom AI, only resource path is supported')
 	}
-	const openaiClient = options?.apiKey
+	fetchOptions.headers = { ...fetchOptions.headers, ...testedCredentialHeaders(options ?? {}) }
+	const openaiClient = usesGlobalAiProxy(options ?? {})
 		? createOpenAIProxyClient(getAiProxyBaseURL())
 		: options?.workspace
 			? workspaceAIClients.createOpenaiClient(options.workspace)
@@ -1178,12 +1211,18 @@ export async function getCompletion(
 		openaiClient?: OpenAI
 		reasoningEffort?: string
 		promptCaching?: boolean
+		maxTokensCap?: number
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
 
 	if (usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)) {
-		return getAnthropicStreamingCompletion({ messages, modelProvider, abortController })
+		return getAnthropicStreamingCompletion({
+			messages,
+			modelProvider,
+			abortController,
+			maxTokensCap: options?.maxTokensCap
+		})
 	}
 
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -1191,6 +1230,7 @@ export async function getCompletion(
 		stream: true,
 		tools,
 		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap,
 		promptCaching: options?.promptCaching,
 		reasoningEffort: options?.reasoningEffort
 	})
@@ -1201,7 +1241,8 @@ export async function getCompletion(
 			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools, {
 				forceModelProvider: options?.forceModelProvider,
 				openaiClient: options?.openaiClient,
-				reasoningEffort: options?.reasoningEffort
+				reasoningEffort: options?.reasoningEffort,
+				maxTokensCap: options?.maxTokensCap
 			}) as any
 			return stream
 		} catch (error) {
@@ -1241,6 +1282,51 @@ export async function getCompletion(
 		}
 	})
 	return completion
+}
+
+/**
+ * Streams a completion and returns its whole text. For a generation that can run
+ * for minutes: a non-streaming request sends no byte until the model is done, so
+ * an idle timeout on any hop between the browser and the provider cuts it.
+ */
+export async function getStreamedCompletionText(
+	messages: ChatCompletionMessageParam[],
+	abortController: AbortController,
+	options?: { maxTokensCap?: number }
+): Promise<string> {
+	const drain = async (forceCompletions: boolean) => {
+		const stream = await getCompletion(messages, abortController, undefined, {
+			forceCompletions,
+			maxTokensCap: options?.maxTokensCap
+		})
+		let text = ''
+		let finished = false
+		for await (const chunk of stream) {
+			text += getResponseFromEvent(chunk)
+			finished ||= !!chunk.choices?.[0]?.finish_reason
+		}
+		// The OpenAI SDK ends an aborted stream, and one closed early by a hop in
+		// between, without throwing: partial text must not pass for the whole
+		// completion.
+		abortController.signal.throwIfAborted()
+		if (!finished) {
+			throw new Error('The completion stream ended before the model finished')
+		}
+		return text
+	}
+
+	try {
+		return await drain(false)
+	} catch (error) {
+		// The Responses API stream only fails once iterated, so the fallback to
+		// chat completions for a deployment that doesn't serve it lives here.
+		const { provider } = getCurrentModel()
+		if (abortController.signal.aborted || (provider !== 'openai' && provider !== 'azure_openai')) {
+			throw error
+		}
+		console.error('Error using Responses API:', error)
+		return drain(true)
+	}
 }
 
 function extractFirstJSON(str: string) {
