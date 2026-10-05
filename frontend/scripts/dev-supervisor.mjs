@@ -339,8 +339,17 @@ class Target {
 					client.destroy()
 					upstream.destroy()
 				}
+				// Destroying the client when the upstream closes discards whatever is still queued
+				// toward it, and `destroy` does not flush. Every API response here is
+				// `Connection: close`, so the upstream closes the moment the body is written: a
+				// response larger than what the link can absorb is still on its way out, and the
+				// browser gets a body short of the content-length it was promised — a 200 whose
+				// JSON does not parse. Over loopback the buffers hide it; over a tunnel a 190KB
+				// listing loses tens of KB. `pipe` already ends the far side when one direction
+				// finishes, which flushes first, so the close path only has to stop bookkeeping.
 				upstream.on('error', teardown)
-				upstream.on('close', teardown)
+				client.on('error', teardown)
+				upstream.on('close', () => this.liveSockets.delete(client))
 				client.on('close', teardown)
 			},
 			(err) => {
