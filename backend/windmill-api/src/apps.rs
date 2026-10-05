@@ -2329,8 +2329,8 @@ fn check_operator_composed_app(
     // In `Viewer` mode `execute_component` falls back to a default triggerable for any
     // `script/`/`flow/` path, so the policy stops being the list of what the app may invoke, and
     // the job runs as the *viewer*. A builder-authored app would then let an admin who merely
-    // opens it run anything in the workspace as themselves. `Publisher` and `Anonymous` have no
-    // such fallback, so the triggerables checked below are exhaustive for them.
+    // opens it run anything in the workspace as themselves. `Publisher`, `Guest` and `Anonymous`
+    // have no such fallback, so the triggerables checked below are exhaustive for them.
     // Read the *stated* mode, and pin an omitted one: `update_app_internal` resolves an unstated
     // mode to the deployed app's, so a builder redeploying over an admin's viewer-mode app would
     // otherwise inherit `Viewer` after this check has already passed on the default.

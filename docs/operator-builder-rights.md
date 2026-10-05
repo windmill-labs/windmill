@@ -76,7 +76,7 @@ What makes those checks bind is that **`ExecutionMode::Viewer` is refused for a 
 Viewer mode `execute_component` falls back to a default triggerable for any `script/`/`flow/`
 path, so the policy stops being the list of what the app may invoke, and the job runs as the
 *viewer*: an admin who merely opened the app would run anything in the workspace as themselves.
-`Publisher` and `Anonymous` have no such fallback. If you ever relax the Viewer refusal, the
+`Publisher`, `Guest` and `Anonymous` have no such fallback; all three run as the publisher. If you ever relax the Viewer refusal, the
 deploy-time path checks above stop being an authorization boundary.
 
 ## The two raw-app deploy paths are not equivalent
@@ -137,7 +137,9 @@ that already have one on, is a zero delta and never blocks.
   for builder apps.
 - A builder may make an app public (`ExecutionMode::Anonymous`): anyone with the URL runs the
   runnables its policy names, as the builder. Refusing it is the workspace's call, through the
-  `RestrictAnonymousAppDeployment` protection rule.
+  `RestrictAnonymousAppDeployment` protection rule. A `Guest` app is the same with a login in
+  front: anyone the instance's identity provider admits, member or not, once guest access is
+  enabled. `RestrictGuestAppDeployment` refuses it.
 - All-or-nothing per workspace: there is no per-user builder role.
 - `operator_settings` is git-synced, so a pull can flip every operator's class in a workspace and
   the billed seat count with it.
