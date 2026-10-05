@@ -417,7 +417,10 @@
 		const pendingLoad = getDraft
 			? OtherUserDraftLoad.takePending($workspaceStore!, 'raw_app', path)
 			: undefined
-		loadedDraftOwner = pendingLoad?.ownerLabel ?? savedRawAppDraft?.loaded_from
+		// A draft loaded from a developer who never ran it still carries the operator's mark.
+		loadedDraftOwner = pendingLoad
+			? ((pendingLoad.value as RawAppDraft).loaded_from ?? pendingLoad.ownerLabel)
+			: savedRawAppDraft?.loaded_from
 		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
 		// lock so editing our own draft works again. See /scripts/edit's loader.
 		if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'raw_app', path)) {
