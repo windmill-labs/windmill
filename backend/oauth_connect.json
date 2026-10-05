@@ -48,7 +48,13 @@
       { "value": "reactions:write", "label": "Add emoji reactions" },
       { "value": "channels:manage", "label": "Create, archive and manage public channels, invite members, set topics" },
       { "value": "groups:write", "label": "Create and manage private channels the app is in" },
-      { "value": "usergroups:write", "label": "Edit user groups (workspace settings often block bots)" }
+      { "value": "usergroups:write", "label": "Edit user groups (workspace settings often block bots)" },
+      { "value": "files:read", "label": "Read and download files shared where the app is a member" },
+      { "value": "groups:read", "label": "List private channels the app is in" },
+      { "value": "im:read", "label": "List the app's direct messages" },
+      { "value": "mpim:read", "label": "List the app's group direct messages" },
+      { "value": "usergroups:read", "label": "List user groups" },
+      { "value": "emoji:read", "label": "List custom emojis" }
     ],
     "user_scope_options": [
       { "value": "reactions:write", "label": "Add emoji reactions" },
@@ -58,7 +64,10 @@
       { "value": "groups:write", "label": "Create and manage private channels" },
       { "value": "users.profile:write", "label": "Set your status and edit your profile" },
       { "value": "reminders:write", "label": "Create reminders for yourself" },
-      { "value": "usergroups:write", "label": "Edit user groups" }
+      { "value": "usergroups:write", "label": "Edit user groups" },
+      { "value": "files:write", "label": "Upload and delete files as yourself" },
+      { "value": "usergroups:read", "label": "List user groups" },
+      { "value": "emoji:read", "label": "List custom emojis" }
     ],
     "token_response_path": "authed_user"
   },
