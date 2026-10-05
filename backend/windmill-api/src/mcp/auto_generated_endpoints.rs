@@ -2024,7 +2024,7 @@ You should get the schema of the script or flow before creating the schedule to 
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff: delay = multiplier × seconds^attempt",
+                                        "description": "Retry with exponential backoff: the n-th retry waits multiplier × seconds^n",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",
@@ -2231,7 +2231,7 @@ You should get the schema of the script or flow before updating the schedule to 
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff: delay = multiplier × seconds^attempt",
+                                        "description": "Retry with exponential backoff: the n-th retry waits multiplier × seconds^n",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",

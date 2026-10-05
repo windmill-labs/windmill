@@ -70,7 +70,8 @@ properties:
             description: Seconds to wait between retries
       exponential:
         type: object
-        description: 'Retry with exponential backoff: delay = multiplier × seconds^attempt'
+        description: 'Retry with exponential backoff: the n-th retry waits multiplier
+          × seconds^n'
         properties:
           attempts:
             type: integer

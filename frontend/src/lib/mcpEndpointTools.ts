@@ -2028,7 +2028,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff: delay = multiplier \u00d7 seconds^attempt",
+                                        "description": "Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",
@@ -2232,7 +2232,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff: delay = multiplier \u00d7 seconds^attempt",
+                                        "description": "Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",
