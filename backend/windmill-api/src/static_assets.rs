@@ -100,6 +100,17 @@ fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<
                 res = res.header("X-Robots-Tag", "noindex, nofollow");
             }
 
+            // The raw-app preview shell evaluates whatever js is posted to it, so it is
+            // only ever served opaque-origin, like the deployed app wrapper. Matched on
+            // the embedded file, not the request path, so `//ui_builder/...` is covered.
+            // The editor loads a same-origin blob: copy of it instead.
+            if path == "ui_builder/app-preview.html" {
+                res = res.header(
+                    header::CONTENT_SECURITY_POLICY,
+                    "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads",
+                );
+            }
+
             // Add Content-Security-Policy header for static assets when policy is set
             if !CSP_POLICY.is_empty() {
                 if let Ok(header_value) = HeaderValue::try_from(CSP_POLICY.as_str()) {

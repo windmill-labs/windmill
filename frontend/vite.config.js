@@ -210,6 +210,17 @@ function needsCrossOriginIsolation(url) {
 	)
 }
 
+// Normalized like the static server resolves it, so `//ui_builder/...` or an
+// encoded name can't reach the file without the header.
+function isPreviewShell(url) {
+	let path = url.split('?')[0]
+	try {
+		path = decodeURIComponent(path)
+	} catch {}
+	path = path.replace(/\/+/g, '/')
+	return path === '/ui_builder/app-preview.html'
+}
+
 let plugin = {
 	name: 'configure-response-headers',
 	enforce: 'pre',
@@ -218,6 +229,14 @@ let plugin = {
 			if (needsCrossOriginIsolation(req.url ?? '')) {
 				res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
 				res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
+			}
+			// Mirrors `static_assets.rs`. Set before the static handler and the :4000
+			// proxy fallback alike, so both paths serve the shell sandboxed.
+			if (isPreviewShell(req.url ?? '')) {
+				res.setHeader(
+					'Content-Security-Policy',
+					'sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads'
+				)
 			}
 			// CORP on everything so dev assets stay loadable as subresources of
 			// isolated documents on other dev origins (e.g. 127.0.0.1 vs localhost).
