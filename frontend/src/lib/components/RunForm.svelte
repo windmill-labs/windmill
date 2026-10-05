@@ -85,6 +85,11 @@
 			return
 		}
 		if (claimRun && !claimRun.claim()) return
+		// Captured for the whole press, not read again after the await below: a `runAction` that
+		// stands for something the press was started against — a chat tool call waiting on this
+		// form — is replaced by the page's own runner the moment that thing goes away, and a
+		// press that switched runners mid-flight would start a job nobody asked for.
+		const action = runAction
 		let processedArgs: Record<string, any>
 		const { args: withDefaults, resetKeys } = enforceDisabledDefaults(args ?? {}, runnable?.schema)
 		if (resetKeys.length > 0) {
@@ -104,7 +109,7 @@
 				}
 			}
 		}
-		runAction(
+		action(
 			overrideScheduledForStr === null ? undefined : (overrideScheduledForStr ?? scheduledForStr),
 			processedArgs,
 			invisible_to_owner,

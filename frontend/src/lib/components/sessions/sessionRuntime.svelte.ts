@@ -1,4 +1,4 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import type { PendingRun } from '$lib/components/details/pendingRun'
 import { get } from 'svelte/store'
 import { base } from '$lib/base'
@@ -577,6 +577,8 @@ function createRuntime(session: Session): SessionRuntime {
 	// plain deployed page.
 	const adoptedRuns = new SvelteMap<string, { toolCallId: string; args: Record<string, any> }>()
 	const adoptionKey = (kind: SessionTargetKind, path: string) => `${kind}:${path}`
+	/** Calls whose Run has been pressed on the page and whose job has not landed yet. */
+	const heldPresses = new SvelteSet<string>()
 
 	/** The call waiting on this item's run form, for the viewer that renders it. Read live
 	 * rather than copied, so it disappears the moment the call settles however it settles. */
@@ -588,7 +590,15 @@ function createRuntime(session: Session): SessionRuntime {
 		// a call can end is what covers the ways that reach no hook at all — a submit whose
 		// job never started, because the server refused it or plan mode blocked it after the
 		// arguments were already handed over.
-		if (!manager.isRunFormPending(adopted.toolCallId)) return undefined
+		//
+		// A press already handed over counts as waiting: the call stops being pending the
+		// instant Run is pressed, well before its job exists, and a page that went back to
+		// running on its own in that gap would start a second job for the same request on a
+		// second press. It ends when the job lands or the call settles, which both drop the
+		// adoption outright.
+		if (!manager.isRunFormPending(adopted.toolCallId) && !heldPresses.has(adopted.toolCallId)) {
+			return undefined
+		}
 		return {
 			toolCallId: adopted.toolCallId,
 			args: adopted.args,
@@ -600,9 +610,14 @@ function createRuntime(session: Session): SessionRuntime {
 					sendUserToast(PLAN_MODE_MESSAGES.runFormRefused, true)
 					return false
 				}
-				return manager.beginRunFormSubmit(adopted.toolCallId)
+				if (!manager.beginRunFormSubmit(adopted.toolCallId)) return false
+				heldPresses.add(adopted.toolCallId)
+				return true
 			},
-			release: () => manager.endRunFormSubmit(adopted.toolCallId),
+			release: () => {
+				heldPresses.delete(adopted.toolCallId)
+				manager.endRunFormSubmit(adopted.toolCallId)
+			},
 			// False when the call is no longer waiting — a turn stopped out from under the page,
 			// or a job that failed to start. The page says so rather than leaving Run dead.
 			submit: (args) => manager.handleRunFormSubmit(adopted.toolCallId, args),
@@ -620,6 +635,7 @@ function createRuntime(session: Session): SessionRuntime {
 	/** Drop the adoption, leaving the page as the plain deployed page it also is. Called when
 	 * the call settles by any route: Run, Cancel, a stopped turn, the tab closing. */
 	function dropAdoption(toolCallId: string): void {
+		heldPresses.delete(toolCallId)
 		for (const [key, adopted] of [...adoptedRuns]) {
 			if (adopted.toolCallId === toolCallId) adoptedRuns.delete(key)
 		}
@@ -707,6 +723,7 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
 		const runHref = `${base}/run/${jobId}?workspace=${workspace}`
 		// Either surface the call was waiting on becomes the run it started, in place.
+		heldPresses.delete(toolCallId)
 		for (const [key, adopted] of [...adoptedRuns]) {
 			if (adopted.toolCallId !== toolCallId) continue
 			adoptedRuns.delete(key)

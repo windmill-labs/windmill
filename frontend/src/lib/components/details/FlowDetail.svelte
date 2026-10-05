@@ -410,15 +410,22 @@
 			// Minted before they are applied, not only before the run: the composer's inputs
 			// are saved to localStorage as soon as the reader touches any of them, so a
 			// `password` the model proposed as a literal would be written there in the clear.
+			//
+			// The message waits on the same round trip even though it needs nothing from it:
+			// a composer filled ahead of the inputs can be sent ahead of them, and that run
+			// would carry whatever the inputs were before — saved values or schema defaults,
+			// not the proposal the reader just agreed to send.
 			const chat = flowChat
 			processSecretArgs(inputs, flow?.schema as Schema | undefined, workspace)
-				.then((minted) => chat.applyInputs(minted))
+				.then((minted) => {
+					chat.applyInputs(minted)
+					// A composer already holding a draft declines, and the message is then dropped
+					// rather than held: injecting it whenever the reader happens to clear their
+					// draft would put words in the box long after they were proposed. The strip
+					// above it still says what was asked for.
+					if (typeof message === 'string' && message) chat.offerMessage(message)
+				})
 				.catch((e) => sendUserToast('Failed to process sensitive args: ' + e, true))
-			// A composer already holding a draft declines, and the message is then dropped
-			// rather than held: injecting it whenever the reader happens to clear their draft
-			// would put words in the box long after they were proposed. The strip above it
-			// still says what was asked for.
-			if (typeof message === 'string' && message) flowChat.offerMessage(message)
 		} else if (runForm) {
 			seededCallId = pendingRun.toolCallId
 			runForm.setArgs(pendingRun.args)
