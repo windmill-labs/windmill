@@ -42,9 +42,8 @@ export function quickjsReady(): Promise<unknown> {
 	return loading
 }
 
-/** Whether `evalSandboxed` can answer; reactive, and starts loading the engine. */
+/** Whether `evalSandboxed` can answer; reactive. Starts no load: `quickjsReady` does. */
 export function quickjsSettled(): boolean {
-	quickjsReady()
 	return engine !== undefined || failed
 }
 
@@ -53,14 +52,24 @@ const MAX_TEXT = 1024 * 1024
 const MAX_COPY = 5 * 1024 * 1024
 
 const IDENT = '[A-Za-z_$][\\w$]*'
-// Only escapes JSON accepts: `JSON.parse` reads the match, and `"\x41"` is left to the engine.
-const STRING = '"(?:[^"\\\\\\u0000-\\u001f]|\\\\["\\\\/bfnrt]|\\\\u[0-9a-fA-F]{4})*"'
+// Only escapes JSON accepts: `literal` reads the match with `JSON.parse`, and `"\x41"` is left to
+// the engine.
+const STRING = String.raw`(?:"(?:[^"\\\u0000-\u001f]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*"|'(?:[^'\\\u0000-\u001f]|\\['"\\/bfnrt]|\\u[0-9a-fA-F]{4})*')`
 const KEY = `\\s*(?:\\.\\s*(${IDENT})|\\[\\s*(${STRING})\\s*\\])`
 const ANY_KEY = `\\s*(?:\\.\\s*${IDENT}|\\[\\s*${STRING}\\s*\\])`
 const LOOKUP = new RegExp(
 	`^\\s*(${IDENT})((?:${ANY_KEY})*)\\s*` +
 		`(?:(===|!==|==|!=)\\s*(${STRING}|-?(?:0|[1-9]\\d*)(?:\\.\\d+)?|true|false|null)\\s*)?;?\\s*$`
 )
+
+/** A literal `LOOKUP` matched; a single-quoted string is rewritten as JSON first. */
+function literal(text: string): unknown {
+	if (text[0] !== "'") return JSON.parse(text)
+	const body = text
+		.slice(1, -1)
+		.replace(/\\'|\\.|"/g, (m) => (m === "\\'" ? "'" : m === '"' ? '\\"' : m))
+	return JSON.parse(`"${body}"`)
+}
 
 /**
  * Answers `name.key["key"]…`, optionally compared to a JSON literal, straight from `scope`: reading
@@ -75,14 +84,14 @@ function cheapAnswer(body: string, scope: Record<string, unknown>): { value: unk
 	if (!m || !Object.hasOwn(scope, m[1])) return undefined
 	let value = scope[m[1]]
 	for (const k of m[2].matchAll(new RegExp(KEY, 'g'))) {
-		const key = k[1] ?? JSON.parse(k[2])
+		const key = k[1] ?? (literal(k[2]) as string)
 		if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) return undefined
 		value = value[key]
 	}
 	if (!m[3]) return { value }
 	if (value !== null && typeof value === 'object') return undefined
-	const literal = JSON.parse(m[4])
-	const equal = m[3].length === 3 ? value === literal : value == literal
+	const other = literal(m[4])
+	const equal = m[3].length === 3 ? value === other : value == other
 	return { value: m[3].startsWith('=') ? equal : !equal }
 }
 
@@ -189,7 +198,7 @@ export function evalSandboxed(
 		}
 		const names = Object.keys(scope)
 		const code = `${SHELLS}
-const ${names.map((n) => `${n} = __shell(${JSON.stringify(n)})`).join(', ')}
+${names.map((n) => `const ${n} = __shell(${JSON.stringify(n)})`).join('\n')}
 ;(() => {
 return ${body}
 })()`
@@ -214,6 +223,7 @@ export function computeShow(expr: string | undefined, args: any): boolean | unde
 	const scope = { fields: args ?? {} }
 	const cheap = cheapAnswer(expr.startsWith('return ') ? expr.slice(7) : expr, scope)
 	if (cheap) return Boolean(cheap.value)
+	quickjsReady()
 	if (!quickjsSettled()) return undefined
 	try {
 		return Boolean(evalSandboxed(expr, scope, true))

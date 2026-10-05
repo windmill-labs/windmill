@@ -597,7 +597,7 @@
 		JSON.stringify(schema)
 		JSON.stringify(arg)
 		JSON.stringify(otherArgs)
-		schema?.properties?.[argName]?.showExpr && quickjsSettled()
+		quickjsSettled()
 
 		untrack(() => handleFieldVisibility(schema, arg, otherArgs))
 	})

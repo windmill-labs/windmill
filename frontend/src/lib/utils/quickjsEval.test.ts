@@ -8,6 +8,8 @@ describe('quickjsEval', () => {
 		expect(computeShow('return fields.n != 0', { n: 0 })).toBe(false)
 		expect(evalSandboxed('results["my step"].rows', { results })).toBe(results['my step'].rows)
 		expect(evalSandboxed('results.a.mode == "x"', { results })).toBe(true)
+		expect(computeShow("fields.output_type !== 'image'", { output_type: 'image' })).toBe(false)
+		expect(computeShow(`fields['q'] === 'it\\'s "x"'`, { q: `it's "x"` })).toBe(true)
 		const started = performance.now()
 		expect(computeShow('fields' + ' '.repeat(30_000) + '!', {})).toBeUndefined()
 		expect(performance.now() - started).toBeLessThan(50)
@@ -32,6 +34,7 @@ describe('quickjsEval', () => {
 		)
 		expect(() => evalSandboxed('(() => { while (true) {} })()', scope)).toThrow()
 		expect(evalSandboxed('1 + 1', scope)).toBe(2)
+		expect(evalSandboxed('1 + 1', {})).toBe(2)
 		const rows = Array.from({ length: 110_000 }, (_, i) => `item-${i}-xxxxxx`)
 		const started = performance.now()
 		expect(() =>
