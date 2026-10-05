@@ -91,6 +91,21 @@ describe('groupToolRuns', () => {
 		).toEqual([0, 1, 2, 3])
 	})
 
+	it('folds the calls queued behind another call into one waiting row', () => {
+		const sql = (extra = {}) =>
+			tool('exec_datatable_sql', { datatable_name: 'main', sql: 'select 1' }, extra)
+		const queued = { isQueued: true, content: 'Execute SQL on "main"' }
+		const batch = [
+			sql({ needsConfirmation: true, isLoading: true }),
+			sql(queued),
+			tool('search_workspace', {}, { ...queued, content: 'Search workspace' })
+		]
+		expect(shape(batch)).toEqual([0, { waiting: [1, 2] }])
+		expect(header(batch)).toBe('2 more calls waiting: Execute SQL on "main", Search workspace')
+		// The call next in line, before anything runs, shows as itself.
+		expect(shape([assistant(''), sql(queued), sql(queued)])).toEqual([0, 1, { waiting: [2] }])
+	})
+
 	it('keeps an edit whose arguments are still streaming in the group it follows', () => {
 		const flow = { path: 'f/a/flow' }
 		expect(
@@ -115,7 +130,10 @@ describe('groupToolRuns', () => {
 	it('lets a call with no arguments yet join a group but not start one', () => {
 		const queued = (toolName: string) =>
 			tool(toolName, {}, { parameters: undefined, isQueued: true })
-		expect(shape([queued('delete_app_file'), queued('delete_app_runnable')])).toEqual([0, 1])
+		expect(shape([queued('delete_app_file'), queued('delete_app_runnable')])).toEqual([
+			0,
+			{ waiting: [1] }
+		])
 		expect(shape([tool('patch_app_file', { path: 'f/a/x' }), queued('delete_app_file')])).toEqual([
 			{ edit: [0, 1] }
 		])

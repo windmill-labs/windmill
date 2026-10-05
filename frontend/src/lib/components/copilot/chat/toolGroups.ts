@@ -88,8 +88,9 @@ const READ_TOOLS = new Set([
 
 export type ToolGroup = {
 	kind: 'group'
-	/** 'edit': edits of one flow or app. 'explore': consecutive lookups of anything. */
-	groupKind: 'edit' | 'explore'
+	/** 'edit': edits of one flow or app. 'explore': consecutive lookups of anything.
+	 * 'waiting': calls queued behind the one running or awaiting the user. */
+	groupKind: 'edit' | 'explore' | 'waiting'
 	/** First call's id, so the group keeps its identity (and expand state) as it grows. */
 	key: string
 	/** Edit groups: the item's path, or '' for the flow open in the editor. */
@@ -229,14 +230,40 @@ function editGroupAt(messages: DisplayMessage[], start: number): ToolGroup | und
 	return toolGroup(messages, start, end, 'edit', item.path)
 }
 
+function isWaitingCall(message: DisplayMessage): boolean {
+	return message.role === 'tool' && message.isQueued === true && message.error === undefined
+}
+
+// Calls of one turn run one at a time, so the ones queued behind a call fold into a single
+// row whatever they are: each would otherwise sit as its own row until its turn. Only after
+// another call's row, so the call next in line still shows as itself.
+function waitingGroupAt(
+	messages: DisplayMessage[],
+	start: number,
+	previous: ChatItem | undefined
+): ToolGroup | undefined {
+	if (!isWaitingCall(messages[start])) return undefined
+	if (previous?.kind !== 'group' && previous?.message.role !== 'tool') return undefined
+	const end = runEnd(messages, start, isWaitingCall)
+	return {
+		kind: 'group',
+		groupKind: 'waiting',
+		key: (messages[start] as ToolDisplayMessage).tool_call_id,
+		target: '',
+		entries: messages.slice(start, end + 1).map((message, k) => ({ message, index: start + k }))
+	}
+}
+
 export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
 	const items: ChatItem[] = []
 	let i = 0
 	while (i < messages.length) {
 		// An edit group wins over an explore group: its reads belong to the edits they prepare,
-		// so an explore run also stops before a read that starts one.
+		// so an explore run also stops before a read that starts one. A group already absorbs
+		// the calls queued behind its own, so a waiting row only follows a call outside one.
 		const explores = (m: DisplayMessage, j: number) => isReadCall(m) && !editGroupAt(messages, j)
 		const group =
+			waitingGroupAt(messages, i, items.at(-1)) ??
 			editGroupAt(messages, i) ??
 			(isReadCall(messages[i])
 				? toolGroup(messages, i, runEnd(messages, i, explores), 'explore', '')
@@ -307,6 +334,14 @@ export function groupHeader(
 	const calls = group.entries
 		.map((e) => e.message)
 		.filter((m): m is ToolDisplayMessage => m.role === 'tool')
+	if (group.groupKind === 'waiting') {
+		// A queued row's content is its imperative label, e.g. `Execute SQL on "main"`.
+		const names = [...new Set(calls.map((m) => m.content))].join(', ')
+		return {
+			prefix: `${plural(calls.length, 'more call')} waiting:`,
+			label: names
+		}
+	}
 	if (group.groupKind === 'edit') {
 		const edits = calls.filter(
 			(m) => Object.hasOwn(EDIT_TOOLS, m.toolName ?? '') && !callFailed(m)

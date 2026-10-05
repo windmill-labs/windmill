@@ -114,9 +114,13 @@
 	// otherwise the error set on its status would be invisible.
 	const detailsAvailable = $derived(message.showDetails === true || message.error !== undefined)
 
+	// Queued and running calls stay closed: their label already says what they are doing, and
+	// opening them would only show empty logs and result. A call opens while its arguments
+	// stream, while it waits on the user, and once it has an error or details to keep in view.
 	let isExpanded = $derived(
 		Boolean(
-			(detailsAvailable && (!isSuccessful || !autoCollapseDetails)) ||
+			(detailsAvailable &&
+				(message.error !== undefined || (isSuccessful && !autoCollapseDetails))) ||
 				(message.isStreamingArguments && hasParameters) ||
 				(message.isLoading && message.needsConfirmation)
 		)
