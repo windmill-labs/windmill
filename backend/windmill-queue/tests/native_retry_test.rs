@@ -45,6 +45,7 @@ mod native_retry {
             cache_ignore_s3_path: None,
             runnable_settings_handle: handle,
             build_binary_only: false,
+            job_token_scopes: None,
         }
     }
 
@@ -162,6 +163,39 @@ mod native_retry {
             2,
             "no retry past max attempts"
         );
+        Ok(())
+    }
+
+    // A retry keeps the restriction of the run it replaces even once that run's `job_perms`
+    // row is gone (swept after it left the queue): the completed job carries its scopes.
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn retry_keeps_the_restriction_of_a_swept_run(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let retry = Retry {
+            constant: ConstantDelay { attempts: 1, seconds: 1 },
+            exponential: Default::default(),
+            retry_if: None,
+        };
+        let handle = insert_rs(
+            RunnableSettings {
+                debouncing_settings: None,
+                concurrency_settings: None,
+                retry_settings: RetrySettings::from(&retry).insert_cached(&db).await?,
+            },
+            &db,
+        )
+        .await?;
+        let root_id = Uuid::new_v4();
+        let mut root = mini(root_id, None, handle);
+        root.job_token_scopes = Some(vec!["jobs:run".to_string()]);
+
+        assert!(maybe_enqueue_native_script_retry(&db, &root, &None, &no_result).await?);
+        let (r1_id, ..) = retry_by_attempt(&db, root_id, 1).await.expect("retry 1 exists");
+        let scopes: Option<Vec<String>> =
+            sqlx::query_scalar("SELECT job_token_scopes FROM job_perms WHERE job_id = $1")
+                .bind(r1_id)
+                .fetch_one(&db)
+                .await?;
+        assert_eq!(scopes, Some(vec!["jobs:run".to_string()]));
         Ok(())
     }
 

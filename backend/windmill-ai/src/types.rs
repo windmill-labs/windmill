@@ -269,6 +269,12 @@ pub struct ProviderResource {
     /// credentials exchange this crate does not perform.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub token_url: Option<String>,
+    /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub token: Option<String>,
+    /// The account of a `cloudflare` resource, which its Workers AI URL is built from.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub account_id: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -301,6 +307,11 @@ impl ProviderWithResource {
     }
 
     pub async fn get_base_url(&self, db: &DB) -> Result<String, Error> {
+        if self.kind == AIProvider::Cloudflare && self.resource.base_url.is_none() {
+            return crate::ai_providers::cloudflare_workers_ai_base_url(
+                self.resource.account_id.as_deref(),
+            );
+        }
         self.kind
             .get_base_url(self.resource.base_url.clone(), db)
             .await
@@ -320,7 +331,14 @@ impl ProviderWithResource {
         Ok(ProviderCredentials {
             provider: self.kind.clone(),
             base_url,
-            api_key: self.resource.api_key.clone(),
+            api_key: match self.kind {
+                AIProvider::Cloudflare => self
+                    .resource
+                    .api_key
+                    .clone()
+                    .or_else(|| self.resource.token.clone()),
+                _ => self.resource.api_key.clone(),
+            },
             access_token: None,
             organization_id: None,
             user: None,

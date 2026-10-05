@@ -96,9 +96,14 @@
 		}
 	}
 
+	// Discarding the draft after a deploy clears `draftSync.draft` before the
+	// navigation away lands; without this the builder renders an empty flow
+	// for those frames.
+	let flowAtDeploy: Flow | undefined = $state.raw(undefined)
+
 	export const flowStore: StateStore<Flow> = {
 		get val() {
-			return draftSync.draft ?? emptyFlow()
+			return draftSync.draft ?? flowAtDeploy ?? emptyFlow()
 		},
 		set val(v: Flow) {
 			draftSync.draft = v
@@ -567,6 +572,7 @@
 		onDeploy={(e) => {
 			// stopSync-bracketed immediate delete; see /scripts/edit's restoreDeployed.
 			if ($workspaceStore) {
+				flowAtDeploy = flowStore.val
 				discardDraftAfterDeploy({
 					workspace: $workspaceStore,
 					itemKind: 'flow',

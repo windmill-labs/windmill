@@ -961,4 +961,118 @@ mod suspend_resume {
         assert_eq!(result, json!(42));
         Ok(())
     }
+
+    /// Approvals that arrive concurrently for a step waiting on several events must each
+    /// decrement the suspend counter; a lost decrement parks the flow until its timeout.
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn concurrent_approvals_all_decrement_suspend(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        const APPROVALS: u32 = 8;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [
+                {
+                    "id": "a",
+                    "suspend": { "required_events": APPROVALS, "timeout": 86400 },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export async function main() { return 1 }",
+                        "input_transforms": {},
+                    },
+                },
+                {
+                    "id": "b",
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(resumes) { return resumes.length }",
+                        "input_transforms": {
+                            "resumes": { "type": "javascript", "expr": "resumes" },
+                        },
+                    },
+                },
+            ],
+        }))
+        .unwrap();
+
+        let flow =
+            RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+                .push(&db)
+                .await;
+
+        let completed = listen_for_completed_jobs(&db).await;
+        let queue = listen_for_queue(&db).await;
+        let db_ = db.clone();
+
+        in_test_worker(
+            &db,
+            async move {
+                let db = db_;
+                wait_until_flow_suspends(flow, queue, &db).await;
+
+                let step: Uuid = sqlx::query_scalar(
+                    "SELECT (flow_status->'modules'->0->>'job')::uuid \
+                     FROM v2_job_status WHERE id = $1",
+                )
+                .bind(flow)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+
+                let token = windmill_common::auth::create_token_for_owner(
+                    &db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None, None,
+                )
+                .await
+                .unwrap();
+                let client = reqwest::Client::new();
+                let mut urls = vec![];
+                for resume_id in 0..APPROVALS {
+                    let secret = client
+                        .get(format!(
+                            "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{step}/{resume_id}?token={token}"
+                        ))
+                        .send()
+                        .await
+                        .unwrap()
+                        .error_for_status()
+                        .unwrap()
+                        .text()
+                        .await
+                        .unwrap();
+                    urls.push(format!(
+                        "http://localhost:{port}/api/w/test-workspace/jobs_u/resume/{step}/{resume_id}/{secret}"
+                    ));
+                }
+
+                let responses = futures::future::join_all(
+                    urls.iter().map(|url| client.post(url).json(&json!(null)).send()),
+                )
+                .await;
+                for r in responses {
+                    r.unwrap().error_for_status().unwrap();
+                }
+
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    completed.find(&flow),
+                )
+                .await
+                .expect("flow stayed suspended after every approval was recorded")
+                .unwrap();
+            },
+            port,
+        )
+        .await;
+
+        server.close().await.unwrap();
+
+        let result = completed_job(flow, &db).await.json_result().unwrap();
+        assert_eq!(result, json!(APPROVALS));
+        Ok(())
+    }
 }

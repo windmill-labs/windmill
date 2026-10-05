@@ -49,7 +49,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
 - **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code. Do NOT edit svelte files unless you have read that skill.
 - **Frontend UUIDs**: do not call `crypto.randomUUID()` in frontend code. Import `randomUUID` from `$lib/utils/uuid` instead.
-- **Code review**: review the current PR or branch against the shared review policy in `REVIEW.md` (severity triage, public-surface checklist, AGENTS.md compliance, test-coverage assessment). The skill at `.agents/skills/local-review/SKILL.md` orchestrates it. All three CLIs auto-discover the same SKILL — Claude reads `.claude/skills/` (symlinked to the canonical `.agents/skills/` file), Codex and Pi read `.agents/skills/` directly. Invoke with `/local-review` in Claude Code, `$local-review` (or `/skills` selector) in Codex, or `pi --skill local-review` / `/skill:local-review` in Pi. For a Codex-driven pass that mirrors the `codex-pr-review` GitHub action against your unpushed work (committed + uncommitted) before you push, use `/local-review-codex` (`.agents/skills/local-review-codex/`) — same `REVIEW.md` policy and `xhigh` reasoning, on `gpt-6-astra` rather than the action's `gpt-5.6-sol`; requires the `codex` CLI >= 0.153.4.
+- **Code review**: review the current PR or branch against the shared review policy in `REVIEW.md` (severity triage, public-surface checklist, AGENTS.md compliance, test-coverage assessment). The skill at `.agents/skills/local-review/SKILL.md` orchestrates it. All three CLIs auto-discover the same SKILL — Claude reads `.claude/skills/` (symlinked to the canonical `.agents/skills/` file), Codex and Pi read `.agents/skills/` directly. Invoke with `/local-review` in Claude Code, `$local-review` (or `/skills` selector) in Codex, or `pi --skill local-review` / `/skill:local-review` in Pi. For a Codex-driven pass that mirrors the `codex-pr-review` GitHub action against your unpushed work (committed + uncommitted) before you push, use `/local-review-codex` (`.agents/skills/local-review-codex/`) — same `REVIEW.md` policy, `gpt-6.1-sol` model and `xhigh` reasoning as the action; requires the `codex` CLI >= 0.159.3.
 - **Domain guides**: `.claude/skills/native-trigger/`
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
 - **Domain vocabulary**: `CONTEXT.md` — the words this codebase uses for its own concepts (step, step setting, trigger step, …). Name things the way it does.
@@ -90,6 +90,12 @@ are for a plain checkout with nothing running.
 - **Login**: `admin@windmill.dev` / `changeme`
 - **Instance settings**: navigate to `/#superadmin-settings`
 - **Migrations**: use `cargo sqlx migrate add -r <name>` from `backend/` to create new migrations (never generate timestamps manually)
+- **Resource types ship through the hub, not migrations.** A new type, a provider's credential
+  included, is a `hub/<app>/<app>.resource_type.json` in `windmill-labs/windmill-integrations`
+  and reaches instances by hub sync; a product name its identifier misses (`typesafe` →
+  "TypeSafe") is that file's `display_name`, not a word in `resourceTypeDisplay.ts`'s map. Only a
+  type Windmill itself defines and reads as a product object (`ai_skill`, `ai_instruction`) is
+  also seeded by a migration, so the feature works before a sync. For local testing, insert the row.
 
 ### Per-worktree ports and database
 

@@ -362,6 +362,10 @@ pub struct JobPerms {
     pub groups: Vec<String>,
     pub folders: Vec<serde_json::Value>,
     pub end_user_email: Option<String>,
+    /// The job's effective scopes, stored on its `job_perms` row at push and minted into its
+    /// token.
+    #[serde(default)]
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 impl From<JobPerms> for Authed {
@@ -654,7 +658,9 @@ pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
 ) -> sqlx::Result<Option<JobPerms>> {
     sqlx::query_as!(
         JobPerms,
-        "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+        "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email,
+            job_token_scopes
+        FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
         job_id,
         w_id
     )
@@ -745,17 +751,29 @@ pub async fn create_token_for_owner(
     } else {
         get_job_perms(db, job_id, w_id).await
     };
-    let job_authed = match job_perms {
-        Ok(Some(jp)) => jp.into(),
-        _ => {
+    let (job_authed, job_token_scopes) = match job_perms {
+        Ok(Some(mut jp)) => {
+            let scopes = jp.job_token_scopes.take();
+            (jp.into(), scopes)
+        }
+        // A failed read must not mint as if the job had no row: that would drop its restriction.
+        Err(e) => {
+            return Err(Error::internal_err(format!(
+                "Could not read permissions for job {job_id}: {e:#}"
+            )))
+        }
+        // Push writes a job's `job_perms` row and its scopes in one statement, so a job with no
+        // row was never restricted.
+        Ok(None) => {
             tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
-            fetch_authed_from_permissioned_as(owner, email, w_id, db)
+            let authed = fetch_authed_from_permissioned_as(owner, email, w_id, db)
                 .await
                 .map_err(|e| {
                     Error::internal_err(format!(
                         "Could not get permissions directly for job {job_id}: {e:#}"
                     ))
-                })?
+                })?;
+            (authed, None)
         }
     };
 
@@ -766,7 +784,7 @@ pub async fn create_token_for_owner(
         Some(*job_id),
         Some(label.to_string()),
         audit_span,
-        None,
+        crate::scopes::job_token_jwt_scopes(job_token_scopes),
     )
     .await
 }

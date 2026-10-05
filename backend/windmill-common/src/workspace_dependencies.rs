@@ -510,7 +510,7 @@ impl WorkspaceDependenciesPrefetched {
         //                 external.get(0).map(|wd| dbg!(wd.content.clone())).or(Some(
         //                     "
         // module mymod
-        // go 1.26
+        // go 1.27
         // require ()
         //                         "
         //                     .to_owned(),

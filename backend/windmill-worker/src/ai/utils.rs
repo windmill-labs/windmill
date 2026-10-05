@@ -209,6 +209,7 @@ pub async fn add_message_to_conversation(
     db: &DB,
     conversation_id: &Uuid,
     job_id: Option<Uuid>,
+    turn_job_id: Uuid,
     message_content: &str,
     message_type: MessageType,
     step_name: &Option<String>,
@@ -220,6 +221,7 @@ pub async fn add_message_to_conversation(
         &mut tx,
         *conversation_id,
         job_id,
+        turn_job_id,
         &message_content,
         message_type,
         step_name.as_deref(),
@@ -718,6 +720,7 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
                     FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
                     FlowModuleValue::FlowScript { input_transforms, .. } => input_transforms,
                     FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+                    FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
                     _ => return false,
                 };
 

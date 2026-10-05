@@ -142,10 +142,10 @@ FROM ${DEBIAN_IMAGE}
 
 ARG TARGETPLATFORM
 ARG POWERSHELL_VERSION=7.5.0
-ARG KUBECTL_VERSION=1.36.2
+ARG KUBECTL_VERSION=1.37.1
 ARG HELM_VERSION=3.21.4
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
-ARG GO_VERSION=1.26.8
+ARG GO_VERSION=1.27.1
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
@@ -318,7 +318,7 @@ COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 # crane: pulls + flattens images for the sandboxed container runtime (`# sandbox <image>`).
 # Single static binary — no daemon/store/root needed. See docs/docker-v2-runtime.md.
-ARG CRANE_VERSION=v0.21.7
+ARG CRANE_VERSION=v0.22.1
 RUN arch="$(dpkg --print-architecture)"; \
     case "$arch" in amd64) crane_arch=x86_64 ;; arm64) crane_arch=arm64 ;; *) echo >&2 "error: unsupported arch '$arch' for crane"; exit 1 ;; esac; \
     wget -O /tmp/crane.tgz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz" \

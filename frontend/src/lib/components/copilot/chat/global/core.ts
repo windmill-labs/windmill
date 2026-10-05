@@ -24,7 +24,8 @@ import {
 } from '$lib/gen'
 import { createTwoFilesPatch } from 'diff'
 import { deepEqual } from 'fast-equals'
-import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
+import { promptSafe, type ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
+import { canWrite } from '$lib/utils'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
 	AppWithLastVersion,
@@ -50,6 +51,7 @@ import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
 import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
 import { evalValue } from '$lib/components/flows/utils.svelte'
+import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
 	FRAMEWORK_TEMPLATES,
@@ -133,6 +135,7 @@ import {
 	createToolDef,
 	droppedOptionKeys,
 	createSearchHubScriptsTool,
+	getHubIntegrationTool,
 	executeTestRun,
 	findAndReplace,
 	isHubPath,
@@ -146,6 +149,7 @@ import {
 	type ToolDisplayAction
 } from '../shared'
 import { scriptLangToEditorLang } from '$lib/scripts'
+import { appFileEditorLang } from '../toolCodeDiff'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
@@ -898,7 +902,7 @@ const testRunArgsSchema = z
 	.nullable()
 	.optional()
 	.describe(
-		'Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format "resource-<type>" in the input schema) takes the bare string "$res:<path>" as its whole value — never an object wrapper like {"$res": "<path>"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with "$var:<path>". The prefixed string can also sit in a nested field, e.g. {"gh_auth": {"token": "$var:g/all/gh_token"}}.'
+		'Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format "resource-<type>" in the input schema) takes the bare string "$res:<path>" as its whole value — never an object wrapper like {"$res": "<path>"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with "$var:<path>". The prefixed string can also sit in a nested field, e.g. {"gh_auth": {"token": "$var:g/all/gh_token"}}. When the input schema carries a top-level "prompt_for_ai", it is the author\'s own instructions for choosing these arguments: follow it.'
 	)
 
 const backgroundArgSchema = z
@@ -1000,7 +1004,7 @@ const testRunStepSchema = z.object({
 const testRunStepToolDef = createToolDef(
 	testRunStepSchema,
 	'test_run_step',
-	"Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. An AI agent step takes the inputs a run supplies rather than code arguments, `user_message` above all; its form opens on the step's own configuration, so send only what this run should change. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
+	"Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. An AI agent step takes the inputs a run supplies rather than code arguments, `user_message` above all; its form opens on the step's own configuration, so send only what this run should change. An AI decision step takes `state`, what its questions are asked about; its provider and questions are the step's own. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
 	{ strict: false }
 )
 
@@ -1159,8 +1163,33 @@ const openPreviewSchema = z.object({
 		),
 	path: z
 		.string()
-		.describe('Workspace path of the item to preview, or the folder name when kind is "pipeline".')
+		.describe('Workspace path of the item to preview, or the folder name when kind is "pipeline".'),
+	mode: z
+		.enum(['edit', 'view'])
+		.optional()
+		.describe(
+			'Which side to show. Defaults to "edit", the editor for the draft you just wrote — which is what this tool is usually for. Pass "view" for the deployed page instead: its run form, triggers and past runs, for showing the user an item that already exists rather than your own changes to it. Ignored for kind="pipeline", which has only an editor.'
+		)
 })
+
+/** Advertised `mode` for a session that cannot write drafts: the editor is not a side
+ * it can open, so it is not offered. Per-PATH write permission is unknowable here —
+ * a workspace capability says nothing about `f/finance/*` — and is resolved in the
+ * handler instead. Mirrors `open_page` re-narrowing its page enum per user. */
+const openPreviewViewOnlySchema = openPreviewSchema.extend({
+	mode: z
+		.literal('view')
+		.optional()
+		.describe(
+			'Only "view" — the deployed page with its run form and triggers. You cannot open editors in this workspace.'
+		)
+})
+
+const OPEN_PREVIEW_DESCRIPTION =
+	'Open the live preview / editor for a workspace item in the side panel next to the chat. ONLY works inside an AI session — call this after writing or editing a script, flow, or raw app to let the user see and interact with it. The path you pass is the path of the item; for code-based apps use kind="raw_app" (legacy drag-and-drop apps are not previewable). Returns an error if there is no active session.'
+
+const OPEN_PREVIEW_VIEW_ONLY_DESCRIPTION =
+	'Show a workspace item in the side panel next to the chat, as its deployed page — the run form, triggers and past runs the user can act on. ONLY works inside an AI session. The path you pass is the path of the item; for code-based apps use kind="raw_app" (legacy drag-and-drop apps are not previewable). You cannot open item editors in this workspace, so use this to show the user something that is already deployed. Returns an error if there is no active session.'
 
 const getPreviewStatusSchema = z.object({})
 
@@ -1437,7 +1466,9 @@ Rules:${when(
 - You can never read a variable's value, secret or not, so never invent one: when editing an existing variable, omit value (and is_secret) from write_variable and pass only the fields you are actually changing. The user can reveal a value in the variable editor; you cannot, so never tell them a value is unreadable in general. "$var:path/to/variable" is how a resource value references a variable — it is never a variable's own value.
 - Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
-- Hub scripts are prebuilt integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Use search_hub_scripts to find one before hand-writing an integration, then read_workspace_item with type "script" and the returned hub path to get its code, language, and input schema.
+- Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (note the source hub path in a comment at the top of the code), or take it as a worked example and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.
+- Before writing your own code against an integration the hub covers, call get_hub_integration with its slug: it returns the resource type to take, its auth fields and the integration's most-used scripts, which beats inferring them from script bodies. Call it for the integration you are about to write against, whichever it is. A search marks an integration \`documented\` when the hub additionally holds provider knowledge checked against the live API — pagination, enums, error codes and gotchas — so read that closely where it appears rather than trusting your own memory of the API.
+- If you have a web search tool and the hub does not cover a third-party API, search for the vendor's own API documentation rather than writing its endpoints and auth from memory, and link the page you relied on. Reserve it for external APIs: search_docs answers questions about Windmill itself.
 ${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}- Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}`
 	)}${when(
@@ -1467,6 +1498,10 @@ ${pipelineBullet}`
 - Keep context targeted.${
 		previewTools
 			? `${when(
+					!canWriteDraft,
+					`
+- open_preview(kind, path) shows a deployed script / flow / app in the side panel next to the chat — its run form, triggers and past runs, which the user can act on there. Use it when you surface an item they will want to run or inspect. You cannot open item editors in this workspace, so it only ever opens the deployed page.`
+				)}${when(
 					canWriteDraft,
 					`
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
@@ -3388,6 +3423,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	createSearchHubScriptsTool(false),
+	getHubIntegrationTool,
 	searchNpmPackagesTool,
 	searchDocsTool,
 	readDocsPageTool,
@@ -4409,14 +4445,27 @@ export const globalTools: SessionTool<{}>[] = [
 	...artifactTools,
 	{
 		requires: NONE,
-		def: createToolDef(
-			openPreviewSchema,
-			'open_preview',
-			'Open the live preview / editor for a workspace item in the side panel next to the chat. ONLY works inside an AI session — call this after writing or editing a script, flow, or raw app to let the user see and interact with it. The path you pass is the path of the item; for code-based apps use kind="raw_app" (legacy drag-and-drop apps are not previewable). Returns an error if there is no active session.'
-		),
+		def: createToolDef(openPreviewSchema, 'open_preview', OPEN_PREVIEW_DESCRIPTION),
+		// Withhold the editor side from a session that cannot write drafts, so the model
+		// never offers the user a panel it would not get.
+		schemaFor: async (helpers) => {
+			const access = (helpers as GlobalToolHelpers | undefined)?.access
+			return access && !access.has('write_draft')
+				? createToolDef(
+						openPreviewViewOnlySchema,
+						'open_preview',
+						OPEN_PREVIEW_VIEW_ONLY_DESCRIPTION
+					)
+				: createToolDef(openPreviewSchema, 'open_preview', OPEN_PREVIEW_DESCRIPTION)
+		},
 		fn: async (ctx) => {
 			const parsed = openPreviewSchema.parse(ctx.args)
-			return openSessionPreview(parsed, sessionIdFromCtx(ctx))
+			return openSessionPreview(
+				parsed,
+				sessionIdFromCtx(ctx),
+				operatingWorkspaceFromHelpers(ctx.helpers),
+				(ctx.helpers as GlobalToolHelpers | undefined)?.access
+			)
 		}
 	},
 	{
@@ -4722,6 +4771,11 @@ export type OpenPreviewHandler = (req: {
 	sessionId: string | undefined
 	kind: 'script' | 'flow' | 'raw_app' | 'pipeline'
 	path: string
+	/** Which side to open. Omitted means the editor, except for a pipeline, which has only
+	 * one side. `openSessionPreview` resolves it before its capability gates rather than
+	 * leaving the default to this handler, so an omitted mode is gated like an explicit
+	 * 'edit'. */
+	mode?: 'edit' | 'view'
 }) => string | Promise<string>
 
 let openPreviewHandler: OpenPreviewHandler | undefined
@@ -4731,16 +4785,73 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 }
 
 async function openSessionPreview(
-	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
-	sessionId: string | undefined
+	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string; mode?: 'edit' | 'view' },
+	sessionId: string | undefined,
+	workspace: string | undefined,
+	access: SessionAccess | undefined
 ): Promise<string> {
 	if (!openPreviewHandler) {
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}
-	// open_preview only exists in sessions, so no sessionId check is needed here.
+	// A pipeline has only an editor, and its own capability gates already cover it.
+	if (args.kind === 'pipeline') {
+		return await openPreviewHandler({ ...args, mode: undefined, sessionId })
+	}
+	// Resolved before the gates, not after: the handler reads a missing mode as the editor, so
+	// gating on `args.mode === 'edit'` would wave through every call that simply omitted it —
+	// which is what a model whose schema only offers 'view' does.
+	const mode: 'edit' | 'view' = args.mode ?? 'edit'
+	// The advertised schema already withholds 'edit' from a session that cannot write
+	// drafts; re-check so a model asking outside the enum can't act outside it either.
+	if (mode === 'edit' && access && !access.has('write_draft')) {
+		const opened = await openPreviewHandler({ ...args, mode: 'view', sessionId })
+		return `${opened}\nOpened the deployed page instead: you cannot open item editors in this workspace.`
+	}
+	// `write_draft` is a workspace capability and says nothing about this path, so an
+	// edit that survived it is still checked against the item's own permissions.
+	if (mode === 'edit' && workspace) {
+		const verdict = await canEditItemPath(workspace, args.kind, args.path)
+		if (verdict !== 'allowed') {
+			const opened = await openPreviewHandler({ ...args, mode: 'view', sessionId })
+			// "Couldn't check" is not "denied" — reporting the lookup failure as a denial
+			// states something false about the user's permissions.
+			return verdict === 'denied'
+				? `${opened}\nOpened the deployed page instead: the user does not have edit rights on ${promptSafe(args.path)}.`
+				: `${opened}\nOpened the deployed page: their edit rights on ${promptSafe(args.path)} couldn't be checked just now.`
+		}
+	}
 	// For a pipeline the handler awaits the editor's tool registration, so the
 	// model's next build_pipeline_node call can't race the async canvas mount.
-	return await openPreviewHandler({ ...args, sessionId })
+	return await openPreviewHandler({ ...args, mode, sessionId })
+}
+
+/** Whether the user may edit `path` in `workspace`. `'unverified'` when their role
+ * there could not be read — distinct from a denial, which `canWrite` cannot express
+ * (it answers false for an unknown user). */
+async function canEditItemPath(
+	workspace: string,
+	kind: 'script' | 'flow' | 'raw_app',
+	path: string
+): Promise<'allowed' | 'denied' | 'unverified'> {
+	const role = await roleForWorkspace(workspace)
+	if (role.kind === 'not_a_member') return 'denied'
+	if (role.kind !== 'resolved' || !role.user) return 'unverified'
+	if (role.user.operator) return 'denied'
+	// Folder and ownership rules answer most calls without a request. An item's own
+	// `extra_perms` can only widen them, so the item is fetched only to overturn a denial.
+	if (canWrite(path, {}, role.user)) return 'allowed'
+	try {
+		const extraPerms =
+			kind === 'script'
+				? (await ScriptService.getScriptByPath({ workspace, path })).extra_perms
+				: kind === 'flow'
+					? (await FlowService.getFlowByPath({ workspace, path })).extra_perms
+					: (await AppService.getAppByPath({ workspace, path })).extra_perms
+		return canWrite(path, extraPerms ?? {}, role.user) ? 'allowed' : 'denied'
+	} catch (e) {
+		// Nothing deployed means no sharing to widen the folder rules with.
+		return (e as { status?: number } | null | undefined)?.status === 404 ? 'denied' : 'unverified'
+	}
 }
 
 // Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's
@@ -5190,10 +5301,12 @@ function maybeAttachPreviewCard(
 function finishAppDraftWrite(
 	result: DraftPersistResult,
 	ctx: WriteDraftCtx,
-	onSaved: () => { content: string; message: string; warning?: string }
+	onSaved: () => { content: string; message: string; warning?: string },
+	codeDiff?: ToolCodeDiff
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	if (codeDiff) ctx.toolCallbacks.setToolStatus(ctx.toolId, { codeDiff })
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const { content, message, warning } = onSaved()
@@ -5842,6 +5955,7 @@ async function agentStepRunForm(
 		.sort((a, b) => (position.get(a) ?? Infinity) - (position.get(b) ?? Infinity))
 
 	const evaluated: Record<string, any> = {}
+	await quickjsReady()
 	for (const key of keys) {
 		const value = evalValue(key, module, undefined, false)
 		if (value !== undefined) evaluated[key] = value
@@ -6731,12 +6845,18 @@ async function writeAppFile(
 	})
 
 	const { value } = await loadAppDraftValue(args.path, workspace)
+	const before = value.files[target.filePath] ?? ''
 	value.files = { ...value.files, [target.filePath]: args.content }
 	const result = await saveAppDraft(workspace, args.path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Updated ${target.filePath} in app "${args.path}"`,
-		message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Updated ${target.filePath} in app "${args.path}"`,
+			message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`
+		}),
+		{ before, after: args.content, lang: appFileEditorLang(target.filePath) }
+	)
 }
 
 async function deleteAppFile(
@@ -6760,13 +6880,18 @@ async function deleteAppFile(
 	if (!(target.filePath in value.files)) {
 		throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
 	}
-	const { [target.filePath]: _removed, ...remaining } = value.files
+	const { [target.filePath]: removed, ...remaining } = value.files
 	value.files = remaining
 	const result = await saveAppDraft(workspace, args.path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Removed ${target.filePath} from app "${args.path}"`,
-		message: `Removed "${target.filePath}" from draft app "${args.path}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Removed ${target.filePath} from app "${args.path}"`,
+			message: `Removed "${target.filePath}" from draft app "${args.path}".`
+		}),
+		{ before: removed, after: '', lang: appFileEditorLang(target.filePath) }
+	)
 }
 
 async function patchAppFile(
@@ -6837,10 +6962,15 @@ async function patchAppFile(
 	}
 
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Patched ${target.filePath} in app "${path}"`,
-		message: `Patched "${target.filePath}" in draft app "${path}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Patched ${target.filePath} in app "${path}"`,
+			message: `Patched "${target.filePath}" in draft app "${path}".`
+		}),
+		{ before: currentContent, after: updated, lang: appFileEditorLang(target.filePath) }
+	)
 }
 
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
@@ -6871,15 +7001,48 @@ async function writeAppRunnable(
 	await recomputeAppPolicy(value)
 	const undeployed = await undeployedRunnableTargets(workspace, { [key]: persisted })
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Updated runnable "${key}" in app "${path}"`,
-		message: `Updated draft app "${path}" with runnable "${key}".`,
-		warning: undeployed.length
-			? `This runnable points at an item that is NOT deployed (${undeployed[0]}), so it fails at runtime — ` +
-				`a path runnable runs the deployed item, never a draft. Offer to deploy just that item with ` +
-				`deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.`
-			: undefined
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Updated runnable "${key}" in app "${path}"`,
+			message: `Updated draft app "${path}" with runnable "${key}".`,
+			warning: undeployed.length
+				? `This runnable points at an item that is NOT deployed (${undeployed[0]}), so it fails at runtime — ` +
+					`a path runnable runs the deployed item, never a draft. Offer to deploy just that item with ` +
+					`deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.`
+				: undefined
+		}),
+		inlineRunnableDiff(key, existing, persisted)
+	)
+}
+
+function inlineRunnableCode(runnable: PersistedRunnable | undefined): string | undefined {
+	return runnable?.type === 'inline' || runnable?.type === 'runnableByName'
+		? (runnable.inlineScript?.content ?? '')
+		: undefined
+}
+
+// A runnable that references a workspace or hub item has no code of its own to diff.
+function inlineRunnableDiff(
+	key: string,
+	before: PersistedRunnable | undefined,
+	after: PersistedRunnable | undefined
+): ToolCodeDiff | undefined {
+	const beforeCode = inlineRunnableCode(before)
+	const afterCode = inlineRunnableCode(after)
+	if (beforeCode === undefined && afterCode === undefined) return undefined
+	if (after !== undefined && afterCode === undefined) return undefined
+	const lang = (runnable: PersistedRunnable | undefined) =>
+		appFileEditorLang(`backend/${key}/main.${getInlineScriptExtension(runnable)}`)
+	const afterLang = lang(after ?? before)
+	const beforeLang = beforeCode === undefined ? afterLang : lang(before)
+	return {
+		before: beforeCode ?? '',
+		after: afterCode ?? '',
+		lang: afterLang,
+		...(beforeLang !== afterLang ? { beforeLang } : {})
+	}
 }
 
 /**
@@ -6979,14 +7142,19 @@ async function deleteAppRunnable(
 	if (!(key in value.runnables)) {
 		throw new Error(`Backend runnable "${key}" not found in app "${path}".`)
 	}
-	const { [key]: _removed, ...remaining } = value.runnables
+	const { [key]: removed, ...remaining } = value.runnables
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Removed runnable "${key}" from app "${path}"`,
-		message: `Removed runnable "${key}" from draft app "${path}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Removed runnable "${key}" from app "${path}"`,
+			message: `Removed runnable "${key}" from draft app "${path}".`
+		}),
+		inlineRunnableDiff(key, removed as PersistedRunnable, undefined)
+	)
 }
 
 const triggerLabels: Record<TriggerKind, string> = {

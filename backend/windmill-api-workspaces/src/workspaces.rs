@@ -744,13 +744,15 @@ async fn is_premium(
 
 #[derive(Serialize)]
 struct BillableSeatsResponse {
-    /// Both omitted when the seats counted are another workspace's: a fork member need not be a
+    /// All three omitted when the seats counted are another workspace's: a fork member need not be a
     /// member of the billing root, so the root's headcount is not theirs to read. The total is,
     /// since it is the divisor of the quota their own executions draw on.
     #[serde(skip_serializing_if = "Option::is_none")]
     developers: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operators: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_accounts: Option<i64>,
     seats: i64,
 }
 
@@ -780,6 +782,7 @@ async fn get_billable_seats(
     Ok(Json(BillableSeatsResponse {
         developers: own.then_some(counted.developers),
         operators: own.then_some(counted.operators),
+        service_accounts: own.then_some(counted.service_accounts),
         seats: counted.seats,
     }))
 }
@@ -7637,7 +7640,7 @@ async fn clone_scripts(
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
-            on_behalf_of, on_behalf_of_email, assets, modules
+            on_behalf_of, on_behalf_of_email, assets, modules, job_token_scopes
         )
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
@@ -7669,7 +7672,7 @@ async fn clone_scripts(
                         UNION ALL
                         SELECT 1 FROM password p WHERE p.email = on_behalf_of
                           AND p.super_admin))
-            END, on_behalf_of_email, assets, modules
+            END, on_behalf_of_email, assets, modules, job_token_scopes
         FROM script
         WHERE workspace_id = $2"#,
         target_workspace_id,
@@ -8027,7 +8030,8 @@ async fn clone_flows(
             workspace_id, path, summary, description, value, edited_by, edited_at,
             archived, schema, extra_perms, dependency_job, tag,
             ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
-            concurrency_key, versions, on_behalf_of, on_behalf_of_email, lock_error_logs
+            concurrency_key, versions, on_behalf_of, on_behalf_of_email, lock_error_logs,
+            job_token_scopes
         )
         SELECT $2, path, summary, description, value, edited_by, edited_at,
                archived, schema, extra_perms, NULL, tag,
@@ -8053,7 +8057,7 @@ async fn clone_flows(
                            UNION ALL
                            SELECT 1 FROM password p WHERE p.email = on_behalf_of
                              AND p.super_admin))
-               END, on_behalf_of_email, lock_error_logs
+               END, on_behalf_of_email, lock_error_logs, job_token_scopes
         FROM flow
         WHERE workspace_id = $1",
         source_workspace_id,
@@ -14367,18 +14371,27 @@ async fn prune_versions(
 
     let pruned = match req.resource_type.as_str() {
         "scripts" => {
-            let result = sqlx::query(
-                "DELETE FROM script
-                WHERE workspace_id = $1 AND hash NOT IN (
-                    SELECT DISTINCT ON (path) hash FROM script
-                    WHERE workspace_id = $1 AND deleted = false
-                    ORDER BY path, created_at DESC
-                )",
-            )
-            .bind(&w_id)
-            .execute(&db)
-            .await?;
-            result.rows_affected()
+            let mut tx = db.begin().await?;
+            let deleted = windmill_common::DeletedScriptVersions::new(
+                &w_id,
+                sqlx::query_as::<_, (String, i64)>(
+                    "DELETE FROM script
+                    WHERE workspace_id = $1 AND hash NOT IN (
+                        SELECT DISTINCT ON (path) hash FROM script
+                        WHERE workspace_id = $1 AND deleted = false
+                        ORDER BY path, created_at DESC
+                    )
+                    RETURNING path, hash",
+                )
+                .bind(&w_id)
+                .fetch_all(&mut *tx)
+                .await?,
+            );
+            deleted.notify(&mut *tx).await?;
+            tx.commit().await?;
+            let pruned = deleted.hashes.len() as u64;
+            deleted.evict();
+            pruned
         }
         "flows" => {
             let deleted = sqlx::query(

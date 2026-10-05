@@ -136,7 +136,7 @@ impl PostgresSimpleClient {
 /// Resolves the Postgres resource, validates that the configured publication and
 /// replication slot still exist, and opens a fresh logical replication stream.
 ///
-/// Returns `Error::BadConfig` when the publication or slot is missing, or the
+/// Returns `Error::BadConfig` when the publication or slot is missing or invalidated, or the
 /// data table is under roles (unrecoverable misconfigurations). Any other error is treated as transient
 /// (connection refused, network interruption, ...) and is retried by the caller.
 /// The resource is re-resolved on every call so credential rotations are picked
@@ -183,18 +183,33 @@ async fn connect_logical_replication_stream(
         ));
     }
 
+    // `invalidation_reason` (PG 17+) and `conflicting` (PG 16) are read through jsonb so the
+    // query still runs on versions that lack those columns.
     let replication_slot = client
         .execute_query(&format!(
-            "SELECT slot_name FROM pg_replication_slots WHERE slot_name = {}",
+            r#"SELECT COALESCE(
+                j->>'invalidation_reason',
+                CASE WHEN j->>'wal_status' = 'lost' THEN 'wal_removed'
+                     WHEN j->>'conflicting' = 'true' THEN 'conflict with recovery' END
+            ) FROM pg_replication_slots s, to_jsonb(s) j WHERE slot_name = {}"#,
             quote_literal(replication_slot_name)
         ))
         .await
         .map_err(to_anyhow)?;
 
-    if !replication_slot.row_exist() {
+    let Some(slot) = replication_slot.iter().find_map(|m| match m {
+        SimpleQueryMessage::Row(row) => Some(row),
+        _ => None,
+    }) else {
         return Err(Error::BadConfig(
             ERROR_REPLICATION_SLOT_NOT_EXISTS.to_string(),
         ));
+    };
+
+    if let Some(reason) = slot.get(0) {
+        return Err(Error::BadConfig(format!(
+            "The replication slot `{replication_slot_name}` associated with this trigger has been invalidated by PostgreSQL (reason: `{reason}`). Changes since the invalidation cannot be replayed. Drop the slot (Advanced tab, slots) and save the trigger again to recreate it, or select another slot."
+        )));
     }
 
     client

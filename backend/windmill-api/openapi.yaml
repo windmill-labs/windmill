@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.820.0
+  version: 1.824.0
   title: Windmill API
 
   contact:
@@ -4492,6 +4492,12 @@ paths:
                     description: >-
                       Omitted when the seats counted are another workspace's, as they are for a
                       fork resolving to its billing root.
+                  service_accounts:
+                    type: integer
+                    description: >-
+                      Enabled service accounts, half a seat each like operators. Omitted when the
+                      seats counted are another workspace's, as they are for a fork resolving to
+                      its billing root.
                   seats:
                     type: integer
                 required:
@@ -9909,6 +9915,13 @@ paths:
                   properties:
                     name:
                       type: string
+                    documented:
+                      description: >-
+                        whether the integration carries provider knowledge checked
+                        against the live API, on top of the resource type and example
+                        scripts /integrations/hub/{app}/meta returns for any
+                        integration. Absent on a hub predating the flag.
+                      type: boolean
                     picks:
                       description: how often the integration has been picked, absent on a hub that does not count picks
                       type: integer
@@ -9918,6 +9931,162 @@ paths:
                       nullable: true
                   required:
                     - name
+
+  /integrations/hub/{app}/meta:
+    get:
+      summary: get hub integration metadata
+      operationId: getHubIntegrationMeta
+      tags:
+        - integration
+      parameters:
+        - name: app
+          description: integration slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: integration metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: string
+                  display_name:
+                    type: string
+                  description:
+                    type: string
+                    nullable: true
+                  docs_url:
+                    type: string
+                    nullable: true
+                  curated:
+                    description: >-
+                      whether the script set was pruned to idiomatic actions rather
+                      than generated one per endpoint; null when nobody has assessed
+                      it, which is distinct from a stated false
+                    type: boolean
+                    nullable: true
+                  metadata_source:
+                    description: >-
+                      whether the provider knowledge was authored (curated) or
+                      inferred from the shipped scripts (derived)
+                    type: string
+                    enum:
+                      - curated
+                      - derived
+                  meta:
+                    description: >-
+                      the integration's authored meta.json verbatim; the content
+                      repo owns its schema, so it is passed through unvalidated
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+                  meta_updated_at:
+                    type: string
+                    nullable: true
+                  derived:
+                    description: facts computed from the integration's shipped scripts
+                    type: object
+                    properties:
+                      api_hosts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            host:
+                              type: string
+                            count:
+                              type: number
+                          required:
+                            - host
+                            - count
+                      style:
+                        type: string
+                        enum:
+                          - fetch
+                          - sdk
+                          - mixed
+                          - unknown
+                      languages:
+                        type: object
+                        additionalProperties:
+                          type: number
+                      script_counts:
+                        type: object
+                        properties:
+                          total:
+                            type: number
+                          by_kind:
+                            type: object
+                            additionalProperties:
+                              type: number
+                        required:
+                          - total
+                          - by_kind
+                      top_scripts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            path:
+                              type: string
+                            ask_id:
+                              type: number
+                            version_id:
+                              type: number
+                            summary:
+                              type: string
+                            description:
+                              type: string
+                              nullable: true
+                            kind:
+                              type: string
+                            language:
+                              type: string
+                              nullable: true
+                            views:
+                              type: number
+                            votes:
+                              type: number
+                          required:
+                            - path
+                            - summary
+                            - kind
+                    required:
+                      - api_hosts
+                      - style
+                      - languages
+                      - script_counts
+                      - top_scripts
+                  resource_types:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: number
+                        name:
+                          type: string
+                        description:
+                          type: string
+                          nullable: true
+                        schema:
+                          description: >-
+                            the resource type's JSON schema; the hub stores it as text
+                            and returns it as a JSON string, so a client must be ready
+                            for either that or an object
+                      required:
+                        - name
+                        - schema
+                # `derived` and `resource_types` are omitted by a hub older than the
+                # client, which reads every section as optional.
+                required:
+                  - app
+                  - display_name
 
   /flows/hub/list:
     get:
@@ -10247,6 +10416,9 @@ paths:
                           type: number
                         summary:
                           type: string
+                        description:
+                          type: string
+                          nullable: true
                         app:
                           type: string
                         version_id:
@@ -10315,6 +10487,8 @@ paths:
                     version_id:
                       type: number
                     summary:
+                      type: string
+                    description:
                       type: string
                     app:
                       type: string
@@ -28318,6 +28492,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/AiTransform"
     ProviderConfig:
       $ref: "../../openflow.openapi.yaml#/components/schemas/ProviderConfig"
+    ProviderTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/ProviderTransform"
     MemoryConfig:
       $ref: "../../openflow.openapi.yaml#/components/schemas/MemoryConfig"
     FlowModuleValue:
@@ -28338,6 +28514,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/BranchAll"
     AiAgent:
       $ref: "../../openflow.openapi.yaml#/components/schemas/AiAgent"
+    AiDecision:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/AiDecision"
     Identity:
       $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
     FlowStatus:
@@ -29302,6 +29480,8 @@ components:
           togetherai,
           aws_bedrock,
           customai,
+          typesafe,
+          cloudflare,
         ]
 
     GitSyncObjectType:
@@ -29990,6 +30170,12 @@ components:
           items:
             type: string
           default: []
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job."
         inherited_labels:
           type: array
           items:
@@ -30147,6 +30333,12 @@ components:
           type: array
           items:
             type: string
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
         skip_draft_deletion:
           type: boolean
           description: "When true (set by the CLI / git sync), deploying this script does not delete an existing user draft at the same path."
@@ -36005,6 +36197,12 @@ components:
           items:
             type: string
           default: []
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job."
         inherited_labels:
           type: array
           items:
@@ -36051,6 +36249,12 @@ components:
               type: array
               items:
                 type: string
+            job_token_scopes:
+              type: array
+              nullable: true
+              items:
+                type: string
+              description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
           required:
             - path
     # Like OpenFlowWPath but `path` is optional: on update the flow is identified by
@@ -36087,6 +36291,12 @@ components:
               type: array
               items:
                 type: string
+            job_token_scopes:
+              type: array
+              nullable: true
+              items:
+                type: string
+              description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
 
     FlowPreview:
       type: object

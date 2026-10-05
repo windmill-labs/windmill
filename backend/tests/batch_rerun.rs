@@ -53,6 +53,7 @@ fn script_payload() -> JobPayload {
         concurrency_settings: ConcurrencySettings::default().into(),
         debouncing_settings: DebouncingSettings::default(),
         labels: None,
+        job_token_scopes: None,
     }
 }
 
@@ -63,6 +64,7 @@ fn flow_payload() -> JobPayload {
         apply_preprocessor: false,
         version: FLOW_VERSION,
         labels: None,
+        job_token_scopes: None,
     }
 }
 
