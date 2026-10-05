@@ -113,12 +113,31 @@ describe('toolCodeDiff', () => {
 	})
 
 	it('only marks tools with a defined argument diff as diff-capable', () => {
-		expect(hasToolCodeDiff('edit_script')).toBe(true)
-		expect(hasToolCodeDiff('edit_code')).toBe(true)
-		expect(hasToolCodeDiff('write_script')).toBe(true)
-		expect(hasToolCodeDiff('__proto__')).toBe(false)
-		expect(hasToolCodeDiff('toString')).toBe(false)
-		expect(hasToolCodeDiff(undefined)).toBe(false)
+		const call = (toolName: string | undefined, parameters?: unknown) =>
+			hasToolCodeDiff(message({ toolName, parameters }))
+
+		expect(call('edit_script')).toBe(true)
+		expect(call('edit_code')).toBe(true)
+		expect(call('write_script')).toBe(true)
+		expect(call('__proto__')).toBe(false)
+		expect(call('toString')).toBe(false)
+		expect(call(undefined)).toBe(false)
+		expect(
+			hasToolCodeDiff(
+				message({ toolName: 'delete_app_file', codeDiff: { before: 'a', after: '', lang: 'css' } })
+			)
+		).toBe(true)
+	})
+
+	it('keeps a reference runnable write on the generic card', () => {
+		const call = (parameters: unknown) =>
+			hasToolCodeDiff(message({ toolName: 'write_app_runnable', parameters }))
+
+		expect(call('{"path":"f/a","key":"go","runnable":{"name":"Go","type":"in')).toBe(true)
+		expect(call('{"path":"f/a","key":"go","runnable":{"name":"Go"')).toBe(true)
+		expect(call('{"path":"f/a","key":"go","runnable":{"name":"Go","type":"flow"')).toBe(false)
+		expect(call({ path: 'f/a', key: 'go', runnable: { type: 'script', path: 'f/s' } })).toBe(false)
+		expect(call({ path: 'f/a', key: 'go', runnable: { type: 'inline' } })).toBe(true)
 	})
 
 	it('ignores tool names inherited from Object.prototype', () => {

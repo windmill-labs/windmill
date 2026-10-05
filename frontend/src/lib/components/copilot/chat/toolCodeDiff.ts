@@ -150,8 +150,22 @@ function partialJsonStrings(partialJson: string, key: string): string[] {
 	return result
 }
 
-export function hasToolCodeDiff(toolName: string | undefined): boolean {
-	return toolName !== undefined && Object.hasOwn(ARGS_DIFF_BY_TOOL, toolName)
+export function hasToolCodeDiff(message: ToolDisplayMessage): boolean {
+	if (message.codeDiff) return true
+	if (!message.toolName || !Object.hasOwn(ARGS_DIFF_BY_TOOL, message.toolName)) return false
+	// A runnable that references a workspace or hub item has no code to diff, so it keeps the
+	// generic card, whose details show the target and static inputs. Until `type` has streamed
+	// past a prefix of "inline", the call is assumed inline so an inline runnable does not
+	// switch cards mid-stream.
+	if (message.toolName === 'write_app_runnable') {
+		const params = message.parameters
+		const type =
+			params && typeof params === 'object'
+				? (params as { runnable?: { type?: unknown } }).runnable?.type
+				: argumentString(params, 'type')
+		return type === undefined || (typeof type === 'string' && 'inline'.startsWith(type))
+	}
+	return true
 }
 
 export function toolCodeDiff(message: ToolDisplayMessage): ToolCodeDiff | undefined {
