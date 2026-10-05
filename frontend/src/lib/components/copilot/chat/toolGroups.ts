@@ -254,7 +254,7 @@ function waitingGroupAt(
 	const ahead =
 		previous.kind === 'group' ? previous.entries.map((e) => e.message) : [previous.message]
 	if (!ahead.some(inFlight)) return undefined
-	const end = runEnd(messages, start, isWaitingCall)
+	const end = runEnd(messages, start, (m, j) => isWaitingCall(m) && !kindGroupAt(messages, j))
 	return {
 		kind: 'group',
 		groupKind: 'waiting',
@@ -264,20 +264,24 @@ function waitingGroupAt(
 	}
 }
 
+// An edit group wins over an explore group: its reads belong to the edits they prepare, so an
+// explore run also stops before a read that starts one. Both win over a waiting row, which
+// stops before either: its header says less than `Edit f/a/flow · 2 changes`.
+function kindGroupAt(messages: DisplayMessage[], start: number): ToolGroup | undefined {
+	const explores = (m: DisplayMessage, j: number) => isReadCall(m) && !editGroupAt(messages, j)
+	return (
+		editGroupAt(messages, start) ??
+		(isReadCall(messages[start])
+			? toolGroup(messages, start, runEnd(messages, start, explores), 'explore', '')
+			: undefined)
+	)
+}
+
 export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
 	const items: ChatItem[] = []
 	let i = 0
 	while (i < messages.length) {
-		// An edit group wins over an explore group: its reads belong to the edits they prepare,
-		// so an explore run also stops before a read that starts one. Both win over a waiting
-		// row, whose header says less than `Edit f/a/flow · 2 changes`.
-		const explores = (m: DisplayMessage, j: number) => isReadCall(m) && !editGroupAt(messages, j)
-		const group =
-			editGroupAt(messages, i) ??
-			(isReadCall(messages[i])
-				? toolGroup(messages, i, runEnd(messages, i, explores), 'explore', '')
-				: undefined) ??
-			waitingGroupAt(messages, i, items.at(-1))
+		const group = kindGroupAt(messages, i) ?? waitingGroupAt(messages, i, items.at(-1))
 		if (group) {
 			items.push(group)
 			i = group.entries.at(-1)!.index + 1

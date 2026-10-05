@@ -114,6 +114,15 @@ describe('groupToolRuns', () => {
 				tool('patch_flow_json', flow, queued)
 			])
 		).toEqual([0, { edit: [1, 2] }])
+		// A waiting row stops before queued calls that form their own group.
+		expect(
+			shape([
+				sql({ needsConfirmation: true, isLoading: true }),
+				sql(queued),
+				tool('patch_flow_json', flow, queued),
+				tool('patch_flow_json', flow, queued)
+			])
+		).toEqual([0, { waiting: [1] }, { edit: [2, 3] }])
 	})
 
 	it('keeps an edit whose arguments are still streaming in the group it follows', () => {
