@@ -622,6 +622,9 @@ export type ToolCodeDiff = {
 	after: string
 	/** Monaco language id. */
 	lang: string
+	/** Language of the before side, when the edit changed it (an inline runnable rewritten from
+	 * TypeScript to Python). */
+	beforeLang?: string
 }
 
 export type ToolDisplayMessage = {
