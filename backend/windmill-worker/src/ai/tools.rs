@@ -4,7 +4,7 @@ use crate::ai::utils::{
     is_completed_input_transform, update_flow_status_module_with_actions,
     update_flow_status_module_with_actions_success, FlowContext,
 };
-use crate::common::OccupancyMetrics;
+use crate::common::{get_root_job_id, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
 use crate::worker_flow::{
     evaluate_input_transform, raw_script_to_payload, resolve_flow_step_tag, script_to_payload,
@@ -599,6 +599,16 @@ async fn enqueue_windmill_tool(
         None,
         None,
         None,
+        // A tool never holds a wider token than the agent calling it, and its own setting
+        // narrows that further.
+        windmill_common::scopes::intersect_job_token_scopes(
+            ctx.job.job_token_scopes.as_deref(),
+            windmill_common::scopes::step_job_token_scopes(
+                tool_module.job_token_scopes.as_deref(),
+            )
+            .as_deref(),
+        )
+        .as_deref(),
     )
     .await?;
 
@@ -961,11 +971,7 @@ fn windmill_tool_row(
 /// Add tool message to conversation if chat is enabled
 async fn add_tool_message_to_chat(
     ctx: &mut ToolExecutionContext<'_>,
-    // The job this row belongs to: the tool's own where it has one, else the agent's, which
-    // is the job it ran inside. Every row names one so that retention collects the whole
-    // turn — `delete_jobs` removes messages by `job_id = ANY(..)` (there is no FK on the
-    // column; `drop_v2_job_side_table_cascades` dropped it), and a row naming no job would
-    // survive every purge and leave a conversation that can never become empty.
+    // The tool's own job where it has one, else the agent's, which is the job it ran inside.
     tool_job_id: Option<Uuid>,
     content: &str,
     success: bool,
@@ -1005,6 +1011,7 @@ async fn add_tool_message_to_chat(
                 ctx.db,
                 &memory_id,
                 tool_job_id,
+                get_root_job_id(ctx.job),
                 content,
                 MessageType::Tool,
                 &step_name,

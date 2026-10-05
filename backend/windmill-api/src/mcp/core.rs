@@ -372,7 +372,8 @@ impl McpBackend for WindmillBackend {
         token: &str,
         workspace_id: &str,
     ) -> BackendResult<ApiAuthed> {
-        self.auth_cache
+        let authed = self
+            .auth_cache
             .get_authed(Some(workspace_id.to_string()), token)
             .await
             .ok_or_else(|| {
@@ -383,7 +384,11 @@ impl McpBackend for WindmillBackend {
                     ),
                     None,
                 )
-            })
+            })?;
+        // Job token scopes never include MCP scopes, so a restricted job token gets none.
+        windmill_api_auth::check_job_token_scope(&authed, || "mcp:all".to_string())
+            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        Ok(authed)
     }
 
     async fn runnable_list_fingerprint(&self, workspace_id: &str) -> BackendResult<String> {

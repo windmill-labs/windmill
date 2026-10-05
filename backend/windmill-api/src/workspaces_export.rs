@@ -119,6 +119,8 @@ struct ScriptMetadata {
     pub debouncing_settings: DebouncingSettings,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "is_empty_extra_perms")]
     pub extra_perms: serde_json::Value,
 }
@@ -906,6 +908,7 @@ pub(crate) async fn tarball_workspace(
                     .then_some(true),
                 modules: script.modules,
                 labels: script.labels,
+                job_token_scopes: script.job_token_scopes,
                 // Same opt-in contract as flow/app: the tarball only surfaces
                 // ACLs when `?preserve_extra_perms=true`. Passing `Null` lets the
                 // `is_empty_extra_perms` skip-serializer drop the field entirely.
@@ -966,7 +969,7 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow.job_token_scopes, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
              FROM flow
              LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
              WHERE flow.workspace_id = $1 AND flow.archived = false",

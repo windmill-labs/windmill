@@ -17,7 +17,7 @@ use windmill_common::{
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
-    DB,
+    DeletedScriptVersions, DB,
 };
 use windmill_queue::schedule::clear_schedule;
 
@@ -382,7 +382,8 @@ async fn list_scripts(
             r#"SELECT DISTINCT ON (path)
                       path,
                       value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-                      created_at
+                      created_at,
+                      email IS NULL as "legacy!"
                FROM draft
                WHERE workspace_id = $1
                  AND typ = 'script'
@@ -463,9 +464,10 @@ async fn list_scripts(
                 inherited_labels: None,
                 is_draft: true,
                 draft_path,
-                // Synthesized rows are the authed user's own draft (single-user case).
+                // A legacy (`email IS NULL`) row belongs to nobody: naming the caller would
+                // route every discard to their own (absent) row and leave it undeletable.
                 draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
-                    username: Some(authed.username.clone()),
+                    username: (!row.legacy).then(|| authed.username.clone()),
                 }])),
             });
         }
@@ -818,6 +820,16 @@ fn invalidate_script_path_caches(w_id: &str, script_path: &str) {
     RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{w_id}:{script_path}"));
 }
 
+/// [`DeletedScriptVersions::evict`], plus this crate's own path -> hash cache. Run by the
+/// deleting process after its commit and by every process on the deletion event.
+pub fn evict_deleted_script_versions(deleted: DeletedScriptVersions) {
+    deleted.evict_with(|deleted| {
+        for path in &deleted.paths {
+            RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{}:{path}", deleted.workspace_id));
+        }
+    });
+}
+
 /// What a script deploy still has to do once its transaction has committed.
 enum PostCommitDeploy {
     /// Everything, for a deploy with no dependency job to hand it to.
@@ -887,6 +899,7 @@ async fn is_noop_deploy_against_parent(
     ns: &NewScript,
     parent: &Script<ScriptRunnableSettingsHandle>,
     resolved_on_behalf_of: Option<&str>,
+    resolved_job_token_scopes: Option<&[String]>,
     db: &DB,
 ) -> Result<bool> {
     if parent.archived || parent.deleted {
@@ -940,6 +953,8 @@ async fn is_noop_deploy_against_parent(
         // caller-intent flag (auto-resolve parent), not script state
         auto_parent: _,
         labels,
+        // resolved against the deployed value into `resolved_job_token_scopes`, compared below
+        job_token_scopes: _,
         // caller-intent flag (preserve user drafts on CLI/git-sync deploys);
         // transient, never persisted, does not change what the script *is*
         skip_draft_deletion: _,
@@ -1011,6 +1026,9 @@ async fn is_noop_deploy_against_parent(
         return Ok(false);
     }
     if resolved_on_behalf_of != parent.on_behalf_of.as_deref() {
+        return Ok(false);
+    }
+    if resolved_job_token_scopes != parent.job_token_scopes.as_deref() {
         return Ok(false);
     }
     // Both of a dbt script's derived fields are compared as they WOULD BE STORED,
@@ -1480,6 +1498,37 @@ async fn create_script_internal<'c>(
         parent_adopted_from_retired_path = ns.parent_hash.is_some();
     }
 
+    // Absent keeps the previous version's value, read once the parent is settled (a rename
+    // adopts its source head above), so a client unaware of the setting cannot drop a
+    // restriction by redeploying or renaming.
+    let resolved_job_token_scopes: Option<Vec<String>> = match (&ns.job_token_scopes, &ns.parent_hash) {
+        (Some(Some(scopes)), _) => {
+            windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+                .assert()
+                .await?;
+            Some(windmill_common::scopes::validate_job_token_scopes(scopes)?)
+        }
+        (Some(None), _) => None,
+        (None, Some(parent_hash)) => sqlx::query_scalar!(
+            "SELECT job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
+            parent_hash.0,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten(),
+        (None, None) => sqlx::query_scalar!(
+            "SELECT job_token_scopes FROM script WHERE path = $1 AND workspace_id = $2 \
+             AND deleted = false ORDER BY created_at DESC LIMIT 1",
+            &ns.path,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten(),
+    };
+    ns.job_token_scopes = Some(resolved_job_token_scopes.clone());
+
     // Before hashing, so the hash and the no-op check see the schema that gets stored.
     // `{}` counts as absent: an agent filling every tool argument sends it for "none".
     let schema_absent = ns.schema.as_ref().is_none_or(|s| {
@@ -1608,8 +1657,14 @@ async fn create_script_internal<'c>(
             // CLI pushes must not produce phantom commits on the downstream
             // git repository.
             if skip_if_noop
-                && is_noop_deploy_against_parent(&ns, &ps, resolved_on_behalf_of.as_deref(), &db)
-                    .await?
+                && is_noop_deploy_against_parent(
+                    &ns,
+                    &ps,
+                    resolved_on_behalf_of.as_deref(),
+                    resolved_job_token_scopes.as_deref(),
+                    &db,
+                )
+                .await?
             {
                 tracing::info!(
                     workspace_id = %w_id,
@@ -2185,8 +2240,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of, on_behalf_of_email) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of, on_behalf_of_email, job_token_scopes) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42)",
         &w_id,
         &hash.0,
         ns.path,
@@ -2230,9 +2285,14 @@ async fn create_script_internal<'c>(
         ns.labels.as_deref() as Option<&[String]>,
         resolved_on_behalf_of,
         legacy_on_behalf_of_email,
+        resolved_job_token_scopes.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .await?;
+    windmill_common::scopes::log_job_token_scopes_deploy(
+        "script",
+        resolved_job_token_scopes.as_deref(),
+    );
 
     // A lock that is not left to a dependency job queues none, so this is the only place its hash
     // can be recorded. `try_skip_relock` treats a missing hash for an imported script as changed,
@@ -2942,6 +3002,7 @@ async fn create_script_internal<'c>(
             None,
             None,
             None,
+            None,
         )
         .await?;
 
@@ -3062,6 +3123,7 @@ async fn create_script_internal<'c>(
                     None,
                     Some(&authed.clone().into()),
                     false,
+                    None,
                     None,
                     None,
                     None,
@@ -4161,6 +4223,8 @@ async fn delete_script_by_hash(
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
     clear_macro_registry(&mut *tx, &w_id, &script.path).await?;
+    let deleted = DeletedScriptVersions::new(&w_id, [(script.path.clone(), hash.0)]);
+    deleted.notify(&mut *tx).await?;
 
     audit_log(
         &mut *tx,
@@ -4173,6 +4237,7 @@ async fn delete_script_by_hash(
     )
     .await?;
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     webhook.send_message(
         w_id.clone(),
@@ -4240,14 +4305,24 @@ async fn delete_script_by_path(
     .fetch_all(&mut *tx)
     .await?;
 
-    let script = sqlx::query_scalar!(
-        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+    let deleted_hashes = sqlx::query_scalar!(
+        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING hash",
         path,
         w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_all(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?;
+    if deleted_hashes.is_empty() {
+        return Err(Error::NotFound(format!(
+            "script {path} not found in {w_id}"
+        )));
+    }
+    let script = path.to_string();
+    let deleted = DeletedScriptVersions::new(
+        &w_id,
+        deleted_hashes.into_iter().map(|h| (script.clone(), h)),
+    );
 
     // After the DELETE, never before: every dbt writer locks the `script` row
     // first, so taking a sidecar ahead of it deadlocks one of the pair. The
@@ -4287,6 +4362,7 @@ async fn delete_script_by_path(
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
     clear_macro_registry(&mut *tx, &w_id, path).await?;
+    deleted.notify(&mut *tx).await?;
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(
@@ -4317,6 +4393,7 @@ async fn delete_script_by_path(
     )
     .await?;
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     handle_deployment_metadata(
         &authed.email,
@@ -4412,14 +4489,21 @@ async fn delete_scripts_bulk(
         }
     }
 
-    let mut deleted_paths = sqlx::query_scalar!(
-        "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
-        w_id,
-        &request.paths
-    )
-    .fetch_all(&mut *tx)
-    .await
-    .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?;
+    let deleted = DeletedScriptVersions::new(
+        &w_id,
+        sqlx::query!(
+            "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path, hash",
+            w_id,
+            &request.paths
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?
+        .into_iter()
+        .map(|r| (r.path, r.hash)),
+    );
+    deleted.notify(&mut *tx).await?;
+    let deleted_paths = deleted.paths.clone();
 
     // Same reason as the single-path delete, over every requested path rather
     // than the deleted ones: a path that had no script left can still hold state.
@@ -4427,10 +4511,6 @@ async fn delete_scripts_bulk(
         windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, p).await?;
         windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, p).await?;
     }
-
-    // remove duplicates from deleted_paths
-    deleted_paths.sort();
-    deleted_paths.dedup();
 
     sqlx::query!(
         "DELETE FROM draft WHERE workspace_id = $1 AND path = ANY($2) AND typ = 'script'",
@@ -4472,6 +4552,7 @@ async fn delete_scripts_bulk(
     .await?;
 
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     try_join_all(deleted_paths.iter().map(|path| {
         handle_deployment_metadata(

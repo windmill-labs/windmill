@@ -147,7 +147,7 @@ jobs:
           mkdir -p results
           # One cheap model per provider (anthropic/openai/googleai/deepseek).
           fail=0
-          for m in haiku 4o gemini-3-flash-preview deepseek-v4-flash; do
+          for m in haiku gpt-6-luna gemini-3.8-flash deepseek-flash; do
             echo "::group::global-test1-script-create ($m)"
             if ! bun run cli -- run global global-test1-script-create \
                   --model "$m" --execution-only --output "$PWD/results/ci-$m.json"; then

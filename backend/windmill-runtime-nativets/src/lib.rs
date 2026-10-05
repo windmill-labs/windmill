@@ -79,16 +79,50 @@ deno_core::extension!(
 
 // ── Permission container ─────────────────────────────────────────────
 
-pub struct PermissionsContainer;
+/// `no_network` is what `//no_network` promises: no outbound traffic of any kind,
+/// the Windmill API included (the client module reaches it through `fetch`).
+/// Enforced here and by disabling the deno_net ops, never in JS: user code can
+/// call `Deno.core.ops.*` directly and skip any JS-level guard.
+pub struct PermissionsContainer {
+    pub no_network: bool,
+}
+
+const NO_NETWORK_ANNOTATION: &str = "no_network";
+
+/// Every op deno_net registers, see `create_nativets_runtime`. Read from the
+/// extension itself so an upgrade that adds an op cannot leave it enabled.
+static NO_NETWORK_DISABLED_OPS: LazyLock<std::collections::HashSet<&'static str>> =
+    LazyLock::new(|| {
+        deno_net::deno_net::init::<PermissionsContainer>(None, None)
+            .ops
+            .iter()
+            .map(|op| op.name)
+            .collect()
+    });
+
+impl PermissionsContainer {
+    fn deny_net(&self, target: &str) -> Result<(), deno_permissions::PermissionCheckError> {
+        if self.no_network {
+            Err(deno_permissions::PermissionDeniedError::Fatal {
+                access: format!(
+                    "net access to {target} (the script is annotated //{NO_NETWORK_ANNOTATION})"
+                ),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
+    }
+}
 
 impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_net_url(
         &mut self,
-        _url: &deno_core::url::Url,
+        url: &deno_core::url::Url,
         _api_name: &str,
     ) -> Result<(), deno_permissions::PermissionCheckError> {
-        Ok(())
+        self.deny_net(&format!("\"{}\"", url.host_str().unwrap_or_default()))
     }
 
     #[inline(always)]
@@ -114,11 +148,11 @@ impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_net_vsock(
         &mut self,
-        _cid: u32,
-        _port: u32,
+        cid: u32,
+        port: u32,
         _api_name: &str,
     ) -> Result<(), deno_permissions::PermissionCheckError> {
-        Ok(())
+        self.deny_net(&format!("vsock {cid}:{port}"))
     }
 }
 
@@ -135,6 +169,7 @@ impl NetPermissions for PermissionsContainer {
         p: &str,
         _api_name: &str,
     ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
+        self.deny_net(&format!("unix socket \"{p}\""))?;
         Ok(PathBuf::from(p))
     }
 
@@ -143,15 +178,16 @@ impl NetPermissions for PermissionsContainer {
         p: &str,
         _api_name: &str,
     ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
+        self.deny_net(&format!("unix socket \"{p}\""))?;
         Ok(PathBuf::from(p))
     }
 
     fn check_net<T: AsRef<str>>(
         &mut self,
-        _host: &(T, Option<u16>),
+        host: &(T, Option<u16>),
         _api_name: &str,
     ) -> Result<(), deno_permissions::PermissionCheckError> {
-        Ok(())
+        self.deny_net(&format!("\"{}\"", host.0.as_ref()))
     }
 
     fn check_write_path<'a>(
@@ -159,16 +195,17 @@ impl NetPermissions for PermissionsContainer {
         p: Cow<'a, std::path::Path>,
         _api_name: &str,
     ) -> Result<Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
+        self.deny_net(&format!("unix socket \"{}\"", p.display()))?;
         Ok(p)
     }
 
     fn check_vsock(
         &mut self,
-        _cid: u32,
-        _port: u32,
+        cid: u32,
+        port: u32,
         _api_name: &str,
     ) -> Result<(), deno_permissions::PermissionCheckError> {
-        Ok(())
+        self.deny_net(&format!("vsock {cid}:{port}"))
     }
 }
 
@@ -190,6 +227,9 @@ pub struct NativeAnnotation {
     /// [`default_fetch_response_timeout_secs`]. `Some(0)` disables it for this
     /// script; `None` leaves the default in force.
     pub fetch_response_timeout_secs: Option<u64>,
+    /// `//no_network`: the isolate may open no connection at all, see
+    /// [`PermissionsContainer`].
+    pub no_network: bool,
 }
 
 /// How long `fetch()` waits for a response to begin, in seconds; `0` disables.
@@ -432,6 +472,11 @@ pub fn get_annotation(inner_content: &str) -> NativeAnnotation {
         .map(|x| x.to_string().trim_start_matches("//").trim().to_string())
         .collect_vec();
 
+    // Read by the same parser that decides `//native`, so the two cannot
+    // disagree on where the leading comment block ends.
+    res.no_network =
+        windmill_common::worker::TypeScriptAnnotations::parse(inner_content).no_network;
+
     for ann in anns.iter() {
         if ann.starts_with("useragent") {
             res.useragent = Some(ann.trim_start_matches("useragent").trim().to_string());
@@ -581,8 +626,23 @@ pub(crate) fn create_nativets_runtime(
     ann: NativeAnnotation,
     initial_args: Vec<Option<Box<RawValue>>>,
 ) -> anyhow::Result<CreatedRuntime> {
+    let no_network = ann.no_network;
     let ops = vec![op_get_static_args(), op_log()];
-    let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
+    // Under `no_network` the whole deno_net surface is disabled, not left to its
+    // permission checks: some of its ops do I/O before checking, e.g.
+    // `op_quic_endpoint_create` resolves the hostname (a DNS query that can carry
+    // data out) and only then calls `check_net`. The middleware sees every
+    // extension's ops, which the snapshot does not constrain.
+    let middleware_fn: Option<Box<deno_core::OpMiddlewareFn>> = no_network.then(|| {
+        Box::new(|op: deno_core::OpDecl| {
+            if NO_NETWORK_DISABLED_OPS.contains(op.name) {
+                op.disable()
+            } else {
+                op
+            }
+        }) as Box<deno_core::OpMiddlewareFn>
+    });
+    let ext = Extension { name: "windmill", ops: ops.into(), middleware_fn, ..Default::default() };
 
     // deno_web's setTimeout puts its delay through `webidl.converters.long`,
     // which wraps at 32 bits: past i32::MAX ms (~24.8 days) the delay comes out
@@ -659,7 +719,7 @@ pub(crate) fn create_nativets_runtime(
     {
         let op_state = js_runtime.op_state();
         let mut op_state = op_state.borrow_mut();
-        op_state.put(PermissionsContainer {});
+        op_state.put(PermissionsContainer { no_network });
         op_state.put(MainArgs { args: initial_args });
         op_state.put(LogString { s: log_sender });
     }
@@ -800,6 +860,9 @@ pub async fn eval_fetch_timeout(
     }
 
     let mut extra_logs = String::new();
+    if ann.no_network {
+        extra_logs.push_str("no_network: all network access is denied\n");
+    }
     if ann.useragent.is_some() {
         extra_logs.push_str(&format!("useragent: {}\n", ann.useragent.as_ref().unwrap()));
     }

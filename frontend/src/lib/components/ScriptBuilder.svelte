@@ -83,6 +83,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from './Popover.svelte'
 	import Toggle from './Toggle.svelte'
+	import JobTokenScopesSetting from './JobTokenScopesSetting.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
@@ -787,7 +788,9 @@
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets,
 					modules: script.modules,
-					labels: script.labels
+					labels: script.labels,
+					// Sent explicitly: an omitted field keeps the deployed value.
+					job_token_scopes: script.job_token_scopes ?? null
 				}
 			})
 
@@ -882,9 +885,10 @@
 
 	// Inside an AI session pane (which injects an aiChatManager via context) the
 	// extra deploy-dropdown options — Deploy & Stay here, Fork, Edit in workspace
-	// fork, Exit & See details, Export — don't make sense: the session always
-	// stays put and is already scoped to a fork. Diff is exposed as a standalone
-	// top-bar button (rendered independently of the session pane), not here.
+	// fork, Export — don't make sense: the session always stays put and is already
+	// scoped to a fork. `Exit & See details` is the exception: the session hosts the
+	// details page itself, so it switches the tab instead of leaving. Diff is exposed
+	// as a standalone top-bar button (rendered independently of the pane), not here.
 	const inSessionPane = !!getContext('aiChatManager')
 
 	/** Names the version on the deployed side of the diff. Without it the reader is
@@ -1056,10 +1060,7 @@
 										: [])
 								]
 							: []),
-						...(!inSessionPane &&
-						savedScript?.no_deployed !== true &&
-						script.kind === 'script' &&
-						!script.auto_kind
+						...(savedScript?.no_deployed !== true && script.kind === 'script' && !script.auto_kind
 							? [
 									{
 										label: 'Exit & See details',
@@ -2066,6 +2067,9 @@
 												}}
 											/>
 										</div>
+									</Section>
+									<Section label="Job token">
+										<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
 									</Section>
 									<Section
 										label={canPreserve

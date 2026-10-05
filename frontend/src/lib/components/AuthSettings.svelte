@@ -80,6 +80,8 @@
 		'gmail',
 		'gcal',
 		'gforms',
+		'gdocs',
+		'gchat',
 		'gcloud',
 		'gworkspace',
 		'basecamp',
