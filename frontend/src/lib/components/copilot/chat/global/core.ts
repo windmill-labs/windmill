@@ -148,6 +148,7 @@ import {
 	type ToolDisplayAction
 } from '../shared'
 import { scriptLangToEditorLang } from '$lib/scripts'
+import { appFileEditorLang } from '../toolCodeDiff'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
@@ -5299,10 +5300,12 @@ function maybeAttachPreviewCard(
 function finishAppDraftWrite(
 	result: DraftPersistResult,
 	ctx: WriteDraftCtx,
-	onSaved: () => { content: string; message: string; warning?: string }
+	onSaved: () => { content: string; message: string; warning?: string },
+	codeDiff?: ToolCodeDiff
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	if (codeDiff) ctx.toolCallbacks.setToolStatus(ctx.toolId, { codeDiff })
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const { content, message, warning } = onSaved()
@@ -6840,12 +6843,18 @@ async function writeAppFile(
 	})
 
 	const { value } = await loadAppDraftValue(args.path, workspace)
+	const before = value.files[target.filePath] ?? ''
 	value.files = { ...value.files, [target.filePath]: args.content }
 	const result = await saveAppDraft(workspace, args.path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Updated ${target.filePath} in app "${args.path}"`,
-		message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Updated ${target.filePath} in app "${args.path}"`,
+			message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`
+		}),
+		{ before, after: args.content, lang: appFileEditorLang(target.filePath) }
+	)
 }
 
 async function deleteAppFile(
@@ -6869,13 +6878,18 @@ async function deleteAppFile(
 	if (!(target.filePath in value.files)) {
 		throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
 	}
-	const { [target.filePath]: _removed, ...remaining } = value.files
+	const { [target.filePath]: removed, ...remaining } = value.files
 	value.files = remaining
 	const result = await saveAppDraft(workspace, args.path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Removed ${target.filePath} from app "${args.path}"`,
-		message: `Removed "${target.filePath}" from draft app "${args.path}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Removed ${target.filePath} from app "${args.path}"`,
+			message: `Removed "${target.filePath}" from draft app "${args.path}".`
+		}),
+		{ before: removed, after: '', lang: appFileEditorLang(target.filePath) }
+	)
 }
 
 async function patchAppFile(
@@ -6946,10 +6960,15 @@ async function patchAppFile(
 	}
 
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Patched ${target.filePath} in app "${path}"`,
-		message: `Patched "${target.filePath}" in draft app "${path}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Patched ${target.filePath} in app "${path}"`,
+			message: `Patched "${target.filePath}" in draft app "${path}".`
+		}),
+		{ before: currentContent, after: updated, lang: appFileEditorLang(target.filePath) }
+	)
 }
 
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
@@ -6980,15 +6999,48 @@ async function writeAppRunnable(
 	await recomputeAppPolicy(value)
 	const undeployed = await undeployedRunnableTargets(workspace, { [key]: persisted })
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Updated runnable "${key}" in app "${path}"`,
-		message: `Updated draft app "${path}" with runnable "${key}".`,
-		warning: undeployed.length
-			? `This runnable points at an item that is NOT deployed (${undeployed[0]}), so it fails at runtime — ` +
-				`a path runnable runs the deployed item, never a draft. Offer to deploy just that item with ` +
-				`deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.`
-			: undefined
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Updated runnable "${key}" in app "${path}"`,
+			message: `Updated draft app "${path}" with runnable "${key}".`,
+			warning: undeployed.length
+				? `This runnable points at an item that is NOT deployed (${undeployed[0]}), so it fails at runtime — ` +
+					`a path runnable runs the deployed item, never a draft. Offer to deploy just that item with ` +
+					`deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.`
+				: undefined
+		}),
+		inlineRunnableDiff(key, existing, persisted)
+	)
+}
+
+function inlineRunnableCode(runnable: PersistedRunnable | undefined): string | undefined {
+	return runnable?.type === 'inline' || runnable?.type === 'runnableByName'
+		? (runnable.inlineScript?.content ?? '')
+		: undefined
+}
+
+// A runnable that references a workspace or hub item has no code of its own to diff.
+function inlineRunnableDiff(
+	key: string,
+	before: PersistedRunnable | undefined,
+	after: PersistedRunnable | undefined
+): ToolCodeDiff | undefined {
+	const beforeCode = inlineRunnableCode(before)
+	const afterCode = inlineRunnableCode(after)
+	if (beforeCode === undefined && afterCode === undefined) return undefined
+	if (after !== undefined && afterCode === undefined) return undefined
+	const lang = (runnable: PersistedRunnable | undefined) =>
+		appFileEditorLang(`backend/${key}/main.${getInlineScriptExtension(runnable)}`)
+	const afterLang = lang(after ?? before)
+	const beforeLang = beforeCode === undefined ? afterLang : lang(before)
+	return {
+		before: beforeCode ?? '',
+		after: afterCode ?? '',
+		lang: afterLang,
+		...(beforeLang !== afterLang ? { beforeLang } : {})
+	}
 }
 
 /**
@@ -7088,14 +7140,19 @@ async function deleteAppRunnable(
 	if (!(key in value.runnables)) {
 		throw new Error(`Backend runnable "${key}" not found in app "${path}".`)
 	}
-	const { [key]: _removed, ...remaining } = value.runnables
+	const { [key]: removed, ...remaining } = value.runnables
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Removed runnable "${key}" from app "${path}"`,
-		message: `Removed runnable "${key}" from draft app "${path}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Removed runnable "${key}" from app "${path}"`,
+			message: `Removed runnable "${key}" from draft app "${path}".`
+		}),
+		inlineRunnableDiff(key, removed as PersistedRunnable, undefined)
+	)
 }
 
 const triggerLabels: Record<TriggerKind, string> = {

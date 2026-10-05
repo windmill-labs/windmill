@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import hljs from 'highlight.js/lib/core'
 import {
-	argumentsCarryWholeFile,
+	diffIsWholeFile,
 	diffLineCounts,
 	hasToolCodeDiff,
 	toolCodeDiff,
@@ -302,14 +302,38 @@ describe('toolCodeDiff', () => {
 		})
 	})
 
+	it('highlights streamed raw app edits by file', () => {
+		expect(
+			toolCodeDiff(
+				message({
+					toolName: 'patch_app_file',
+					parameters: '{"path":"f/a","file_path":"/src/App.tsx","old_string":"a","new_string":"b'
+				})
+			)
+		).toEqual({ before: 'a', after: 'b', lang: 'typescript' })
+		expect(
+			toolCodeDiff(
+				message({
+					toolName: 'write_app_runnable',
+					parameters:
+						'{"path":"f/a","key":"go","runnable":{"name":"Go","type":"inline","inlineScript":{"language":"python3","content":"def main'
+				})
+			)
+		).toEqual({ before: '', after: 'def main', lang: 'python' })
+	})
+
 	it('recognizes calls whose arguments are a whole file', () => {
 		const call = (
 			toolName: string,
 			parameters: unknown,
 			codeDiff?: ToolDisplayMessage['codeDiff']
-		) => argumentsCarryWholeFile(message({ toolName, parameters, codeDiff }))
+		) => diffIsWholeFile(message({ toolName, parameters, codeDiff }))
 
 		expect(call('write_script', { path: 'f/a', content: '' })).toBe(true)
+		expect(call('delete_app_file', { path: 'f/a', file_path: '/a.css' })).toBe(true)
+		expect(call('patch_app_file', { file_path: '/a.css', old_string: 'a', new_string: 'b' })).toBe(
+			false
+		)
 		expect(call('edit_code', '{"code":"x')).toBe(true)
 		expect(
 			call('edit_code', { code: 'x' }, { before: 'old', after: 'x', lang: 'typescript' })

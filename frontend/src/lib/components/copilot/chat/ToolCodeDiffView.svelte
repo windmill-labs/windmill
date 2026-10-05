@@ -24,6 +24,7 @@
 	const diffRows = $derived(diffLines ?? toolDiffLines(diff, streaming))
 	const visibleRows = $derived(visibleToolDiffRows(diffRows, expansions))
 	const language = $derived(toolCodeDiffLanguage(diff.lang))
+	const beforeLanguage = $derived(toolCodeDiffLanguage(diff.beforeLang ?? diff.lang))
 	const lastLines = $derived.by(() => {
 		let old = 0
 		let current = 0
@@ -38,10 +39,12 @@
 		`max(0.875rem, ${String(Math.max(lastLines.old, lastLines.current)).length}ch)`
 	)
 	const highlighted = $derived.by(() => {
-		if (!hljs.getLanguage(language.name)) hljs.registerLanguage(language.name, language.register)
+		for (const { name, register } of [language, beforeLanguage]) {
+			if (!hljs.getLanguage(name)) hljs.registerLanguage(name, register)
+		}
 
 		return {
-			original: highlightedSourceLines(diff.before, language.name, lastLines.old),
+			original: highlightedSourceLines(diff.before, beforeLanguage.name, lastLines.old),
 			modified: highlightedSourceLines(diff.after, language.name, lastLines.current)
 		}
 	})
