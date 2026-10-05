@@ -1592,8 +1592,9 @@
 		let held = author === undefined || author === ''
 		let operator: string | undefined
 		if (author && author !== me) {
-			const users = await UserService.listUsers({ workspace: ws }).catch(() => undefined)
-			const user = users?.find((u) => u.username === author)
+			const user = await UserService.whois({ workspace: ws, username: author }).catch(
+				() => undefined
+			)
 			held = !user || user.operator
 			operator = user?.operator ? author : undefined
 		}
