@@ -140,6 +140,9 @@ that already have one on, is a zero delta and never blocks.
   `RestrictAnonymousAppDeployment` protection rule. A `Guest` app is the same with a login in
   front: anyone the instance's identity provider admits, member or not, once guest access is
   enabled. `RestrictGuestAppDeployment` refuses it.
+- A builder's delete or settings-only update reads the app's kind before the write, not under a
+  lock held through it. An admin converting that app to low-code in between lets the builder's
+  request land on the low-code app; the builder already has write access to its path.
 - All-or-nothing per workspace: there is no per-user builder role.
 - `operator_settings` is git-synced, so a pull can flip every operator's class in a workspace and
   the billed seat count with it.
