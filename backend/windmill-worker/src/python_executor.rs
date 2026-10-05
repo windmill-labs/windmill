@@ -860,7 +860,7 @@ pub async fn handle_python_job(
         if v == '<function call>':
             del pre_args[k]
     _pre_result = inner_script.preprocessor(**pre_args)
-    if hasattr(_pre_result, '__await__'):
+    if hasattr(type(_pre_result), '__await__'):
         import asyncio
         _pre_result = asyncio.run(_pre_result)
     kwargs = _pre_result if _pre_result is not None else {{}}
@@ -981,7 +981,7 @@ try:
         raise ValueError("{main_override} function is missing")
     res = _await(inner_script.{main_override}(**args))
     typ = type(res)
-    if hasattr(res, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
+    if hasattr(typ, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
         for chunk in res:
             print("WM_STREAM: " + chunk.replace('\n', '\\n'))
         res = None
@@ -3340,10 +3340,12 @@ This is not normal behavior, please make sure all workers have enough memory.\n
 /// loop-per-call would break them from the second job on. A loop the script
 /// set while importing (`asyncio.set_event_loop`) is reused. asyncio is
 /// imported lazily so sync jobs don't pay its import time.
+/// `__await__` is probed on the type: an instance lookup runs the result's own
+/// `__getattr__`, and `hasattr` only swallows AttributeError.
 const PY_AWAIT_HELPER: &str = r#"_loop = None
 def _await(r):
     global _loop
-    if not hasattr(r, '__await__'):
+    if not hasattr(type(r), '__await__'):
         return r
     import asyncio
     if _loop is None or _loop.is_closed():
