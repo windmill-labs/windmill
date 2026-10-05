@@ -5,11 +5,11 @@ use windmill_test_utils::*;
 
 const WS: &str = "test-workspace";
 
-fn operator_client() -> reqwest::Client {
+fn client(token: &str) -> reqwest::Client {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::AUTHORIZATION,
-        reqwest::header::HeaderValue::from_str("Bearer OPERATOR_TOKEN_1").unwrap(),
+        reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
     );
     reqwest::ClientBuilder::new()
         .default_headers(headers)
@@ -93,7 +93,7 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let api = format!("http://localhost:{port}/api/w/{WS}");
-    let c = operator_client();
+    let c = client("OPERATOR_TOKEN_1");
 
     add_script(&db, 4241, "u/operator/some_script", "operator").await?;
     // `permissions_test` gives the operator fixture no rights on `u/alice/**`.
@@ -347,6 +347,68 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
             "raw app draft {runnables}: {}",
             resp.text().await?
         );
+    }
+
+    // The component preview runs a deployed runnable for a builder; inline code and hub
+    // scripts are unreviewed code.
+    for (preview, expected) in [
+        (json!({"path": "script/u/operator/some_script"}), 200),
+        (json!({"path": "script/hub/1/x/y"}), 403),
+        (
+            json!({"raw_code": {"content": "x", "language": "bun"}}),
+            403,
+        ),
+    ] {
+        let mut body = json!({"component": "c", "args": {}, "force_viewer_static_fields": {}});
+        body.as_object_mut()
+            .unwrap()
+            .extend(preview.as_object().unwrap().clone());
+        let resp = c
+            .post(format!(
+                "{api}/apps_u/execute_component/u/operator/apps_only_app"
+            ))
+            .json(&body)
+            .send()
+            .await?;
+        let status = resp.status();
+        assert_eq!(
+            status,
+            expected,
+            "component preview {preview}: {}",
+            resp.text().await?
+        );
+    }
+
+    // Delete and redeploy each serve both kinds; builder rights cover only full-code apps.
+    let resp = client("SECRET_TOKEN")
+        .post(format!("{api}/apps/create"))
+        .json(&json!({
+            "path": "u/operator/low_code", "summary": "",
+            "value": {"grid": []}, "policy": {"execution_mode": "publisher"}
+        }))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "{}", resp.text().await?);
+    let resp = c
+        .post(format!("{api}/apps/update_raw/u/operator/low_code"))
+        .multipart(raw_app_form(json!({
+            "policy": {"execution_mode": "publisher", "triggerables_v2": {}}
+        })))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "policy-only update of a low-code app: {}",
+        resp.text().await?
+    );
+    for (path, expected) in [("low_code", 403), ("apps_only_app", 200)] {
+        let resp = c
+            .delete(format!("{api}/apps/delete/u/operator/{path}"))
+            .send()
+            .await?;
+        let status = resp.status();
+        assert_eq!(status, expected, "delete {path}: {}", resp.text().await?);
     }
 
     Ok(())
