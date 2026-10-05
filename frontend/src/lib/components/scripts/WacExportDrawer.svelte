@@ -46,6 +46,7 @@
 		if (script.visible_to_runner_only) exportData.visible_to_runner_only = script.visible_to_runner_only
 		if (script.auto_kind) exportData.auto_kind = script.auto_kind
 		if (script.has_preprocessor) exportData.has_preprocessor = script.has_preprocessor
+		if (script.job_token_scopes != null) exportData.job_token_scopes = script.job_token_scopes
 		if (script.modules && Object.keys(script.modules).length > 0) exportData.modules = script.modules
 
 		scriptData = exportData

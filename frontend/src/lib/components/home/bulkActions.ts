@@ -150,7 +150,7 @@ async function discardItemDraft(ctx: BulkContext, item: BulkItem): Promise<void>
 		item.path,
 		ctx.workspace,
 		item.draftOnly,
-		false,
+		item.legacyDraft,
 		false
 	)
 	if (!res.success) throw new Error(res.error ?? 'discard failed')

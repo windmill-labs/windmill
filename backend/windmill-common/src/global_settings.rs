@@ -9,6 +9,7 @@ pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
 pub const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING: &str =
     "fork_workspace_tag_append_fork_suffix";
 pub const PREVIEW_TAGS_OVERRIDE_SETTING: &str = "preview_tags_override";
+pub const DEPENDENCY_JOB_TAG_SETTING: &str = "dependency_job_tag";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";
@@ -430,8 +431,9 @@ pub const CANCEL_STRANDED_JOBS_AFTER_DAYS_SETTING: &str = "cancel_stranded_jobs_
 /// server keeps to itself, add it here.
 pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     // Instance identity / auth secrets — disclosure enables privilege escalation
-    // or impersonation.
+    // or impersonation. `rsa_keys` signs job OIDC tokens; only the server mints them.
     JWT_SECRET_SETTING,
+    "rsa_keys",
     OAUTH_SETTING,
     SMTP_SETTING,
     SCIM_TOKEN_SETTING,
@@ -1143,6 +1145,7 @@ mod tests {
         // secrets. They must never be served by the agent-worker endpoint.
         for key in [
             JWT_SECRET_SETTING,
+            "rsa_keys",
             OAUTH_SETTING,
             SMTP_SETTING,
             SCIM_TOKEN_SETTING,

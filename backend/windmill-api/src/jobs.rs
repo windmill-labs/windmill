@@ -19,7 +19,7 @@ use serde_json::value::RawValue;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -620,7 +620,7 @@ async fn cancel_job_api(
     // right to kill someone else's run. Anonymous callers are instead confined to
     // anonymous-created jobs by `cancel_job`'s `require_anonymous`.
     if let Some(authed) = opt_authed.as_ref() {
-        require_job_update_read_access(&db, &user_db, authed, &w_id, &id, None).await?;
+        require_job_cancel_access(&db, &user_db, authed, &w_id, &id).await?;
     }
 
     let tx = db.begin().await?;
@@ -689,7 +689,15 @@ async fn cancel_persistent_script_api(
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<()> {
     let audit_author: AuditAuthor = match opt_authed {
-        Some(authed) => (&authed).into(),
+        Some(authed) => {
+            let path = script_path.to_path();
+            if !windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
+                .is_none_or(|c| windmill_api_auth::scopes::cancel_confinement_admits(&c, path))
+            {
+                return Err(Error::NotFound(format!("Script {path} not found")));
+            }
+            (&authed).into()
+        }
         None => {
             return Err(Error::BadRequest(format!(
                 "Cancelling persistent script require to be logged in and member of {w_id}"
@@ -782,7 +790,7 @@ async fn force_cancel(
     // caller who can only see an inner step kill a root flow hidden from them.
     if let Some(authed) = opt_authed.as_ref() {
         let target = force_cancel_target(&db, &w_id, id).await?;
-        require_job_update_read_access(&db, &user_db, authed, &w_id, &target, None).await?;
+        require_job_cancel_access(&db, &user_db, authed, &w_id, &target).await?;
     }
 
     let tx = db.begin().await?;
@@ -1706,6 +1714,22 @@ pub(crate) async fn require_job_read_access(
     created_by: &str,
     view_token: Option<&str>,
 ) -> error::Result<()> {
+    require_job_access(
+        db, user_db, authed, w_id, job_id, created_by, view_token, true,
+    )
+    .await
+}
+
+async fn require_job_access(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: &Uuid,
+    created_by: &str,
+    view_token: Option<&str>,
+    run_confined: bool,
+) -> error::Result<()> {
     // Tag scope (`if_jobs:filter_tags:`) is an orthogonal hard restriction on a
     // scoped token: it must never read a job outside its allowed tags, regardless of
     // how authorization is otherwise satisfied (created_by / view token / RLS). Most
@@ -1732,7 +1756,9 @@ pub(crate) async fn require_job_read_access(
     // A path-scoped `jobs:run` token is likewise hard-restricted to the runnables it
     // may start, ahead of every grant below — the token is handed out to run one thing,
     // so it must not read jobs of anything else merely because its owner could.
-    require_job_within_run_scope(db, authed, w_id, job_id).await?;
+    if run_confined {
+        require_job_within_run_scope(db, authed, w_id, job_id).await?;
+    }
 
     // Fast path: you can always read a job you launched. This is also load-bearing
     // for apps — a component job runs as the app policy's `permissioned_as`, but its
@@ -1961,6 +1987,73 @@ async fn require_job_within_run_scope(
     }
 }
 
+/// The `ids` a path-scoped `jobs:cancel:<paths>` token may cancel; all of them for
+/// every caller whose cancels are not path-confined (see `job_cancel_path_confinement`).
+///
+/// A job is admitted when it, or any of its `parent_job` ancestors, is a run of a
+/// deployed script, flow or agent whose path the scope names: cancelling a flow's step
+/// is within a scope on the flow. Only those kinds count, because a preview's
+/// `runnable_path` is whatever its caller sent and would otherwise let any preview
+/// impersonate an in-scope runnable. Agent runs are previews filed under the agent's
+/// path, recognized the same way `require_job_within_run_scope` does.
+async fn filter_jobs_within_cancel_scope(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    ids: Vec<Uuid>,
+) -> error::Result<Vec<Uuid>> {
+    let Some(confinement) =
+        windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
+    else {
+        return Ok(ids);
+    };
+    let chain = sqlx::query!(
+        r#"WITH RECURSIVE chain(origin, id, parent_job) AS (
+                SELECT id, id, parent_job FROM v2_job WHERE id = ANY($1) AND workspace_id = $2
+                UNION ALL
+                SELECT c.origin, j.id, j.parent_job FROM v2_job j
+                    JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
+            )
+            SELECT c.origin AS "origin!",
+                CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\.chat$', '')
+                    ELSE j.runnable_path END AS "runnable_path!"
+            FROM chain c JOIN v2_job j ON j.id = c.id,
+            LATERAL (SELECT j.kind = 'flowpreview'
+                AND j.raw_flow->'modules'->1 IS NULL
+                AND j.raw_flow->'modules'->0->>'id' = '__wm_agent_root' AS agent) a
+            WHERE j.workspace_id = $2 AND j.runnable_path IS NOT NULL
+                AND (a.agent OR j.kind IN ('script', 'script_hub', 'unassigned_script', 'flow',
+                    'unassigned_flow', 'singlestepflow', 'unassigned_singlestepflow'))"#,
+        &ids,
+        w_id,
+    )
+    .fetch_all(db)
+    .await?;
+    let admitted: HashSet<Uuid> = chain
+        .into_iter()
+        .filter(|r| {
+            windmill_api_auth::scopes::cancel_confinement_admits(&confinement, &r.runnable_path)
+        })
+        .map(|r| r.origin)
+        .collect();
+    Ok(ids.into_iter().filter(|id| admitted.contains(id)).collect())
+}
+
+async fn require_job_within_cancel_scope(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: Uuid,
+) -> error::Result<()> {
+    if filter_jobs_within_cancel_scope(db, authed, w_id, vec![job_id])
+        .await?
+        .is_empty()
+    {
+        return Err(Error::NotFound(format!("Job {job_id} not found")));
+    }
+    Ok(())
+}
+
 /// Self + every `parent_job` ancestor (intermediate sub-flows up to the top-level
 /// root) of `job_id`, resolved via the root DB (flow lineage is not sensitive).
 /// Falls back to `[job_id]` if the row is absent so callers still run their probe.
@@ -2154,6 +2247,41 @@ async fn require_job_update_read_access(
     .await?
     .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
     require_job_read_access(db, user_db, authed, w_id, job_id, &created_by, view_token).await
+}
+
+/// The per-job check of the cancel routes. A `jobs:cancel` grant stands on its own, like
+/// `jobs:write`: its paths confine it (`filter_jobs_within_cancel_scope`), not the
+/// token's `jobs:run` scopes, which bound what a run token may read. Intersecting the two
+/// would not hold anyway, since the token can mint itself a child holding only the
+/// cancel scope.
+async fn require_job_cancel_access(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: &Uuid,
+) -> error::Result<()> {
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
+    let run_confined = !windmill_api_auth::scopes::has_job_cancel_grant(authed.scopes.as_deref());
+    require_job_access(
+        db,
+        user_db,
+        authed,
+        w_id,
+        job_id,
+        &created_by,
+        None,
+        run_confined,
+    )
+    .await?;
+    require_job_within_cancel_scope(db, authed, w_id, *job_id).await
 }
 
 /// Whether a validated approval token should grant the job-read bypass. The token alone
@@ -4372,6 +4500,38 @@ async fn cancel_selection(
     let force_cancel = query.force_cancel.unwrap_or(false);
     let mut cancelled = Vec::new();
     for (workspace_id, ids) in jobs_by_workspace {
+        let ids =
+            if windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
+                .is_some()
+            {
+                // Checked on the job the cancel actually kills: a force cancel reaches the
+                // highest queued ancestor.
+                let mut targets = Vec::with_capacity(ids.len());
+                for id in ids {
+                    let target = if force_cancel {
+                        force_cancel_target(&db, &workspace_id, id).await?
+                    } else {
+                        id
+                    };
+                    targets.push((id, target));
+                }
+                let admitted: HashSet<Uuid> = filter_jobs_within_cancel_scope(
+                    &db,
+                    &authed,
+                    &workspace_id,
+                    targets.iter().map(|(_, t)| *t).collect(),
+                )
+                .await?
+                .into_iter()
+                .collect();
+                targets
+                    .into_iter()
+                    .filter(|(_, t)| admitted.contains(t))
+                    .map(|(id, _)| id)
+                    .collect()
+            } else {
+                ids
+            };
         let Json(mut w_cancelled) = cancel_jobs(
             ids,
             &db,
@@ -4788,15 +4948,7 @@ pub async fn resume_suspended_flow_as_owner(
     .await?;
 
     if is_wac {
-        // WAC: directly decrement suspend counter
-        if flow.suspend > 0 {
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
-                flow.id,
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
+        decrement_suspend(flow.id, &mut tx).await?;
     } else {
         resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
     }
@@ -4947,12 +5099,7 @@ async fn resume_suspended(
             .execute(&mut *tx)
             .await?;
     } else if is_wac {
-        if flow.suspend > 0 {
-            sqlx::query("UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1")
-                .bind(&flow.id)
-                .execute(&mut *tx)
-                .await?;
-        }
+        decrement_suspend(flow.id, &mut tx).await?;
     } else {
         resume_immediately_if_relevant(flow, resume_job_id, &mut tx).await?;
     }
@@ -5430,8 +5577,13 @@ async fn resume_suspended_job_internal(
     let value = value.unwrap_or(serde_json::Value::Null);
     verify_suspended_secret(&w_id, &db, job_id, resume_id, &approver, secret).await?;
 
-    // Get flow info - works for step-level, flow-level, and WAC approval
-    let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &w_id, &db).await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    // Get flow info - works for step-level, flow-level, and WAC approval. This locks the
+    // queue row until commit, so resumes serialize with each other and with the worker
+    // entering the suspend.
+    let (flow_info, is_flow_level, is_wac) =
+        get_flow_info_for_resume(job_id, &w_id, &mut tx).await?;
 
     // HMAC secret = full capability. Skip approval_conditions checks: possession of the full
     // resume URL is the authorization (it is only disclosed to intended approvers, e.g. when a
@@ -5444,7 +5596,7 @@ async fn resume_suspended_job_internal(
             "#,
         Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
     )
-    .fetch_one(&db)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -5462,7 +5614,6 @@ async fn resume_suspended_job_internal(
     } else {
         authed.as_ref().map(|x| x.username.clone())
     };
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     // Inside the transaction that inserts the row and moves the suspend counter:
     // validating earlier would let the workflow resolve this step and suspend on the
@@ -5491,20 +5642,11 @@ async fn resume_suspended_job_internal(
         .await?;
     } else if is_wac {
         // WAC approval: decrement suspend counter directly on the WAC parent job.
-        // `flow_info.suspend` was read before this transaction took the queue-row
-        // lock, so gating on it would skip the decrement for a workflow that
-        // suspended in between and leave the approval parked until timeout.
-        sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
-             WHERE id = $1 AND suspend > 0",
-            flow_info.id,
-        )
-        .execute(&mut *tx)
-        .await?;
+        decrement_suspend(flow_info.id, &mut tx).await?;
     } else if is_flow_level {
-        // For flow-level resumes, decrement the suspend counter if the flow is currently suspended
-        // The approval will be matched when the worker checks for resumes (both step-level and flow-level)
-        resume_immediately_for_flow_level(&flow_info, &mut tx).await?;
+        // Flow-level resumes don't match a step: the approval is picked up when the worker
+        // checks for resumes (both step-level and flow-level).
+        decrement_suspend(flow_info.id, &mut tx).await?;
     } else {
         // For step-level resumes, try to resume immediately if the step is waiting
         resume_immediately_if_relevant(flow_info, job_id, &mut tx).await?;
@@ -5582,42 +5724,27 @@ async fn resume_immediately_if_relevant<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<()> {
-    Ok(
-        if let Some(suspend) = (0 < flow.suspend).then(|| flow.suspend - 1) {
-            let status =
-                serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
-                    .context("deserialize flow status")?;
-            if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
-            {
-                sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = $1 WHERE id = $2",
-                    suspend,
-                    flow.id,
-                )
-                .execute(&mut **tx)
-                .await?;
-            }
-        },
-    )
+    Ok(if 0 < flow.suspend {
+        let status =
+            serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
+                .context("deserialize flow status")?;
+        if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
+        {
+            decrement_suspend(flow.id, tx).await?;
+        }
+    })
 }
 
-/// For flow-level resumes, decrement the suspend counter if the flow is currently suspended.
-/// Unlike step-level resumes, we don't check if the job_id matches - we just need the flow
-/// to be in a suspended state.
-async fn resume_immediately_for_flow_level<'c>(
-    flow: &FlowInfo,
-    tx: &mut Transaction<'c, Postgres>,
-) -> error::Result<()> {
-    if flow.suspend > 0 {
-        let new_suspend = flow.suspend - 1;
-        sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = $1 WHERE id = $2",
-            new_suspend,
-            flow.id,
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
+/// Relative rather than `suspend = <read value> - 1`, so concurrent approvals each remove one
+/// event from the count instead of overwriting each other's decrement.
+async fn decrement_suspend(flow_id: Uuid, tx: &mut Transaction<'_, Postgres>) -> error::Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
+         WHERE id = $1 AND suspend > 0",
+        flow_id,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -5666,10 +5793,10 @@ struct FlowInfo {
 async fn get_flow_info_for_resume(
     job_id: Uuid,
     w_id: &str,
-    db: &DB,
+    tx: &mut Transaction<'_, Postgres>,
 ) -> error::Result<(FlowInfo, bool, bool)> {
     // Single query that determines if job_id is a flow, step, or WAC job,
-    // and fetches the appropriate suspended job info.
+    // and locks the appropriate suspended job's queue row.
     // For WAC jobs (no parent, not a flow), the job itself is the suspended target.
     let result = sqlx::query!(
         r#"
@@ -5680,7 +5807,6 @@ async fn get_flow_info_for_resume(
         )
         SELECT
             q.id AS "id!",
-            s.flow_status,
             q.suspend AS "suspend!",
             j.runnable_path AS script_path,
             j.permissioned_as_email AS email,
@@ -5692,13 +5818,12 @@ async fn get_flow_info_for_resume(
             ELSE COALESCE(ji.parent_job, ji.id)
         END
         JOIN v2_job j ON j.id = q.id
-        LEFT JOIN v2_job_status s ON s.id = q.id
         FOR UPDATE OF q
         "#,
         job_id,
         w_id,
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| {
         Error::NotFound(format!(
@@ -5706,9 +5831,18 @@ async fn get_flow_info_for_resume(
         ))
     })?;
 
+    // Read in its own statement: a statement that waited on the queue-row lock above re-reads
+    // only the locked row, so a status joined into it could predate the worker's commit.
+    let flow_status: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT flow_status FROM v2_job_status WHERE id = $1")
+            .bind(result.id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+
     let flow_info = FlowInfo {
         id: result.id,
-        flow_status: result.flow_status,
+        flow_status,
         suspend: result.suspend,
         script_path: result.script_path,
         email: Some(result.email),
@@ -5721,6 +5855,13 @@ async fn get_suspended_flow_info<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<(FlowInfo, Uuid, bool)> {
+    // Lock before reading: a single statement that waited on this lock would re-read only
+    // the queue row, pairing a fresh suspend counter with a stale flow status.
+    sqlx::query("SELECT 1 FROM v2_job_queue WHERE id = $1 FOR UPDATE")
+        .bind(job_id)
+        .execute(&mut **tx)
+        .await?;
+
     let flow = sqlx::query_as!(
             FlowInfo,
             r#"
@@ -7212,6 +7353,7 @@ pub async fn restart_flow(
 
     let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into());
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -7249,6 +7391,7 @@ pub async fn restart_flow(
         None,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -7386,7 +7529,11 @@ pub async fn run_workflow_as_code(
     extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
     let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
     check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &args, &authed).await?;
-    check_scopes(&authed, || format!("jobs:run"))?;
+    // A job running its own task is its runtime, not a new run: a restricted job token keeps
+    // it (`is_own_job_runtime_route`), and the task inherits that job's restriction at push.
+    if authed.job_id != Some(job_id) {
+        check_scopes(&authed, || format!("jobs:run"))?;
+    }
     // The task becomes a child of `job_id`, runs its code and writes into its flow status, so
     // only that job itself (the SDK's `task` wrapper, on its `WM_TOKEN`) or an admin may push it.
     if authed.job_id != Some(job_id) && !authed.is_admin {
@@ -7531,6 +7678,7 @@ pub async fn run_workflow_as_code(
             )
         };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -7561,6 +7709,7 @@ pub async fn run_workflow_as_code(
         None,
         None,
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
 
@@ -7844,6 +7993,7 @@ pub async fn run_wait_result_job_by_path_get(
             )
         };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -7874,6 +8024,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -7992,6 +8143,7 @@ pub async fn run_wait_result_script_by_path_internal(
             )
         };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -8022,6 +8174,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -8074,6 +8227,7 @@ pub async fn run_wait_result_script_by_hash(
         timeout,
         has_preprocessor,
         labels,
+        job_token_scopes,
         runnable_settings:
             ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
         ..
@@ -8107,6 +8261,7 @@ pub async fn run_wait_result_script_by_hash(
         )
     };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -8124,6 +8279,7 @@ pub async fn run_wait_result_script_by_hash(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
             labels,
+            job_token_scopes,
         },
         push_args,
         authed.display_username(),
@@ -8150,6 +8306,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -8669,6 +8826,7 @@ async fn run_preview_script(
     let push_args = PushArgs { extra, args: &preview_args };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -8719,6 +8877,7 @@ async fn run_preview_script(
         None,
         authed.trigger_or_fallback(None),
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -8803,7 +8962,8 @@ async fn run_inline_script_by_path(
         token,
         db,
         w_id,
-        InlineScriptTarget::Path(script_path.to_path().to_string()),
+        // Resolved to a version by `run_inline_script_inner`.
+        InlineScriptTarget::Path { path: script_path.to_path().to_string(), hash: 0 },
         body.args,
         Some(user_db),
     )
@@ -8866,6 +9026,42 @@ async fn run_inline_script_inner(
     args: Option<HashMap<String, Box<JsonRawValue>>>,
     user_db: Option<UserDB>,
 ) -> error::Result<Response> {
+    // An inline run executes with the caller's own token, so it cannot honour a script's
+    // `job_token_scopes`: such a script only runs as a job. A path is resolved here, once, and
+    // the version checked is the version run.
+    let (target, restricted) = match target {
+        InlineScriptTarget::Path { path, .. } => {
+            let authed_ref = authed.to_authed_ref();
+            let info = get_latest_deployed_hash_for_path(
+                user_db
+                    .as_ref()
+                    .map(|db| UserDbWithAuthed { db: db.clone(), authed: &authed_ref }),
+                db.clone(),
+                &w_id,
+                &path,
+            )
+            .await?;
+            let restricted = info.job_token_scopes.is_some();
+            (
+                InlineScriptTarget::Path { path, hash: info.hash },
+                restricted,
+            )
+        }
+        InlineScriptTarget::Hash(hash) => {
+            let restricted = windmill_common::get_script_info_for_hash(None, &db, &w_id, hash)
+                .await?
+                .job_token_scopes
+                .is_some();
+            (InlineScriptTarget::Hash(hash), restricted)
+        }
+    };
+    if restricted {
+        return Err(Error::BadRequest(
+            "This script restricts its job token (job_token_scopes) and cannot be run inline; \
+             run it as a job instead"
+                .to_string(),
+        ));
+    }
     let utils = get_worker_internal_server_inline_utils()?;
     let authed_owned: windmill_common::db::Authed = authed.clone().into();
     let result = utils.run_inline_script.as_ref()(RunInlineScriptFnParams {
@@ -9052,6 +9248,7 @@ async fn run_bundle_preview_script(
 
             // tracing::info!("is_tar 1: {is_tar}");
             // hmap.insert("")
+            let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
             let (uuid, ntx) = push(
                 &db,
                 ltx,
@@ -9098,6 +9295,7 @@ async fn run_bundle_preview_script(
                 None,
                 authed.trigger_or_fallback(None),
                 None,
+                scope_ceiling.as_deref(),
             )
             .await?;
             job_id = Some(uuid);
@@ -9217,6 +9415,7 @@ async fn push_dependencies_job(
     req.temp_script_refs
         .map(|v| hm.insert("temp_script_refs".to_owned(), to_raw_value(&v)));
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, tx) = push(
         db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
@@ -9251,6 +9450,7 @@ async fn push_dependencies_job(
         None,
         None,
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -9349,6 +9549,7 @@ async fn push_flow_dependencies_job(
     req.temp_script_refs
         .map(|v| args_map.insert("temp_script_refs".to_string(), to_raw_value(&v)));
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, tx) = push(
         db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
@@ -9379,6 +9580,7 @@ async fn push_flow_dependencies_job(
         None,
         None,
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -9433,6 +9635,7 @@ async fn add_batch_jobs(
 ) -> error::JsonResult<Vec<Uuid>> {
     require_super_admin(&db, &authed).await?;
 
+    let mut job_token_scopes: Option<Vec<String>> = None;
     let (
         hash,
         path,
@@ -9464,11 +9667,13 @@ async fn add_batch_jobs(
                         dedicated_worker,
                         timeout,
                         runnable_settings,
+                        job_token_scopes: script_job_token_scopes,
                         .. // TODO: consider on_behalf_of_email and created_by for batch jobs
                     } = get_latest_deployed_hash_for_path(Some(db_authed), db.clone(), &w_id, &path)
                     .await?
                     .prefetch_cached(&db)
                     .await?;
+                job_token_scopes = script_job_token_scopes;
                 (
                     Some(script_hash),
                     Some(path),
@@ -9515,7 +9720,7 @@ async fn add_batch_jobs(
             } else if let Some(path) = batch_info.path {
                 let mut tx = user_db.clone().begin(&authed).await?;
                 let value_json = sqlx::query!(
-                        "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow
+                        "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\", flow.job_token_scopes FROM flow
                         LEFT JOIN flow_version
                             ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
                         LEFT JOIN flow_version_lite
@@ -9526,6 +9731,7 @@ async fn add_batch_jobs(
                     .fetch_optional(&mut *tx)
                     .await?
                     .ok_or_else(|| Error::internal_err(format!("not found flow at path {:?}", path)))?;
+                job_token_scopes = value_json.job_token_scopes;
                 let value =
                     serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
                         Error::internal_err(format!(
@@ -9538,6 +9744,11 @@ async fn add_batch_jobs(
                     "Path is required if no value is not provided"
                 ))?
             };
+            if windmill_common::scopes::validate_flow_step_job_token_scopes(&value)? {
+                windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+                    .assert()
+                    .await?;
+            }
             add_virtual_items_if_necessary(&mut value.modules);
             let flow_status = FlowStatus::new(&value);
             (
@@ -9581,7 +9792,8 @@ async fn add_batch_jobs(
     let language = language.unwrap_or(ScriptLang::Deno);
 
     let tag = if let Some(dedicated_worker) = dedicated_worker {
-        if dedicated_worker && path.is_some() {
+        // Same rule as `push`: a dedicated worker would run it with its own unscoped token.
+        if dedicated_worker && path.is_some() && job_token_scopes.is_none() {
             windmill_common::worker::dedicated_worker_tag(&w_id, &path.clone().unwrap())
         } else {
             format!("{}", language.as_str())
@@ -9649,8 +9861,8 @@ async fn add_batch_jobs(
     .await?;
 
     sqlx::query!(
-            "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id)
-            SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
+            "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, job_token_scopes)
+            SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8, $9",
             &uuids,
             authed.email,
             authed.username,
@@ -9659,6 +9871,7 @@ async fn add_batch_jobs(
             &[],
             &[],
             w_id,
+            job_token_scopes.as_deref() as Option<&[String]>,
         )
         .execute(&mut *tx)
         .await?;
@@ -9709,6 +9922,13 @@ async fn run_preview_flow_job(
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
+    // Step restrictions apply to a preview as they do to a deployed run, so they are checked
+    // the same way: an invalid entry or an older worker would leave a step unrestricted.
+    if windmill_common::scopes::validate_flow_step_job_token_scopes(&raw_flow.value)? {
+        windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+            .assert()
+            .await?;
+    }
     // A builder must be able to test what it composes, but the submitted value is not the stored
     // one: without this the preview is a way to run inline code the write path refuses.
     if authed.is_operator {
@@ -9751,6 +9971,7 @@ async fn run_preview_flow_job(
     check_tag_available_for_workspace(&db, &w_id, &tag, &PushArgs::from(&flow_args), &authed)
         .await?;
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -9785,6 +10006,7 @@ async fn run_preview_flow_job(
         None,
         authed.trigger_or_fallback(None),
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
 
@@ -10008,6 +10230,7 @@ async fn run_dynamic_select(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -10054,6 +10277,7 @@ async fn run_dynamic_select(
         None,
         authed.trigger_or_fallback(None),
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -10129,6 +10353,7 @@ pub async fn run_job_by_hash_inner(
         delete_after_use,
         delete_after_secs,
         labels,
+        job_token_scopes,
         ..
     } = script_info;
 
@@ -10161,6 +10386,7 @@ pub async fn run_job_by_hash_inner(
         )
     };
 
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -10178,6 +10404,7 @@ pub async fn run_job_by_hash_inner(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
             labels,
+            job_token_scopes,
         },
         push_args,
         authed.display_username(),
@@ -10204,6 +10431,7 @@ pub async fn run_job_by_hash_inner(
         None,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;

@@ -10,28 +10,61 @@
 	 * scoped embed token / opaque isolation.
 	 */
 	import { base } from '$lib/base'
+	import { sendUserToast } from '$lib/toast'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
 	import { Button } from '$lib/components/common'
 	import { AppService, OpenAPI } from '$lib/gen'
-	import { userStore } from '$lib/stores'
+	import type { UserExt } from '$lib/stores'
 	import { canWrite } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { Pen } from 'lucide-svelte'
 	import { page } from '$app/state'
+	import {
+		setOperatingWorkspace,
+		useOperatingUser
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	let {
 		workspace,
-		path
+		path,
+		onEdit,
+		onLoadState,
+		syncHashToUrl = true
 	}: {
 		workspace: string
 		path: string
+		/** Handle Edit in place instead of following `editHref`. An AI session shows
+		 * this viewer inside a preview tab, where a plain link would navigate the whole
+		 * page out of the session rather than flipping the tab to its editor. */
+		onEdit?: () => void
+		/** How the load ended, for a host that renders its own state around this viewer.
+		 * A 403 is deliberately neither: the app exists, this member just cannot open it. */
+		onLoadState?: (state: 'loaded' | 'not_found') => void
+		/** Whether a raw app's route lives in the page URL's hash; see `RawAppPreview`. */
+		syncHashToUrl?: boolean
 	} = $props()
 
+	// The app, its permission check and everything this viewer renders belong to `workspace`,
+	// which on a session preview tab is the session's and not the one the nav points at.
+	setOperatingWorkspace(() => workspace)
+	const operatingUser = useOperatingUser()
+
+	/** This workspace's membership for the viewer, which is what the app's `ctx.username` /
+	 * `ctx.groups` must describe — they sit beside `ctx.workspace` in the same object. */
+	let appUser: UserExt | undefined = $state(undefined)
 	let app: any = $state(undefined)
 	let notExists = $state(false)
 	let noPermission = $state(false)
-	let canWriteApp = $state(false)
+	/** The app's own permissions, kept apart from the verdict: `loadPerms` resolves before the
+	 * acting user's `whoami` does in a workspace that is not the navigation one, and a verdict
+	 * computed there would stick at "cannot write" with nothing to recompute it. */
+	let appPerms = $state<{ path: string; extraPerms: Record<string, boolean> } | undefined>(
+		undefined
+	)
+	const canWriteApp = $derived(
+		!!appPerms && canWrite(appPerms.path, appPerms.extraPerms, operatingUser.current)
+	)
 	/** Raw vs low-code, read from the app itself rather than from the route:
 	 * both kinds render here and either route serves either kind (links to a raw
 	 * app point at /apps/get all over the app), so only the app can say which
@@ -75,11 +108,13 @@
 	// getAppByPath returns bundle_secret + runnables for raw apps, which
 	// PublicApp -> RawAppPreview needs.
 	async function loadApp() {
-		try {
-			userStore.set(await getUserExt(workspace))
-		} catch (e) {
-			console.warn('Anonymous user')
-		}
+		// Kept local and handed to PublicApp rather than written to `userStore`: this is the
+		// membership in `workspace`, and a session preview tab shows a workspace the rest of
+		// the page is not on — writing it globally would answer every permission check on
+		// that page (the sidebar, the session bar's fork button) for the wrong workspace.
+		// The routes that mount this are all under `(logged)`, whose layout has already
+		// populated `userStore` for the workspace the page *is* on.
+		appUser = await getUserExt(workspace)
 		try {
 			const loaded: any = await AppService.getAppByPath({ workspace, path })
 			// Raw apps need the bundle secret to load their bundle. getAppByPath
@@ -99,10 +134,16 @@
 			app = loaded
 			noPermission = false
 			notExists = false
+			onLoadState?.('loaded')
 		} catch (e: any) {
 			if (e.status == 401) refresh?.()
 			else if (e.status == 403) noPermission = true
-			else notExists = true
+			else {
+				notExists = true
+				// Only a 404 is "nothing deployed here"; anything else is a failure to say so.
+				if (e.status == 404) onLoadState?.('not_found')
+				else sendUserToast('Could not load app: ' + (e.body ?? e.message ?? e), true)
+			}
 		}
 	}
 
@@ -112,10 +153,10 @@
 	async function loadPerms() {
 		try {
 			const lite: any = await AppService.getAppLiteByPath({ workspace, path })
-			canWriteApp = canWrite(lite?.path, lite?.extra_perms ?? {}, $userStore)
+			appPerms = { path: lite?.path ?? path, extraPerms: lite?.extra_perms ?? {} }
 			isRawApp = !!lite?.raw_app
 		} catch (_) {
-			canWriteApp = false
+			appPerms = undefined
 		}
 	}
 
@@ -136,11 +177,13 @@
 		<PublicApp
 			{app}
 			{workspace}
+			user={appUser}
 			{notExists}
 			{noPermission}
 			jwtError={false}
 			inWorkspace
 			{hideRefreshBar}
+			{syncHashToUrl}
 			onLoginSuccess={() => loadApp()}
 		></PublicApp>
 	{/snippet}
@@ -148,6 +191,12 @@
 
 {#if canWriteApp && !hideEditBtn}
 	<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
-		<Button size="sm" startIcon={{ icon: Pen }} variant="subtle" href={editHref}>Edit</Button>
+		<Button
+			size="sm"
+			startIcon={{ icon: Pen }}
+			variant="subtle"
+			href={onEdit ? undefined : editHref}
+			on:click={() => onEdit?.()}>Edit</Button
+		>
 	</div>
 {/if}

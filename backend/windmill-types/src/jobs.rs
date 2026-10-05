@@ -515,6 +515,8 @@ pub enum JobPayload {
         concurrency_settings: ConcurrencySettings,
         debouncing_settings: DebouncingSettings,
         labels: Option<Vec<String>>,
+        /// The script's `job_token_scopes` setting, read with the rest of the payload.
+        job_token_scopes: Option<Vec<String>>,
     },
     FlowNode {
         id: FlowNodeId,
@@ -579,6 +581,8 @@ pub enum JobPayload {
         apply_preprocessor: bool,
         version: i64,
         labels: Option<Vec<String>>,
+        /// The flow's `job_token_scopes` setting, read with the rest of the payload.
+        job_token_scopes: Option<Vec<String>>,
     },
     RestartedFlow {
         completed_job_id: Uuid,

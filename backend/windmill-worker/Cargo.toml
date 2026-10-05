@@ -101,6 +101,7 @@ mappable-rc.workspace = true
 git-version.workspace = true
 once_cell.workspace = true
 tokio-postgres.workspace = true
+postgres-protocol.workspace = true
 bit-vec.workspace = true
 url.workspace = true
 async-stream.workspace = true

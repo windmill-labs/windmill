@@ -4,6 +4,7 @@
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { DollarSign, Pencil, RefreshCw, SquareFunction } from 'lucide-svelte'
+	import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 
 	interface Props {
 		inputTransform: Record<string, any> | undefined
@@ -17,7 +18,9 @@
 		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
 
 	onMount(() => {
-		stepsInputArgs?.updateStepArgs(id, flowStateStore?.val, flowStore?.val, previewArgs?.val)
+		quickjsReady().then(() =>
+			stepsInputArgs?.updateStepArgs(id, flowStateStore?.val, flowStore?.val, previewArgs?.val)
+		)
 	})
 
 	const input = $derived(stepsInputArgs?.getStepArgs(id))

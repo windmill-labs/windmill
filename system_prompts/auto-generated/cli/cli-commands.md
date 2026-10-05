@@ -88,6 +88,9 @@ datatable related commands
     - `-d --datatable <datatable:string>` - Target datatable (default: main)
   - `datatable migrate down` - roll back the most recent migration on the main datatable (or one via --datatable)
     - `-d --datatable <datatable:string>` - Target datatable (default: main)
+  - `datatable migrate status` - show applied and pending migrations on the main datatable (or one via --datatable)
+    - `-d --datatable <datatable:string>` - Target datatable (default: main)
+    - `--json` - Output as JSON (for piping to jq)
 - `datatable create [name:string]` - register a datatable database in the workspace (default: instance-backed 'main') so scripts can use datatable://<name>
   - `--resource <resource:string>` - Back the datatable with an existing postgresql resource path instead of the instance database
   - `--force` - Allow adding to a workspace that already has datatables (fork metadata on existing ones is not preserved)
@@ -120,6 +123,15 @@ Watch local file changes and live-reload the dev page for preview. Does NOT depl
 - `--proxy-port <port:number>` - Port for a localhost reverse proxy to the remote Windmill server
 - `--path <path:string>` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
 - `--no-open` - Do not open the browser automatically
+
+### digest
+
+Compute the content digest of local scripts and flows, as the `digest` and `root_digest` claims of job OIDC tokens carry it. Run from the root of a sync checkout, pulled after the deployment's dependency jobs completed: they write the lockfiles the digest covers. A flow also lists the digest of each inline step, as `<flow path>/<step id>`.
+
+**Arguments:** `<paths...:string>`
+
+**Options:**
+- `--json` - Output the digests as JSON
 
 ### docs
 
