@@ -2,6 +2,7 @@
 	import {
 		ScriptService,
 		type AiAgent,
+		type AiDecision,
 		type FlowModule,
 		type InputTransform,
 		type Job
@@ -205,6 +206,28 @@
 									tool_inputs: agentVal.tool_inputs,
 									input_transforms: inputTransforms as AiAgent['input_transforms']
 								} as Extract<FlowModule['value'], { type: 'aiagent' }>
+							}
+						]
+					},
+					summary: '',
+					schema
+				},
+				callbacks,
+				previewBase
+			)
+		} else if (val.type == 'aidecision') {
+			const { schema } = await loadSchemaFromModule(mod, opWs)
+			const inputTransforms = Object.fromEntries(
+				Object.keys(args).map((key) => [key, { expr: `flow_input.${key}`, type: 'javascript' }])
+			) as AiDecision['input_transforms']
+			await jobLoader?.runFlowPreview(
+				args,
+				{
+					value: {
+						modules: [
+							{
+								id: mod.id,
+								value: { type: 'aidecision', input_transforms: inputTransforms, tag: val.tag }
 							}
 						]
 					},
