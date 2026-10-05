@@ -241,6 +241,14 @@
       "type": "web_server"
     }
   },
+  "notion": {
+    "auth_url": "https://api.notion.com/v1/oauth/authorize",
+    "token_url": "https://api.notion.com/v1/oauth/token",
+    "scopes": [],
+    "extra_params": {
+      "owner": "user"
+    }
+  },
   "linkedin": {
     "auth_url": "https://www.linkedin.com/oauth/v2/authorization",
     "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
