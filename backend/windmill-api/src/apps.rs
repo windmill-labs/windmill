@@ -2279,11 +2279,10 @@ fn check_operator_composed_app(
     raw_app: bool,
     value: Option<&RawValue>,
     policy: Option<&mut Policy>,
-    allow_kind_change: bool,
 ) -> Result<Vec<(bool, String)>> {
-    if !raw_app || allow_kind_change {
+    if !raw_app {
         return Err(Error::PermissionDenied(
-            "Operators with builder rights can only author full-code apps, and cannot convert an existing app into one".to_string(),
+            "Operators with builder rights can only author full-code apps".to_string(),
         ));
     }
     let mut referenced: Vec<(bool, String)> = Vec::new();
@@ -2399,9 +2398,8 @@ async fn validate_operator_composed_app(
     raw_app: bool,
     value: Option<&RawValue>,
     policy: Option<&mut Policy>,
-    allow_kind_change: bool,
 ) -> Result<()> {
-    let referenced = check_operator_composed_app(raw_app, value, policy, allow_kind_change)?;
+    let referenced = check_operator_composed_app(raw_app, value, policy)?;
     if referenced.is_empty() {
         return Ok(());
     }
@@ -2702,7 +2700,6 @@ async fn create_app_internal<'a>(
             raw_app,
             Some(&app.value.0),
             Some(&mut app.policy),
-            false,
         )
         .await?;
     }
@@ -3710,6 +3707,9 @@ async fn update_app_internal<'a>(
     }
 
     if authed.is_operator {
+        // Restoring a full-code version always sends allow_kind_change. A builder converts
+        // nothing, so drop it and let the locked kind check below refuse an actual conversion.
+        ns.allow_kind_change = None;
         validate_operator_composed_app(
             &authed,
             &user_db,
@@ -3717,7 +3717,6 @@ async fn update_app_internal<'a>(
             raw_app,
             ns.value.as_ref().map(|v| v.0.as_ref()),
             ns.policy.as_mut(),
-            ns.allow_kind_change.unwrap_or(false),
         )
         .await?;
     }
@@ -6622,7 +6621,7 @@ mod operator_app_tests {
 
     fn composed_app(value: serde_json::Value, policy: &mut Policy) -> Result<Vec<(bool, String)>> {
         let value = to_raw_value(&value);
-        check_operator_composed_app(true, Some(&value), Some(policy), false)
+        check_operator_composed_app(true, Some(&value), Some(policy))
     }
 
     #[test]
@@ -6708,13 +6707,10 @@ mod operator_app_tests {
         .unwrap();
         assert!(composed_app(clean.clone(), &mut policy).is_err());
 
-        // Low-code apps and kind conversion stay closed.
+        // Low-code apps stay closed.
         let value = to_raw_value(&clean);
         let mut policy = builder_policy(serde_json::json!({}));
-        assert!(
-            check_operator_composed_app(false, Some(&value), Some(&mut policy), false).is_err()
-        );
-        assert!(check_operator_composed_app(true, Some(&value), Some(&mut policy), true).is_err());
+        assert!(check_operator_composed_app(false, Some(&value), Some(&mut policy)).is_err());
     }
 }
 

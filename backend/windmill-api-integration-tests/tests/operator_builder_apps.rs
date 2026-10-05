@@ -402,6 +402,22 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
         "policy-only update of a low-code app: {}",
         resp.text().await?
     );
+    // Deployment history restores a full-code version with allow_kind_change set.
+    let resp = c
+        .post(format!("{api}/apps/update_raw/u/operator/apps_only_app"))
+        .multipart(raw_app_form(json!({
+            "value": {"files": {}, "runnables": {}},
+            "policy": {"execution_mode": "publisher", "triggerables_v2": {}},
+            "allow_kind_change": true
+        })))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "restore of a full-code version: {}",
+        resp.text().await?
+    );
     for (path, expected) in [("low_code", 403), ("apps_only_app", 200)] {
         let resp = c
             .delete(format!("{api}/apps/delete/u/operator/{path}"))
