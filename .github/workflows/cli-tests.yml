@@ -129,7 +129,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup PostgreSQL
-        uses: ikalnytskyi/action-setup-postgres@v6
+        uses: ikalnytskyi/action-setup-postgres@v8
         with:
           username: postgres
           password: changeme
