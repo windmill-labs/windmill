@@ -213,7 +213,6 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                     pass_flow_input_directly: None,
                     debouncing: None,
                     job_token_scopes: None,
-                    recover_on_success: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -263,7 +262,6 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                             pass_flow_input_directly: None,
                             debouncing: None,
                             job_token_scopes: None,
-                            recover_on_success: None,
                         }],
                         modules_node: None,
                     }
@@ -287,7 +285,6 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                     pass_flow_input_directly: None,
                     debouncing: None,
                     job_token_scopes: None,
-                    recover_on_success: None,
                 },
             ],
             same_worker: false,
@@ -405,7 +402,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     pass_flow_input_directly: None,
                     debouncing: None,
                     job_token_scopes: None,
-                    recover_on_success: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -464,7 +460,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 pass_flow_input_directly: None,
                                 debouncing: None,
                                 job_token_scopes: None,
-                                recover_on_success: None,
                             },
                             FlowModule {
                                 id: "e".to_string(),
@@ -509,7 +504,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 pass_flow_input_directly: None,
                                 debouncing: None,
                                 job_token_scopes: None,
-                                recover_on_success: None,
                             },
                         ],
                         modules_node: None,
@@ -533,7 +527,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     pass_flow_input_directly: None,
                     debouncing: None,
                     job_token_scopes: None,
-                    recover_on_success: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -584,7 +577,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     pass_flow_input_directly: None,
                     debouncing: None,
                     job_token_scopes: None,
-                    recover_on_success: None,
                 },
             ],
             same_worker: true,
@@ -4706,70 +4698,74 @@ async fn test_run_wait_result_early_return_with_failure_module(
     Ok(())
 }
 
-/// A failing step inside a loop runs the error handler in the iteration's inner flow, so the
-/// recovery has to reach the parent flow too, not only the inner flow job.
+/// `recover: true` from the error handler of a step that fails inside a loop must end the
+/// whole flow as a success, as it does for a top-level step: not fail the flow, and not let
+/// the loop run its next iterations or the steps after it.
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
-async fn test_failure_module_recover_on_success(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let failing_step = json!({
-        "input_transforms": {},
-        "type": "rawscript",
-        "language": "deno",
-        "content": "export function main() { throw new Error('boom'); }",
-    });
-    let failure_module = |recover_on_success: bool| {
-        json!({
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [{
+            "id": "loop",
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "static", "value": [1, 2, 3] },
+                "skip_failures": false,
+                "modules": [{
+                    "id": "a",
+                    "value": {
+                        "input_transforms": {},
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main() { throw new Error('boom'); }",
+                    },
+                }],
+            },
+        }, {
+            "id": "b",
             "value": {
                 "input_transforms": {},
                 "type": "rawscript",
                 "language": "deno",
-                "content": "export function main() { return { handled: true } }",
+                "content": "export function main() { return { ran_b: true } }",
             },
-            "recover_on_success": recover_on_success,
-        })
-    };
-    let run = |modules: serde_json::Value, recover_on_success: bool| {
-        let flow: FlowValue = serde_json::from_value(json!({
-            "modules": modules,
-            "failure_module": failure_module(recover_on_success),
-        }))
-        .unwrap();
+        }],
+        "failure_module": {
+            "value": {
+                "input_transforms": {},
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main() { return { handled: true, recover: true } }",
+            },
+        },
+    }))
+    .unwrap();
+
+    let completed =
         RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
             .run_until_complete(&db, false, port)
-    };
+            .await;
 
-    let top_level = json!([{ "id": "a", "value": failing_step }]);
-    let in_loop = json!([{
-        "id": "loop",
-        "value": {
-            "type": "forloopflow",
-            "iterator": { "type": "static", "value": [1] },
-            "skip_failures": false,
-            "modules": [{ "id": "a", "value": failing_step }],
-        },
-    }]);
-
-    let completed = run(top_level.clone(), false).await;
-    assert!(
-        !completed.success,
-        "without the setting the flow stays failed"
-    );
-
-    let completed = run(top_level, true).await;
-    assert!(completed.success, "top-level failure should be recovered");
-    assert_eq!(completed.json_result().unwrap(), json!({ "handled": true }));
-
-    let completed = run(in_loop, true).await;
-    assert!(
-        completed.success,
-        "failure inside a loop should be recovered"
-    );
+    let handler_runs: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM v2_job_completed c JOIN v2_job j USING (id)
+         WHERE j.kind = 'preview' AND c.result @> '{\"handled\": true}'::jsonb",
+    )
+    .fetch_one(&db)
+    .await?;
 
     server.close().await.unwrap();
+
+    assert!(completed.success, "a recovered failure inside a loop should end the flow as a success");
+    assert_eq!(
+        completed.json_result().unwrap(),
+        json!([{ "handled": true, "recover": true }]),
+        "the flow ends with the loop's output, which holds the handler's result"
+    );
+    assert_eq!(handler_runs, 1, "the loop must stop at the first recovered iteration");
     Ok(())
 }
 

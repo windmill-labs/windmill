@@ -15,6 +15,7 @@ def main(message: str, name: str, step_id: str):
     print("message", message)
     print("name", name)
     print("step_id", step_id)
+    # "recover": True ends the flow as a success instead of a failure
     return { "message": message, "flow_id": flow_id, "step_id": step_id, "recover": False }`
 
 const PYTHON_INIT_CODE_CLEAR = `# import wmill
@@ -243,6 +244,7 @@ export async function main(message: string, name: string, step_id: string) {
   console.log("message", message)
   console.log("name",name)
   console.log("step_id", step_id)
+  // recover: true ends the flow as a success instead of a failure
   return { message, flow_id, step_id, recover: false }
 }
 `
@@ -253,6 +255,7 @@ export async function main(message: string, name: string, step_id: string) {
   console.log("message", message)
   console.log("name",name)
   console.log("step_id", step_id)
+  // recover: true ends the flow as a success instead of a failure
   return { message, flow_id, step_id, recover: false }
 }
 `

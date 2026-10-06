@@ -640,10 +640,6 @@ pub struct FlowModule {
     /// Caps the token of the jobs this step runs, on top of the flow's own restriction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_token_scopes: Option<Vec<String>>,
-    /// Only read on the flow's `failure_module`: when the error handler succeeds, the flow
-    /// completes as a success, as if the handler had returned `recover: true`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub recover_on_success: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -1378,7 +1374,6 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             pass_flow_input_directly: None,
             debouncing: None,
             job_token_scopes: None,
-            recover_on_success: None,
         });
     }
 }

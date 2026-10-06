@@ -198,14 +198,8 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 		spec: {
 			label: 'Error handling',
 			icon: ShieldAlert,
-			configured: (m) => Boolean(m.continue_on_error) || Boolean(m.recover_on_success),
-			summarize: (m) => {
-				const on = [
-					m.continue_on_error ? 'Continue on error' : undefined,
-					m.recover_on_success ? 'Recover flow on success' : undefined
-				].filter((x) => x != undefined)
-				return on.length ? cfg(on.join(', ')) : def('Off')
-			}
+			configured: (m) => Boolean(m.continue_on_error),
+			summarize: (m) => (m.continue_on_error ? cfg('Continue on error') : def('Off'))
 		}
 	},
 	{

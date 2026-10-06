@@ -22,7 +22,7 @@ These are strict Windmill schema rules. Follow them exactly.
 - `preprocessor_module` and `failure_module` only support `script` or `rawscript`
 - `preprocessor_module` runs before normal modules and cannot reference `results.*`
 - `failure_module` can use the `error` object with `error.message`, `error.step_id`, `error.name`, and `error.stack`
-- A flow whose `failure_module` runs still ends as failed. Set `recover_on_success: true` on the `failure_module` to mark the flow successful when the handler succeeds, or have the handler return `recover: true` to decide per run
+- A flow whose `failure_module` runs still ends as failed, unless the handler returns an object with `recover: true`: the flow then ends as a success, with the handler's result, also when the failing step is inside a loop or branch
 
 Correct shape:
 

@@ -2372,7 +2372,6 @@ mod tests {
                     }),
                     stop_after_if: None,
                     stop_after_all_iters_if: None,
-                    recover_on_success: None,
                     summary: None,
                     suspend: Default::default(),
                     retry: None,
@@ -2409,7 +2408,6 @@ mod tests {
                         ..Default::default()
                     }),
                     stop_after_all_iters_if: None,
-                    recover_on_success: None,
                     summary: None,
                     suspend: Default::default(),
                     retry: None,
@@ -2446,7 +2444,6 @@ mod tests {
                         ..Default::default()
                     }),
                     stop_after_all_iters_if: None,
-                    recover_on_success: None,
                     summary: None,
                     suspend: Default::default(),
                     retry: None,
@@ -2482,7 +2479,6 @@ mod tests {
                     ..Default::default()
                 }),
                 stop_after_all_iters_if: None,
-                recover_on_success: None,
                 summary: None,
                 suspend: Default::default(),
                 retry: None,
