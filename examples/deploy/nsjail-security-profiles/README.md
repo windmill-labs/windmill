@@ -60,6 +60,8 @@ The `DISABLE_NSJAIL=false` environment variable is the fallback: it enables nsja
 | Added capabilities | none | `SYS_ADMIN`, `SETPCAP`, and optionally `SYS_RESOURCE` |
 | Pod Security Standards | `baseline` on 1.35+; 1.33 and 1.34 reject `procMount: Unmasked` unless the `UserNamespacesPodSecurityStandards` feature gate is on | needs an exemption for the added capabilities |
 
+Neither set of pod settings is privileged, so the worker cannot clear `memory.oom.group` on its own cgroup: from Kubernetes 1.32, a job that exceeds the container's memory limit takes the worker down with it instead of being killed alone. Setting `singleProcessOOMKill: true` in the kubelet configuration of the nodes restores the per-job kill.
+
 ## What the profiles give up
 
 Jobs inherit the seccomp filter, so job code can also call `clone` with namespace flags and `mount`, which the runtime default denies to a container without `SYS_ADMIN`. Where the kernel allows unprivileged user namespaces, a job can therefore create a nested user and mount namespace and mount filesystems inside it. This grants nothing outside that namespace, but it exposes more of the kernel to job code than the runtime default does.
