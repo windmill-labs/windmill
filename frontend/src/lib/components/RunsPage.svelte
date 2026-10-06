@@ -501,6 +501,9 @@
 		})
 
 		selectedIds = []
+		// Opened from the table's "Run again", the options are done; left open, the next selection
+		// of one run would show them again. The re-run selection mode keeps them for its next batch.
+		if (!manualSelectionMode) batchRerunOptionsIsOpen = false
 		jobsLoader?.loadJobs(true, true)
 	}
 
