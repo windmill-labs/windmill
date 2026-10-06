@@ -10,7 +10,7 @@
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
 	import Row from '../table/Row.svelte'
-	import { KeyRound } from 'lucide-svelte'
+	import { CircleHelp, KeyRound } from 'lucide-svelte'
 	import {
 		FolderService,
 		GroupService,
@@ -467,6 +467,23 @@
 						target={{ kind: 'database' }}
 						disabledReason={hasUnsavedChanges ? 'Save the new roles to continue' : undefined}
 					/>
+					<div class="mt-3">
+						<Button
+							unifiedSize="xs"
+							variant="subtle"
+							startIcon={{ icon: CircleHelp }}
+							on:click={() =>
+								confirmationModal.ask({
+									title: 'Permissions on schemas and tables',
+									children: `<p>In the database manager, click the <b>⋮</b> menu of a schema or a table, then <b>Access</b>, to add grants on it or change its owner.</p>`,
+									confirmationText: 'OK',
+									type: 'info',
+									hideCancel: true
+								})}
+						>
+							How to use permissions on schemas and tables?
+						</Button>
+					</div>
 				</div>
 			{/if}
 		{/if}
