@@ -104,11 +104,17 @@ impl ParsedResponse {
                 s.retain(|c| c != '\0');
             }
         }
-        if let ParsedResponse::Text { content, reasoning, tool_calls, .. } = &mut self {
+        if let ParsedResponse::Text { content, reasoning, tool_calls, annotations, .. } = &mut self
+        {
             for text in [content, reasoning].into_iter().flatten() {
                 strip(text);
             }
+            for annotation in annotations {
+                strip(&mut annotation.url);
+                annotation.title.as_mut().into_iter().for_each(strip);
+            }
             for tool_call in tool_calls {
+                strip(&mut tool_call.id);
                 strip(&mut tool_call.function.name);
                 // Arguments are serialized JSON, where a NUL is spelled as its escape.
                 strip(&mut tool_call.function.arguments);
