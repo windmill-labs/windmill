@@ -24,15 +24,17 @@ Both profiles are read from the node, so they have to be present on every node t
 sudo install -D -m 0644 windmill-nsjail.seccomp.json /var/lib/kubelet/seccomp/profiles/windmill-nsjail.json
 
 # AppArmor: only on nodes where AppArmor is enabled
-sudo apparmor_parser -r windmill-nsjail.apparmor
+sudo install -m 0644 windmill-nsjail.apparmor /etc/apparmor.d/windmill-nsjail
+sudo apparmor_parser -r /etc/apparmor.d/windmill-nsjail
 ```
 
-On nodes without AppArmor, remove the `appArmorProfile` block from the pod settings.
+A pod that references a profile missing from its node fails to start, so node groups that autoscale need these steps in their bootstrap or in a DaemonSet. On nodes without AppArmor, remove the `appArmorProfile` block from the pod settings.
 
 ## Using the profiles with Docker
 
 ```bash
-sudo apparmor_parser -r windmill-nsjail.apparmor
+sudo install -m 0644 windmill-nsjail.apparmor /etc/apparmor.d/windmill-nsjail
+sudo apparmor_parser -r /etc/apparmor.d/windmill-nsjail
 
 docker run \
   --user 1000:1000 --cap-drop ALL \
@@ -48,10 +50,14 @@ docker run \
 
 | | `kubernetes-user-namespaces.yaml` | `kubernetes-sys-admin.yaml` |
 | --- | --- | --- |
-| Needs | Kubernetes 1.33+ with [user namespaces](https://kubernetes.io/docs/concepts/workloads/pods/user-namespaces/) | Any cluster |
+| Needs | Kubernetes 1.33+ with [user namespaces](https://kubernetes.io/docs/concepts/workloads/pods/user-namespaces/) | Kubernetes 1.30+ (older versions set AppArmor with an annotation instead of `appArmorProfile`) |
 | Worker user | uid 1000 | root |
-| Added capabilities | none | `SYS_ADMIN`, `SETPCAP` |
+| Added capabilities | none | `SYS_ADMIN`, `SETPCAP`, and optionally `SYS_RESOURCE` |
 | Pod Security Standards | `baseline` on 1.35+; 1.33 and 1.34 reject `procMount: Unmasked` unless the `UserNamespacesPodSecurityStandards` feature gate is on | needs an exemption for the added capabilities |
+
+## What the profiles give up
+
+Jobs inherit the seccomp filter, so job code can also call `clone` with namespace flags and `mount`, which the runtime default denies to a container without `SYS_ADMIN`. The AppArmor profile no longer denies mounts, so its path rules on `/proc` and `/sys` do not hold against a process that has the capability to mount: with `kubernetes-sys-admin.yaml` that is the worker, never a job. Both remain far narrower than `Unconfined` or `privileged: true`.
 
 ## Regenerating the seccomp profile
 
