@@ -10,7 +10,7 @@ The two profiles here are the runtime defaults with only what nsjail needs added
 | File | Purpose |
 | --- | --- |
 | `windmill-nsjail.seccomp.json` | Docker's default seccomp profile plus `clone` with namespace flags, `mount`, `umount2`, `pivot_root` and `sethostname` |
-| `windmill-nsjail.apparmor` | The runtime default AppArmor profile with `deny mount` replaced by `mount`, `umount` and `pivot_root` rules |
+| `windmill-nsjail.apparmor` | The [runtime default AppArmor profile](https://github.com/moby/profiles/blob/main/apparmor/template.go) with `deny mount` replaced by `mount`, `umount` and `pivot_root` rules; every other rule, including the denied socket families, is kept |
 | `kubernetes-user-namespaces.yaml` | Worker pod settings with no added capability (`hostUsers: false`, `procMount: Unmasked`) |
 | `kubernetes-sys-admin.yaml` | Worker pod settings for clusters without user namespaces (`SYS_ADMIN`) |
 | `generate-seccomp.py` | Rebuilds the seccomp profile from a newer Docker default |
@@ -27,8 +27,6 @@ sudo install -D -m 0644 windmill-nsjail.seccomp.json /var/lib/kubelet/seccomp/pr
 sudo install -m 0644 windmill-nsjail.apparmor /etc/apparmor.d/windmill-nsjail
 sudo apparmor_parser -r /etc/apparmor.d/windmill-nsjail
 ```
-
-If the node's audit log shows AppArmor denying `userns_create` for the worker, uncomment the `userns,` rule in the profile (it needs AppArmor 4.0 or later, older parsers reject it) and reload it.
 
 A pod that references a profile missing from its node fails to start, so node groups that autoscale need these steps in their bootstrap or in a DaemonSet. On nodes without AppArmor, remove the `appArmorProfile` block from the pod settings.
 
