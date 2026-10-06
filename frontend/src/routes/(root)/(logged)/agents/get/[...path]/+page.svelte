@@ -89,10 +89,14 @@
 </ConfirmationModal>
 
 <main class="h-full w-full flex flex-col">
+	<!-- `labels`: the pen saves every field it shows in one write, so the labels it shows have to be
+	     the ones the resource carries. Handed none, it would offer an empty list, and the first
+	     label added there would replace the agent's own. -->
 	<DetailPageHeader
 		ownsPageHeader
 		itemKind="agent"
 		summary={config ? agent?.state?.description : undefined}
+		labels={agent?.state?.labels}
 		{path}
 		{menuItems}
 		onSaved={canEdit
