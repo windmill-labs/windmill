@@ -6261,9 +6261,20 @@ async fn push_inner<'c, 'd>(
                         if team_plan_status.max_tolerated_executions.is_none()
                             || workspace_usage > team_plan_status.max_tolerated_executions.unwrap()
                         {
-                            return Err(error::Error::QuotaExceeded(format!(
-                                "Workspace {workspace_id} team plan is past due and isn't allowed to run any more jobs. Please fix your payment method in the workspace settings."
-                            )));
+                            // A canceled plan reuses the past-due cap for its last month. Only read
+                            // here, on the refusal path, to word it.
+                            let plan_canceled = sqlx::query_scalar::<_, bool>(
+                                "SELECT COALESCE(plan = 'team_canceled', false) FROM workspace_settings WHERE workspace_id = $1",
+                            )
+                            .bind(&billing_w_id)
+                            .fetch_optional(db)
+                            .await?
+                            .unwrap_or(false);
+                            return Err(error::Error::QuotaExceeded(if plan_canceled {
+                                format!("Workspace {workspace_id} team plan was canceled and has used the executions paid for this month. Jobs can run again on the free plan from the 1st, or right away by subscribing again in the workspace settings.")
+                            } else {
+                                format!("Workspace {workspace_id} team plan is past due and isn't allowed to run any more jobs. Please fix your payment method in the workspace settings.")
+                            }));
                         }
                     } else {
                         if workspace_usage > MAX_FREE_EXECS

@@ -4535,6 +4535,9 @@ paths:
                     type: string
                   is_past_due:
                     type: boolean
+                  is_canceled:
+                    type: boolean
+                    description: the team plan was canceled this month; it stays premium until the month ends, capped at max_tolerated_executions
                   max_tolerated_executions:
                     type: number
                 required:
