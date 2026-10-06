@@ -268,7 +268,8 @@
 						: 'What each role may do here, beyond what it owns.'}
 				</span>
 			</div>
-			{#if grantRows.length > 1}
+			<!-- A set filter keeps its chips, or a revoke that leaves one grant would strand it. -->
+			{#if grantRows.length > 1 || roleFilter || privilegeFilter}
 				<div class="flex flex-wrap items-center gap-2">
 					<ListFilters
 						inline
