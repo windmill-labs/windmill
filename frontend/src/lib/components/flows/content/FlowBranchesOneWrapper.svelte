@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Badge, Tab, Tabs } from '$lib/components/common'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { GripVertical, Plus, Trash2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -22,6 +22,14 @@
 	import BranchPredicateEditor from './BranchPredicateEditor.svelte'
 	import FlowRunSettings from './FlowRunSettings.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
+	import { push } from '$lib/history.svelte'
+	import {
+		addChoiceBranches,
+		checkRouting,
+		quoteOptions,
+		type RoutingCheck
+	} from '../aiDecisionBranching'
+	import StepIdBadge from './StepIdBadge.svelte'
 
 	interface Props {
 		flowModule: FlowModule
@@ -102,6 +110,15 @@
 		refreshStateStore(flowStore)
 	}
 
+	// Kept in step with the AI decision questions its branches were generated from.
+	let routingChecks = $derived(checkRouting(flowStore.val, flowModule))
+
+	function addMissing(check: RoutingCheck) {
+		push(history, flowStore.val)
+		addChoiceBranches(flowModule, check.decisionId, check.question, check.kind, check.missing)
+		refreshStateStore(flowStore)
+	}
+
 	let runSettings: FlowRunSettings | undefined = $state(undefined)
 	let selectedTab = $state('branches')
 
@@ -140,6 +157,38 @@
 				{#if selectedTab === 'branches'}
 					<section>
 						<div class="flex flex-col gap-3">
+							{#each routingChecks as check (JSON.stringify([check.decisionId, check.question]))}
+								{#if check.missing.length > 0}
+									<Alert
+										type="info"
+										size="xs"
+										title="{check.missing.length === 1
+											? 'An option has'
+											: 'Options have'} no branch yet: {quoteOptions(check.missing)}"
+										actions={[
+											{
+												label: check.missing.length === 1 ? 'Add branch' : 'Add branches',
+												onClick: () => addMissing(check)
+											}
+										]}
+									>
+										From the {check.question} question of <StepIdBadge id={check.decisionId} />
+									</Alert>
+								{/if}
+								{#each check.stale as stale (stale.index)}
+									<Alert
+										type="warning"
+										size="xs"
+										title="Branch {stale.index + 1} handles {quoteOptions([
+											stale.option
+										])}, which is no longer an option"
+										actions={[{ label: 'Remove branch', onClick: () => removeBranch(stale.index) }]}
+									>
+										The {check.question} question of <StepIdBadge id={check.decisionId} /> no longer
+										offers it.
+									</Alert>
+								{/each}
+							{/each}
 							<section
 								class="flex flex-col gap-3"
 								use:dragHandleZone={{ items, flipDurationMs: 150, dropTargetStyle: {} }}

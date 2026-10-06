@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.824.1](https://github.com/windmill-labs/windmill/compare/v1.824.0...v1.824.1) (2026-10-05)
+
+
+### Bug Fixes
+
+* keep monaco's diff engine out of the app shell bundle ([#11542](https://github.com/windmill-labs/windmill/issues/11542)) ([0908dee](https://github.com/windmill-labs/windmill/commit/0908dee897e0f87b97418a23ede3662d96270340))
+
+## [1.824.0](https://github.com/windmill-labs/windmill/compare/v1.823.1...v1.824.0) (2026-10-05)
+
+
+### Features
+
+* add an AI decision flow step (TypeSafe's Jev, Cloudflare's Clef) ([#11474](https://github.com/windmill-labs/windmill/issues/11474)) ([3cba8a7](https://github.com/windmill-labs/windmill/commit/3cba8a7e4cca3ef20ba73a7dad79d892bdc9fed8))
+* add notion oauth provider ([#11528](https://github.com/windmill-labs/windmill/issues/11528)) ([8b2dc1e](https://github.com/windmill-labs/windmill/commit/8b2dc1e46c7f4e3859263f18b686ce6f3ce6fd30))
+* **ai-chat:** show per-file diffs for raw app edits ([#11521](https://github.com/windmill-labs/windmill/issues/11521)) ([ec0883a](https://github.com/windmill-labs/windmill/commit/ec0883a627b06b6ba2a393d5cf66ddf6ebc4cd0d))
+* bill team-plan service accounts as half a seat ([#11298](https://github.com/windmill-labs/windmill/issues/11298)) ([3aee181](https://github.com/windmill-labs/windmill/commit/3aee1815746f0116f5662f162ad1e234717af90d))
+* card layout and load-more for the audit logs page ([#11507](https://github.com/windmill-labs/windmill/issues/11507)) ([af1a29a](https://github.com/windmill-labs/windmill/commit/af1a29a3cb33386f61a759ec0dd5eec0ccefefc2))
+* offer audit-log and drive-metadata scopes for google oauth connects ([#11527](https://github.com/windmill-labs/windmill/issues/11527)) ([c4e7c71](https://github.com/windmill-labs/windmill/commit/c4e7c714e455f958d9a927c4bc4eb23256324780))
+* offer slack read scopes for files, user groups, emoji and dms ([#11526](https://github.com/windmill-labs/windmill/issues/11526)) ([b5fda7d](https://github.com/windmill-labs/windmill/commit/b5fda7d5af7105fde69beb68410984350af2ac7e))
+
+
+### Bug Fixes
+
+* bound s3 ai attachment downloads before encoding ([#11534](https://github.com/windmill-labs/windmill/issues/11534)) ([92fbfc0](https://github.com/windmill-labs/windmill/commit/92fbfc03d219544c16e8f7db47a547f9ff402c27))
+* collapse queued and running chat tool calls into a waiting row ([#11523](https://github.com/windmill-labs/windmill/issues/11523)) ([4f30982](https://github.com/windmill-labs/windmill/commit/4f30982ce3f7abc64a31890f8e88c31c1c2e0803))
+* disable postgres triggers whose replication slot was invalidated ([#11536](https://github.com/windmill-labs/windmill/issues/11536)) ([85248ee](https://github.com/windmill-labs/windmill/commit/85248eee786b633def40c42b6007fc7b907fb09e))
+* evaluate field conditions and step test inputs in QuickJS ([#11487](https://github.com/windmill-labs/windmill/issues/11487)) ([c962d37](https://github.com/windmill-labs/windmill/commit/c962d3766b1a250ba960e413556890d5919ebc94))
+* flush proxied responses before the dev supervisor closes the client ([#11530](https://github.com/windmill-labs/windmill/issues/11530)) ([cefb195](https://github.com/windmill-labs/windmill/commit/cefb1953764e714d79556e2f8065cfbec78acb86))
+* label the default slack scopes and list them first in the connect dialog ([#11529](https://github.com/windmill-labs/windmill/issues/11529)) ([e76781c](https://github.com/windmill-labs/windmill/commit/e76781cc2709fda08403e14c1a0a01957e430db1))
+* run each ai eval model in its own job and let the docs tools reach the backend ([#11533](https://github.com/windmill-labs/windmill/issues/11533)) ([222dad1](https://github.com/windmill-labs/windmill/commit/222dad1d8cc9cbb6925fdff709e00a49bb63bc4a))
+* show the flow row edit button to builder operators ([#11535](https://github.com/windmill-labs/windmill/issues/11535)) ([6c4e34c](https://github.com/windmill-labs/windmill/commit/6c4e34cd0dd9b4329084214c40695f5915947cc2))
+
 ## [1.823.1](https://github.com/windmill-labs/windmill/compare/v1.823.0...v1.823.1) (2026-10-05)
 
 

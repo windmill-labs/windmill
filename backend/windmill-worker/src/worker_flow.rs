@@ -4184,7 +4184,8 @@ async fn push_next_flow_job(
                 | FlowModuleValue::RawScript { input_transforms, .. }
                 | FlowModuleValue::FlowScript { input_transforms, .. }
                 | FlowModuleValue::Flow { input_transforms, .. }
-                | FlowModuleValue::AIAgent { input_transforms, .. },
+                | FlowModuleValue::AIAgent { input_transforms, .. }
+                | FlowModuleValue::AIDecision { input_transforms, .. },
             ) => {
                 let ctx = get_transform_context(&flow_job, &previous_id, &status);
                 transform_context = Some(ctx);
@@ -5488,7 +5489,8 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::AIAgent { tag, .. } => {
+        // A decision runs as an AI agent job, whose handler answers it as a decision.
+        FlowModuleValue::AIAgent { tag, .. } | FlowModuleValue::AIDecision { tag, .. } => {
             let path = get_path(flow_job, status, module);
             let payload = JobPayload::AIAgent { path };
             Ok(NextFlowTransform::Continue(

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import hljs from 'highlight.js/lib/core'
 import {
-	argumentsCarryWholeFile,
+	diffIsWholeFile,
 	diffLineCounts,
 	hasToolCodeDiff,
 	toolCodeDiff,
@@ -113,12 +113,31 @@ describe('toolCodeDiff', () => {
 	})
 
 	it('only marks tools with a defined argument diff as diff-capable', () => {
-		expect(hasToolCodeDiff('edit_script')).toBe(true)
-		expect(hasToolCodeDiff('edit_code')).toBe(true)
-		expect(hasToolCodeDiff('write_script')).toBe(true)
-		expect(hasToolCodeDiff('__proto__')).toBe(false)
-		expect(hasToolCodeDiff('toString')).toBe(false)
-		expect(hasToolCodeDiff(undefined)).toBe(false)
+		const call = (toolName: string | undefined, parameters?: unknown) =>
+			hasToolCodeDiff(message({ toolName, parameters }))
+
+		expect(call('edit_script')).toBe(true)
+		expect(call('edit_code')).toBe(true)
+		expect(call('write_script')).toBe(true)
+		expect(call('__proto__')).toBe(false)
+		expect(call('toString')).toBe(false)
+		expect(call(undefined)).toBe(false)
+		expect(
+			hasToolCodeDiff(
+				message({ toolName: 'delete_app_file', codeDiff: { before: 'a', after: '', lang: 'css' } })
+			)
+		).toBe(true)
+	})
+
+	it('keeps a reference runnable write on the generic card', () => {
+		const call = (parameters: unknown) =>
+			hasToolCodeDiff(message({ toolName: 'write_app_runnable', parameters }))
+
+		expect(call('{"path":"f/a","key":"go","runnable":{"name":"Go","type":"in')).toBe(true)
+		expect(call('{"path":"f/a","key":"go","runnable":{"name":"Go"')).toBe(true)
+		expect(call('{"path":"f/a","key":"go","runnable":{"name":"Go","type":"flow"')).toBe(false)
+		expect(call({ path: 'f/a', key: 'go', runnable: { type: 'script', path: 'f/s' } })).toBe(false)
+		expect(call({ path: 'f/a', key: 'go', runnable: { type: 'inline' } })).toBe(true)
 	})
 
 	it('ignores tool names inherited from Object.prototype', () => {
@@ -302,14 +321,38 @@ describe('toolCodeDiff', () => {
 		})
 	})
 
+	it('highlights streamed raw app edits by file', () => {
+		expect(
+			toolCodeDiff(
+				message({
+					toolName: 'patch_app_file',
+					parameters: '{"path":"f/a","file_path":"/src/App.tsx","old_string":"a","new_string":"b'
+				})
+			)
+		).toEqual({ before: 'a', after: 'b', lang: 'typescript' })
+		expect(
+			toolCodeDiff(
+				message({
+					toolName: 'write_app_runnable',
+					parameters:
+						'{"path":"f/a","key":"go","runnable":{"name":"Go","type":"inline","inlineScript":{"language":"python3","content":"def main'
+				})
+			)
+		).toEqual({ before: '', after: 'def main', lang: 'python' })
+	})
+
 	it('recognizes calls whose arguments are a whole file', () => {
 		const call = (
 			toolName: string,
 			parameters: unknown,
 			codeDiff?: ToolDisplayMessage['codeDiff']
-		) => argumentsCarryWholeFile(message({ toolName, parameters, codeDiff }))
+		) => diffIsWholeFile(message({ toolName, parameters, codeDiff }))
 
 		expect(call('write_script', { path: 'f/a', content: '' })).toBe(true)
+		expect(call('delete_app_file', { path: 'f/a', file_path: '/a.css' })).toBe(true)
+		expect(call('patch_app_file', { file_path: '/a.css', old_string: 'a', new_string: 'b' })).toBe(
+			false
+		)
 		expect(call('edit_code', '{"code":"x')).toBe(true)
 		expect(
 			call('edit_code', { code: 'x' }, { before: 'old', after: 'x', lang: 'typescript' })

@@ -39,6 +39,7 @@ lazy_static::lazy_static! {
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com/v1";
 pub const GOOGLE_AI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+pub const TYPESAFE_BASE_URL: &str = "https://api.typesafe.ai/v1";
 
 /// Hosts that serve the OpenAI API with Azure conventions: Azure OpenAI
 /// (`*.openai.azure.com`), AI Foundry (`*.services.ai.azure.com`,
@@ -122,9 +123,35 @@ pub enum AIProvider {
     CustomAI,
     #[serde(rename = "aws_bedrock")]
     AWSBedrock,
+    /// TypeSafe's Jev decision model. It answers typed questions rather than chatting, so only
+    /// an AI decision runs it (`run_systemone`), never the agent loop.
+    TypeSafe,
+    /// Cloudflare Workers AI, for its Jev-compatible decision models (Clef). Decisions only, as
+    /// for TypeSafe; its base URL comes from the resource's account id.
+    Cloudflare,
 }
 
+/// The Workers AI models URL of a Cloudflare account. The id goes into the path, so it is held to
+/// the characters an account id has rather than trusted to stay inside its segment.
+pub fn cloudflare_workers_ai_base_url(account_id: Option<&str>) -> Result<String> {
+    match account_id {
+        Some(id) if !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric()) => Ok(format!(
+            "https://api.cloudflare.com/client/v4/accounts/{id}/ai/run/@cf/cloudflare"
+        )),
+        Some(_) => Err(Error::BadRequest(
+            "The Cloudflare account_id must be letters and digits only".to_string(),
+        )),
+        None => Err(Error::BadRequest(
+            "A Cloudflare resource needs an account_id".to_string(),
+        )),
+    }
+}
 impl AIProvider {
+    /// A provider that answers decisions (typed questions) and serves no chat.
+    pub fn is_decision_provider(&self) -> bool {
+        matches!(self, AIProvider::TypeSafe | AIProvider::Cloudflare)
+    }
+
     /// Get the base URL for the AI provider
     pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
         if let Some(base_url) = resource_base_url {
@@ -177,6 +204,10 @@ impl AIProvider {
             AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
             AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
             AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
+            AIProvider::TypeSafe => Ok(TYPESAFE_BASE_URL.to_string()),
+            AIProvider::Cloudflare => Err(Error::BadRequest(
+                "A Cloudflare resource needs an account_id".to_string(),
+            )),
             p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI | AIProvider::AzureFoundry) => {
                 Err(Error::BadRequest(format!(
                     "{:?} provider requires a base URL in the resource",
