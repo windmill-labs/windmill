@@ -317,6 +317,7 @@ export type GlobalActiveEditorContext = {
 	/** The key the draft is stored under, which `path` leaves behind on a rename. */
 	storagePath: string
 	isLiveDraft: true
+	isNew?: boolean
 }
 
 /** The page the session's side panel is showing, when it isn't one of the live
@@ -8909,7 +8910,13 @@ export function getActiveGlobalEditorContext(
 		if (!liveDraft) continue
 		const path = liveDraft.effectivePath || liveDraft.storagePath
 		if (!path) continue
-		return { type, path, storagePath: liveDraft.storagePath, isLiveDraft: true }
+		return {
+			type,
+			path,
+			storagePath: liveDraft.storagePath,
+			isLiveDraft: true,
+			isNew: liveDraft.isNew
+		}
 	}
 }
 
@@ -8933,7 +8940,14 @@ export function prepareGlobalUserMessage(
 		content += '## ACTIVE EDITOR\n'
 		content += `type: ${activeEditor.type}\n`
 		content += `path: ${activeEditor.path}\n`
-		content += `isLiveDraft: true\n\n`
+		content += `isLiveDraft: true\n`
+		if (activeEditor.isNew) {
+			// The template only lives in the open editor until the first edit saves it, so
+			// init_app would see no draft and overwrite it with a second app.
+			content +=
+				'isNew: true — the user just started this item from the new-item builder; it holds the starter template and is the item to build. Edit it in place; do not create another one.\n'
+		}
+		content += '\n'
 	}
 
 	if (options.activePreview) {
