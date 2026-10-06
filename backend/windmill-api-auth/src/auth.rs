@@ -241,7 +241,7 @@ impl AuthCache {
         .flatten()
         .unwrap_or(false);
         if restricted {
-            tracing::error!(
+            tracing::warn!(
                 "refused an unscoped job token for job {job_id}, whose token is restricted"
             );
             return Err(Error::NotAuthorized(format!(
