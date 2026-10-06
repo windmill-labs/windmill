@@ -1,6 +1,17 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Loader2, Code } from 'lucide-svelte'
+	import {
+		Sparkles,
+		Plus,
+		List,
+		Ban,
+		ExternalLinkIcon,
+		Loader2,
+		Code,
+		MessagesSquare,
+		WandSparkles
+	} from 'lucide-svelte'
+	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 	import type { Policy } from '$lib/gen'
 	import { superadmin, userStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -382,14 +393,14 @@
 						variant="default"
 						onClick={buildWithAI}
 						disabled={!isAiEnabled || !dataSettled}
-						btnClasses="{choiceCardClasses} border-ai/30 bg-ai/5 hover:bg-ai/10"
+						btnClasses="{choiceCardClasses} border-ai/30 bg-ai/5 hover:bg-ai/10 disabled:opacity-50 disabled:cursor-not-allowed"
 					>
 						{#if aiConfigLoaded && dataSettled}
 							<Sparkles size={28} class="text-ai" />
 						{:else}
 							<Loader2 size={28} class="text-ai animate-spin" />
 						{/if}
-						<span class="text-base font-semibold text-emphasis">Build with AI</span>
+						<span class="text-base font-semibold text-emphasis">Start with AI</span>
 						<span class="text-xs text-secondary">
 							{handsOffToSession
 								? 'Describe your app in an AI session and let it build the frontend, backend and tables.'
@@ -398,12 +409,13 @@
 					</Button>
 					<Button variant="default" onClick={() => (step = 'setup')} btnClasses={choiceCardClasses}>
 						<Code size={28} class="text-primary" />
-						<span class="text-base font-semibold text-emphasis">Build with code</span>
+						<span class="text-base font-semibold text-emphasis">Start with code editor</span>
 						<span class="text-xs text-secondary">
 							Pick a framework and data configuration, then write the app in the editor.
 						</span>
 					</Button>
 				</div>
+				<p class="text-xs text-hint text-center">You can always switch later.</p>
 				{#if aiConfigLoaded && !isAiEnabled}
 					<Alert type="info" title="AI is not configured.">
 						You can still create an app manually but using AI is highly recommended.
@@ -536,7 +548,8 @@
 															? 'could not read its roles'
 															: noUsableRole
 																? 'no role you can use'
-																: 'could not reach it'}; the app is created without a default data table
+																: 'could not reach it'}; the app is created without a default data
+														table
 													</span>
 												{/if}
 											</div>
@@ -624,7 +637,23 @@
 					{/if}
 				</div>
 
-				<div class="pt-6 flex justify-end gap-3">
+				<div class="pt-6 flex items-center justify-end gap-3">
+					{#if isAiEnabled}
+						{@const AiIcon = handsOffToSession ? MessagesSquare : WandSparkles}
+						<p class="mr-auto text-xs text-hint">
+							Click on
+							<span
+								class="mx-0.5 inline-flex h-5 w-5 items-center justify-center rounded-md border align-middle {AIBtnClasses(
+									'default'
+								)}"
+								aria-label="AI"
+							>
+								<AiIcon size={12} />
+							</span>
+							in the editor to {handsOffToSession ? 'switch to AI sessions' : 'open the AI chat'} later
+							on.
+						</p>
+					{/if}
 					{#if !$copilotInfo.workspaceDisabled}
 						<Button variant="subtle" unifiedSize="md" onclick={() => (step = 'choice')}>Back</Button
 						>
