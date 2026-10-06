@@ -61,7 +61,7 @@
 					startIcon={{ icon: expanded ? ChevronDown : ChevronRight }}
 					onclick={() => (expanded = !expanded)}
 				>
-					Additional prompt for AI
+					AI prompt
 				</Button>
 			{:else}
 				<span></span>
