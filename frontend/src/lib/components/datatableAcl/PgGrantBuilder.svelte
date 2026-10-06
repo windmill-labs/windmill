@@ -30,6 +30,7 @@
 	let scope = $state<AclScope>('target')
 	let privileges = $state<string[]>([])
 
+	const scopes = $derived(scopesOf(target.kind))
 	const available = $derived(privilegesOf(scope, target.kind, supportsMaintain))
 </script>
 
@@ -44,24 +45,27 @@
 		size="md"
 		class="min-w-0 flex-[4]"
 	/>
-	<span class="font-mono shrink-0">ON</span>
-	<Select
-		bind:value={
-			() => scope,
-			(s) => {
-				if (!s) return
-				scope = s
-				// A privilege only exists for some objects — SELECT means nothing on a function —
-				// so drop what the new scope cannot carry rather than send it.
-				const allowed = privilegesOf(s, target.kind, supportsMaintain)
-				privileges = privileges.filter((p) => allowed.includes(p))
+	<!-- A database or a table has only itself to grant on. -->
+	{#if scopes.length > 1}
+		<span class="font-mono shrink-0">ON</span>
+		<Select
+			bind:value={
+				() => scope,
+				(s) => {
+					if (!s) return
+					scope = s
+					// A privilege only exists for some objects — SELECT means nothing on a function —
+					// so drop what the new scope cannot carry rather than send it.
+					const allowed = privilegesOf(s, target.kind, supportsMaintain)
+					privileges = privileges.filter((p) => allowed.includes(p))
+				}
 			}
-		}
-		items={scopesOf(target.kind)}
-		{disabled}
-		size="md"
-		class="min-w-0 flex-[3]"
-	/>
+			items={scopes}
+			{disabled}
+			size="md"
+			class="min-w-0 flex-[3]"
+		/>
+	{/if}
 	<span class="font-mono shrink-0">TO</span>
 	<Select
 		bind:value={role}

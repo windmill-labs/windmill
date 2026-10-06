@@ -92,6 +92,9 @@
 	)
 	/** What a grant on the object itself reads as, in the scope picker's words. */
 	const targetLabel = $derived(scopesOf(target.kind)[0].label)
+	// Most grants are on the object itself, which the column would only repeat.
+	const showCoverage = $derived(grantRows.some((g) => grantCoverage(g, target) !== undefined))
+	const columns = $derived(showCoverage ? 4 : 3)
 	const toggled = (list: string[], value: string) =>
 		list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
 	const ownerItems = $derived(
@@ -307,7 +310,9 @@
 					<tr>
 						<Cell head first>Role</Cell>
 						<Cell head>Privileges</Cell>
-						<Cell head>On</Cell>
+						{#if showCoverage}
+							<Cell head>On</Cell>
+						{/if}
 						<Cell head last />
 					</tr>
 				</Head>
@@ -338,9 +343,11 @@
 									</div>
 								{/if}
 							</Cell>
-							<Cell wrap class="text-secondary">
-								{grantCoverage(grant, target) ?? targetLabel}
-							</Cell>
+							{#if showCoverage}
+								<Cell wrap class="text-secondary">
+									{grantCoverage(grant, target) ?? targetLabel}
+								</Cell>
+							{/if}
 							<Cell last class="w-10">
 								{#if info.editable}
 									{#snippet revokeButton()}
@@ -379,7 +386,7 @@
 						</Row>
 					{:else}
 						<Row>
-							<Cell first last colspan={4} class="text-secondary">
+							<Cell first last colspan={columns} class="text-secondary">
 								{grantRows.length === 0 ? 'No grants yet.' : 'No grant matches the filters.'}
 							</Cell>
 						</Row>
@@ -387,7 +394,7 @@
 					{#if info.editable}
 						<!-- The grant to create: a row of the table, set apart until it exists. -->
 						<Row class="bg-surface-secondary">
-							<Cell first last colspan={4}>
+							<Cell first last colspan={columns}>
 								{#snippet grantBuilder()}
 									<PgGrantBuilder
 										{target}
