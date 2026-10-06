@@ -292,6 +292,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/run/dynamic_select", post(run_dynamic_select))
         .route("/list", get(list_jobs))
+        .route("/oldest", get(get_oldest_job))
         .route("/asset_dispatch_edges", get(list_asset_dispatch_edges))
         .route(
             "/list_selected_job_groups",
@@ -4726,6 +4727,41 @@ async fn count_completed_jobs(
             .fetch_one(&db)
             .await?,
         ))
+}
+
+#[derive(Deserialize)]
+struct OldestJobQuery {
+    all_workspaces: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct OldestJob {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Where the job history starts, whatever the caller may see of it: a client scanning the
+/// runs backwards in time windows needs a bound that row-level visibility cannot make slow.
+async fn get_oldest_job(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(q): Query<OldestJobQuery>,
+) -> error::JsonResult<OldestJob> {
+    let created_at = if w_id == "admins" && q.all_workspaces.unwrap_or(false) {
+        // One index probe per workspace: a plain min() over the table has no index to walk.
+        sqlx::query_scalar(
+            "SELECT min(o.created_at) FROM workspace w CROSS JOIN LATERAL \
+             (SELECT min(created_at) AS created_at FROM v2_job WHERE workspace_id = w.id) o",
+        )
+        .fetch_one(&db)
+        .await?
+    } else {
+        sqlx::query_scalar("SELECT min(created_at) FROM v2_job WHERE workspace_id = $1")
+            .bind(&w_id)
+            .fetch_one(&db)
+            .await?
+    };
+    Ok(Json(OldestJob { created_at }))
 }
 
 lazy_static::lazy_static! {

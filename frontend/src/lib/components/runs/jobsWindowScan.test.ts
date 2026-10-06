@@ -1,0 +1,86 @@
+import { describe, it, expect } from 'vitest'
+import { CancelablePromise, type Job } from '$lib/gen'
+import { scanJobWindows, type JobWindow } from './jobsWindowScan'
+
+const HOUR = 60 * 60 * 1000
+const NOW = Date.parse('2026-01-10T00:00:00.000Z')
+
+function job(at: number): Job {
+	return { type: 'CompletedJob', id: `j${at}`, created_at: new Date(at).toISOString() } as Job
+}
+
+// A history the scan can only read through its windows: `at` are the creation times of the
+// matching jobs, and a window wider than `slowOver` never answers.
+function history(at: number[], slowOver = Infinity) {
+	const windows: JobWindow[] = []
+	const fetchWindow = (w: JobWindow) => {
+		windows.push(w)
+		const lo = Date.parse(w.after)
+		const hi = w.before ? Date.parse(w.before) : Infinity
+		if (hi - lo > slowOver) return new CancelablePromise<Job[]>(() => {})
+		const rows = at
+			.filter((t) => t >= lo && t <= hi)
+			.sort((a, b) => b - a)
+			.slice(0, w.limit)
+			.map(job)
+		return new CancelablePromise<Job[]>((resolve) => resolve(rows))
+	}
+	return { windows, fetchWindow }
+}
+
+describe('scanJobWindows', () => {
+	it('lists every match down to the oldest job, in order, without a gap between windows', async () => {
+		const at = [NOW - 2 * HOUR, NOW - 30 * HOUR, NOW - 200 * HOUR]
+		const { windows, fetchWindow } = history(at)
+		const seen: Job[] = []
+		const wentToEnd = await scanJobWindows({
+			before: new Date(NOW).toISOString(),
+			after: null,
+			pageSize: 10,
+			oldest: async () => new Date(NOW - 240 * HOUR).toISOString(),
+			fetchWindow,
+			onWindow: (jobs) => seen.push(...jobs)
+		})
+		expect(wentToEnd).toBe(true)
+		expect(seen.map((j) => j.id)).toEqual(at.map((t) => `j${t}`))
+		expect(windows.at(-1)!.after).toBe(new Date(NOW - 240 * HOUR).toISOString())
+		for (let i = 1; i < windows.length; i++) {
+			expect(windows[i].before).toBe(windows[i - 1].after)
+		}
+	})
+
+	it('stops as soon as the page is full, asking each window only for what is missing', async () => {
+		const at = [NOW - 0.5 * HOUR, NOW - 2 * HOUR, NOW - 3 * HOUR, NOW - 100 * HOUR]
+		const { windows, fetchWindow } = history(at)
+		const seen: Job[] = []
+		const wentToEnd = await scanJobWindows({
+			before: new Date(NOW).toISOString(),
+			after: new Date(NOW - 240 * HOUR).toISOString(),
+			pageSize: 3,
+			oldest: async () => undefined,
+			fetchWindow,
+			onWindow: (jobs) => seen.push(...jobs)
+		})
+		expect(wentToEnd).toBe(false)
+		expect(seen).toHaveLength(3)
+		expect(windows.map((w) => w.limit)).toEqual([3, 2])
+	})
+
+	it('retries a window that does not answer in time with a narrower one', async () => {
+		const at = [NOW - 0.2 * HOUR, NOW - 0.9 * HOUR]
+		const { windows, fetchWindow } = history(at, 0.5 * HOUR)
+		const seen: Job[] = []
+		const wentToEnd = await scanJobWindows({
+			before: new Date(NOW).toISOString(),
+			after: new Date(NOW - HOUR).toISOString(),
+			pageSize: 10,
+			oldest: async () => undefined,
+			fetchWindow,
+			onWindow: (jobs) => seen.push(...jobs),
+			patienceMs: 5
+		})
+		expect(wentToEnd).toBe(true)
+		expect(seen.map((j) => j.id)).toEqual(at.map((t) => `j${t}`))
+		expect(windows.length).toBeGreaterThan(2)
+	})
+})

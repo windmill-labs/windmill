@@ -10,6 +10,7 @@
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
+	import { displayDate } from '$lib/utils'
 	import {
 		userStore,
 		workspaceStore,
@@ -62,6 +63,7 @@
 		CirclePlay,
 		Clock,
 		Hourglass,
+		Loader2,
 		TriangleAlertIcon
 	} from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -189,6 +191,7 @@
 	}))
 	let batchProgress = $derived(jobsLoader.batchProgress)
 	let currentBatchSize = $derived(jobsLoader.currentBatchSize)
+	let scanProgress = $derived(jobsLoader.scanProgress)
 	let lastFetchWentToEnd = $derived(jobsLoader.lastFetchWentToEnd)
 	let queue_count = $derived(jobsLoader.queue_count)
 	let suspended_count = $derived(jobsLoader.suspended_count)
@@ -940,6 +943,19 @@
 				<Pane minSize={40}>
 					<div class="h-full flex">
 						<div class="flex flex-col flex-1 m-4 mt-2 mr-2">
+							{#if scanProgress}
+								<div class="px-1 pb-2 flex items-center gap-3 text-xs text-secondary">
+									<Loader2 size={14} class="animate-spin shrink-0" />
+									<span>
+										This search is slow, so it runs through the history step by step. Searched back
+										to {displayDate(scanProgress.scannedTo)}, {pluralize(jobs?.length ?? 0, 'run')} found
+										so far.
+									</span>
+									<Button unifiedSize="xs" onClick={() => jobsLoader.stopBatchLoading()}>
+										Stop
+									</Button>
+								</div>
+							{/if}
 							{#if batchProgress}
 								<div class="px-1 pb-2">
 									<BatchLoadProgress
