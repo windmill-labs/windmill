@@ -676,17 +676,21 @@ pub async fn update_flow_status_after_job_completion_internal(
             false
         };
 
+        let honors_child_stop = stop_early_override.is_some()
+            && !is_flow_stop_early_override
+            && !parallel_loop
+            && !parallel_branchall;
+        // Where the child's stop is ignored, a stop this module raises on its own (its
+        // stop_after_if) must keep the ordinary loop-break behaviour.
+        let recovered_by_child = recovered_by_child && honors_child_stop;
+
         let (
             mut stop_early,
             mut stop_early_err_msg,
             mut skip_if_stop_early,
             mut stop_early_include_result,
             continue_on_error,
-        ) = if stop_early_override.is_some()
-            && !is_flow_stop_early_override
-            && !parallel_loop
-            && !parallel_branchall
-        {
+        ) = if honors_child_stop {
             // we ignore stop_early_override (stop_early in children) if module is parallel or is a flow step
             let se = stop_early_override.as_ref().unwrap();
             (true, None, *se, false, false)
@@ -1215,7 +1219,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     stop_early_include_result = false;
                 }
 
-                if is_loop || (is_branch_all && !stop_early) {
+                if (is_loop && !recovered_by_child) || (is_branch_all && !stop_early) {
                     // when we finish a loop or branchall, we only want to evaluate stop_after_all_iters_if if:
                     //  -  we're in a loop (non-parallel)
                     //  -  we're in a branchall and it wasn't stopped early from inside (non-parallel branchall stopped inside => stop flow => no need to evaluate stop_after_all_iters_if)

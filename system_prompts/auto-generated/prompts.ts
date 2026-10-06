@@ -49,7 +49,10 @@ These are strict Windmill schema rules. Follow them exactly.
 - \`preprocessor_module\` and \`failure_module\` only support \`script\` or \`rawscript\`
 - \`preprocessor_module\` runs before normal modules and cannot reference \`results.*\`
 - \`failure_module\` can use the \`error\` object with \`error.message\`, \`error.step_id\`, \`error.name\`, and \`error.stack\`
-- A flow whose \`failure_module\` runs still ends as failed, unless the handler returns an object with \`recover: true\`: the flow then ends as a success, with the handler's result, also when the failing step is inside a loop or branch
+- A flow whose \`failure_module\` runs still ends as failed, unless the handler returns an object with \`recover: true\`, which makes it a success:
+  - failing step at the top level: the flow ends, with the handler's result
+  - inside a sequential loop or a branch: the flow stops there, with the enclosing step's output so far
+  - inside a parallel loop, a parallel branchall or a \`flow\` step: only that iteration, branch or subflow counts as a success, and the flow continues
 
 Correct shape:
 
