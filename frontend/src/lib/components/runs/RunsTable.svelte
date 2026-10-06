@@ -81,6 +81,7 @@
 				if (nextJob?.type === 'date') nextJob = flatJobs?.[idx + (key === 'ArrowDown' ? 2 : -2)]
 				if (nextJob?.type !== 'job') return
 				selectedIds = [nextJob.job.id]
+				dispatch('select')
 				e.preventDefault()
 			}
 		}
