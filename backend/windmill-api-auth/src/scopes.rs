@@ -522,7 +522,8 @@ fn resource_metadata_route_allowed(suffix: &str) -> bool {
 /// The by-id and list routes a path-scoped `jobs:read:<paths>` reaches, as workspaced
 /// route suffixes. Every other read in the domain is refused to it: counts, exports,
 /// uuid listings, queue positions and dispatch edges aggregate over the workspace, and
-/// the view-token and resume-url routes mint a credential.
+/// the view-token and resume-url routes mint a credential (`approval_info` withholds
+/// its view token from a confined caller for the same reason).
 ///
 /// Each entry confines the caller in its handler, through `require_job_read_access` or
 /// a direct `require_job_within_read_scope`. `jobs/result_by_id/` is absent because it
@@ -557,7 +558,7 @@ const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 25] = [
 ];
 
 /// Matched whole: `jobs/list` is also a prefix of the uuid listings. Their handlers
-/// filter in SQL to the confinement's [`JobReadConfinement::list_paths`].
+/// filter in SQL to [`job_list_path_filter`].
 const READ_PATH_SCOPED_LIST_PATHS: [&'static str; 3] =
     ["jobs/list", "jobs/completed/list", "jobs/queue/list"];
 
@@ -600,14 +601,55 @@ impl JobReadConfinement {
         self.run.iter().any(|scope| scope.includes(&required))
     }
 
-    /// The `(exact, prefix)` paths the job lists are filtered to, in the terms of
-    /// [`crate::ScopePathFilter::Restricted`]. Only the read paths: a `jobs:run` scope
-    /// grants no enumeration, so a token holding nothing else lists nothing.
-    pub fn list_paths(&self) -> (&[String], &[String]) {
-        match &self.read_paths {
-            crate::ScopePathFilter::Restricted { exact, prefix } => (exact, prefix),
-            crate::ScopePathFilter::AllowAll => (&[], &[]),
+    /// Whether a `jobs:read:<paths>` scope is part of the confinement.
+    pub fn has_read_paths(&self) -> bool {
+        matches!(&self.read_paths, crate::ScopePathFilter::Restricted { exact, prefix }
+            if !exact.is_empty() || !prefix.is_empty())
+    }
+}
+
+fn push_read_paths(paths: &[String], exact: &mut Vec<String>, prefix: &mut Vec<String>) {
+    for path in paths {
+        match path.strip_suffix("/*") {
+            Some(p) => prefix.push(p.to_string()),
+            None => exact.push(path.clone()),
         }
+    }
+}
+
+/// The paths a token's job lists are filtered to. Decided by its read grants alone,
+/// unlike [`job_read_confinement`]: a `jobs:run` scope grants no enumeration, so even a
+/// bare one beside a `jobs:read:<paths>` leaves the lists on those paths. Unrestricted
+/// for an unscoped token, a `jobs:read` naming no path (or `*`), and `jobs:write`.
+pub fn job_list_path_filter(scopes: Option<&[String]>) -> crate::ScopePathFilter {
+    let mut exact = Vec::new();
+    let mut prefix = Vec::new();
+    let mut scoped = false;
+    for scope in scopes
+        .unwrap_or_default()
+        .iter()
+        .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+    {
+        scoped = true;
+        let Ok(scope) = ScopeDefinition::from_scope_string(scope) else {
+            continue;
+        };
+        if ScopeDomain::from_str(&scope.domain) != Some(ScopeDomain::Jobs) {
+            continue;
+        }
+        match ScopeAction::from_str(&scope.action) {
+            Some(ScopeAction::Read) => match job_read_scope_paths(&scope) {
+                Some(paths) => push_read_paths(paths, &mut exact, &mut prefix),
+                None => return crate::ScopePathFilter::AllowAll,
+            },
+            Some(ScopeAction::Write) => return crate::ScopePathFilter::AllowAll,
+            _ => continue,
+        }
+    }
+    if scoped {
+        crate::ScopePathFilter::Restricted { exact, prefix }
+    } else {
+        crate::ScopePathFilter::AllowAll
     }
 }
 
@@ -654,12 +696,7 @@ pub fn job_read_confinement(scopes: Option<&[String]>) -> Option<JobReadConfinem
                     return None;
                 };
                 confined = true;
-                for path in paths {
-                    match path.strip_suffix("/*") {
-                        Some(p) => prefix.push(p.to_string()),
-                        None => exact.push(path.clone()),
-                    }
-                }
+                push_read_paths(paths, &mut exact, &mut prefix);
             }
             // Grants no reads (see `scope_grants_access`), so it neither confines nor
             // frees them.
@@ -1285,20 +1322,35 @@ mod tests {
         assert!(confinement.admits("scripts", "u/svc/report"));
         assert!(!confinement.admits("scripts", "f/other/etl"));
         assert!(!confinement.admits("scripts", "f/served_not/etl"));
-        assert_eq!(
-            confinement.list_paths(),
-            (
-                &["u/svc/report".to_string()][..],
-                &["f/served".to_string()][..]
-            )
-        );
+        let lists = |s: &[&str], path: &str| job_list_path_filter(Some(&scopes(s))).allows(path);
+        assert!(lists(
+            &["jobs:read:f/served/*,u/svc/report"],
+            "f/served/etl"
+        ));
+        assert!(!lists(
+            &["jobs:read:f/served/*,u/svc/report"],
+            "f/other/etl"
+        ));
 
-        // A run scope adds the runnables it may start, but nothing to the lists.
+        // A run scope adds the runnables it may start to the by-id reads, and nothing to
+        // the lists, not even a bare one that leaves the by-id reads unconfined.
         let both = scopes(&["jobs:read:f/served/*", "jobs:run:scripts:f/other/etl"]);
         let confinement = job_read_confinement(Some(&both)).unwrap();
         assert!(confinement.admits("scripts", "f/other/etl"));
         assert!(!confinement.admits("flows", "f/other/etl"));
-        assert_eq!(confinement.list_paths().0, &[] as &[String]);
+        for run in ["jobs:run:scripts:f/other/etl", "jobs:run"] {
+            assert!(
+                !lists(&["jobs:read:f/served/*", run], "f/other/etl"),
+                "{run}"
+            );
+        }
+        for unfiltered in [
+            &["jobs:read"][..],
+            &["jobs:read:f/served/*", "jobs:write"],
+            &["if_jobs:filter_tags:deno"],
+        ] {
+            assert!(lists(unfiltered, "f/other/etl"), "{unfiltered:?}");
+        }
 
         for unconfined in [
             &["jobs:read:*"][..],

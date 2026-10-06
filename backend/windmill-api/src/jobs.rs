@@ -497,6 +497,28 @@ async fn get_result_by_id(
         view_token.as_deref(),
     )
     .await?;
+    // The node is resolved up through the enclosing flows, so a read path that admitted
+    // `flow_id` as a step must also admit the run it is a step of. A path-scoped
+    // `jobs:read` does not reach this route; a `jobs:run` scope beside it does.
+    if windmill_api_auth::scopes::job_read_confinement(authed.scopes.as_deref())
+        .is_some_and(|c| c.has_read_paths())
+    {
+        let top = sqlx::query_scalar::<_, Uuid>(
+            "WITH RECURSIVE chain(id, parent_job) AS (
+                SELECT id, parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2
+                UNION ALL
+                SELECT j.id, j.parent_job FROM v2_job j
+                    JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
+            )
+            SELECT id FROM chain WHERE parent_job IS NULL",
+        )
+        .bind(flow_id)
+        .bind(&w_id)
+        .fetch_optional(&db)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Job {flow_id} not found")))?;
+        require_job_within_read_scope(&db, &authed, &w_id, &top).await?;
+    }
 
     let res =
         windmill_queue::get_result_by_id(db.clone(), w_id.clone(), flow_id, node_id, json_path)
@@ -1925,6 +1947,16 @@ async fn require_job_within_read_scope(
     else {
         return Ok(());
     };
+    // A job whose token is restricted by `job_token_scopes` still reads its own flow run
+    // (step results, user state), which the route check lets through whatever the
+    // scopes. A read path names what else it may read, not a fence around its own run.
+    if let Some(own_job) = authed.job_id {
+        if confinement.has_read_paths()
+            && windmill_api_auth::auth::job_in_same_flow_run(db, own_job, *job_id).await
+        {
+            return Ok(());
+        }
+    }
     // `scope_kind` is the runnable kind a `jobs:run:<kind>:<path>` scope can name, or
     // NULL for a job no such scope reaches directly (previews, dependency jobs,
     // flow-inlined scripts) — those are still readable as a step of a matching flow,
@@ -4390,13 +4422,12 @@ struct ListableQueuedJob {
 
 /// Narrows a job list to what a path-scoped `jobs:read:<paths>` token may read: the
 /// top-level runs of the runnables it names. A step is read by id, under its flow. No-op
-/// for every caller whose job reads are not confined (see `job_read_confinement`).
+/// for every caller whose lists are not path-filtered (see `job_list_path_filter`).
 fn confine_list_to_read_scope(sqlb: &mut SqlBuilder, authed: &ApiAuthed) {
-    if let Some(confinement) =
-        windmill_api_auth::scopes::job_read_confinement(authed.scopes.as_deref())
+    if let windmill_api_auth::ScopePathFilter::Restricted { exact, prefix } =
+        windmill_api_auth::scopes::job_list_path_filter(authed.scopes.as_deref())
     {
-        let (exact, prefix) = confinement.list_paths();
-        and_where_root_run_at_paths(sqlb, exact, prefix);
+        and_where_root_run_at_paths(sqlb, &exact, &prefix);
     }
 }
 
@@ -5537,8 +5568,17 @@ async fn get_approval_info(
     // Possession of view rights over this approval is sufficient to mint a
     // share-read-link token for the flow: it only grants read (no resume), and only to
     // an authenticated workspace member, so it never widens what the approver can do.
-    let hmac = generate_view_token(&w_id, row.id, VIEW_TOKEN_DOMAIN, &db).await?;
-    let view_token = Some(format!("{}.{hmac}", row.id));
+    // Not for a token whose reads are confined: the link would outlive it and serve any
+    // member, which is why `job_view_token` is refused to it too.
+    let confined = opt_authed.as_ref().is_some_and(|authed| {
+        windmill_api_auth::scopes::job_read_confinement(authed.scopes.as_deref()).is_some()
+    });
+    let view_token = if confined {
+        None
+    } else {
+        let hmac = generate_view_token(&w_id, row.id, VIEW_TOKEN_DOMAIN, &db).await?;
+        Some(format!("{}.{hmac}", row.id))
+    };
 
     Ok(Json(ApprovalInfo {
         flow_id: row.id,
