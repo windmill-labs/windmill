@@ -7549,23 +7549,30 @@ async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
     // can delete the completed job first; a push reusing the id of a deleted job clears it.
     let restricted_row_retention_secs =
         windmill_common::auth::max_job_token_expiry_secs().saturating_add(600) as f64;
-    // A stamp on a queued job is one the statement below raced a re-push of a deleted job's
-    // id into setting: its clock would start before that job has run. Cleared while the job
-    // is still queued, it is at most a cycle early, which the margin above absorbs.
-    sqlx::query!(
-        "UPDATE job_perms jp SET sweep_after = NULL FROM v2_job_queue q
-         WHERE q.id = jp.job_id AND jp.sweep_after IS NOT NULL"
-    )
-    .execute(db)
-    .await?;
-    sqlx::query!(
-        "UPDATE job_perms jp SET sweep_after = now() + make_interval(secs => $1)
+    // A push can reuse the id of a deleted job and take over its row. A single statement
+    // that waited on that push would stamp the now queued job, still judging the queue by
+    // the snapshot it started with; locking first makes the stamp read the queue afresh.
+    let mut tx = db.begin().await?;
+    let unstamped = sqlx::query_scalar!(
+        "SELECT jp.job_id FROM job_perms jp
          WHERE jp.job_token_scopes IS NOT NULL AND jp.sweep_after IS NULL
-           AND NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)",
-        restricted_row_retention_secs
+           AND NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)
+         FOR UPDATE OF jp"
     )
-    .execute(db)
+    .fetch_all(&mut *tx)
     .await?;
+    if !unstamped.is_empty() {
+        sqlx::query!(
+            "UPDATE job_perms jp SET sweep_after = now() + make_interval(secs => $2)
+             WHERE jp.job_id = ANY($1) AND jp.job_token_scopes IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)",
+            &unstamped,
+            restricted_row_retention_secs
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
     total += sqlx::query!(
         "DELETE FROM job_perms jp WHERE jp.sweep_after < now()
            AND NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)"
