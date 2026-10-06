@@ -73,6 +73,7 @@
 
 						<ToggleButtonGroup
 							bind:selected={aws_auth_resource_type}
+							disabled={!can_write}
 							on:selected={() => {
 								aws_resource_path = ''
 							}}
@@ -84,12 +85,18 @@
 						</ToggleButtonGroup>
 
 						{#if aws_auth_resource_type === 'credentials'}
-							<ResourcePicker workspace={wsId} resourceType="aws" bind:value={aws_resource_path} />
+							<ResourcePicker
+								workspace={wsId}
+								resourceType="aws"
+								bind:value={aws_resource_path}
+								disabled={!can_write}
+							/>
 						{:else if aws_auth_resource_type === 'oidc'}
 							<ResourcePicker
 								workspace={wsId}
 								resourceType="aws_oidc"
 								bind:value={aws_resource_path}
+								disabled={!can_write}
 							/>
 						{/if}
 						{#if isValid}
@@ -130,6 +137,7 @@
 				<div class="mt-2">
 					<ToggleButtonGroup
 						selected={tab}
+						disabled={!can_write}
 						on:selected={({ detail }) => {
 							if (detail === 'all') {
 								cached = message_attributes
@@ -153,7 +161,7 @@
 						onCreateItem={(x) => message_attributes.push(x)}
 						placeholder="Set message attributes"
 						noItemsMsg="Add message attributes to filter on"
-						disabled={tab === 'all'}
+						disabled={tab === 'all' || !can_write}
 					/>
 				</div>
 			</Subsection>
