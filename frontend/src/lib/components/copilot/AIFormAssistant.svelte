@@ -13,6 +13,8 @@
 	interface Props {
 		/** Unset for a viewer who cannot edit the item: the card then offers no way to the editor. */
 		onEditInstructions: (() => void) | undefined
+		/** Empty renders the AI button alone, sized for the run form's action row, which
+		 * is where the host places it; a prompt makes this a card of its own. */
 		instructions: string
 		runnableType: 'script' | 'flow'
 		path: string | undefined
@@ -51,37 +53,39 @@
 	)
 </script>
 
-{#if !$copilotInfo.workspaceDisabled}
+{#snippet aiButton(unifiedSize: 'sm' | 'md')}
+	<!-- The fallback is a plain Button rather than AskAiButton, whose own session branch
+	     would fire here too and open an empty session. -->
+	<OpenInSessionButton source={sessionSource} btnProps={{ unifiedSize }}>
+		{#snippet fallback()}
+			<Button
+				{unifiedSize}
+				startIcon={{ icon: WandSparkles }}
+				btnClasses={AIBtnClasses('default')}
+				onclick={fillFormWithAI}
+			>
+				Fill with AI
+			</Button>
+		{/snippet}
+	</OpenInSessionButton>
+{/snippet}
+
+{#if $copilotInfo.workspaceDisabled}
+	<!-- The workspace hid the assistant. -->
+{:else if instructions}
 	<div class="my-2 flex flex-col gap-1">
 		<div class="flex flex-row gap-2 justify-between items-center">
-			{#if instructions}
-				<Button
-					variant="subtle"
-					unifiedSize="sm"
-					startIcon={{ icon: expanded ? ChevronDown : ChevronRight }}
-					onclick={() => (expanded = !expanded)}
-				>
-					AI prompt
-				</Button>
-			{:else}
-				<span></span>
-			{/if}
-			<!-- The fallback is a plain Button rather than AskAiButton, whose own session branch
-			     would fire here too and open an empty session. -->
-			<OpenInSessionButton source={sessionSource} btnProps={{ unifiedSize: 'sm' }}>
-				{#snippet fallback()}
-					<Button
-						unifiedSize="sm"
-						startIcon={{ icon: WandSparkles }}
-						btnClasses={AIBtnClasses('default')}
-						onclick={fillFormWithAI}
-					>
-						Fill with AI
-					</Button>
-				{/snippet}
-			</OpenInSessionButton>
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				startIcon={{ icon: expanded ? ChevronDown : ChevronRight }}
+				onclick={() => (expanded = !expanded)}
+			>
+				AI prompt
+			</Button>
+			{@render aiButton('sm')}
 		</div>
-		{#if instructions && expanded}
+		{#if expanded}
 			<div
 				transition:slide={{ duration: 120 }}
 				class="flex flex-row gap-2 items-start justify-between p-2 bg-surface-secondary rounded-md"
@@ -99,4 +103,6 @@
 			</div>
 		{/if}
 	</div>
+{:else}
+	{@render aiButton('md')}
 {/if}
