@@ -607,9 +607,9 @@
 							{#if optionTabSelected === 'connection_options'}
 								<div class="flex p-2 flex-col gap-2 mt-3">
 									<ToggleButtonGroup bind:selected={client_version} disabled={!can_write}>
-										{#snippet children({ item })}
-											<ToggleButton value="v5" label="Version 5" {item} />
-											<ToggleButton value="v3" label="Version 3" {item} />
+										{#snippet children({ item, disabled })}
+											<ToggleButton value="v5" label="Version 5" {item} {disabled} />
+											<ToggleButton value="v3" label="Version 3" {item} {disabled} />
 										{/snippet}
 									</ToggleButtonGroup>
 

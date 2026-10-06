@@ -232,18 +232,19 @@
 						disabled={!can_write}
 						on:selected={(e) => onCredentialsModeChange(e.detail === 'default')}
 					>
-						{#snippet children({ item })}
+						{#snippet children({ item, disabled })}
 							<ToggleButton
 								label="Service account"
 								value="resource"
 								tooltip="Authenticate with a service account key held in a GCP resource."
 								showTooltipIcon
 								{item}
+								{disabled}
 							/>
 							<ToggleButton
 								label="Application default credentials"
 								value="default"
-								disabled={!canUseDefaultCredentials}
+								disabled={disabled || !canUseDefaultCredentials}
 								tooltip={canUseDefaultCredentials
 									? 'Authenticate as the Windmill server itself, using the credentials of its environment (workload identity, the metadata server, or GOOGLE_APPLICATION_CREDENTIALS).'
 									: 'Workspace admins can authenticate as the Windmill server itself. Ask one to set this up.'}
@@ -357,13 +358,14 @@
 								}
 							}}
 						>
-							{#snippet children({ item })}
+							{#snippet children({ item, disabled })}
 								<ToggleButton
 									label="Create/Update"
 									value="create_update"
 									tooltip="Create a new subscription or update an existing one with custom settings"
 									showTooltipIcon
 									{item}
+									{disabled}
 								/>
 								<ToggleButton
 									label="Existing subscription"
@@ -371,6 +373,7 @@
 									tooltip="Select an existing subscription from GCP Pub/Sub"
 									showTooltipIcon
 									{item}
+									{disabled}
 								/>
 							{/snippet}
 						</ToggleButtonGroup>
@@ -400,13 +403,14 @@
 								>
 									<div class="flex flex-col gap-2 mt-2">
 										<ToggleButtonGroup bind:selected={delivery_type} disabled={!can_write}>
-											{#snippet children({ item })}
+											{#snippet children({ item, disabled })}
 												<ToggleButton
 													label="Pull"
 													tooltip="Create a subscription where your service will pull messages from the queue. Suitable for services that periodically check for new messages."
 													value="pull"
 													showTooltipIcon
 													{item}
+													{disabled}
 												/>
 												<ToggleButton
 													label="Push"
@@ -414,6 +418,7 @@
 													showTooltipIcon
 													value="push"
 													{item}
+													{disabled}
 												/>
 											{/snippet}
 										</ToggleButtonGroup>

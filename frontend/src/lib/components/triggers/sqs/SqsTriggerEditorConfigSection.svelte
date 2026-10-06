@@ -78,9 +78,9 @@
 								aws_resource_path = ''
 							}}
 						>
-							{#snippet children({ item })}
-								<ToggleButton label="Credentials" value="credentials" {item} />
-								<ToggleButton label="Oidc" value="oidc" {item} />
+							{#snippet children({ item, disabled })}
+								<ToggleButton label="Credentials" value="credentials" {item} {disabled} />
+								<ToggleButton label="Oidc" value="oidc" {item} {disabled} />
 							{/snippet}
 						</ToggleButtonGroup>
 
@@ -148,9 +148,9 @@
 							tab = detail
 						}}
 					>
-						{#snippet children({ item })}
-							<ToggleButton value="all" label="All attributes" {item} />
-							<ToggleButton value="specific" label="Specific attributes" {item} />
+						{#snippet children({ item, disabled })}
+							<ToggleButton value="all" label="All attributes" {item} {disabled} />
+							<ToggleButton value="specific" label="Specific attributes" {item} {disabled} />
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>

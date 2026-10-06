@@ -129,10 +129,25 @@
 											</span>
 										</div>
 										<ToggleButtonGroup bind:selected={v.qos} disabled={!can_write}>
-											{#snippet children({ item })}
-												<ToggleButton value={'qos0'} label="At most once (QoS 0)" {item} />
-												<ToggleButton value={'qos1'} label="At least once (QoS 1)" {item} />
-												<ToggleButton value={'qos2'} label="Exactly once (QoS 2)" {item} />
+											{#snippet children({ item, disabled })}
+												<ToggleButton
+													value={'qos0'}
+													label="At most once (QoS 0)"
+													{item}
+													{disabled}
+												/>
+												<ToggleButton
+													value={'qos1'}
+													label="At least once (QoS 1)"
+													{item}
+													{disabled}
+												/>
+												<ToggleButton
+													value={'qos2'}
+													label="Exactly once (QoS 2)"
+													{item}
+													{disabled}
+												/>
 											{/snippet}
 										</ToggleButtonGroup>
 									</label>
