@@ -235,7 +235,7 @@ let plugin = {
 			if (isPreviewShell(req.url ?? '')) {
 				res.setHeader(
 					'Content-Security-Policy',
-					'sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads'
+					'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation'
 				)
 			}
 			// CORP on everything so dev assets stay loadable as subresources of

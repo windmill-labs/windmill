@@ -101,13 +101,15 @@ fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<
             }
 
             // The raw-app preview shell evaluates whatever js is posted to it, so it is
-            // only ever served opaque-origin, like the deployed app wrapper. Matched on
-            // the embedded file, not the request path, so `//ui_builder/...` is covered.
-            // The editor loads a same-origin blob: copy of it instead.
+            // only ever served opaque-origin, with the deployed app wrapper's exact flags
+            // (`get_raw_app_data`). Matched on the embedded file, not the request path,
+            // so `//ui_builder/...` is covered. The editor loads a same-origin blob: copy.
             if path == "ui_builder/app-preview.html" {
                 res = res.header(
                     header::CONTENT_SECURITY_POLICY,
-                    "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads",
+                    "sandbox allow-scripts allow-forms allow-popups \
+                     allow-popups-to-escape-sandbox allow-downloads allow-modals \
+                     allow-top-navigation",
                 );
             }
 
