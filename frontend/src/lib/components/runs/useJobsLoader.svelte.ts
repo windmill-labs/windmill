@@ -122,6 +122,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let batchProgress = $state<{ loaded: number; total: number } | null>(null)
 	let scanProgress = $state<{ scannedTo: string } | null>(null)
 	let activeScan: CancelablePromise<boolean> | undefined
+	// The page being listed, single request or scan. Only the filter-change load is otherwise
+	// tracked for cancellation, and a page left running writes into whatever listing replaces its own.
+	let activePage: CancelablePromise<boolean> | undefined
 	// Queue-only views list no completed job, and concurrency-key views go through another endpoint.
 	let canScanWindows = $derived(!isQueueOnly && (concurrencyKey == null || concurrencyKey === ''))
 
@@ -306,7 +309,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				return res.length < page.pageSize
 			})
 		}
-		return new CancelablePromise<boolean>((resolve, reject, onCancel) => {
+		const fetched = new CancelablePromise<boolean>((resolve, reject, onCancel) => {
 			let scan: CancelablePromise<boolean> | undefined
 			onCancel(() => {
 				clearTimeout(timer)
@@ -332,6 +335,13 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				}
 			)
 		})
+		activePage?.cancel()
+		activePage = fetched
+		const done = () => {
+			if (activePage === fetched) activePage = undefined
+		}
+		fetched.then(done, done)
+		return fetched
 	}
 
 	function scanWindows(
@@ -546,12 +556,16 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	async function loadJobs(reset: boolean, shouldGetCount?: boolean): Promise<void> {
 		if (reset) resetJobs()
-		await loadJobsIntern(shouldGetCount)
+		try {
+			await loadJobsIntern(shouldGetCount)
+		} catch (e) {
+			if (!(e instanceof CancelError)) throw e
+		}
 	}
 
 	function stopBatchLoading(): void {
 		paramChangePromise?.cancel()
-		activeScan?.cancel()
+		activePage?.cancel()
 		if (slowStreamIntervalId) {
 			clearInterval(slowStreamIntervalId)
 			slowStreamIntervalId = undefined
@@ -562,8 +576,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	}
 
 	function resetJobs() {
-		// A scan started by "load more" outlives the listing it extends unless stopped here.
-		activeScan?.cancel()
+		activePage?.cancel()
 		jobs = undefined
 		completedJobs = undefined
 		externalJobs = undefined
@@ -896,7 +909,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			slowStreamIntervalId = undefined
 		}
 		paramChangePromise?.cancel()
-		activeScan?.cancel()
+		activePage?.cancel()
 	})
 	$effect(() => {
 		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilterInstance])
