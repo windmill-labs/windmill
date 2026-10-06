@@ -1,6 +1,7 @@
 // This is Monaco's advanced diff engine; it supplies the same multi-line inner ranges.
 import { DefaultLinesDiffComputer } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/defaultLinesDiffComputer/defaultLinesDiffComputer'
 import type { ToolCodeDiff, ToolDisplayMessage } from './shared'
+import { appFileEditorLang } from './appFileEditorLang'
 
 // Builds a diff from a call's own arguments, for the moments the saved `codeDiff` does not
 // exist: while the arguments stream, when the call failed, and for transcripts saved before
@@ -24,17 +25,39 @@ const ARGS_DIFF_BY_TOOL: Record<string, (params: unknown) => ToolCodeDiff | unde
 			)
 		}
 		return argumentDiff(streamingEditArguments(params)) ?? fullContentArgumentDiff(params, 'code')
+	},
+	patch_app_file: (params) => {
+		const diff = argumentDiff(streamingEditArguments(params))
+		return diff && { ...diff, lang: appFileEditorLang(argumentString(params, 'file_path')) }
+	},
+	write_app_file: (params) => {
+		const diff = fullContentArgumentDiff(params, 'content')
+		return diff && { ...diff, lang: appFileEditorLang(argumentString(params, 'file_path')) }
+	},
+	write_app_runnable: (params) => {
+		const inlineScript =
+			params && typeof params === 'object'
+				? (params as { runnable?: { inlineScript?: unknown } }).runnable?.inlineScript
+				: params
+		const diff = fullContentArgumentDiff(inlineScript, 'content')
+		const language = argumentString(inlineScript, 'language')
+		return (
+			diff && { ...diff, lang: appFileEditorLang(language === 'python3' ? 'main.py' : 'main.ts') }
+		)
 	}
 }
 
+function argumentString(params: unknown, key: string): string | undefined {
+	if (params && typeof params === 'object') {
+		const value = (params as Record<string, unknown>)[key]
+		return typeof value === 'string' ? value : undefined
+	}
+	return typeof params === 'string' ? partialJsonString(params, key) : undefined
+}
+
 function fullContentArgumentDiff(params: unknown, key: string): ToolCodeDiff | undefined {
-	const content =
-		params && typeof params === 'object'
-			? (params as Record<string, unknown>)[key]
-			: typeof params === 'string'
-				? partialJsonString(params, key)
-				: undefined
-	return typeof content === 'string' ? { before: '', after: content, lang: 'plaintext' } : undefined
+	const content = argumentString(params, key)
+	return content !== undefined ? { before: '', after: content, lang: 'plaintext' } : undefined
 }
 
 function argumentDiff(
@@ -104,8 +127,22 @@ function partialJsonStrings(partialJson: string, key: string): string[] {
 	return result
 }
 
-export function hasToolCodeDiff(toolName: string | undefined): boolean {
-	return toolName !== undefined && Object.hasOwn(ARGS_DIFF_BY_TOOL, toolName)
+export function hasToolCodeDiff(message: ToolDisplayMessage): boolean {
+	if (message.codeDiff) return true
+	if (!message.toolName || !Object.hasOwn(ARGS_DIFF_BY_TOOL, message.toolName)) return false
+	// A runnable that references a workspace or hub item has no code to diff, so it keeps the
+	// generic card, whose details show the target and static inputs. Until `type` has streamed
+	// past a prefix of "inline", the call is assumed inline so an inline runnable does not
+	// switch cards mid-stream.
+	if (message.toolName === 'write_app_runnable') {
+		const params = message.parameters
+		const type =
+			params && typeof params === 'object'
+				? (params as { runnable?: { type?: unknown } }).runnable?.type
+				: argumentString(params, 'type')
+		return type === undefined || (typeof type === 'string' && 'inline'.startsWith(type))
+	}
+	return true
 }
 
 export function toolCodeDiff(message: ToolDisplayMessage): ToolCodeDiff | undefined {
@@ -116,11 +153,19 @@ export function toolCodeDiff(message: ToolDisplayMessage): ToolCodeDiff | undefi
 		: undefined
 }
 
+const WHOLE_FILE_TOOLS = new Set([
+	'write_script',
+	'write_app_file',
+	'write_app_runnable',
+	'delete_app_file',
+	'delete_app_runnable'
+])
+
 // Decided by tool and argument shape, never by the saved `codeDiff`: an overwrite's saved diff
 // has a before side, and clearing a script leaves both argument sides empty, yet both calls sent
-// a whole file.
-export function argumentsCarryWholeFile(message: ToolDisplayMessage): boolean {
-	if (message.toolName === 'write_script') return true
+// a whole file. A delete's diff is the whole removed file, saved while the call still runs.
+export function diffIsWholeFile(message: ToolDisplayMessage): boolean {
+	if (message.toolName && WHOLE_FILE_TOOLS.has(message.toolName)) return true
 	if (message.toolName !== 'edit_code') return false
 	const params = message.parameters
 	if (typeof params === 'string') return /"code"\s*:/.test(params)

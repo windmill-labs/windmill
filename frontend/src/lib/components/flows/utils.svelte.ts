@@ -12,6 +12,7 @@ import {
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
 import { unescapeTemplateBackticks } from '$lib/utils/templateLiteral'
+import { evalSandboxed } from '$lib/utils/quickjsEval.svelte'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
@@ -22,25 +23,6 @@ import { sendUserToast } from '$lib/toast'
 import type { ExtendedOpenFlow } from './types'
 import type { GraphModuleState } from '../graph'
 import type { ModulesTestStates } from '../modulesTest.svelte'
-
-function create_context_function_template(eval_string: string, context: Record<string, any>) {
-	return `
-return function (context) {
-"use strict";
-${
-	Object.keys(context).length > 0
-		? `let ${Object.keys(context).map((key) => ` ${key} = context['${key}']`)};`
-		: ``
-}
-return ${eval_string}
-}`
-}
-
-function make_context_evaluator(eval_string, context): (context) => any {
-	let template = create_context_function_template(eval_string, context)
-	let functor = Function(template)
-	return functor()
-}
 
 export function evalValue(
 	k: string,
@@ -56,11 +38,10 @@ export function evalValue(
 		v = t.value
 	} else if (t?.type == 'javascript') {
 		try {
-			let context = {
+			v = evalSandboxed(t.expr, {
 				flow_input: pickableProperties?.flow_input,
 				results: pickableProperties?.priorIds
-			}
-			v = make_context_evaluator(t.expr, context)(context)
+			})
 		} catch (e) {
 			if (showError) {
 				sendUserToast(`Error evaluating ${k}: ${e.message}`, true)

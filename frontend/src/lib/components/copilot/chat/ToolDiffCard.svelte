@@ -4,7 +4,7 @@
 	import ToolCodeDiffView from './ToolCodeDiffView.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import {
-		argumentsCarryWholeFile,
+		diffIsWholeFile,
 		diffLineCounts,
 		toolCodeDiff,
 		toolDiffLineCounts,
@@ -13,9 +13,10 @@
 
 	interface Props {
 		message: ToolDisplayMessage
+		hidePreviewChip?: boolean
 	}
 
-	let { message }: Props = $props()
+	let { message, hidePreviewChip = false }: Props = $props()
 
 	const diff = $derived(toolCodeDiff(message))
 	const isStreaming = $derived(Boolean(message.isStreamingArguments))
@@ -25,16 +26,17 @@
 
 	// Keyed by call id: a bare flag would carry the expansion onto the next message that
 	// reuses this instance. An active or failed call opens by itself, and remains open
-	// when it settles so the new diff does not disappear under the user. A call whose arguments
-	// are a whole file (`write_script`, full-code `edit_code`) opens only on failure. The key
-	// also changes on failure, so a collapse made while running cannot hide the error.
+	// when it settles so the new diff does not disappear under the user. A call whose diff is a
+	// whole file (`write_script`, full-code `edit_code`, raw app writes and deletes) opens only
+	// on failure. The key also changes on failure, so a collapse made while running cannot hide
+	// the error.
 	const toggleKey = $derived(`${message.tool_call_id}:${message.error ? 'error' : ''}`)
 	let toggled = $state<{ id: string; open: boolean } | undefined>(undefined)
 	const opensByDefault = $derived(
 		Boolean(
 			message.error ||
 				(hasDiff &&
-					!argumentsCarryWholeFile(message) &&
+					!diffIsWholeFile(message) &&
 					(message.isLoading || message.isQueued || message.isStreamingArguments))
 		)
 	)
@@ -43,9 +45,7 @@
 			toggled = { id: toggleKey, open: true }
 		}
 	})
-	const expanded = $derived(
-		hasBody && (toggled?.id === toggleKey ? toggled.open : opensByDefault)
-	)
+	const expanded = $derived(hasBody && (toggled?.id === toggleKey ? toggled.open : opensByDefault))
 	const lines = $derived(diff && expanded ? toolDiffLines(diff, isStreaming) : undefined)
 	const counts = $derived(
 		diff && expanded
@@ -57,7 +57,7 @@
 
 	const isRunning = $derived(Boolean(message.isLoading && !message.needsConfirmation))
 	const showPreviewChip = $derived(
-		Boolean(message.previewCard && !message.isLoading && !message.error)
+		Boolean(!hidePreviewChip && message.previewCard && !message.isLoading && !message.error)
 	)
 </script>
 

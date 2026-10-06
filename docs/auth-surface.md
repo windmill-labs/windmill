@@ -71,7 +71,10 @@ Symbols, not line numbers, are cited: they drift less.
   unscoped token for every job. `$var:`/`$res:` args are resolved through the API with the job's
   own token, so they need read scopes. A deploy that omits the setting keeps the deployed value
   and `null` clears it, so an unaware client cannot drop a restriction; setting one is refused
-  until every worker supports it, since an older worker mints without it. The setting belongs to
+  until every worker supports it, since an older worker mints without it. The OIDC
+  `job_token_scopes` claim is the presented token's scopes, not the runnable's setting, so a
+  verifier sees what the job could reach and a token minted without the restriction shows as
+  unrestricted. The setting belongs to
   the deployed version: an older script hash run by hash runs with that version's setting (a
   restricted caller still caps it). Write scopes on scripts, flows, schedules or triggers let a
   job escape its restriction.

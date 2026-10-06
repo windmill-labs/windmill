@@ -114,9 +114,13 @@
 	// otherwise the error set on its status would be invisible.
 	const detailsAvailable = $derived(message.showDetails === true || message.error !== undefined)
 
+	// Queued and running calls stay closed: their label already says what they are doing, and
+	// opening them would only show empty logs and result. A call opens while its arguments
+	// stream, while it waits on the user, and once it has an error or details to keep in view.
 	let isExpanded = $derived(
 		Boolean(
-			(detailsAvailable && (!isSuccessful || !autoCollapseDetails)) ||
+			(detailsAvailable &&
+				(message.error !== undefined || (isSuccessful && !autoCollapseDetails))) ||
 				(message.isStreamingArguments && hasParameters) ||
 				(message.isLoading && message.needsConfirmation)
 		)
@@ -137,7 +141,7 @@
 	// A call that inspected a run rather than starting one gets the same card, bound to
 	// the job it named — what happened in a run reads the same either way.
 	const isRunCard = $derived(Boolean(message.runForm || message.inspectedRun))
-	const isDiffCard = $derived(Boolean(message.codeDiff) || hasToolCodeDiff(message.toolName))
+	const isDiffCard = $derived(hasToolCodeDiff(message))
 
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
@@ -193,7 +197,7 @@
 {:else if isRunCard}
 	<RunScriptCard {message} />
 {:else if isDiffCard}
-	<ToolDiffCard {message} />
+	<ToolDiffCard {message} {hidePreviewChip} />
 {:else if planState}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->
