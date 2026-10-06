@@ -78,11 +78,14 @@ function contrast(a: number, b: number): number {
 	return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
 }
 
-/** Luminance of what `hslFloorL` paints, not of the exact numbers: a percent of lightness is
- *  worth more than the margin being solved for. */
+/** Luminance of what the browser paints, which is neither the exact numbers nor the `hsl()` string
+ *  alone: the string carries whole percents, and the channels it resolves to are 8-bit. Solving
+ *  against the unrounded channels leaves the chosen lightness up to 0.025 short of the target once
+ *  painted, which is enough to miss AA on a hue like #993388. */
 function paintedLuminance(h: number, s: number, l: number): number {
 	const [r, g, b] = hslToRgb(Math.round(h), Math.round(s * 100) / 100, Math.floor(l * 100) / 100)
-	return relativeLuminance(r, g, b)
+	const q = (x: number) => Math.round(x * 255) / 255
+	return relativeLuminance(q(r), q(g), q(b))
 }
 
 /**

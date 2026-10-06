@@ -1582,7 +1582,13 @@
 						kind: 'flow',
 						path: pathSnapshot ?? $pathStore,
 						summaryContent: flowSummary,
-						pathTrigger: flowPathTrigger
+						// Gated like the summary's own editor: a host that allows neither field keeps the
+						// band's segment, which copies the path.
+						pathTrigger:
+							customUi?.topBar?.editablePath != false ||
+							customUi?.topBar?.editableSummary != false
+								? flowPathTrigger
+								: undefined
 					}}
 					actions={flowHeaderActions}
 					contexts={headerContexts}

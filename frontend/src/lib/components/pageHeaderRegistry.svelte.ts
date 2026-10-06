@@ -6,7 +6,8 @@ export type PageHeaderItem = {
 	/** Absent for an item the picker does not file under a kind — an agent's detail page. The
 	 *  breadcrumb then names the item without claiming it is one of the three. */
 	kind?: WorkspaceItemKind
-	/** Shown whole. Clicking it opens `onEditName` where a page offers one, and copies otherwise. */
+	/** Shown whole. Clicking it opens whatever the page hangs off it with `pathTrigger`, and copies
+	 *  the path where there is none. */
 	path: string | undefined
 	/** Wraps the band's own path segment in whatever the page wants behind it — its rename
 	 *  popover, anchored there rather than beside the summary, so the editor opens under the half

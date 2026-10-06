@@ -319,7 +319,9 @@
 				item={{
 					path: pathSnapshot ?? shownPath,
 					summaryContent: agentSummary,
-					pathTrigger: agentPathTrigger
+					// Only where the rename behind it can be saved: a reader who cannot write this agent
+					// keeps the segment that copies the path, rather than an editor with nothing to edit.
+					pathTrigger: readOnly ? undefined : agentPathTrigger
 				}}
 				afterName={agentHint}
 				actions={settings}

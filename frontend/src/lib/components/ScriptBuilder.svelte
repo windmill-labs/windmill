@@ -2299,7 +2299,12 @@
 					// invalidates the band before this component is torn down.
 					path: pathSnapshot ?? script?.path,
 					summaryContent: scriptSummary,
-					pathTrigger: scriptPathTrigger
+					// Gated like the summary's own editor: a host that allows neither field keeps the
+					// band's segment, which copies the path.
+					pathTrigger:
+						customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false
+							? scriptPathTrigger
+							: undefined
 				}}
 				afterName={scriptMarks}
 				actions={scriptHeaderActions}
