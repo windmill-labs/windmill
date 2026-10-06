@@ -7067,8 +7067,8 @@ async fn push_inner<'c, 'd>(
                 memory_id: None,
                 no_inherited_flow_env: false,
             };
-            // The completed job's own scopes are gone with its `job_perms` row, so the restart
-            // takes the flow's current setting (and the restarting caller's ceiling).
+            // The restart takes the flow's current setting (and the restarting caller's
+            // ceiling), not the scopes the completed run had.
             let job_token_scopes = match &flow_path {
                 Some(flow_path) => sqlx::query_scalar::<_, Option<Vec<String>>>(
                     "SELECT job_token_scopes FROM flow WHERE path = $1 AND workspace_id = $2",

@@ -719,6 +719,13 @@ pub async fn job_token_expiry_secs(_db: &DB, _w_id: &str) -> u64 {
     job_token_expiry_from_premium(premium)
 }
 
+/// The longest lifetime [`job_token_expiry_secs`] gives a token in any workspace.
+pub fn max_job_token_expiry_secs() -> u64 {
+    crate::worker::SCRIPT_TOKEN_EXPIRY_OVERRIDE.unwrap_or_else(|| {
+        job_token_expiry_from_premium(cfg!(feature = "cloud") && *crate::worker::CLOUD_HOSTED)
+    })
+}
+
 /// Cap on the setup slack below. Where the ceiling is already days, slack buys nothing and only
 /// widens the credential; an hour is what a dependency install realistically needs.
 const JOB_TOKEN_SETUP_SLACK_CAP_SECS: u64 = 3600;

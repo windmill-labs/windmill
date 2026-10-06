@@ -71,7 +71,16 @@ Symbols, not line numbers, are cited: they drift less.
   unscoped token for every job. `$var:`/`$res:` args are resolved through the API with the job's
   own token, so they need read scopes. A deploy that omits the setting keeps the deployed value
   and `null` clears it, so an unaware client cannot drop a restriction; setting one is refused
-  until every worker supports it, since an older worker mints without it. The setting belongs to
+  until every worker supports it, since an older worker mints without it. That gate only counts
+  workers that pinged in the last 5 minutes, never servers (which mint for agent workers, inline
+  AI tools and zombie jobs) nor a worker that joins later, so the auth layer is what enforces it:
+  `try_get_opt_job_authed` refuses (401) an unscoped token whose job's `job_perms` row is
+  restricted. Hence the one exception to the sweep: a restricted row stays until every token of
+  its job has expired (`cleanup_job_perms_orphaned`), or a token leaked by an old worker would
+  turn unrestricted when its job completes. The lookup runs once per job per server
+  (`UNRESTRICTED_JOBS`), not per request: `AUTH_CACHE` holds 300 entries. The OIDC
+  `job_token_scopes` claim is the presented token's scopes, not the runnable's setting, so a
+  verifier sees what the job could reach. The setting belongs to
   the deployed version: an older script hash run by hash runs with that version's setting (a
   restricted caller still caps it). Write scopes on scripts, flows, schedules or triggers let a
   job escape its restriction.

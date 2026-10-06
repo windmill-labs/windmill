@@ -7528,7 +7528,8 @@ async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
             "DELETE FROM job_perms
              WHERE ctid IN (
                  SELECT jp.ctid FROM job_perms jp
-                 WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)
+                 WHERE jp.job_token_scopes IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)
                  LIMIT 100000
              )"
         )
@@ -7540,6 +7541,27 @@ async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
             break;
         }
     }
+
+    // The row of a restricted job is what tells the API to refuse an unscoped token for it
+    // (one minted by a worker or server older than `job_token_scopes`), so it stays until
+    // every token of the job has expired. The last one can be minted as the job completes.
+    // A statement of its own: folded into the sweep above as an `OR`, it would be planned as
+    // a hash of every job completed within the retention.
+    let restricted_row_retention_secs =
+        windmill_common::auth::max_job_token_expiry_secs().saturating_add(600) as f64;
+    total += sqlx::query!(
+        "DELETE FROM job_perms jp
+         WHERE jp.job_token_scopes IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)
+           AND NOT EXISTS (
+               SELECT 1 FROM v2_job_completed c
+               WHERE c.id = jp.job_id AND c.completed_at > now() - make_interval(secs => $1)
+           )",
+        restricted_row_retention_secs
+    )
+    .execute(db)
+    .await?
+    .rows_affected();
 
     if total > 0 {
         tracing::info!("Cleaned up {total} orphaned job_perms rows");

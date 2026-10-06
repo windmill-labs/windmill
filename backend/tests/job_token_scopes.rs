@@ -18,6 +18,15 @@ async fn insert_job(
     parent: Option<&str>,
     scopes: &[&str],
 ) -> anyhow::Result<()> {
+    insert_job_with(db, id, parent, Some(scopes)).await
+}
+
+async fn insert_job_with(
+    db: &Pool<Postgres>,
+    id: &str,
+    parent: Option<&str>,
+    scopes: Option<&[&str]>,
+) -> anyhow::Result<()> {
     let id = Uuid::parse_str(id)?;
     sqlx::query(
         "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
@@ -351,5 +360,112 @@ async fn test_deploy_without_the_field_keeps_the_restriction(
         .await?;
     assert!(resp.status().is_success(), "{}", resp.text().await?);
     assert_eq!(stored("u/test-user/renamed").await?, None);
+    Ok(())
+}
+
+/// The token a worker or server older than `job_token_scopes` mints: the job's identity,
+/// none of its scopes.
+async fn unscoped_job_token(db: &Pool<Postgres>, id: &str) -> anyhow::Result<String> {
+    Ok(windmill_common::auth::create_token_for_owner(
+        db,
+        "test-workspace",
+        "u/test-user-3",
+        "ephemeral-script",
+        300,
+        "test3@windmill.dev",
+        &Uuid::parse_str(id)?,
+        Some(windmill_common::auth::JobPerms {
+            email: "test3@windmill.dev".to_string(),
+            username: "test-user-3".to_string(),
+            is_admin: false,
+            is_operator: false,
+            groups: vec![],
+            folders: vec![],
+            end_user_email: None,
+            job_token_scopes: None,
+        }),
+        None,
+    )
+    .await?)
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_unscoped_token_of_restricted_job_is_refused(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    const OPEN_JOB: &str = "b0000000-0000-0000-0000-000000000005";
+    insert_job(&db, OIDC_JOB, None, &["oidc:write"]).await?;
+    insert_job_with(&db, OPEN_JOB, None, None).await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    set_jwt_secret().await;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace",
+        server.addr.port()
+    );
+    let client = reqwest::Client::new();
+    let list_variables = |token: String| {
+        client
+            .get(format!("{base}/variables/list"))
+            .bearer_auth(token)
+            .send()
+    };
+
+    let resp = list_variables(unscoped_job_token(&db, OIDC_JOB).await?).await?;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert!(resp.text().await?.contains("restricted"));
+    let resp = list_variables(unscoped_job_token(&db, OPEN_JOB).await?).await?;
+    assert_eq!(resp.status(), StatusCode::OK, "{}", resp.text().await?);
+    Ok(())
+}
+
+/// The OIDC `job_token_scopes` claim states the scopes of the token that asked for it.
+#[cfg(all(feature = "enterprise", feature = "private", feature = "openidconnect"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_oidc_claim_carries_the_presented_scopes(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use base64::Engine;
+
+    initialize_tracing().await;
+    const OPEN_JOB: &str = "b0000000-0000-0000-0000-000000000005";
+    insert_script(&db, "u/test-user-3/agent", 535353, None).await?;
+    insert_job(&db, OIDC_JOB, None, &["oidc:write"]).await?;
+    insert_job_with(&db, OPEN_JOB, None, None).await?;
+    sqlx::query("UPDATE v2_job SET runnable_id = 535353 WHERE id = ANY($1)")
+        .bind([Uuid::parse_str(OIDC_JOB)?, Uuid::parse_str(OPEN_JOB)?])
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_queue (id, workspace_id, running, scheduled_for, tag)
+        SELECT id, workspace_id, true, now(), tag FROM v2_job WHERE id = ANY($1)",
+    )
+    .bind([Uuid::parse_str(OIDC_JOB)?, Uuid::parse_str(OPEN_JOB)?])
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    set_jwt_secret().await;
+    // The issuer of the minted token.
+    windmill_common::BASE_URL.store(std::sync::Arc::new("http://localhost".to_string()));
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace",
+        server.addr.port()
+    );
+    let client = reqwest::Client::new();
+    for (job, expected) in [(OIDC_JOB, json!(["oidc:write"])), (OPEN_JOB, json!(null))] {
+        let resp = client
+            .post(format!("{base}/oidc/token/test-audience"))
+            .bearer_auth(job_token(&db, job).await?)
+            .send()
+            .await?;
+        let status = resp.status();
+        let id_token = resp.text().await?;
+        assert_eq!(status, StatusCode::OK, "{id_token}");
+        let payload = id_token.split('.').nth(1).expect("a JWT payload");
+        let claims: serde_json::Value = serde_json::from_slice(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload)?,
+        )?;
+        assert_eq!(claims["job_token_scopes"], expected, "{job}");
+    }
     Ok(())
 }

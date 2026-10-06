@@ -40,6 +40,10 @@ lazy_static::lazy_static! {
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
     // Cache for token -> email lookups (for non-workspace-member authenticated users)
     static ref TOKEN_EMAIL_CACHE: Cache<String, (Option<String>, std::time::Instant)> = Cache::new(500);
+    // Jobs known to have no `job_token_scopes`. A job's scopes never change after push, so an
+    // entry never goes stale; it spares the lookup `AUTH_CACHE` is too small to spare on a
+    // busy instance.
+    static ref UNRESTRICTED_JOBS: Cache<uuid::Uuid, ()> = Cache::new(20_000);
 }
 
 /// A token keeps its identity when a superadmin moves the account to another address, so entries
@@ -164,29 +168,86 @@ impl AuthCache {
         w_id: Option<String>,
         token: &str,
     ) -> Option<OptJobAuthed> {
-        let mut opt_job_authed = self.get_opt_job_authed_inner(w_id.clone(), token).await?;
+        self.try_get_opt_job_authed(w_id, token)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// [`get_opt_job_authed`](Self::get_opt_job_authed), with `Err` for a token that is
+    /// genuine but refused for a reason its holder should be told.
+    pub async fn try_get_opt_job_authed(
+        &self,
+        w_id: Option<String>,
+        token: &str,
+    ) -> Result<Option<OptJobAuthed>, Error> {
+        let Some(mut opt_job_authed) = self.get_opt_job_authed_inner(w_id.clone(), token).await
+        else {
+            return Ok(None);
+        };
         // Single source of truth: mirror the resolved job_id onto the authed so
         // every consumer (require_super_admin, ...) sees that this identity came
         // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
         // predates this field.
         opt_job_authed.authed.job_id = opt_job_authed.job_id;
+        if let Some(job_id) = opt_job_authed.job_id {
+            if crate::is_effectively_unscoped(opt_job_authed.authed.scopes.as_deref()) {
+                self.refuse_unscoped_token_of_restricted_job(job_id).await?;
+            }
+        }
         // The workspace's guest switch is enforced here, once, for every guest request
         // — not per handler, where each guest-reachable route would have to remember
         // it. Uncached, so turning guests off takes effect on the next request of every
         // guest session and every token derived from one.
         if crate::scopes::has_guest_sentinel(opt_job_authed.authed.scopes.as_deref()) {
-            let Some(w_id) = w_id else { return None };
+            let Some(w_id) = w_id else { return Ok(None) };
             let email = &opt_job_authed.authed.email;
             match windmill_common::workspaces::guest_session_stands(&self.db, &w_id, email).await {
                 Ok(true) => {}
-                Ok(false) => return None,
+                Ok(false) => return Ok(None),
                 Err(e) => {
                     tracing::error!("guest session check failed for {w_id}: {e:#}");
-                    return None;
+                    return Ok(None);
                 }
             }
         }
-        Some(opt_job_authed)
+        Ok(Some(opt_job_authed))
+    }
+
+    /// A job token carries scopes exactly when its job is restricted, so an unscoped one for
+    /// a restricted job was minted by a worker or server that predates `job_token_scopes`
+    /// and would hold everything the restriction withholds. The version gate on saving a
+    /// restriction cannot rule that out: it sees neither servers nor a worker that joins
+    /// later. Restricted rows outlive their job's tokens (`cleanup_job_perms_orphaned`), so
+    /// a missing row means unrestricted.
+    async fn refuse_unscoped_token_of_restricted_job(
+        &self,
+        job_id: uuid::Uuid,
+    ) -> Result<(), Error> {
+        if UNRESTRICTED_JOBS.get(&job_id).is_some() {
+            return Ok(());
+        }
+        let restricted = sqlx::query_scalar!(
+            "SELECT job_token_scopes IS NOT NULL FROM job_perms WHERE job_id = $1",
+            job_id
+        )
+        .fetch_optional(&self.db)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+        if restricted {
+            tracing::error!(
+                "refused an unscoped job token for job {job_id}, whose token is restricted"
+            );
+            return Err(Error::NotAuthorized(format!(
+                "This job token carries no scopes, but job {job_id} runs with a restricted \
+                 token (job_token_scopes): it was minted by a worker or server older than \
+                 {}, which ignores the restriction. Upgrade every worker and server.",
+                windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES.version()
+            )));
+        }
+        UNRESTRICTED_JOBS.insert(job_id, ());
+        Ok(())
     }
 
     async fn get_opt_job_authed_inner(
@@ -1146,9 +1207,14 @@ pub async fn resolve_opt_job_authed(
                     .map(|g| g.0.clone())
             });
 
-            if let Some(mut opt_job_authed) =
-                cache.get_opt_job_authed(workspace_id.clone(), &token).await
+            let opt_job_authed = match cache
+                .try_get_opt_job_authed(workspace_id.clone(), &token)
+                .await
             {
+                Ok(opt_job_authed) => opt_job_authed,
+                Err(err) => return Err((err, parts)),
+            };
+            if let Some(mut opt_job_authed) = opt_job_authed {
                 let path = original_uri.path();
                 let method = parts.method.as_str();
                 if workspace_id.is_none() && opt_job_authed.job_id.is_some() {
