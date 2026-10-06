@@ -40,13 +40,12 @@ lazy_static::lazy_static! {
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
     // Cache for token -> email lookups (for non-workspace-member authenticated users)
     static ref TOKEN_EMAIL_CACHE: Cache<String, (Option<String>, std::time::Instant)> = Cache::new(500);
-    // Jobs found to have no `job_token_scopes`, sparing the lookup `AUTH_CACHE` is too small
-    // to spare on a busy instance. Entries expire: the id of a job deleted by retention can
-    // be pushed again, with a restriction this time.
-    static ref UNRESTRICTED_JOBS: Cache<uuid::Uuid, std::time::Instant> = Cache::new(20_000);
+    // Hashes of unscoped job tokens whose job was found to have no `job_token_scopes`, sparing
+    // the lookup `AUTH_CACHE` is too small to spare on a busy instance. Keyed by token, not by
+    // job: the id of a deleted job can be pushed again, restricted this time, and a token
+    // minted for that run must be looked up afresh.
+    static ref UNRESTRICTED_JOB_TOKENS: Cache<String, ()> = Cache::new(20_000);
 }
-
-const UNRESTRICTED_JOB_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// A token keeps its identity when a superadmin moves the account to another address, so entries
 /// here must expire on their own; nothing invalidates them by token hash.
@@ -194,7 +193,8 @@ impl AuthCache {
         opt_job_authed.authed.job_id = opt_job_authed.job_id;
         if let Some(job_id) = opt_job_authed.job_id {
             if crate::is_effectively_unscoped(opt_job_authed.authed.scopes.as_deref()) {
-                self.refuse_unscoped_token_of_restricted_job(job_id).await?;
+                self.refuse_unscoped_token_of_restricted_job(job_id, token)
+                    .await?;
             }
         }
         // The workspace's guest switch is enforced here, once, for every guest request
@@ -221,15 +221,14 @@ impl AuthCache {
     /// and would hold everything the restriction withholds. The version gate on saving a
     /// restriction cannot rule that out: it sees neither servers nor a worker that joins
     /// later. Restricted rows outlive their job's tokens (`cleanup_job_perms_orphaned`), so
-    /// a missing row means unrestricted.
+    /// a missing row means unrestricted: nothing else may delete a restricted row.
     async fn refuse_unscoped_token_of_restricted_job(
         &self,
         job_id: uuid::Uuid,
+        token: &str,
     ) -> Result<(), Error> {
-        if UNRESTRICTED_JOBS
-            .get(&job_id)
-            .is_some_and(|checked_at| checked_at.elapsed() < UNRESTRICTED_JOB_TTL)
-        {
+        let token_hash = hash_token(token);
+        if UNRESTRICTED_JOB_TOKENS.get(&token_hash).is_some() {
             return Ok(());
         }
         let restricted = sqlx::query_scalar!(
@@ -251,7 +250,7 @@ impl AuthCache {
                 windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES.version()
             )));
         }
-        UNRESTRICTED_JOBS.insert(job_id, std::time::Instant::now());
+        UNRESTRICTED_JOB_TOKENS.insert(token_hash, ());
         Ok(())
     }
 

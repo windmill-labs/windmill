@@ -79,8 +79,8 @@ Symbols, not line numbers, are cited: they drift less.
   its job has expired (`cleanup_job_perms_orphaned` stamps `sweep_after` when the job leaves the
   queue), or a token leaked by an old worker would turn unrestricted when its job completes. The
   window is the monitor's own `TIMEOUT` / `SCRIPT_TOKEN_EXPIRY`: a worker configured with a
-  longer one mints tokens that outlive the row. The lookup runs once per job per server
-  every 5 minutes (`UNRESTRICTED_JOBS`), not per request: `AUTH_CACHE` holds 300 entries. The OIDC
+  longer one mints tokens that outlive the row. The lookup runs once per token per server
+  (`UNRESTRICTED_JOB_TOKENS`), not per request: `AUTH_CACHE` holds 300 entries. The OIDC
   `job_token_scopes` claim is the presented token's scopes, not the runnable's setting, so a
   verifier sees what the job could reach. The setting belongs to
   the deployed version: an older script hash run by hash runs with that version's setting (a
