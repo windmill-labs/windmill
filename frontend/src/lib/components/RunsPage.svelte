@@ -10,6 +10,7 @@
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
+	import { displayDate } from '$lib/utils'
 	import {
 		userStore,
 		workspaceStore,
@@ -62,6 +63,7 @@
 		CirclePlay,
 		Clock,
 		Hourglass,
+		Loader2,
 		TriangleAlertIcon
 	} from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -189,6 +191,7 @@
 	}))
 	let batchProgress = $derived(jobsLoader.batchProgress)
 	let currentBatchSize = $derived(jobsLoader.currentBatchSize)
+	let scanProgress = $derived(jobsLoader.scanProgress)
 	let lastFetchWentToEnd = $derived(jobsLoader.lastFetchWentToEnd)
 	let queue_count = $derived(jobsLoader.queue_count)
 	let suspended_count = $derived(jobsLoader.suspended_count)
@@ -837,34 +840,41 @@
 				items={runsTimeframes}
 				bind:value={_timeframe.val}
 			/>
-			<FilterSearchbar
-				class={twMerge(
-					'flex-1 relative min-w-[18rem]',
-					Object.keys(filters.val).length <= 3
-						? 'max-w-[20rem] 2xl:max-w-[28rem]'
-						: 'max-w-[34rem]',
-					ButtonType.UnifiedMinHeightClasses.md
-				)}
-				schema={runsFilterSearchbarSchema}
-				presets={buildRunsFilterPresets({
-					isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
-					isAdminsWorkspace: $workspaceStore === 'admins'
-				})}
-				bind:value={filters.val}
-				placeholder="Filter runs..."
-				autofocus
-			/>
-			<!-- The filters are shallow-routed, so the search has to come off
-			     `window.location` at click time — `page.url` never sees them. Always the
-			     canonical `/runs`: only that is a recognized preview page, and the
-			     `/runs/<path>` route mirrors its path into `?path=` anyway. -->
-			<OpenInSessionButton
-				source={{
-					page: () => pageHref(RUNS_PATH) + window.location.search,
-					workspaceId: $workspaceStore ?? undefined
-				}}
-				btnProps={{ unifiedSize: 'md' }}
-			/>
+			<!-- One flex item, so the session button never wraps to a row of its own. -->
+			<div class="flex flex-1 items-start justify-end gap-3">
+				<FilterSearchbar
+					class={twMerge(
+						'flex-1 relative min-w-[14rem]',
+						Object.keys(filters.val).length <= 3
+							? 'max-w-[20rem] 2xl:max-w-[28rem]'
+							: 'max-w-[34rem]',
+						ButtonType.UnifiedMinHeightClasses.md
+					)}
+					schema={runsFilterSearchbarSchema}
+					presets={buildRunsFilterPresets({
+						isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
+						isAdminsWorkspace: $workspaceStore === 'admins'
+					})}
+					bind:value={filters.val}
+					placeholder="Filter runs..."
+					autofocus
+				/>
+				<!-- The filters are shallow-routed, so the search has to come off
+				     `window.location` at click time — `page.url` never sees them. Always the
+				     canonical `/runs`: only that is a recognized preview page, and the
+				     `/runs/<path>` route mirrors its path into `?path=` anyway. -->
+				<!-- The button stretches to its parent's height, which is the whole header once
+				     this row wraps: pin it to one row's height. -->
+				<div class={twMerge('flex empty:hidden', ButtonType.UnifiedHeightClasses.md)}>
+					<OpenInSessionButton
+						source={{
+							page: () => pageHref(RUNS_PATH) + window.location.search,
+							workspaceId: $workspaceStore ?? undefined
+						}}
+						btnProps={{ unifiedSize: 'md' }}
+					/>
+				</div>
+			</div>
 		</div>
 
 		<!-- Graph -->
@@ -939,7 +949,21 @@
 			<Splitpanes>
 				<Pane minSize={40}>
 					<div class="h-full flex">
-						<div class="flex flex-col flex-1 m-4 mt-2 mr-2">
+						<div class="flex flex-col flex-1 min-w-0 m-4 mt-2 mr-2">
+							{#if scanProgress}
+								<div class="px-1 pb-2 flex items-center gap-2">
+									<Loader2 size={14} class="animate-spin shrink-0 text-accent" />
+									<div class="flex-1 min-w-0">
+										<BatchLoadProgress
+											loaded={Math.round(scanProgress.fraction * 100)}
+											total={100}
+											itemsLabel="runs"
+											label={`Slow search: runs since ${displayDate(scanProgress.scannedTo)} searched, ${jobs?.length ?? 0} found`}
+											onStop={() => jobsLoader.stopBatchLoading()}
+										/>
+									</div>
+								</div>
+							{/if}
 							{#if batchProgress}
 								<div class="px-1 pb-2">
 									<BatchLoadProgress

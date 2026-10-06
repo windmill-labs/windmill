@@ -16536,6 +16536,31 @@ paths:
                 required:
                   - database_length
 
+  /w/{workspace}/jobs/oldest:
+    get:
+      summary: get the creation date of the oldest job
+      operationId: getOldestJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: all_workspaces
+          description: consider jobs from all workspaces (only valid if request come from the `admins` workspace)
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: creation date of the oldest job, absent when there is none
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created_at:
+                    type: string
+                    format: date-time
+
   /w/{workspace}/jobs/completed/count:
     get:
       summary: get completed count
