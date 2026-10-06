@@ -30,9 +30,10 @@ import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
+import { random_adj } from '$lib/components/random_positive_adjetive'
 import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-import { emptySchema, type StateStore } from '$lib/utils'
+import { emptySchema, userPathPrefix, type StateStore } from '$lib/utils'
 import {
 	localRunEnded,
 	localRunStarted,
@@ -979,7 +980,10 @@ function createRuntime(session: Session): SessionRuntime {
 							execution_mode: 'publisher'
 						},
 						summary: '',
-						path
+						path,
+						// The name a deploy lands on, as the full-page editor suggests one: without
+						// it the app would deploy under its `draft_<uuid>` storage path.
+						draft_path: `${userPathPrefix(user?.username)}${random_adj()}_app`
 					}
 					slot.loadedPath = path
 					slot.loadedWorkspace = workspace

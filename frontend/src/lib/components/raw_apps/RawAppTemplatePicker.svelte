@@ -181,6 +181,9 @@
 	const canCreateSchema = $derived(accessSettled && access.current.canCreateSchema)
 
 	const blockedByRole = $derived(noUsableRole || rolesUnknown || accessUnknown)
+	// A data table the caller cannot use is left out rather than blocking the app: it would be
+	// saved with queries the server refuses, and the app may need no data table at all.
+	const usableDatatable = $derived(blockedByRole ? undefined : selectedDatatable)
 
 	// A role that cannot create schemas has nothing to name, so the mode goes back to the one
 	// every role has, once that is an answer.
@@ -272,6 +275,8 @@
 
 	// With AI turned off for the workspace there is nothing to choose between.
 	const shownStep = $derived($copilotInfo.workspaceDisabled ? 'setup' : step)
+	const choiceCardClasses =
+		'h-full flex-col items-start justify-start gap-3 rounded-lg p-6 text-left whitespace-normal'
 
 	function appPolicy(): Policy {
 		return {
@@ -286,7 +291,7 @@
 	/** The AI builds on the default template and the default data table: it picks the framework
 	 * and creates the tables it needs itself. */
 	function buildWithAI() {
-		const datatable = availableDatatables?.length && !blockedByRole ? selectedDatatable : undefined
+		const datatable = usableDatatable
 		const role = rolesAnswered ? effectiveRole : undefined
 		open = false
 		onStart(
@@ -309,7 +314,7 @@
 	async function start() {
 		const template = templates[selectedTemplateIndex]
 
-		if (schemaMode === 'new' && newSchemaName && selectedDatatable && opWs) {
+		if (schemaMode === 'new' && newSchemaName && usableDatatable && opWs) {
 			try {
 				const { dbSchemaOpsWithPreviewScripts } = await import('$lib/components/dbOps')
 				const dbOps = dbSchemaOpsWithPreviewScripts({
@@ -317,10 +322,10 @@
 					input: {
 						type: 'database',
 						resourceType: 'postgresql',
-						resourcePath: `datatable://${selectedDatatable}`,
+						resourcePath: `datatable://${usableDatatable}`,
 						role: effectiveRole,
 						migrationRole: defaultMigrationRole(
-							selectedDatatable,
+							usableDatatable,
 							roles.current.permissioned,
 							roles.current.defaultRole
 						)
@@ -334,16 +339,16 @@
 		}
 
 		const formattedTables = preWhitelistedTables.map(formatDataTableRef)
-		const keepsDatatable = selectedDatatable !== undefined
+		const keepsDatatable = usableDatatable !== undefined
 		// The roles shown, for the data tables the app ends up using.
 		const usedDatatables = new Set(preWhitelistedTables.map((t) => t.datatable))
-		if (keepsDatatable) usedDatatables.add(selectedDatatable!)
+		if (keepsDatatable) usedDatatables.add(usableDatatable!)
 		const shownRoles = Object.entries(pickerRoles ?? {}).filter(([dt]) => usedDatatables.has(dt))
 		const appRoles = shownRoles.length > 0 ? Object.fromEntries(shownRoles) : undefined
 		const data: RawAppData = keepsDatatable
 			? {
 					tables: formattedTables,
-					datatable: selectedDatatable,
+					datatable: usableDatatable,
 					schema: effectiveSchema,
 					roles: appRoles
 				}
@@ -373,11 +378,11 @@
 		{#if shownStep === 'choice'}
 			<div class="flex flex-col gap-4 min-w-sm">
 				<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-					<button
-						type="button"
-						onclick={buildWithAI}
+					<Button
+						variant="default"
+						onClick={buildWithAI}
 						disabled={!isAiEnabled || !dataSettled}
-						class="flex flex-col items-start gap-3 rounded-lg border border-ai/30 bg-ai/5 p-6 text-left transition-colors hover:bg-ai/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-ai/5"
+						btnClasses="{choiceCardClasses} border-ai/30 bg-ai/5 hover:bg-ai/10"
 					>
 						{#if aiConfigLoaded && dataSettled}
 							<Sparkles size={28} class="text-ai" />
@@ -390,18 +395,14 @@
 								? 'Describe your app in an AI session and let it build the frontend, backend and tables.'
 								: 'Describe your app to the AI chat and let it build the frontend, backend and tables.'}
 						</span>
-					</button>
-					<button
-						type="button"
-						onclick={() => (step = 'setup')}
-						class="flex flex-col items-start gap-3 rounded-lg border p-6 text-left transition-colors hover:bg-surface-hover"
-					>
+					</Button>
+					<Button variant="default" onClick={() => (step = 'setup')} btnClasses={choiceCardClasses}>
 						<Code size={28} class="text-primary" />
 						<span class="text-base font-semibold text-emphasis">Build with code</span>
 						<span class="text-xs text-secondary">
 							Pick a framework and data configuration, then write the app in the editor.
 						</span>
-					</button>
+					</Button>
 				</div>
 				{#if aiConfigLoaded && !isAiEnabled}
 					<Alert type="info" title="AI is not configured.">
@@ -535,7 +536,7 @@
 															? 'could not read its roles'
 															: noUsableRole
 																? 'no role you can use'
-																: 'could not reach it'}
+																: 'could not reach it'}; the app is created without a default data table
 													</span>
 												{/if}
 											</div>
@@ -635,8 +636,7 @@
 						disabled={!templates[selectedTemplateIndex] ||
 							newSchemaAlreadyExists ||
 							!rolesSettled ||
-							!accessSettled ||
-							blockedByRole}
+							!accessSettled}
 					>
 						Create app
 					</Button>
