@@ -31,7 +31,8 @@ export interface JobWindowScan {
 	pageSize: number
 	oldest: () => Promise<string | undefined>
 	fetchWindow: (w: JobWindow) => CancelablePromise<Job[]>
-	onWindow: (jobs: Job[], scannedTo: string) => void
+	/** `fraction` is the share of the scan's time range listed so far. */
+	onWindow: (jobs: Job[], scannedTo: string, fraction: number) => void
 	patienceMs?: number
 }
 
@@ -78,6 +79,7 @@ export function scanJobWindows(scan: JobWindowScan): CancelablePromise<boolean> 
 			if (!floorTs) return true
 			const floor = new Date(floorTs).getTime()
 			let upper = scan.before ? new Date(scan.before).getTime() : Date.now()
+			const start = upper
 			let first = true
 			let width = INITIAL_WIDTH_MS
 			let listed = 0
@@ -112,7 +114,7 @@ export function scanJobWindows(scan: JobWindowScan): CancelablePromise<boolean> 
 					continue
 				}
 				const completed = res.filter((j) => j.type === 'CompletedJob').length
-				scan.onWindow(res, w.after)
+				scan.onWindow(res, w.after, start > floor ? (start - lower) / (start - floor) : 1)
 				if (completed >= w.limit) return false
 				listed += completed
 				upper = lower

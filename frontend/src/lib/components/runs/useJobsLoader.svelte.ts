@@ -120,7 +120,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let loadingExtra = $state(false)
 	let lastFetchWentToEnd = $state(true)
 	let batchProgress = $state<{ loaded: number; total: number } | null>(null)
-	let scanProgress = $state<{ scannedTo: string } | null>(null)
+	let scanProgress = $state<{ scannedTo: string; fraction: number } | null>(null)
 	let activeScan: CancelablePromise<boolean> | undefined
 	// The page being listed, single request or scan. Only the filter-change load is otherwise
 	// tracked for cancellation, and a page left running writes into whatever listing replaces its own.
@@ -318,12 +318,28 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				single.cancel()
 				scan?.cancel()
 			})
+			// Either side failing leaves the page to the other: it is lost only once both have.
+			let scanError: any
+			let singleError: any
+			const giveUp = (e: any, wentToEnd: boolean) => {
+				sendUserToast(`Could not load jobs: ${e.body ?? e.message}`, true)
+				console.error(e)
+				onJobs([])
+				resolve(wentToEnd)
+			}
 			const timer = setTimeout(() => {
 				scan = scanWindows(page, onJobs)
-				scan.then((wentToEnd) => {
-					resolve(wentToEnd)
-					single.cancel()
-				}, reject)
+				scan.then(
+					(wentToEnd) => {
+						resolve(wentToEnd)
+						single.cancel()
+					},
+					(e) => {
+						if (e instanceof CancelError) return reject(e)
+						scanError = e
+						if (singleError) giveUp(scanError, false)
+					}
+				)
 			}, WINDOW_SCAN_AFTER_MS)
 			single.then(
 				(res) => {
@@ -333,13 +349,15 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					scan?.cancel()
 				},
 				(e: any) => {
+					if (e instanceof CancelError) return
+					if (!scan) {
+						clearTimeout(timer)
+						giveUp(e, true)
+						return
+					}
 					// Once the scan runs, the single request failing is the expected server timeout.
-					if (scan || e instanceof CancelError) return
-					clearTimeout(timer)
-					sendUserToast(`Could not load jobs: ${e.body ?? e.message}`, true)
-					console.error(e)
-					onJobs([])
-					resolve(true)
+					singleError = e
+					if (scanError) giveUp(scanError, false)
 				}
 			)
 		})
@@ -393,15 +411,15 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 							}
 				)
 			},
-			onWindow: (res, scannedTo) => {
+			onWindow: (res, scannedTo, fraction) => {
 				if (activeScan !== scan) return
-				scanProgress = { scannedTo }
+				scanProgress = { scannedTo, fraction }
 				onJobs(res)
 			}
 		})
 		activeScan?.cancel()
 		activeScan = scan
-		scanProgress = { scannedTo: page.before ?? new Date().toISOString() }
+		scanProgress = { scannedTo: page.before ?? new Date().toISOString(), fraction: 0 }
 		onJobs([])
 		const done = () => {
 			if (activeScan === scan) {
@@ -410,12 +428,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			}
 		}
 		scan.then(done, done)
-		return CancelablePromiseUtils.catchErr(scan, (e) => {
-			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
-			sendUserToast(`Could not load jobs: ${e.body ?? e.message}`, true)
-			console.error(e)
-			return CancelablePromiseUtils.pure(false)
-		})
+		return scan
 	}
 
 	function fetchJobs(q: JobsQuery): CancelablePromise<Job[]> {

@@ -20,7 +20,6 @@
 		enterpriseLicense
 	} from '$lib/stores'
 	import {
-		Alert,
 		Button,
 		ButtonType,
 		Drawer,
@@ -841,34 +840,41 @@
 				items={runsTimeframes}
 				bind:value={_timeframe.val}
 			/>
-			<FilterSearchbar
-				class={twMerge(
-					'flex-1 relative min-w-[18rem]',
-					Object.keys(filters.val).length <= 3
-						? 'max-w-[20rem] 2xl:max-w-[28rem]'
-						: 'max-w-[34rem]',
-					ButtonType.UnifiedMinHeightClasses.md
-				)}
-				schema={runsFilterSearchbarSchema}
-				presets={buildRunsFilterPresets({
-					isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
-					isAdminsWorkspace: $workspaceStore === 'admins'
-				})}
-				bind:value={filters.val}
-				placeholder="Filter runs..."
-				autofocus
-			/>
-			<!-- The filters are shallow-routed, so the search has to come off
-			     `window.location` at click time — `page.url` never sees them. Always the
-			     canonical `/runs`: only that is a recognized preview page, and the
-			     `/runs/<path>` route mirrors its path into `?path=` anyway. -->
-			<OpenInSessionButton
-				source={{
-					page: () => pageHref(RUNS_PATH) + window.location.search,
-					workspaceId: $workspaceStore ?? undefined
-				}}
-				btnProps={{ unifiedSize: 'md' }}
-			/>
+			<!-- One flex item, so the session button never wraps to a row of its own. -->
+			<div class="flex flex-1 items-start gap-3">
+				<FilterSearchbar
+					class={twMerge(
+						'flex-1 relative min-w-[14rem]',
+						Object.keys(filters.val).length <= 3
+							? 'max-w-[20rem] 2xl:max-w-[28rem]'
+							: 'max-w-[34rem]',
+						ButtonType.UnifiedMinHeightClasses.md
+					)}
+					schema={runsFilterSearchbarSchema}
+					presets={buildRunsFilterPresets({
+						isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
+						isAdminsWorkspace: $workspaceStore === 'admins'
+					})}
+					bind:value={filters.val}
+					placeholder="Filter runs..."
+					autofocus
+				/>
+				<!-- The filters are shallow-routed, so the search has to come off
+				     `window.location` at click time — `page.url` never sees them. Always the
+				     canonical `/runs`: only that is a recognized preview page, and the
+				     `/runs/<path>` route mirrors its path into `?path=` anyway. -->
+				<!-- The button stretches to its parent's height, which is the whole header once
+				     this row wraps: pin it to one row's height. -->
+				<div class={twMerge('flex empty:hidden', ButtonType.UnifiedHeightClasses.md)}>
+					<OpenInSessionButton
+						source={{
+							page: () => pageHref(RUNS_PATH) + window.location.search,
+							workspaceId: $workspaceStore ?? undefined
+						}}
+						btnProps={{ unifiedSize: 'md' }}
+					/>
+				</div>
+			</div>
 		</div>
 
 		<!-- Graph -->
@@ -945,20 +951,18 @@
 					<div class="h-full flex">
 						<div class="flex flex-col flex-1 m-4 mt-2 mr-2">
 							{#if scanProgress}
-								<Alert
-									type="info"
-									size="xs"
-									class="mb-2"
-									title="Searching the history step by step"
-									actions={[{ label: 'Stop', onClick: () => jobsLoader.stopBatchLoading() }]}
-								>
-									<span class="inline-flex items-center gap-2">
-										<Loader2 size={14} class="animate-spin shrink-0" />
-										This search is too slow to run in one go. Searched back to {displayDate(
-											scanProgress.scannedTo
-										)}, {pluralize(jobs?.length ?? 0, 'run')} found so far.
-									</span>
-								</Alert>
+								<div class="px-1 pb-2 flex items-center gap-2">
+									<Loader2 size={14} class="animate-spin shrink-0 text-accent" />
+									<div class="flex-1 min-w-0">
+										<BatchLoadProgress
+											loaded={Math.round(scanProgress.fraction * 100)}
+											total={100}
+											itemsLabel="runs"
+											label={`Slow search: back to ${displayDate(scanProgress.scannedTo)}, ${pluralize(jobs?.length ?? 0, 'run')} found`}
+											onStop={() => jobsLoader.stopBatchLoading()}
+										/>
+									</div>
+								</div>
 							{/if}
 							{#if batchProgress}
 								<div class="px-1 pb-2">
