@@ -44,9 +44,23 @@ describe('scanJobWindows', () => {
 		expect(wentToEnd).toBe(true)
 		expect(seen.map((j) => j.id)).toEqual(at.map((t) => `j${t}`))
 		expect(windows.at(-1)!.after).toBe(new Date(NOW - 240 * HOUR).toISOString())
-		for (let i = 1; i < windows.length; i++) {
-			expect(windows[i].before).toBe(windows[i - 1].after)
-		}
+	})
+
+	it('counts a job created exactly on a window bound once', async () => {
+		// The first window is an hour wide, so its lower bound is the first job's creation time.
+		const at = [NOW - HOUR, NOW - 2 * HOUR, NOW - 100 * HOUR]
+		const { fetchWindow } = history(at)
+		const seen: Job[] = []
+		const wentToEnd = await scanJobWindows({
+			before: new Date(NOW).toISOString(),
+			after: new Date(NOW - 240 * HOUR).toISOString(),
+			pageSize: 2,
+			oldest: async () => undefined,
+			fetchWindow,
+			onWindow: (jobs) => seen.push(...jobs)
+		})
+		expect(wentToEnd).toBe(false)
+		expect(seen.map((j) => j.id)).toEqual([`j${NOW - HOUR}`, `j${NOW - 2 * HOUR}`])
 	})
 
 	it('stops as soon as the page is full, asking each window only for what is missing', async () => {

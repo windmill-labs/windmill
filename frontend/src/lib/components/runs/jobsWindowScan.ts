@@ -37,6 +37,13 @@ export interface JobWindowScan {
 
 const SLOW = Symbol('slow')
 
+// Both bounds of a window are inclusive on the server, whose timestamps have microsecond
+// precision. A window therefore ends one microsecond before the previous one started: sharing
+// the bound would list a job created exactly on it twice, and count it twice toward the page.
+function justBefore(ms: number): string {
+	return new Date(ms - 1).toISOString().replace('Z', '999Z')
+}
+
 /**
  * Lists the completed jobs of a time range newest first, one bounded window after the other,
  * which is the same page a single request over the whole range returns, except that no request
@@ -78,7 +85,7 @@ export function scanJobWindows(scan: JobWindowScan): CancelablePromise<boolean> 
 				if (onCancel.isCancelled) return false
 				const lower = Math.max(floor, upper - width)
 				const w: JobWindow = {
-					before: first ? (scan.before ?? undefined) : new Date(upper).toISOString(),
+					before: first ? (scan.before ?? undefined) : justBefore(upper),
 					after: new Date(lower).toISOString(),
 					limit: scan.pageSize - listed
 				}
