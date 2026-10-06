@@ -841,7 +841,7 @@
 				bind:value={_timeframe.val}
 			/>
 			<!-- One flex item, so the session button never wraps to a row of its own. -->
-			<div class="flex flex-1 items-start gap-3">
+			<div class="flex flex-1 items-start justify-end gap-3">
 				<FilterSearchbar
 					class={twMerge(
 						'flex-1 relative min-w-[14rem]',
