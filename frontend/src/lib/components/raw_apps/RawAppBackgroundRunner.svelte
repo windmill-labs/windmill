@@ -20,10 +20,9 @@
 		 * Restrict waitJob/getJob/streamJob to job ids launched by this app
 		 * instance (WIN-2006): a SANDBOXED bundle must not read arbitrary
 		 * workspace jobs through the credentialed bridge. Off for unsandboxed
-		 * renders (the default, and editor preview) — there the bundle holds
-		 * the same credential as the bridge, so gating adds nothing and would
-		 * only break unsandboxed apps that poll persisted or runnable-returned
-		 * job ids.
+		 * renders — there the bundle holds the same credential as the bridge,
+		 * so gating adds nothing and would only break unsandboxed apps that
+		 * poll persisted or runnable-returned job ids.
 		 */
 		gateJobIds?: boolean
 		/**
@@ -33,7 +32,7 @@
 		 * `window.opener` (this window), so the bridge must accept its
 		 * `event.source` and reply to it. A getter so it tracks the live handle
 		 * without a reactive prop. Editor-only — the detached window runs the
-		 * same unsandboxed bundle as the inline preview.
+		 * same bundle, sandboxed or not, as the inline preview.
 		 */
 		extraSourceWindow?: () => Window | null | undefined
 	}

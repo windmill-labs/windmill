@@ -2447,7 +2447,7 @@ addEventListener('message', function (e) {
 	bind:jobsById
 	{runnables}
 	{path}
-	gateJobIds={false}
+	gateJobIds={sandboxed}
 	extraSourceWindow={() => externalPreviewWindow}
 />
 <div
