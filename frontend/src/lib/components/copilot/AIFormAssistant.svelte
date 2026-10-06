@@ -8,6 +8,7 @@
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { pageHref } from '$lib/components/sessions/previewPaths'
 
 	interface Props {
 		/** Unset for a viewer who cannot edit the item: the card then offers no way to the editor. */
@@ -37,20 +38,14 @@
 		aiChatManager.askAi(`Analyze the ${runnableType} form on this page and fill the inputs for me`)
 	}
 
-	// A session cannot reach this page's form (the preview is a separate editor,
-	// and form filling drives the DOM through NAVIGATOR mode), so the hand-off
-	// asks it to run the item instead. Naming the DEPLOYED version matters: the
-	// test_run_* tools prefer drafts, which is not what this page runs.
+	// The session's preview opens on this same deployed page (`/get/`), not the item's
+	// editor: someone on a run page came to run the item, not to change it.
 	const sessionSource = $derived(
 		path
 			? {
-					target: { kind: runnableType, path } as const,
+					page: () => pageHref(`/${runnableType}s/get/${path}`),
 					workspaceId: $operatingWorkspace ?? undefined,
-					beforeOpen: logAsked,
-					seedPrompt:
-						`Run the deployed ${runnableType} \`${path}\` for me. Pick sensible inputs, ` +
-						`tell me what you chose, then run it.` +
-						(instructions ? `\n\nHow to choose the inputs:\n${instructions}` : '')
+					beforeOpen: logAsked
 				}
 			: undefined
 	)
@@ -71,16 +66,9 @@
 			{:else}
 				<span></span>
 			{/if}
-			<!-- Each button names its own action because the two branches do different things:
-			     the hand-off runs the item, the legacy path fills the form. A plain Button rather
-			     than AskAiButton, whose own session branch would fire here too and open an empty
-			     session. -->
-			<OpenInSessionButton
-				source={sessionSource}
-				label="Run in AI session"
-				tooltip="Open an AI session that picks inputs and runs this"
-				btnProps={{ iconOnly: false, unifiedSize: 'sm', startIcon: { icon: WandSparkles } }}
-			>
+			<!-- The fallback is a plain Button rather than AskAiButton, whose own session branch
+			     would fire here too and open an empty session. -->
+			<OpenInSessionButton source={sessionSource} btnProps={{ unifiedSize: 'sm' }}>
 				{#snippet fallback()}
 					<Button
 						unifiedSize="sm"
