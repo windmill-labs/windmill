@@ -431,7 +431,11 @@ async fn an_existing_role_is_taken_over_only_when_asked_and_never_with_members(
     let group = format!("wmtest_group_{suffix}");
     let member = format!("wmtest_member_{suffix}");
     for sql in [
-        format!("CREATE ROLE \"{plain}\" LOGIN PASSWORD 'theirs'"),
+        // An expired password and no connection slot: kept as is, the login Windmill sets is dead.
+        format!(
+            "CREATE ROLE \"{plain}\" LOGIN PASSWORD 'theirs' VALID UNTIL '2000-01-01' \
+             CONNECTION LIMIT 0"
+        ),
         format!("CREATE ROLE \"{group}\" NOLOGIN"),
         format!("CREATE ROLE \"{member}\" LOGIN"),
         format!("GRANT \"{group}\" TO \"{member}\""),
@@ -473,7 +477,16 @@ async fn an_existing_role_is_taken_over_only_when_asked_and_never_with_members(
             windmill_common::datatable_roles::DatatableRoleCluster::Instance,
         )
         .await?;
-        assert!(catalog.values().any(|r| r.name == plain), "{catalog:?}");
+        let taken = catalog
+            .values()
+            .find(|r| r.name == plain)
+            .ok_or_else(|| anyhow::anyhow!("{plain} is not in the catalog: {catalog:?}"))?;
+        let options = (*db.connect_options())
+            .clone()
+            .username(&plain)
+            .password(taken.pwd.as_deref().unwrap_or_default());
+        let mut login = <sqlx::PgConnection as sqlx::Connection>::connect_with(&options).await?;
+        sqlx::query("SELECT 1").execute(&mut login).await?;
         Ok::<_, anyhow::Error>(())
     }
     .await;
