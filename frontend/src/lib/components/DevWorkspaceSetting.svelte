@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { workspaceStore, userWorkspaces, usersWorkspaceStore, superadmin } from '$lib/stores'
 	import { WorkspaceService, type ProtectionRuleset } from '$lib/gen'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import { Badge, Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -17,7 +18,6 @@
 	import { getUserExt } from '$lib/user'
 	import {
 		DEV_WORKSPACE_LABELS,
-		devBadgeText,
 		devLabelKey,
 		devLabelNoun,
 		type DevWorkspaceLabelKey
@@ -554,7 +554,7 @@
 			<b>{parentId}</b>. Promote changes from the home page banner or the Compare &amp; Deploy page.
 		</p>
 		<div class="text-2xs text-secondary">
-			Environment: <Badge color="indigo" small>{devBadgeText(currentLabel)}</Badge>
+			Environment: <DevWorkspaceBadge label={currentLabel} color={currentWs?.color} fallbackColor="indigo" />
 			<span class="ml-1">
 				Set when the workspace is created or attached. Git sync deploys to the
 				<span class="font-mono">{currentLabel}</span> branch.

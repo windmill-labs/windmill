@@ -18,7 +18,7 @@
 	import { Check, ChevronDown, ChevronRight, Plus, Settings } from 'lucide-svelte'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { SvelteSet } from 'svelte/reactivity'
-	import { Badge, CopyButton } from '$lib/components/common'
+	import { CopyButton } from '$lib/components/common'
 	import { MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { EXECUTIONS_HINT } from './executionsHint'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
@@ -39,7 +39,7 @@
 	} from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
-	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 
 	interface Props {
 		// The melt item builder of the menu (or submenu) hosting this list. Melt
@@ -55,9 +55,19 @@
 		// workspaces must not navigate away from it. Separate from strictWorkspaceSelect,
 		// which only strips the sidebar-specific rows.
 		keepPageOnSwitch?: boolean
+		/** Opens with every family closed, forks included. For a picker whose job is to move between
+		 *  families rather than within one — a session's, where the fork is the session's own and
+		 *  not something the picker should offer to change. */
+		collapseFamilies?: boolean
 	}
 
-	let { item, strictWorkspaceSelect = false, keepPageOnSwitch = false, closeMenu }: Props = $props()
+	let {
+		item,
+		strictWorkspaceSelect = false,
+		keepPageOnSwitch = false,
+		collapseFamilies = false,
+		closeMenu
+	}: Props = $props()
 
 	async function toggleSwitchWorkspace(id: string) {
 		if ($workspaceStore === id) {
@@ -211,7 +221,7 @@
 	// the ones they are most likely to switch between — are there without a click, and the tick
 	// sits on the actual workspace rather than on its collapsed root. Other families stay closed.
 	untrack(() => {
-		if (lineageRoot && familiesWithForks.has(lineageRoot.id)) {
+		if (!collapseFamilies && lineageRoot && familiesWithForks.has(lineageRoot.id)) {
 			expandedFamilies.add(lineageRoot.id)
 		}
 	})
@@ -299,12 +309,12 @@
 										{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
 									</div>
 									{#if workspace.is_dev_workspace}
-										<Badge
-											color="dark-blue"
-											small
-											class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
-											>{devBadgeText(workspace.dev_workspace_label)}</Badge
-										>
+										<DevWorkspaceBadge
+											label={workspace.dev_workspace_label}
+											color={workspace.color}
+											fallbackClass="dark:bg-surface-accent-primary text-white dark:text-white"
+											class="text-3xs px-1 py-0"
+										/>
 									{/if}
 								</div>
 								{#if ambiguousNames.has(workspace.name)}
