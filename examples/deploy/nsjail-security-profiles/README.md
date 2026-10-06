@@ -42,9 +42,14 @@ docker run \
   --security-opt systempaths=unconfined \
   --security-opt seccomp=windmill-nsjail.seccomp.json \
   --security-opt apparmor=windmill-nsjail \
-  -e DISABLE_NSJAIL=false \
   ...
 ```
+
+## Enabling nsjail
+
+The profiles and pod settings only make nsjail able to run. To turn it on, set the **Job isolation** [instance setting](https://www.windmill.dev/docs/advanced/instance_settings) to **Nsjail**. It applies to every worker of the instance, so each of them needs settings under which nsjail can run.
+
+The `DISABLE_NSJAIL=false` environment variable is the fallback: it enables nsjail on the workers that carry it, whatever the instance setting says. Use it to sandbox only some worker groups.
 
 ## Which pod settings to use
 

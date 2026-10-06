@@ -11,7 +11,7 @@ spec:
       image: ghcr.io/windmill-labs/windmill:main
       env:
         - { name: MODE, value: worker }
-        - { name: DISABLE_NSJAIL, value: "false" }
+        # nsjail is enabled by the "Job isolation" instance setting.
         # DISABLE_NUSER stays unset: nsjail creates its own user namespace.
       securityContext:
         runAsUser: 1000
