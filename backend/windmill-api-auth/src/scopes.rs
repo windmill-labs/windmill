@@ -302,7 +302,7 @@ fn extract_domain_from_route(
 /// Every entry is keyed by a job id and confines an authenticated caller to its own
 /// runnable — through `require_job_read_access`, through its own `jobs:run:flows:<path>`
 /// check, or, where an approval token or resume secret bypasses that gate, through a
-/// direct `require_job_within_run_scope`. The one exception is
+/// direct `require_job_within_read_scope`. The one exception is
 /// `jobs_u/get_root_job_id/`, which has no check at all but discloses only flow lineage,
 /// to anyone, authenticated or not. Workspace-wide enumeration (`jobs/list`, counts,
 /// exports) and credential minting (`job_view_token`) are deliberately absent — those are
@@ -519,23 +519,163 @@ fn resource_metadata_route_allowed(suffix: &str) -> bool {
         || suffix.starts_with("resources/type/")
 }
 
-/// The `jobs:run` scopes a token's job reads are confined to, or `None` when they are
-/// not confined to particular runnables.
+/// The by-id and list routes a path-scoped `jobs:read:<paths>` reaches, as workspaced
+/// route suffixes. Every other read in the domain is refused to it: counts, exports,
+/// uuid listings, queue positions and dispatch edges aggregate over the workspace, and
+/// the view-token and resume-url routes mint a credential (`approval_info` withholds
+/// its view token from a confined caller for the same reason).
+///
+/// Each entry confines the caller in its handler, through `require_job_read_access` or
+/// a direct `require_job_within_read_scope`. `jobs/result_by_id/` is absent because it
+/// resolves a node up through the enclosing flows, past the job the check admitted.
+/// A route added here without that check serves a path-scoped token every job.
+const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 25] = [
+    "jobs_u/get/",
+    "jobs_u/get_logs/",
+    "jobs_u/get_completed_logs_tail/",
+    "jobs_u/get_flow_all_logs/",
+    "jobs_u/get_flow_all_logs_structured/",
+    "jobs_u/get_flow_all_results/",
+    "jobs_u/get_args/",
+    "jobs_u/get_flow_debug_info/",
+    "jobs_u/completed/get/",
+    "jobs_u/completed/get_result/",
+    "jobs_u/completed/get_result_maybe/",
+    "jobs_u/completed/get_timing/",
+    "jobs_u/dispatch_events/",
+    "jobs_u/getupdate/",
+    "jobs_u/getupdate_sse/",
+    "jobs_u/get_log_file/",
+    "jobs_u/get_flow/",
+    "jobs_u/flow/approval_info/",
+    "jobs/run_progress/",
+    "jobs/flow/user_states/",
+    "jobs/completed/get/",
+    "jobs/completed/get_result/",
+    "jobs/completed/get_result_maybe/",
+    "jobs/completed/get_timing/",
+    "jobs/get_otel_traces/",
+];
+
+/// Matched whole: `jobs/list` is also a prefix of the uuid listings. Their handlers
+/// filter in SQL to [`job_list_path_filter`].
+const READ_PATH_SCOPED_LIST_PATHS: [&'static str; 3] =
+    ["jobs/list", "jobs/completed/list", "jobs/queue/list"];
+
+fn is_read_path_scoped_route(suffix: &str) -> bool {
+    READ_PATH_SCOPED_LIST_PATHS.contains(&suffix)
+        || READ_PATH_SCOPED_BY_ID_PATHS
+            .iter()
+            .any(|p| suffix.starts_with(p))
+}
+
+/// The paths of a `jobs:read:<paths>` scope, or `None` when it spans every job: no
+/// path part, or `*` among them.
+fn job_read_scope_paths(scope: &ScopeDefinition) -> Option<&[String]> {
+    scope
+        .resource
+        .as_deref()
+        .filter(|paths| !paths.iter().any(|p| p == "*"))
+}
+
+/// The runnables a token's job reads are confined to: those its `jobs:run` scopes may
+/// start, and those its `jobs:read:<paths>` scopes name.
+pub struct JobReadConfinement {
+    run: Vec<ScopeDefinition>,
+    read_paths: crate::ScopePathFilter,
+}
+
+impl JobReadConfinement {
+    /// Whether a job that ran `runnable_path` as `kind` (`scripts`, `flows` or `agents`)
+    /// is inside the confinement. A read path admits every kind; a run scope only its own.
+    pub fn admits(&self, kind: &str, runnable_path: &str) -> bool {
+        if self.read_paths.allows(runnable_path) {
+            return true;
+        }
+        let required = ScopeDefinition::new(
+            ScopeDomain::Jobs.as_str(),
+            ScopeAction::Run.as_str(),
+            Some(kind),
+            Some(vec![runnable_path.to_string()]),
+        );
+        self.run.iter().any(|scope| scope.includes(&required))
+    }
+
+    /// Whether a `jobs:read:<paths>` scope is part of the confinement.
+    pub fn has_read_paths(&self) -> bool {
+        matches!(&self.read_paths, crate::ScopePathFilter::Restricted { exact, prefix }
+            if !exact.is_empty() || !prefix.is_empty())
+    }
+}
+
+fn push_read_paths(paths: &[String], exact: &mut Vec<String>, prefix: &mut Vec<String>) {
+    for path in paths {
+        match path.strip_suffix("/*") {
+            Some(p) => prefix.push(p.to_string()),
+            None => exact.push(path.clone()),
+        }
+    }
+}
+
+/// The paths a token's job lists are filtered to. Decided by its read grants alone,
+/// unlike [`job_read_confinement`]: a `jobs:run` scope grants no enumeration, so even a
+/// bare one beside a `jobs:read:<paths>` leaves the lists on those paths. Unrestricted
+/// for an unscoped token, a `jobs:read` naming no path (or `*`), and `jobs:write`.
+pub fn job_list_path_filter(scopes: Option<&[String]>) -> crate::ScopePathFilter {
+    let mut exact = Vec::new();
+    let mut prefix = Vec::new();
+    let mut scoped = false;
+    for scope in scopes
+        .unwrap_or_default()
+        .iter()
+        .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+    {
+        scoped = true;
+        let Ok(scope) = ScopeDefinition::from_scope_string(scope) else {
+            continue;
+        };
+        if ScopeDomain::from_str(&scope.domain) != Some(ScopeDomain::Jobs) {
+            continue;
+        }
+        match ScopeAction::from_str(&scope.action) {
+            Some(ScopeAction::Read) => match job_read_scope_paths(&scope) {
+                Some(paths) => push_read_paths(paths, &mut exact, &mut prefix),
+                None => return crate::ScopePathFilter::AllowAll,
+            },
+            Some(ScopeAction::Write) => return crate::ScopePathFilter::AllowAll,
+            _ => continue,
+        }
+    }
+    if scoped {
+        crate::ScopePathFilter::Restricted { exact, prefix }
+    } else {
+        crate::ScopePathFilter::AllowAll
+    }
+}
+
+/// What a token's job reads are confined to, or `None` when they are not confined to
+/// particular runnables.
 ///
 /// A run scope is what the trigger UI mints per script or flow and hands to a webhook
 /// caller / CI job: it may start the runnables it names and follow those runs, so its
-/// by-id job reads must stay within what it can start (enforced by
-/// `require_job_read_access`). Both the path (`jobs:run:flows:f/team/etl`) and the
-/// kind-only (`jobs:run:scripts`, which legacy `jobs:runscript` tokens carry) forms
-/// confine, since `ScopeDefinition::includes` already matches a candidate
-/// `jobs:run:<kind>:<path>` against either.
+/// by-id job reads must stay within what it can start. Both the path
+/// (`jobs:run:flows:f/team/etl`) and the kind-only (`jobs:run:scripts`, which legacy
+/// `jobs:runscript` tokens carry) forms confine, since `ScopeDefinition::includes`
+/// already matches a candidate `jobs:run:<kind>:<path>` against either.
+///
+/// A `jobs:read:<paths>` scope reads the runs of the runnables at those paths and
+/// nothing else. The two kinds of grant add up: a job either admits is readable.
 ///
 /// Returns `None` — unconfined — when the token is effectively unscoped, or carries a
-/// jobs scope that grants job reads in its own right: `jobs:read`/`jobs:write`, or a
-/// bare `jobs:run` (it can start anything, so confining its reads to "what it may run"
-/// would restrict nothing).
-pub fn job_read_run_confinement(scopes: Option<&[String]>) -> Option<Vec<ScopeDefinition>> {
-    let mut confinement = Vec::new();
+/// jobs scope that grants every job read in its own right: a `jobs:read` naming no path
+/// (or `*`), a bare `jobs:run` (it can start anything, so confining its reads to "what
+/// it may run" would restrict nothing), or `jobs:write`, whose paths are ignored on
+/// reads as they are on every job write.
+pub fn job_read_confinement(scopes: Option<&[String]>) -> Option<JobReadConfinement> {
+    let mut run = Vec::new();
+    let mut exact = Vec::new();
+    let mut prefix = Vec::new();
+    let mut confined = false;
     for scope in scopes?
         .iter()
         .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
@@ -548,7 +688,15 @@ pub fn job_read_run_confinement(scopes: Option<&[String]>) -> Option<Vec<ScopeDe
         }
         match ScopeAction::from_str(&scope.action) {
             Some(ScopeAction::Run) if scope.kind.is_some() || scope.resource.is_some() => {
-                confinement.push(scope)
+                confined = true;
+                run.push(scope)
+            }
+            Some(ScopeAction::Read) => {
+                let Some(paths) = job_read_scope_paths(&scope) else {
+                    return None;
+                };
+                confined = true;
+                push_read_paths(paths, &mut exact, &mut prefix);
             }
             // Grants no reads (see `scope_grants_access`), so it neither confines nor
             // frees them.
@@ -557,23 +705,10 @@ pub fn job_read_run_confinement(scopes: Option<&[String]>) -> Option<Vec<ScopeDe
             None => continue,
         }
     }
-    (!confinement.is_empty()).then_some(confinement)
-}
-
-/// Whether a job that ran `runnable_path` as `kind` (`scripts` or `flows`) is inside a
-/// [`job_read_run_confinement`] set.
-pub fn run_confinement_admits(
-    confinement: &[ScopeDefinition],
-    kind: &str,
-    runnable_path: &str,
-) -> bool {
-    let required = ScopeDefinition::new(
-        ScopeDomain::Jobs.as_str(),
-        ScopeAction::Run.as_str(),
-        Some(kind),
-        Some(vec![runnable_path.to_string()]),
-    );
-    confinement.iter().any(|scope| scope.includes(&required))
+    confined.then_some(JobReadConfinement {
+        run,
+        read_paths: crate::ScopePathFilter::Restricted { exact, prefix },
+    })
 }
 
 /// The `jobs:cancel:<paths>` scopes a token's cancels are confined to, or `None` when
@@ -681,6 +816,17 @@ fn scope_grants_access(
                 .iter()
                 .any(|path| p.starts_with(path))
         }));
+    }
+
+    // A path-scoped `jobs:read:<paths>` is the one job scope this layer does not treat
+    // as resource-blind: it reaches only the routes whose handlers confine it to those
+    // paths, so a job read route is refused to it until it is listed there.
+    if scope_domain == ScopeDomain::Jobs
+        && scope_action == ScopeAction::Read
+        && required_action == ScopeAction::Read
+        && job_read_scope_paths(scope).is_some()
+    {
+        return Ok(route_path.is_some_and(is_read_path_scoped_route));
     }
 
     if !scope_action.includes(&required_action) {
@@ -1137,28 +1283,16 @@ mod tests {
     #[test]
     fn run_scopes_confine_job_reads_by_kind_and_path() {
         let confinement =
-            job_read_run_confinement(Some(&["jobs:run:flows:f/team/*".to_string()])).unwrap();
-        assert!(run_confinement_admits(&confinement, "flows", "f/team/etl"));
+            job_read_confinement(Some(&["jobs:run:flows:f/team/*".to_string()])).unwrap();
+        assert!(confinement.admits("flows", "f/team/etl"));
         // Right path, wrong kind — a script named like the flow is not the flow.
-        assert!(!run_confinement_admits(
-            &confinement,
-            "scripts",
-            "f/team/etl"
-        ));
-        assert!(!run_confinement_admits(
-            &confinement,
-            "flows",
-            "f/other/etl"
-        ));
+        assert!(!confinement.admits("scripts", "f/team/etl"));
+        assert!(!confinement.admits("flows", "f/other/etl"));
 
         // A kind-only scope confines to that kind, at any path.
-        let kind_only = job_read_run_confinement(Some(&["jobs:run:scripts".to_string()])).unwrap();
-        assert!(run_confinement_admits(
-            &kind_only,
-            "scripts",
-            "u/admin/anything"
-        ));
-        assert!(!run_confinement_admits(&kind_only, "flows", "f/team/etl"));
+        let kind_only = job_read_confinement(Some(&["jobs:run:scripts".to_string()])).unwrap();
+        assert!(kind_only.admits("scripts", "u/admin/anything"));
+        assert!(!kind_only.admits("flows", "f/team/etl"));
 
         // Scopes that grant job reads in their own right leave reads unconfined.
         for scopes in [
@@ -1171,11 +1305,111 @@ mod tests {
             vec!["if_jobs:filter_tags:deno".to_string()],
         ] {
             assert!(
-                job_read_run_confinement(Some(&scopes)).is_none(),
+                job_read_confinement(Some(&scopes)).is_none(),
                 "{scopes:?} must not confine job reads"
             );
         }
-        assert!(job_read_run_confinement(None).is_none());
+        assert!(job_read_confinement(None).is_none());
+    }
+
+    #[test]
+    fn jobs_read_paths_confine_reads_and_reach_only_confined_routes() {
+        let scopes = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let scoped = scopes(&["jobs:read:f/served/*,u/svc/report"]);
+        let confinement = job_read_confinement(Some(&scoped)).unwrap();
+        // Any kind of runnable at a named path.
+        assert!(confinement.admits("flows", "f/served/etl"));
+        assert!(confinement.admits("scripts", "u/svc/report"));
+        assert!(!confinement.admits("scripts", "f/other/etl"));
+        assert!(!confinement.admits("scripts", "f/served_not/etl"));
+        let lists = |s: &[&str], path: &str| job_list_path_filter(Some(&scopes(s))).allows(path);
+        assert!(lists(
+            &["jobs:read:f/served/*,u/svc/report"],
+            "f/served/etl"
+        ));
+        assert!(!lists(
+            &["jobs:read:f/served/*,u/svc/report"],
+            "f/other/etl"
+        ));
+
+        // A run scope adds the runnables it may start to the by-id reads, and nothing to
+        // the lists, not even a bare one that leaves the by-id reads unconfined.
+        let both = scopes(&["jobs:read:f/served/*", "jobs:run:scripts:f/other/etl"]);
+        let confinement = job_read_confinement(Some(&both)).unwrap();
+        assert!(confinement.admits("scripts", "f/other/etl"));
+        assert!(!confinement.admits("flows", "f/other/etl"));
+        for run in ["jobs:run:scripts:f/other/etl", "jobs:run"] {
+            assert!(
+                !lists(&["jobs:read:f/served/*", run], "f/other/etl"),
+                "{run}"
+            );
+        }
+        for unfiltered in [
+            &["jobs:read"][..],
+            &["jobs:read:f/served/*", "jobs:write"],
+            &["if_jobs:filter_tags:deno"],
+        ] {
+            assert!(lists(unfiltered, "f/other/etl"), "{unfiltered:?}");
+        }
+
+        for unconfined in [
+            &["jobs:read:*"][..],
+            &["jobs:read:f/served/*", "jobs:read"],
+            &["jobs:read:f/served/*", "jobs:write"],
+            &["jobs:write:f/served/*"],
+        ] {
+            assert!(
+                job_read_confinement(Some(&scopes(unconfined))).is_none(),
+                "{unconfined:?}"
+            );
+        }
+
+        let id = "0190f4c2-0000-7000-8000-000000000000";
+        for route in [
+            format!("jobs_u/get/{id}"),
+            format!("jobs_u/completed/get_result/{id}"),
+            format!("jobs_u/getupdate_sse/{id}"),
+            format!("jobs_u/flow/approval_info/{id}"),
+            "jobs/list".to_string(),
+            "jobs/completed/list".to_string(),
+            "jobs/queue/list".to_string(),
+        ] {
+            let route = format!("/api/w/ws/{route}");
+            assert!(
+                check_route_access(&scoped, &route, "GET").is_ok(),
+                "{route}"
+            );
+        }
+        // Reads that aggregate over the workspace, resolve past the job they name, or
+        // mint a credential stay with a `jobs:read` that names no path.
+        for route in [
+            "jobs/list_filtered_uuids".to_string(),
+            "jobs/queue/list_filtered_uuids".to_string(),
+            "jobs/queue/count".to_string(),
+            "jobs/completed/count".to_string(),
+            "jobs/completed/count_jobs".to_string(),
+            "jobs/completed/export".to_string(),
+            "jobs/queue/export".to_string(),
+            "jobs/asset_dispatch_edges".to_string(),
+            format!("jobs/queue/scheduled_for/{id}"),
+            format!("jobs/result_by_id/{id}/a"),
+            format!("jobs/job_view_token/{id}"),
+            format!("jobs_u/get_root_job_id/{id}"),
+        ] {
+            let route = format!("/api/w/ws/{route}");
+            assert!(
+                check_route_access(&scoped, &route, "GET").is_err(),
+                "{route}"
+            );
+            assert!(
+                check_route_access(&scopes(&["jobs:read"]), &route, "GET").is_ok(),
+                "{route}"
+            );
+            assert!(
+                check_route_access(&scopes(&["jobs:read:*"]), &route, "GET").is_ok(),
+                "{route}"
+            );
+        }
     }
 
     #[test]
@@ -1585,6 +1819,6 @@ mod tests {
         }
         // A cancel scope neither confines nor frees a run token's reads.
         let run = scopes(&["jobs:run:flows:f/a/b", "jobs:cancel"]);
-        assert!(job_read_run_confinement(Some(&run)).is_some());
+        assert!(job_read_confinement(Some(&run)).is_some());
     }
 }
