@@ -20,6 +20,7 @@
 		enterpriseLicense
 	} from '$lib/stores'
 	import {
+		Alert,
 		Button,
 		ButtonType,
 		Drawer,
@@ -944,17 +945,20 @@
 					<div class="h-full flex">
 						<div class="flex flex-col flex-1 m-4 mt-2 mr-2">
 							{#if scanProgress}
-								<div class="px-1 pb-2 flex items-center gap-3 text-xs text-secondary">
-									<Loader2 size={14} class="animate-spin shrink-0" />
-									<span>
-										This search is slow, so it runs through the history step by step. Searched back
-										to {displayDate(scanProgress.scannedTo)}, {pluralize(jobs?.length ?? 0, 'run')} found
-										so far.
+								<Alert
+									type="info"
+									size="xs"
+									class="mb-2"
+									title="Searching the history step by step"
+									actions={[{ label: 'Stop', onClick: () => jobsLoader.stopBatchLoading() }]}
+								>
+									<span class="inline-flex items-center gap-2">
+										<Loader2 size={14} class="animate-spin shrink-0" />
+										This search is too slow to run in one go. Searched back to {displayDate(
+											scanProgress.scannedTo
+										)}, {pluralize(jobs?.length ?? 0, 'run')} found so far.
 									</span>
-									<Button unifiedSize="xs" onClick={() => jobsLoader.stopBatchLoading()}>
-										Stop
-									</Button>
-								</div>
+								</Alert>
 							{/if}
 							{#if batchProgress}
 								<div class="px-1 pb-2">
