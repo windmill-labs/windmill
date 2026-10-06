@@ -207,6 +207,7 @@
 	function reset() {
 		_timeframe.val = { ...runsTimeframes[0] }
 		selectedIds = []
+		openedRunId = undefined
 		delete filters.val.schedule_path
 		selectedWorkspace = undefined
 		jobsLoader?.loadJobs(true)
@@ -590,7 +591,9 @@
 	// hide the list before the second click.
 	let openedRunId: string | undefined = $state()
 	const runPageOpen = $derived(
-		batchRerunOptionsIsOpen || (selectedIds.length === 1 && selectedIds[0] === openedRunId)
+		// A confirmed re-run clears the selection but leaves the options flag set.
+		(batchRerunOptionsIsOpen && selectedIds.length > 0) ||
+			(selectedIds.length === 1 && selectedIds[0] === openedRunId)
 	)
 
 	// Clears the selection too: a re-run selection of one job would otherwise land on that job.
