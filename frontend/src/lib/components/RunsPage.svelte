@@ -51,10 +51,11 @@
 	import BatchLoadProgress from '$lib/components/BatchLoadProgress.svelte'
 	import { pluralize, MAX_RESOLUTION_BATCH, MAX_RESOLUTION_NOTE_LEN } from '$lib/utils'
 	import type { BatchReRunOptions } from '$lib/components/runs/BatchReRunOptionsPane.svelte'
-	import { untrack } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import { page } from '$app/state'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
+	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import { StaleWhileLoading, useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import {
 		Calendar,
@@ -63,8 +64,9 @@
 		CirclePlay,
 		Clock,
 		Hourglass,
-		Loader2,
-		TriangleAlertIcon
+		TriangleAlertIcon,
+		ArrowLeft,
+		Loader2
 	} from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
@@ -208,6 +210,7 @@
 	function reset() {
 		_timeframe.val = { ...runsTimeframes[0] }
 		selectedIds = []
+		openedRunId = undefined
 		delete filters.val.schedule_path
 		selectedWorkspace = undefined
 		jobsLoader?.loadJobs(true)
@@ -498,6 +501,9 @@
 		})
 
 		selectedIds = []
+		// Opened from the table's "Run again", the options are done; left open, the next selection
+		// of one run would show them again. The re-run selection mode keeps them for its next batch.
+		if (!manualSelectionMode) batchRerunOptionsIsOpen = false
 		jobsLoader?.loadJobs(true, true)
 	}
 
@@ -581,6 +587,27 @@
 	)
 
 	let manualSelectionMode: undefined | 'cancel' | 'rerun' | 'resolve' = $state()
+
+	// Below 1024px (Tailwind `lg`) the side pane leaves the table too little room, so what it would
+	// show becomes a page pushed over the list. Selection modes keep the split: their rows are
+	// picked in the list while the pane holds the action.
+	const pagedLayout = $derived(innerWidth < 1024 && !manualSelectionMode)
+	// Set only by a plain row click, a chart point or the arrow keys, never by a modifier click:
+	// a Ctrl/Cmd/Shift-click starting a multi-selection selects one run first, and opening it would
+	// hide the list before the second click.
+	let openedRunId: string | undefined = $state()
+	const runPageOpen = $derived(
+		// A confirmed re-run clears the selection but leaves the options flag set.
+		(batchRerunOptionsIsOpen && selectedIds.length > 0) ||
+			(selectedIds.length === 1 && selectedIds[0] === openedRunId)
+	)
+
+	// Clears the selection too: a re-run selection of one job would otherwise land on that job.
+	function backToList() {
+		batchRerunOptionsIsOpen = false
+		selectedIds = []
+		openedRunId = undefined
+	}
 	let resolutionNote = $state('')
 </script>
 
@@ -929,6 +956,7 @@
 						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
 					}}
 					onPointClicked={(ids) => {
+						openedRunId = ids.length === 1 ? ids[0] : undefined
 						runsTable?.scrollToRun(ids)
 					}}
 				/>
@@ -946,255 +974,330 @@
 		</div>
 
 		<div class="grow min-h-0 bottom-splitpane-wrapper">
-			<Splitpanes>
-				<Pane minSize={40}>
-					<div class="h-full flex">
-						<div class="flex flex-col flex-1 min-w-0 m-4 mt-2 mr-2">
-							{#if scanProgress}
-								<div class="px-1 pb-2 flex items-center gap-2">
-									<Loader2 size={14} class="animate-spin shrink-0 text-accent" />
-									<div class="flex-1 min-w-0">
-										<BatchLoadProgress
-											loaded={Math.round(scanProgress.fraction * 100)}
-											total={100}
-											itemsLabel="runs"
-											label={`Slow search: runs since ${displayDate(scanProgress.scannedTo)} searched, ${jobs?.length ?? 0} found`}
-											onStop={() => jobsLoader.stopBatchLoading()}
-										/>
-									</div>
-								</div>
-							{/if}
-							{#if batchProgress}
-								<div class="px-1 pb-2">
-									<BatchLoadProgress
-										loaded={batchProgress.loaded}
-										total={batchProgress.total}
-										itemsLabel="jobs"
-										batchSize={currentBatchSize}
-										batchSizeCap={1000}
-										onBatchSizeChange={(v) => jobsLoader.restreamWithBatchSize(v)}
-										onStop={() => jobsLoader.stopBatchLoading()}
-									/>
-								</div>
-							{/if}
-							<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
-							<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
-								{#if jobs}
-									<RunsTable
-										{jobs}
-										externalJobs={externalJobs ?? []}
-										omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
-										showExternalJobs={graph !== 'RunChart'}
-										activeLabel={filters.val.label}
-										{lastFetchWentToEnd}
-										loadingExtra={jobsLoader.loadingExtra}
-										bind:selectedIds
-										bind:selectedWorkspace
-										on:loadExtra={loadExtra}
-										on:filterByPath={filterByPath}
-										on:filterByUser={filterByUser}
-										on:filterByFolder={filterByFolder}
-										on:filterByLabel={filterByLabel}
-										on:filterByConcurrencyKey={filterByConcurrencyKey}
-										on:filterByTag={filterByTag}
-										on:filterBySchedule={filterBySchedule}
-										on:filterByWorker={filterByWorker}
-										bind:this={runsTable}
-										perPage={perPage.val}
-										bind:batchRerunOptionsIsOpen
-										onCancelJobs={onCancelSelectedJobs}
-										onSetJobsResolution={setJobsResolution}
-										{manualSelectionMode}
-									></RunsTable>
-								{:else}
-									<div class="gap-1 flex flex-col">
-										{#each new Array(8) as _}
-											<Skeleton layout={[[3]]} />
-										{/each}
-									</div>
-								{/if}
-							</div>
-							<div
-								class="bg-surface-tertiary border rounded-b-md flex text-xs px-2 py-1 items-center gap-4"
-							>
-								{#if !manualSelectionMode}
-									<DropdownV2
-										btnText="Batch actions"
-										size="xs"
-										items={[
-											{
-												displayName: 'Cancel jobs',
-												action: () => ((manualSelectionMode = 'cancel'), (selectedIds = []))
-											},
-											{
-												displayName: 'Re-run jobs',
-												action: () => {
-													manualSelectionMode = 'rerun'
-													selectedIds = []
-													batchRerunOptionsIsOpen = true
-												}
-											},
-											...(!$userStore?.operator
-												? [
-														{
-															// Operators are rejected by the endpoint, so offering it would only 403.
-															displayName: 'Resolve failed jobs',
-															action: () => (
-																(manualSelectionMode = 'resolve'),
-																(selectedIds = []),
-																(resolutionNote = '')
-															)
-														}
-													]
-												: []),
-											{
-												displayName: 'Cancel all jobs matching filters',
-												action: () => onCancelAllJobsMatchingFilters()
-											},
-											{
-												displayName: 'Re-run all jobs matching filters',
-												action: () => onRerunAllJobsMatchingFilters()
-											}
-										]}
-									/>
-								{:else}
-									<Button
-										size="xs"
-										destructive
-										onClick={() => {
-											manualSelectionMode = undefined
-											batchRerunOptionsIsOpen = false
-										}}
-									>
-										Exit selection mode
-									</Button>
-								{/if}
-								<div class="flex-1"></div>
-								<Toggle
-									size="xs"
-									color="nord"
-									bind:checked={autoRefresh.val}
-									options={{ right: 'Auto-refresh' }}
-									textClass="whitespace-nowrap"
-								/>
-								<Select
-									class="w-24"
-									bind:value={
-										() => perPage.val,
-										(newPerPage) => {
-											perPage.val = newPerPage
-											if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
-										}
-									}
-									onCreateItem={(v) => (perPage.val = parseInt(v))}
-									items={[
-										{ value: 25, label: '25' },
-										{ value: 100, label: '100' },
-										{ value: 1000, label: '1000' },
-										{ value: 10000, label: '10000' }
-									]}
-									transformInputSelectedText={(_, v) => `${v} / page`}
-								/>
-							</div>
-						</div>
-					</div>
-				</Pane>
-				<AnimatedPane
-					size={40}
-					minSize={15}
-					class="flex flex-col"
-					opened={selectedIds.length > 0 || !!manualSelectionMode}
-				>
-					<div class="mt-12 overflow-y-auto pr-4 ml-2 relative flex-1">
-						{#if manualSelectionMode === 'cancel'}
-							<div
-								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center"
-							>
-								<Button
-									destructive
-									variant="accent"
-									disabled={!selectedIds.length}
-									onClick={() => onCancelSelectedJobs(selectedIds)}
-								>
-									Cancel {selectedIds.length} jobs
-								</Button>
-							</div>
-						{:else if manualSelectionMode === 'resolve'}
-							<div
-								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center gap-3 p-4"
-							>
-								<p class="text-xs text-secondary text-center max-w-xs">
-									Resolving keeps the run a failure but stops it showing as one in the runs list.
-								</p>
-								<TextInput
-									bind:value={resolutionNote}
-									inputProps={{
-										placeholder: $enterpriseLicense
-											? 'Why is this handled? (optional)'
-											: 'Notes and attribution require ee',
-										disabled: !$enterpriseLicense
-									}}
-									size="sm"
-								/>
-								<div class="flex flex-row gap-2">
-									<Button
-										variant="accent"
-										disabled={!selectedIds.length}
-										onClick={() => setJobsResolution(selectedIds, true, resolutionNote)}
-									>
-										Mark {selectedIds.length} resolved
-									</Button>
-									<Button
-										variant="default"
-										disabled={!selectedIds.length}
-										onClick={() => setJobsResolution(selectedIds, false)}
-									>
-										Unresolve {selectedIds.length}
-									</Button>
-								</div>
-							</div>
-						{:else if batchRerunOptionsIsOpen}
-							{#await import('$lib/components/runs/BatchReRunOptionsPane.svelte') then BatchReRunOptionsPane}
-								<BatchReRunOptionsPane.default
-									{selectedIds}
-									onCancel={() => (
-										(batchRerunOptionsIsOpen = false),
-										(manualSelectionMode = undefined)
-									)}
-									onConfirm={async (options) => {
-										await onReRunSelectedJobs(options)
-									}}
-								/>
-							{/await}
-						{:else if selectedIds.length === 1}
-							{#if selectedIds[0] === '-'}
-								<div class="p-4">There is no information available for this job</div>
-							{:else}
-								<!-- Dynamic, like the batch re-run pane: both only show once jobs are selected
-								     and each statically reaches hundreds of modules (flow graph, monaco). -->
-								{#await import('$lib/components/runs/JobRunsPreview.svelte') then JobRunsPreview}
-									<JobRunsPreview.default
-										id={selectedIds[0]}
-										workspace={selectedWorkspace}
-										on:filterByConcurrencyKey={filterByConcurrencyKey}
-										on:filterByWorker={filterByWorker}
-										onResolutionChanged={() => jobsLoader?.loadJobs(true, true)}
-									/>
-								{/await}
-							{/if}
-						{:else if selectedIds.length > 1}
-							<div
-								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex items-center justify-center"
-							>
-								<div class="text-xs m-4"> {selectedIds.length} jobs selected</div>
-							</div>
-						{/if}
-					</div>
-				</AnimatedPane>
-			</Splitpanes>
+			{#if pagedLayout}
+				<!-- No `onNavigate`: its arrow keys are read at `window`, where they would take
+				     ArrowRight from the table's horizontal scroll and ArrowLeft from a modal or drawer
+				     opened over the run. -->
+				<PagedContent
+					class="h-full"
+					current={runPageOpen ? 'run' : 'list'}
+					pages={[
+						{ key: 'list', content: runsList },
+						{ key: 'run', content: runPage, placeholder: runPagePlaceholder }
+					]}
+				/>
+			{:else}
+				<Splitpanes>
+					<Pane minSize={40}>
+						{@render runsList()}
+					</Pane>
+					<AnimatedPane
+						size={40}
+						minSize={15}
+						class="flex flex-col"
+						opened={selectedIds.length > 0 || !!manualSelectionMode}
+					>
+						{@render sidePanel()}
+					</AnimatedPane>
+				</Splitpanes>
+			{/if}
 		</div>
 	</div>
 {/if}
+
+{#snippet runsList()}
+	<div class="h-full flex">
+		<div class="flex flex-col flex-1 min-w-0 m-4 mt-2 mr-2">
+			{#if scanProgress}
+				<div class="px-1 pb-2 flex items-center gap-2">
+					<Loader2 size={14} class="animate-spin shrink-0 text-accent" />
+					<div class="flex-1 min-w-0">
+						<BatchLoadProgress
+							loaded={Math.round(scanProgress.fraction * 100)}
+							total={100}
+							itemsLabel="runs"
+							label={`Slow search: runs since ${displayDate(scanProgress.scannedTo)} searched, ${jobs?.length ?? 0} found`}
+							onStop={() => jobsLoader.stopBatchLoading()}
+						/>
+					</div>
+				</div>
+			{/if}
+			{#if batchProgress}
+				<div class="px-1 pb-2">
+					<BatchLoadProgress
+						loaded={batchProgress.loaded}
+						total={batchProgress.total}
+						itemsLabel="jobs"
+						batchSize={currentBatchSize}
+						batchSizeCap={1000}
+						onBatchSizeChange={(v) => jobsLoader.restreamWithBatchSize(v)}
+						onStop={() => jobsLoader.stopBatchLoading()}
+					/>
+				</div>
+			{/if}
+			<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
+			<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
+				{#if jobs}
+					<RunsTable
+						{jobs}
+						externalJobs={externalJobs ?? []}
+						omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
+						showExternalJobs={graph !== 'RunChart'}
+						activeLabel={filters.val.label}
+						{lastFetchWentToEnd}
+						loadingExtra={jobsLoader.loadingExtra}
+						bind:selectedIds
+						bind:selectedWorkspace
+						on:select={() => (openedRunId = selectedIds.length === 1 ? selectedIds[0] : undefined)}
+						on:loadExtra={loadExtra}
+						on:filterByPath={filterByPath}
+						on:filterByUser={filterByUser}
+						on:filterByFolder={filterByFolder}
+						on:filterByLabel={filterByLabel}
+						on:filterByConcurrencyKey={filterByConcurrencyKey}
+						on:filterByTag={filterByTag}
+						on:filterBySchedule={filterBySchedule}
+						on:filterByWorker={filterByWorker}
+						bind:this={runsTable}
+						perPage={perPage.val}
+						bind:batchRerunOptionsIsOpen
+						onCancelJobs={onCancelSelectedJobs}
+						onSetJobsResolution={setJobsResolution}
+						{manualSelectionMode}
+					></RunsTable>
+				{:else}
+					<div class="gap-1 flex flex-col">
+						{#each new Array(8) as _}
+							<Skeleton layout={[[3]]} />
+						{/each}
+					</div>
+				{/if}
+			</div>
+			<div
+				class="bg-surface-tertiary border rounded-b-md flex text-xs px-2 py-1 items-center gap-4"
+			>
+				{#if !manualSelectionMode}
+					<DropdownV2
+						btnText="Batch actions"
+						size="xs"
+						items={[
+							{
+								displayName: 'Cancel jobs',
+								action: () => ((manualSelectionMode = 'cancel'), (selectedIds = []))
+							},
+							{
+								displayName: 'Re-run jobs',
+								action: () => {
+									manualSelectionMode = 'rerun'
+									selectedIds = []
+									batchRerunOptionsIsOpen = true
+								}
+							},
+							...(!$userStore?.operator
+								? [
+										{
+											// Operators are rejected by the endpoint, so offering it would only 403.
+											displayName: 'Resolve failed jobs',
+											action: () => (
+												(manualSelectionMode = 'resolve'),
+												(selectedIds = []),
+												(resolutionNote = '')
+											)
+										}
+									]
+								: []),
+							{
+								displayName: 'Cancel all jobs matching filters',
+								action: () => onCancelAllJobsMatchingFilters()
+							},
+							{
+								displayName: 'Re-run all jobs matching filters',
+								action: () => onRerunAllJobsMatchingFilters()
+							}
+						]}
+					/>
+				{:else}
+					<Button
+						size="xs"
+						destructive
+						onClick={() => {
+							manualSelectionMode = undefined
+							batchRerunOptionsIsOpen = false
+						}}
+					>
+						Exit selection mode
+					</Button>
+				{/if}
+				<div class="flex-1"></div>
+				<Toggle
+					size="xs"
+					color="nord"
+					bind:checked={autoRefresh.val}
+					options={{ right: 'Auto-refresh' }}
+					textClass="whitespace-nowrap"
+				/>
+				<Select
+					class="w-24"
+					bind:value={
+						() => perPage.val,
+						(newPerPage) => {
+							perPage.val = newPerPage
+							if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
+						}
+					}
+					onCreateItem={(v) => (perPage.val = parseInt(v))}
+					items={[
+						{ value: 25, label: '25' },
+						{ value: 100, label: '100' },
+						{ value: 1000, label: '1000' },
+						{ value: 10000, label: '10000' }
+					]}
+					transformInputSelectedText={(_, v) => `${v} / page`}
+				/>
+			</div>
+		</div>
+	</div>
+{/snippet}
+
+{#snippet sidePanel()}
+	<div class="mt-12 overflow-y-auto pr-4 ml-2 relative flex-1">
+		{#if manualSelectionMode === 'cancel'}
+			<div
+				class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center"
+			>
+				<Button
+					destructive
+					variant="accent"
+					disabled={!selectedIds.length}
+					onClick={() => onCancelSelectedJobs(selectedIds)}
+				>
+					Cancel {selectedIds.length} jobs
+				</Button>
+			</div>
+		{:else if manualSelectionMode === 'resolve'}
+			<div
+				class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center gap-3 p-4"
+			>
+				<p class="text-xs text-secondary text-center max-w-xs">
+					Resolving keeps the run a failure but stops it showing as one in the runs list.
+				</p>
+				<TextInput
+					bind:value={resolutionNote}
+					inputProps={{
+						placeholder: $enterpriseLicense
+							? 'Why is this handled? (optional)'
+							: 'Notes and attribution require ee',
+						disabled: !$enterpriseLicense
+					}}
+					size="sm"
+				/>
+				<div class="flex flex-row gap-2">
+					<Button
+						variant="accent"
+						disabled={!selectedIds.length}
+						onClick={() => setJobsResolution(selectedIds, true, resolutionNote)}
+					>
+						Mark {selectedIds.length} resolved
+					</Button>
+					<Button
+						variant="default"
+						disabled={!selectedIds.length}
+						onClick={() => setJobsResolution(selectedIds, false)}
+					>
+						Unresolve {selectedIds.length}
+					</Button>
+				</div>
+			</div>
+		{:else if batchRerunOptionsIsOpen}
+			{@render batchRerunOptions()}
+		{:else if selectedIds.length === 1}
+			{#if selectedIds[0] === '-'}
+				<div class="p-4">There is no information available for this job</div>
+			{:else}
+				{@render jobPreview()}
+			{/if}
+		{:else if selectedIds.length > 1}
+			<div
+				class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex items-center justify-center"
+			>
+				<div class="text-xs m-4"> {selectedIds.length} jobs selected</div>
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet runPage()}
+	{@render runPageFrame(runPageBody)}
+{/snippet}
+
+{#snippet runPagePlaceholder()}
+	{@render runPageFrame(runPageSkeleton)}
+{/snippet}
+
+{#snippet runPageFrame(body: Snippet)}
+	<!-- Margins and header row match the runs table's column header, so the back row sits where
+	     the column labels were. -->
+	<div class="h-full flex flex-col min-h-0 p-4 pt-2 pr-2">
+		<div class="flex min-h-6 my-2 items-end">
+			<Button
+				unifiedSize="xs"
+				variant="subtle"
+				startIcon={{ icon: ArrowLeft }}
+				btnClasses="-mb-1 gap-1 text-xs font-semibold leading-3"
+				onclick={backToList}
+			>
+				Runs list
+			</Button>
+		</div>
+		<div class="grow min-h-0 overflow-y-auto">
+			{@render body()}
+		</div>
+	</div>
+{/snippet}
+
+{#snippet runPageBody()}
+	{#if batchRerunOptionsIsOpen}
+		{@render batchRerunOptions()}
+	{:else if selectedIds[0] === '-'}
+		<div class="p-4">There is no information available for this job</div>
+	{:else if selectedIds.length === 1}
+		{@render jobPreview(runPageSkeleton)}
+	{/if}
+{/snippet}
+
+<!-- The shape of a run: its header card, then inputs and result. `mounted` skips the skeleton's
+     fade-in, which outlasts the slide it is drawn for. -->
+{#snippet runPageSkeleton()}
+	<Skeleton mounted layout={[[4.5], 1.5, [1], 0.5, [3], 1.5, [1], 0.5, [8]]} />
+{/snippet}
+
+{#snippet batchRerunOptions()}
+	{#await import('$lib/components/runs/BatchReRunOptionsPane.svelte') then BatchReRunOptionsPane}
+		<BatchReRunOptionsPane.default
+			{selectedIds}
+			onCancel={() => ((batchRerunOptionsIsOpen = false), (manualSelectionMode = undefined))}
+			onConfirm={async (options) => {
+				await onReRunSelectedJobs(options)
+			}}
+		/>
+	{/await}
+{/snippet}
+
+{#snippet jobPreview(pending?: Snippet)}
+	<!-- Dynamic, like the batch re-run pane: both only show once jobs are selected
+	     and each statically reaches hundreds of modules (flow graph, monaco). -->
+	{#await import('$lib/components/runs/JobRunsPreview.svelte')}
+		{@render pending?.()}
+	{:then JobRunsPreview}
+		<JobRunsPreview.default
+			id={selectedIds[0]}
+			workspace={selectedWorkspace}
+			on:filterByConcurrencyKey={filterByConcurrencyKey}
+			on:filterByWorker={filterByWorker}
+			onResolutionChanged={() => jobsLoader?.loadJobs(true, true)}
+		/>
+	{/await}
+{/snippet}
 
 <style>
 	:global(.bottom-splitpane-wrapper .splitpanes__splitter) {
