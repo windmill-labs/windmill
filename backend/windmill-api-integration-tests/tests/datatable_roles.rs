@@ -419,6 +419,76 @@ async fn concurrent_role_creations_both_survive(db: Pool<Postgres>) -> anyhow::R
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn an_existing_role_is_taken_over_only_when_asked_and_never_with_members(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let suffix: String = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+    let plain = format!("wmtest_plain_{suffix}");
+    let group = format!("wmtest_group_{suffix}");
+    let member = format!("wmtest_member_{suffix}");
+    for sql in [
+        format!("CREATE ROLE \"{plain}\" LOGIN PASSWORD 'theirs'"),
+        format!("CREATE ROLE \"{group}\" NOLOGIN"),
+        format!("CREATE ROLE \"{member}\" LOGIN"),
+        format!("GRANT \"{group}\" TO \"{member}\""),
+    ] {
+        sqlx::query(&sql).execute(&db).await?;
+    }
+
+    let create = |name: String, take_over: bool| async move {
+        let resp = authed(
+            client().post(format!(
+                "http://localhost:{port}/api/settings/datatable_roles"
+            )),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "name": name, "take_over": take_over }))
+        .send()
+        .await?;
+        Ok::<_, anyhow::Error>((resp.status().as_u16(), resp.text().await?))
+    };
+    let outcome = async {
+        let (status, body) = create(plain.clone(), false).await?;
+        assert_eq!(
+            status, 409,
+            "an existing role is not taken without asking: {body}"
+        );
+
+        // The group's member would inherit every grant the data table role gets.
+        let (status, body) = create(group.clone(), true).await?;
+        assert_eq!(status, 400, "{body}");
+        assert!(
+            body.contains(&member),
+            "the refusal names the member: {body}"
+        );
+
+        let (status, body) = create(plain.clone(), true).await?;
+        assert_eq!(status, 200, "{body}");
+        let catalog = windmill_common::datatable_roles::read_role_catalog(
+            &db,
+            windmill_common::datatable_roles::DatatableRoleCluster::Instance,
+        )
+        .await?;
+        assert!(catalog.values().any(|r| r.name == plain), "{catalog:?}");
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+
+    // Roles are cluster-wide and outlive this test's database, whatever happened above.
+    for name in [&member, &group, &plain] {
+        let _ = sqlx::query(&format!("DROP ROLE IF EXISTS \"{name}\""))
+            .execute(&db)
+            .await;
+    }
+    outcome
+}
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn a_role_delete_that_fails_part_way_leaves_the_role_disabled(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {

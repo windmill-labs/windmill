@@ -100,7 +100,7 @@ async function offerTakeover({
 		children: `<div class="flex flex-col gap-2">
 			<p>A Postgres role named ${role} already exists in ${pgInstanceName(cluster)}, and Windmill did not create it. A data table role logs in with a password only Windmill knows, so Windmill has to manage it to use it.</p>
 			<p>Taking it over <b>replaces the password of ${role}</b> with a random one and lets it log in. Anything that logs in as ${role} today with its current password, such as another application, a person or another Windmill instance, will be locked out. The old password cannot be restored.</p>
-			<p>From then on Windmill manages ${role} like a role it created: deleting it in Windmill drops it from Postgres. A role that is a superuser, can create roles or databases, or is a member of other roles is refused.</p>
+			<p>From then on Windmill manages ${role} like a role it created: deleting it in Windmill drops it from Postgres. A role that is a superuser, can create roles or databases, is a member of other roles or has members of its own is refused.</p>
 		</div>`,
 		confirmationText: 'Replace password and take over',
 		type: 'danger',

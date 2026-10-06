@@ -3,10 +3,12 @@ import type { AclGrant } from '$lib/gen'
 import {
 	blockingSources,
 	grantKey,
+	grantStatement,
 	groupGrants,
 	revocablePrivileges,
 	revokeScopeOf,
-	uncoveredCreators
+	uncoveredCreators,
+	type GroupedGrant
 } from './aclScopes'
 
 const table = (name: string) => ({ name, kind: 'TABLE' })
@@ -174,5 +176,32 @@ describe('uncoveredCreators', () => {
 				'late'
 			])
 		).toEqual([])
+	})
+})
+
+describe('grantStatement', () => {
+	const schema = { kind: 'schema' as const, schema: 'sales' }
+	const row = (grant: Partial<GroupedGrant>): GroupedGrant => ({
+		grantee: 'analytics',
+		privileges: ['SELECT'],
+		objects: [],
+		sources: [],
+		...grant
+	})
+
+	it('reads a default privilege as the statement that sets it', () => {
+		const statement = grantStatement(row({ future: 'TABLES' }), schema)
+		expect(statement.lead).toBe('ALTER DEFAULT PRIVILEGES IN SCHEMA sales GRANT')
+		expect(statement.on).toBe('TABLES')
+	})
+
+	it('names a routine with its arguments, and summarizes past three objects', () => {
+		const routine = grantStatement(
+			row({ objects: [{ name: 'refresh', kind: 'FUNCTION', args: 'integer' }] }),
+			schema
+		)
+		expect(routine.on).toBe('FUNCTION refresh(integer)')
+		const many = grantStatement(row({ objects: ['a', 'b', 'c', 'd', 'e'].map(table) }), schema)
+		expect(many.on).toBe('TABLE a, b, c … (2 more)')
 	})
 })
