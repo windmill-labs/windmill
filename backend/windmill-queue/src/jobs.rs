@@ -7078,8 +7078,8 @@ async fn push_inner<'c, 'd>(
                 memory_id: None,
                 no_inherited_flow_env: false,
             };
-            // The restart takes the flow's current setting (and the restarting caller's
-            // ceiling), not the scopes the completed run had.
+            // The completed job's own scopes are gone with its `job_perms` row, so the restart
+            // takes the flow's current setting (and the restarting caller's ceiling).
             let job_token_scopes = match &flow_path {
                 Some(flow_path) => sqlx::query_scalar::<_, Option<Vec<String>>>(
                     "SELECT job_token_scopes FROM flow WHERE path = $1 AND workspace_id = $2",
@@ -7573,7 +7573,7 @@ async fn push_inner<'c, 'd>(
         inserted_job_perms AS (
             INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email, job_token_scopes)
             values ($1, $32, $33, $34, $35, $36, $37, $2, $41, $47)
-            ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email, job_token_scopes = EXCLUDED.job_token_scopes, sweep_after = NULL
+            ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email, job_token_scopes = EXCLUDED.job_token_scopes
         )
         INSERT INTO v2_job_queue
             (workspace_id, id, running, scheduled_for, started_at, tag, priority, cache_ignore_s3_path, runnable_settings_handle)

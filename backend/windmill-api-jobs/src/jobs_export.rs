@@ -632,10 +632,7 @@ pub async fn delete_jobs(
     .rows_affected();
 
     let perms_deleted = sqlx::query!(
-        // A restricted row is left to the monitor's sweep, which keeps it until the job's
-        // tokens have expired: without it an unscoped token for the job stops being refused.
-        "DELETE FROM job_perms WHERE workspace_id = $1 AND job_id = ANY($2)
-            AND job_token_scopes IS NULL",
+        "DELETE FROM job_perms WHERE workspace_id = $1 AND job_id = ANY($2)",
         &w_id,
         &job_ids
     )

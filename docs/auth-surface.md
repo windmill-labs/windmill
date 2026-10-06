@@ -71,18 +71,10 @@ Symbols, not line numbers, are cited: they drift less.
   unscoped token for every job. `$var:`/`$res:` args are resolved through the API with the job's
   own token, so they need read scopes. A deploy that omits the setting keeps the deployed value
   and `null` clears it, so an unaware client cannot drop a restriction; setting one is refused
-  until every worker supports it, since an older worker mints without it. That gate only counts
-  workers that pinged in the last 5 minutes, never servers (which mint for agent workers, inline
-  AI tools and zombie jobs) nor a worker that joins later, so the auth layer is what enforces it:
-  `try_get_opt_job_authed` refuses (401) an unscoped token whose job's `job_perms` row is
-  restricted. Hence the one exception to the sweep: a restricted row stays until every token of
-  its job has expired (`cleanup_job_perms_orphaned` stamps `sweep_after` when the job leaves the
-  queue), or a token leaked by an old worker would turn unrestricted when its job completes. The
-  window is the monitor's own `TIMEOUT` / `SCRIPT_TOKEN_EXPIRY`: a worker configured with a
-  longer one mints tokens that outlive the row. The lookup runs once per token per server
-  (`UNRESTRICTED_JOB_TOKENS`), not per request: `AUTH_CACHE` holds 300 entries. The OIDC
+  until every worker supports it, since an older worker mints without it. The OIDC
   `job_token_scopes` claim is the presented token's scopes, not the runnable's setting, so a
-  verifier sees what the job could reach. The setting belongs to
+  verifier sees what the job could reach and a token minted without the restriction shows as
+  unrestricted. The setting belongs to
   the deployed version: an older script hash run by hash runs with that version's setting (a
   restricted caller still caps it). Write scopes on scripts, flows, schedules or triggers let a
   job escape its restriction.

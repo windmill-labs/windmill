@@ -363,63 +363,6 @@ async fn test_deploy_without_the_field_keeps_the_restriction(
     Ok(())
 }
 
-/// The token a worker or server older than `job_token_scopes` mints: the job's identity,
-/// none of its scopes.
-async fn unscoped_job_token(db: &Pool<Postgres>, id: &str) -> anyhow::Result<String> {
-    Ok(windmill_common::auth::create_token_for_owner(
-        db,
-        "test-workspace",
-        "u/test-user-3",
-        "ephemeral-script",
-        300,
-        "test3@windmill.dev",
-        &Uuid::parse_str(id)?,
-        Some(windmill_common::auth::JobPerms {
-            email: "test3@windmill.dev".to_string(),
-            username: "test-user-3".to_string(),
-            is_admin: false,
-            is_operator: false,
-            groups: vec![],
-            folders: vec![],
-            end_user_email: None,
-            job_token_scopes: None,
-        }),
-        None,
-    )
-    .await?)
-}
-
-#[sqlx::test(fixtures("base"))]
-async fn test_unscoped_token_of_restricted_job_is_refused(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    const OPEN_JOB: &str = "b0000000-0000-0000-0000-000000000005";
-    insert_job(&db, OIDC_JOB, None, &["oidc:write"]).await?;
-    insert_job_with(&db, OPEN_JOB, None, None).await?;
-
-    let server = ApiServer::start(db.clone()).await?;
-    set_jwt_secret().await;
-    let base = format!(
-        "http://localhost:{}/api/w/test-workspace",
-        server.addr.port()
-    );
-    let client = reqwest::Client::new();
-    let list_variables = |token: String| {
-        client
-            .get(format!("{base}/variables/list"))
-            .bearer_auth(token)
-            .send()
-    };
-
-    let resp = list_variables(unscoped_job_token(&db, OIDC_JOB).await?).await?;
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
-    assert!(resp.text().await?.contains("restricted"));
-    let resp = list_variables(unscoped_job_token(&db, OPEN_JOB).await?).await?;
-    assert_eq!(resp.status(), StatusCode::OK, "{}", resp.text().await?);
-    Ok(())
-}
-
 /// The OIDC `job_token_scopes` claim states the scopes of the token that asked for it.
 #[cfg(all(feature = "enterprise", feature = "private", feature = "openidconnect"))]
 #[sqlx::test(fixtures("base"))]
