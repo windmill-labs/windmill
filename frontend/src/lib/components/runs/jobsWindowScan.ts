@@ -11,9 +11,19 @@ const PATIENCE_MS = MAX_STEP * TARGET_MS
 const INITIAL_WIDTH_MS = 60 * 60 * 1000
 const MIN_WIDTH_MS = 60 * 1000
 
-export function nextWindowWidth(widthMs: number, elapsedMs: number): number {
-	const step = Math.min(MAX_STEP, Math.max(1 / MAX_STEP, TARGET_MS / Math.max(elapsedMs, 1)))
+function nextWindowWidth(widthMs: number, elapsedMs: number, targetMs: number): number {
+	const step = Math.min(MAX_STEP, Math.max(1 / MAX_STEP, targetMs / Math.max(elapsedMs, 1)))
 	return Math.max(MIN_WIDTH_MS, widthMs * step)
+}
+
+// A window's cost is expected to follow its width. It does not when the database answers it
+// from an index that ignores the time bounds (another filter's own index, or no index leading
+// with the sort column): every window then costs a pass over the whole history, and scanning
+// would multiply the load it exists to bound.
+function tooSlow(): Error {
+	return new Error(
+		`Listing the jobs of a single ${MIN_WIDTH_MS / 1000}s window is too slow. Narrow the filters.`
+	)
 }
 
 export interface JobWindow {
@@ -33,6 +43,7 @@ export interface JobWindowScan {
 	fetchWindow: (w: JobWindow) => CancelablePromise<Job[]>
 	/** `fraction` is the share of the scan's time range listed so far. */
 	onWindow: (jobs: Job[], scannedTo: string, fraction: number) => void
+	targetMs?: number
 	patienceMs?: number
 }
 
@@ -52,6 +63,7 @@ function justBefore(ms: number): string {
  * scanned to its end, false meaning the page filled up first.
  */
 export function scanJobWindows(scan: JobWindowScan): CancelablePromise<boolean> {
+	const targetMs = scan.targetMs ?? TARGET_MS
 	const patienceMs = scan.patienceMs ?? PATIENCE_MS
 	return new CancelablePromise<boolean>((resolve, reject, onCancel) => {
 		let current: CancelablePromise<Job[]> | undefined
@@ -103,11 +115,7 @@ export function scanJobWindows(scan: JobWindowScan): CancelablePromise<boolean> 
 					res = SLOW
 				}
 				if (res === SLOW) {
-					if (width <= MIN_WIDTH_MS) {
-						throw new Error(
-							`Listing the jobs of a single ${MIN_WIDTH_MS / 1000}s window is too slow. Narrow the filters.`
-						)
-					}
+					if (width <= MIN_WIDTH_MS) throw tooSlow()
 					// Well below what the elapsed time suggests: each dropped window is one more
 					// statement left running on the server, so the retry has to land.
 					width = Math.max(MIN_WIDTH_MS, width / (MAX_STEP * MAX_STEP))
@@ -119,7 +127,9 @@ export function scanJobWindows(scan: JobWindowScan): CancelablePromise<boolean> 
 				listed += completed
 				upper = lower
 				first = false
-				width = nextWindowWidth(width, Date.now() - startedAt)
+				const elapsed = Date.now() - startedAt
+				if (width <= MIN_WIDTH_MS && elapsed > targetMs && upper > floor) throw tooSlow()
+				width = nextWindowWidth(width, elapsed, targetMs)
 			}
 			return true
 		}

@@ -98,6 +98,28 @@ describe('scanJobWindows', () => {
 		expect(windows.map((w) => w.limit)).toEqual([3, 2])
 	})
 
+	it('gives up when narrower windows are no faster', async () => {
+		// Every window costs the same whatever its width, as with an index that ignores the bounds.
+		const windows: JobWindow[] = []
+		const fetchWindow = (w: JobWindow) => {
+			windows.push(w)
+			return new CancelablePromise<Job[]>((resolve) => setTimeout(() => resolve([]), 30))
+		}
+		await expect(
+			scanJobWindows({
+				before: new Date(NOW).toISOString(),
+				after: new Date(NOW - 240 * HOUR).toISOString(),
+				pageSize: 10,
+				oldest: async () => undefined,
+				fetchWindow,
+				onWindow: () => {},
+				targetMs: 10,
+				patienceMs: 1000
+			})
+		).rejects.toThrow('too slow')
+		expect(windows.length).toBeLessThan(10)
+	})
+
 	it('retries a window that does not answer in time with a narrower one', async () => {
 		const at = [NOW - 0.2 * HOUR, NOW - 0.9 * HOUR]
 		const { windows, fetchWindow } = history(at, 0.5 * HOUR)

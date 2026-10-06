@@ -958,7 +958,7 @@
 											loaded={Math.round(scanProgress.fraction * 100)}
 											total={100}
 											itemsLabel="runs"
-											label={`Slow search: back to ${displayDate(scanProgress.scannedTo)}, ${pluralize(jobs?.length ?? 0, 'run')} found`}
+											label={`Slow search: runs since ${displayDate(scanProgress.scannedTo)} searched, ${jobs?.length ?? 0} found`}
 											onStop={() => jobsLoader.stopBatchLoading()}
 										/>
 									</div>
