@@ -81,9 +81,11 @@ export function scanJobWindows(scan: JobWindowScan): CancelablePromise<boolean> 
 			let first = true
 			let width = INITIAL_WIDTH_MS
 			let listed = 0
-			while (upper > floor) {
+			// The first window is listed even when the scan starts at its floor: the bounds are
+			// inclusive, and jobs sharing the cursor's timestamp may still be missing from the page.
+			while (first || upper > floor) {
 				if (onCancel.isCancelled) return false
-				const lower = Math.max(floor, upper - width)
+				const lower = Math.min(upper, Math.max(floor, upper - width))
 				const w: JobWindow = {
 					before: first ? (scan.before ?? undefined) : justBefore(upper),
 					after: new Date(lower).toISOString(),
@@ -104,7 +106,9 @@ export function scanJobWindows(scan: JobWindowScan): CancelablePromise<boolean> 
 							`Listing the jobs of a single ${MIN_WIDTH_MS / 1000}s window is too slow. Narrow the filters.`
 						)
 					}
-					width = Math.max(MIN_WIDTH_MS, width / MAX_STEP)
+					// Well below what the elapsed time suggests: each dropped window is one more
+					// statement left running on the server, so the retry has to land.
+					width = Math.max(MIN_WIDTH_MS, width / (MAX_STEP * MAX_STEP))
 					continue
 				}
 				const completed = res.filter((j) => j.type === 'CompletedJob').length

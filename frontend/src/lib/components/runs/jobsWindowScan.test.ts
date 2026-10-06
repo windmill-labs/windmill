@@ -63,6 +63,24 @@ describe('scanJobWindows', () => {
 		expect(seen.map((j) => j.id)).toEqual([`j${NOW - HOUR}`, `j${NOW - 2 * HOUR}`])
 	})
 
+	it('still lists the window of a cursor that sits on the oldest job', async () => {
+		const oldest = NOW - 240 * HOUR
+		const { windows, fetchWindow } = history([oldest])
+		const seen: Job[] = []
+		const before = new Date(oldest).toISOString().replace('Z', '500Z')
+		const wentToEnd = await scanJobWindows({
+			before,
+			after: null,
+			pageSize: 10,
+			oldest: async () => new Date(oldest).toISOString(),
+			fetchWindow,
+			onWindow: (jobs) => seen.push(...jobs)
+		})
+		expect(wentToEnd).toBe(true)
+		expect(windows).toEqual([{ before, after: new Date(oldest).toISOString(), limit: 10 }])
+		expect(seen.map((j) => j.id)).toEqual([`j${oldest}`])
+	})
+
 	it('stops as soon as the page is full, asking each window only for what is missing', async () => {
 		const at = [NOW - 0.5 * HOUR, NOW - 2 * HOUR, NOW - 3 * HOUR, NOW - 100 * HOUR]
 		const { windows, fetchWindow } = history(at)
