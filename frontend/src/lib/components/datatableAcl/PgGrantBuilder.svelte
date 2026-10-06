@@ -34,17 +34,17 @@
 </script>
 
 <!-- Laid out like the grants above it, so it reads as the statement it will run. -->
-<div class="flex flex-wrap items-center gap-2 text-xs text-secondary">
-	<span class="font-mono">GRANT</span>
+<div class="flex items-center gap-2 text-xs text-secondary">
+	<span class="font-mono shrink-0">GRANT</span>
 	<MultiSelect
 		bind:value={privileges}
 		items={available.map((p) => ({ value: p, label: p }))}
 		placeholder="privileges"
 		{disabled}
 		size="md"
-		class="min-w-48"
+		class="min-w-0 flex-[4]"
 	/>
-	<span class="font-mono">ON</span>
+	<span class="font-mono shrink-0">ON</span>
 	<Select
 		bind:value={
 			() => scope,
@@ -60,22 +60,22 @@
 		items={scopesOf(target.kind)}
 		{disabled}
 		size="md"
-		class="w-52"
+		class="min-w-0 flex-[3]"
 	/>
-	<span class="font-mono">TO</span>
+	<span class="font-mono shrink-0">TO</span>
 	<Select
 		bind:value={role}
 		items={roles.map((r) => ({ value: r, label: r }))}
 		placeholder="role"
 		{disabled}
 		size="md"
-		class="w-40"
+		class="min-w-0 flex-[2]"
 		bottomSnippet={manageRoles}
 	/>
-	<div class="grow"></div>
 	<Button
 		unifiedSize="md"
 		variant="default"
+		wrapperClasses="shrink-0"
 		startIcon={{ icon: Plus }}
 		disabled={disabled || !role || privileges.length === 0}
 		onClick={() => {
