@@ -741,7 +741,15 @@
 			workspace,
 			skipSubscriptionFetch: true // won't load subscription status from stripe but only the past due status from db
 		})
-		if (premiumInfo.is_past_due) {
+		if (premiumInfo.is_canceled) {
+			// Its last month runs on a cap too, but nothing is unpaid: only speak up once it bites
+			if ((premiumInfo.usage ?? 0) > (premiumInfo.max_tolerated_executions ?? 0)) {
+				sendUserToast(
+					'Your team plan was canceled and this month\'s paid executions are used up. Jobs can run again on the free plan from the 1st, or subscribe again in the workspace settings.',
+					true
+				)
+			}
+		} else if (premiumInfo.is_past_due) {
 			if (
 				premiumInfo.max_tolerated_executions === undefined ||
 				(premiumInfo.usage ?? 0) > premiumInfo.max_tolerated_executions
