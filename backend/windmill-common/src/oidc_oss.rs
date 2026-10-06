@@ -90,12 +90,25 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(not(feature = "private"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum OidcCaller {
+    JobMint,
+    S3Instance,
+    S3Workspace,
+    Vault,
+    Sqs,
+    Bedrock,
+}
+
+#[cfg(not(feature = "private"))]
 pub async fn generate_id_token<T: AdditionalClaims>(
+    _caller: OidcCaller,
     _db: Option<&DB>,
     _claim: T,
     _audience: &str,
     _identifier: String,
     _email: Option<String>,
+    _expires_in: Option<i64>,
 ) -> Result<WindmillIdToken> {
     Err(Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
