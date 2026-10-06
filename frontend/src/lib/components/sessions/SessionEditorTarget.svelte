@@ -20,7 +20,8 @@
 		editor,
 		onNavigate,
 		isActiveSession = true,
-		isActiveTab = true
+		isActiveTab = true,
+		newDraft = false
 	}: {
 		runtime: SessionRuntime
 		kind: SessionTargetKind
@@ -43,6 +44,9 @@
 		 * tab must not, else chat actions resolve to the wrong item's path.
 		 */
 		isActiveTab?: boolean
+		/** A raw app just started from the new-app builder: nothing exists at `path` yet, so
+		 * the editor opens on the template, in memory until the first edit saves it. */
+		newDraft?: boolean
 	} = $props()
 
 	// Mark this subtree as the session side panel: editors below detect the
@@ -71,7 +75,7 @@
 	function triggerLoad(): Promise<void> {
 		if (kind === 'flow') return runtime.loadFlow(workspaceId, path)
 		if (kind === 'script') return runtime.loadScript(workspaceId, path)
-		return runtime.loadRawApp(workspaceId, path)
+		return runtime.loadRawApp(workspaceId, path, false, false, newDraft)
 	}
 
 	function buildCodec(): DraftSyncCodec<any> {
@@ -119,7 +123,8 @@
 			workspace: workspaceId,
 			itemKind: kind,
 			storagePath: path,
-			effectivePath: effectivePath()
+			effectivePath: effectivePath(),
+			isNew: newDraft && !cell.saved.val
 		})
 		return () => UserDraft.clearLiveEditorDraft(kind, { workspace: workspaceId, storagePath: path })
 	})

@@ -27,7 +27,8 @@ type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScrip
 type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-import { userWorkspaces, workspaceStore } from '$lib/stores'
+import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
 import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { emptySchema, type StateStore } from '$lib/utils'
@@ -230,7 +231,9 @@ export interface SessionRuntime {
 		workspace: string,
 		path: string,
 		force?: boolean,
-		deployedOnly?: boolean
+		deployedOnly?: boolean,
+		/** Open the starter template when nothing exists at `path` yet (a new-app hand-off). */
+		seedIfMissing?: boolean
 	): Promise<void>
 	/** Register a mounted raw-app preview's log requester, keyed by app path, like
 	 * `registerDomRequester`: build state is per editor, so reads route to the app edited. */
@@ -814,7 +817,13 @@ function createRuntime(session: Session): SessionRuntime {
 
 		rawAppCell,
 
-		async loadRawApp(workspace: string, path: string, force = false, deployedOnly = false) {
+		async loadRawApp(
+			workspace: string,
+			path: string,
+			force = false,
+			deployedOnly = false,
+			seedIfMissing = false
+		) {
 			const { slot, store, saved } = rawAppCell(path)
 			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
 			// See loadScript: forced reload remounts via the render gate.
@@ -944,6 +953,27 @@ function createRuntime(session: Session): SessionRuntime {
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace
 			} catch (err) {
+				if (seedIfMissing && !deployedOnly) {
+					// Held in the cell only: the editor's draft sync swallows this first write,
+					// so nothing is saved until the template is actually changed.
+					const user = get(userStore)
+					saved.val = undefined
+					store.val = {
+						files: { ...react19Template },
+						runnables: structuredClone(STARTER_RUNNABLES),
+						data: { ...DEFAULT_DATA },
+						policy: {
+							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
+							on_behalf_of_email: user?.email,
+							execution_mode: 'publisher'
+						},
+						summary: '',
+						path
+					}
+					slot.loadedPath = path
+					slot.loadedWorkspace = workspace
+					return
+				}
 				console.error('Failed to load raw app', err)
 				slot.notFound = true
 			} finally {

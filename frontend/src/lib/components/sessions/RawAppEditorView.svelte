@@ -21,7 +21,8 @@
 		workspaceId,
 		onNavigate,
 		isActiveSession = true,
-		active = true
+		active = true,
+		newDraft = false
 	}: {
 		runtime: SessionRuntime
 		path: string
@@ -32,6 +33,8 @@
 		isActiveSession?: boolean
 		/** Whether this is the visible preview tab (forwarded as isActiveTab). */
 		active?: boolean
+		/** Forwarded to SessionEditorTarget: the tab was opened on a brand-new app. */
+		newDraft?: boolean
 	} = $props()
 
 	// This tab's own raw-app cell; each open app editor binds its own store.
@@ -233,6 +236,7 @@
 	{onNavigate}
 	{isActiveSession}
 	isActiveTab={active}
+	{newDraft}
 	effectivePath={() =>
 		// A raw app's typed rename lives in `draft_path` (`val.path` is the storage
 		// key), unlike scripts where `val.path` is the typed name — without it the

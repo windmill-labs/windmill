@@ -77,6 +77,10 @@
 		slot.kind === 'editor' || slot.kind === 'viewer' ? slot.path : undefined
 	)
 	const mode = $derived(slot.kind === 'viewer' ? 'view' : 'edit')
+	// `new_draft` marks a raw app opened from the new-app builder before anything was saved.
+	const newRawAppDraft = $derived(
+		itemKind === 'raw_app' && new URL(tab.url, 'http://x').searchParams.get('new_draft') === 'true'
+	)
 	// A pinned deployed version, read from the tab URL rather than passed down: the tab
 	// URL is the single record of where this tab points.
 	const pinnedVersion = $derived(
@@ -363,6 +367,7 @@
 							{onNavigate}
 							{isActiveSession}
 							{active}
+							newDraft={newRawAppDraft}
 						/>
 					{/await}
 				{/if}
