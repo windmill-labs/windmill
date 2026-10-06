@@ -13,9 +13,10 @@
 
 	interface Props {
 		message: ToolDisplayMessage
+		hidePreviewChip?: boolean
 	}
 
-	let { message }: Props = $props()
+	let { message, hidePreviewChip = false }: Props = $props()
 
 	const diff = $derived(toolCodeDiff(message))
 	const isStreaming = $derived(Boolean(message.isStreamingArguments))
@@ -56,7 +57,7 @@
 
 	const isRunning = $derived(Boolean(message.isLoading && !message.needsConfirmation))
 	const showPreviewChip = $derived(
-		Boolean(message.previewCard && !message.isLoading && !message.error)
+		Boolean(!hidePreviewChip && message.previewCard && !message.isLoading && !message.error)
 	)
 </script>
 

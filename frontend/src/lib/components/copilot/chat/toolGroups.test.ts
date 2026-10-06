@@ -187,6 +187,19 @@ describe('groupToolRuns', () => {
 		).toEqual([{ edit: [0, 1, 2] }, { edit: [3, 4] }])
 	})
 
+	it('folds app edits that carry a file diff, but not a script edit with one', () => {
+		const app = { path: 'f/a/x' }
+		const diff = { codeDiff: { before: 'a', after: 'b' } }
+		expect(
+			shape([
+				tool('init_app', app),
+				tool('write_app_file', { ...app, file_path: '/App.tsx' }, diff),
+				tool('delete_app_runnable', { ...app, key: 'greet' }, diff),
+				tool('write_script', { path: 'f/a/s' }, diff)
+			])
+		).toEqual([{ edit: [0, 1, 2] }, 3])
+	})
+
 	it('leaves a flow read that prepares an edit to the edit group, not the lookups before it', () => {
 		const flow = { type: 'flow', path: 'f/a/flow' }
 		expect(
