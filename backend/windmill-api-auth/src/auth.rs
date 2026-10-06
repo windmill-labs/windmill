@@ -40,11 +40,13 @@ lazy_static::lazy_static! {
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
     // Cache for token -> email lookups (for non-workspace-member authenticated users)
     static ref TOKEN_EMAIL_CACHE: Cache<String, (Option<String>, std::time::Instant)> = Cache::new(500);
-    // Jobs known to have no `job_token_scopes`. A job's scopes never change after push, so an
-    // entry never goes stale; it spares the lookup `AUTH_CACHE` is too small to spare on a
-    // busy instance.
-    static ref UNRESTRICTED_JOBS: Cache<uuid::Uuid, ()> = Cache::new(20_000);
+    // Jobs found to have no `job_token_scopes`, sparing the lookup `AUTH_CACHE` is too small
+    // to spare on a busy instance. Entries expire: the id of a job deleted by retention can
+    // be pushed again, with a restriction this time.
+    static ref UNRESTRICTED_JOBS: Cache<uuid::Uuid, std::time::Instant> = Cache::new(20_000);
 }
+
+const UNRESTRICTED_JOB_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// A token keeps its identity when a superadmin moves the account to another address, so entries
 /// here must expire on their own; nothing invalidates them by token hash.
@@ -224,7 +226,10 @@ impl AuthCache {
         &self,
         job_id: uuid::Uuid,
     ) -> Result<(), Error> {
-        if UNRESTRICTED_JOBS.get(&job_id).is_some() {
+        if UNRESTRICTED_JOBS
+            .get(&job_id)
+            .is_some_and(|checked_at| checked_at.elapsed() < UNRESTRICTED_JOB_TTL)
+        {
             return Ok(());
         }
         let restricted = sqlx::query_scalar!(
@@ -246,7 +251,7 @@ impl AuthCache {
                 windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES.version()
             )));
         }
-        UNRESTRICTED_JOBS.insert(job_id, ());
+        UNRESTRICTED_JOBS.insert(job_id, std::time::Instant::now());
         Ok(())
     }
 

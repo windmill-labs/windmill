@@ -76,9 +76,11 @@ Symbols, not line numbers, are cited: they drift less.
   AI tools and zombie jobs) nor a worker that joins later, so the auth layer is what enforces it:
   `try_get_opt_job_authed` refuses (401) an unscoped token whose job's `job_perms` row is
   restricted. Hence the one exception to the sweep: a restricted row stays until every token of
-  its job has expired (`cleanup_job_perms_orphaned`), or a token leaked by an old worker would
-  turn unrestricted when its job completes. The lookup runs once per job per server
-  (`UNRESTRICTED_JOBS`), not per request: `AUTH_CACHE` holds 300 entries. The OIDC
+  its job has expired (`cleanup_job_perms_orphaned` stamps `sweep_after` when the job leaves the
+  queue), or a token leaked by an old worker would turn unrestricted when its job completes. The
+  window is the monitor's own `TIMEOUT` / `SCRIPT_TOKEN_EXPIRY`: a worker configured with a
+  longer one mints tokens that outlive the row. The lookup runs once per job per server
+  every 5 minutes (`UNRESTRICTED_JOBS`), not per request: `AUTH_CACHE` holds 300 entries. The OIDC
   `job_token_scopes` claim is the presented token's scopes, not the runnable's setting, so a
   verifier sees what the job could reach. The setting belongs to
   the deployed version: an older script hash run by hash runs with that version's setting (a

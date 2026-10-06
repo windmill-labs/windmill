@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM job_perms jp WHERE jp.sweep_after < now()\n           AND NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "79f7c190bb821567cf034146ea931e242ce70d707e572553d6e4897f65392517"
+}
