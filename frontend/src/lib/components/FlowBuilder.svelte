@@ -1667,8 +1667,9 @@
 			     path, with the cursor in the path field. `bind:` cannot be spread, so the slots are
 			     written out twice; both instances bind the same ones and only one is ever open. -->
 			{#snippet flowPathTrigger(pathLabel: Snippet, triggerClass: string)}
-				<!-- Gated the way the script editor gates its own: this renders from the band's tree,
-				     which outlives what it reads here by a flush. -->
+				<!-- Gated the way the script editor gates its own, `{:else}` included: this renders from
+				     the band's tree, which outlives what it reads here by a flush, and the band has
+				     already given up its own segment by the time this decides. -->
 				{#if flowStore?.val}
 					<PathEditPopover
 						label={pathLabel}
@@ -1684,6 +1685,8 @@
 						onBehalfOfEmail={$savedOnBehalfOfEmail}
 						workspaceId={autosaveWorkspace}
 					/>
+				{:else}
+					<span class={triggerClass}>{@render pathLabel()}</span>
 				{/if}
 			{/snippet}
 

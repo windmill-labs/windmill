@@ -87,6 +87,12 @@
 		}
 	})
 
+	/** The path's name field inside this popover. `Path` hardcodes `id="path"`, and melt resolves a
+	 *  string `openFocus` with a document-wide `querySelector`, so a popover portalled to the body
+	 *  would hand the keystrokes to whichever other `Path` the page happens to have mounted. */
+	const pathField = () =>
+		document.querySelector<HTMLInputElement>('[data-path-edit-path] #path') ?? null
+
 	async function save(close: () => void) {
 		const initialPath = path ?? ''
 		const newPath = own ? editPath : initialPath
@@ -111,8 +117,8 @@
 </script>
 
 {#snippet editor()}
-	<!-- `#path` is the name field inside `Path`; without naming it melt lands on the row's first
-	     button, so a popover opened from the path would not be typing into the path. -->
+	<!-- Without naming the path's own field melt lands on the row's first button, so a popover
+	     opened from the path would not be typing into the path. -->
 	<Popover
 		class={triggerClass}
 		placement="bottom-start"
@@ -122,7 +128,7 @@
 		excludeSelectors=".drawer"
 		disableFocusTrap
 		openFocus={focusField === 'path' && own
-			? '#path'
+			? pathField
 			: () => {
 					summaryInput?.focus()
 					return null
@@ -182,16 +188,18 @@
 					{/if}
 					<Label label="Path">
 						{#if own}
-							<Path
-								autofocus={false}
-								bind:path={editPath}
-								bind:dirty={dirtyPath}
-								initialPath={path ?? ''}
-								namePlaceholder={kind}
-								kind={pathKind}
-								size="sm"
-								drawerOffset={4000}
-							/>
+							<div data-path-edit-path>
+								<Path
+									autofocus={false}
+									bind:path={editPath}
+									bind:dirty={dirtyPath}
+									initialPath={path ?? ''}
+									namePlaceholder={kind}
+									kind={pathKind}
+									size="sm"
+									drawerOffset={4000}
+								/>
+							</div>
 						{:else}
 							<span class="text-xs font-mono text-secondary">{path}</span>
 							<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
@@ -230,16 +238,18 @@
 					</label>
 					<div class="block text-primary">
 						<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
-						<Path
-							autofocus={false}
-							bind:path
-							bind:dirty={dirtyPath}
-							initialPath={path ?? ''}
-							namePlaceholder={kind}
-							kind={pathKind}
-							size="sm"
-							drawerOffset={4000}
-						/>
+						<div data-path-edit-path>
+							<Path
+								autofocus={false}
+								bind:path
+								bind:dirty={dirtyPath}
+								initialPath={path ?? ''}
+								namePlaceholder={kind}
+								kind={pathKind}
+								size="sm"
+								drawerOffset={4000}
+							/>
+						</div>
 					</div>
 				{/if}
 			</div>
@@ -279,6 +289,10 @@
 			<InheritedLabels labels={inheritedLabels} />
 		</div>
 	</div>
+{:else if label}
+	<!-- Nothing to open, but the host still drew this into a slot of its own: give back what it
+	     handed over rather than this component's own block, which belongs in a row it owns. -->
+	{@render label()}
 {:else}
 	<div class="min-w-0 truncate flex items-center {compact ? '' : 'flex-col px-2'}">
 		{#if !emptyString(summary) && !compact}

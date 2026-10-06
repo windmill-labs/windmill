@@ -92,8 +92,8 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		// wants: the trail truncating from its start.
 		phone ? 'h-11 pl-1 pr-2' : 'h-11 pl-2 pr-4',
 		// The filling surface is what meets the right edge, so the bar keeps no gutter of its own
-		// there — and it cannot wrap, since that surface is as tall as the bar.
-		content?.actionsFill && 'pr-0 flex-nowrap',
+		// there.
+		content?.actionsFill && 'pr-0',
 		// The small left padding is there to sit a button against: the sidebar handle, or the
 		// workspace disc, both of which carry their own visual margin. Embedded there is neither,
 		// and the page's name would start as bare text 8px from the edge.
@@ -132,14 +132,14 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	     workspace and the folders before it ever reaches the name of the thing the page is about.
 	     The 5rem floor is what is left when every name in it has gone — the workspace disc, the
 	     fork mark and the environment badge, which is as small as the part can be and still say
-	     where the user is. Only below that does the bar wrap and give the trail a line of its own.
+	     where the user is.
 	     An embed (`navHidden`) keeps the page's own name but drops the workspace part around it:
 	     the trail would offer to navigate the host's workspace, while the name is what says which
 	     page the controls beside it belong to. -->
 	<div class="flex shrink-[0.3] min-w-[5rem]">
-		<!-- Bridged like the actions below: what a page hangs off its own name renders here, out
-		     of the tree that named it, and the pen in there asks that tree who the acting user is
-		     before it offers to rename anything. -->
+		<!-- Bridged like the actions below: what a page hangs off its own name renders here, out of
+		     the tree that named it, and the rename editor in there asks that tree who the acting user
+		     is before it offers to rename anything. -->
 		<!-- Each fragment the band renders comes from another tree and reads that tree's state. The
 		     registry already tolerates a registration that cannot answer while its owner's data is
 		     being cleared (see `read`); the same window reaches rendering, and an error here would
@@ -165,9 +165,8 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		<!-- No kind icon: the page below is the item, and saying "this is a flow" above a flow
 		     editor tells the reader what they can already see. -->
 		<div class={twMerge('flex items-center gap-1 min-w-0', phone && 'shrink')}>
-			<!-- A dot rather than a slash: the summary names the same item the path just located,
-			     it is not another level of it. Inside this box so that a bar wrapping on a phone
-			     carries it down with the summary instead of stranding it on the line above. -->
+			<!-- A dot rather than a slash: the summary names the same item the path just located, it
+			     is not another level of it. Inside this box so that it narrows with the summary. -->
 			<span class="shrink-0 text-hint/40 text-xs px-0.5" aria-hidden="true">·</span>
 			{#if item.summaryContent}
 				<svelte:boundary onerror={(e) => console.error('page header: summary failed to render', e)}>

@@ -59,8 +59,6 @@ follow.
 		 *  click opens an editor here rather than going anywhere, and the fill is what says the
 		 *  name is a control at all now that no pen sits beside it. */
 		triggerClass?: string
-		/** Bindable, for a host that drives the popover from elsewhere. */
-		open?: boolean
 		/** Which field takes the cursor on open. A popover anchored under the path opens on the
 		 *  path, one under the summary opens on the summary: the click says which half of the name
 		 *  the user came to change. `Path` autofocuses itself, so 'path' is the absence of a
@@ -84,7 +82,6 @@ follow.
 		penVisibility = 'hover',
 		label,
 		triggerClass = 'inline-flex items-center gap-1.5 min-w-0 max-w-full px-1 py-0.5 rounded cursor-pointer text-left hover:bg-surface-hover transition-colors',
-		open = $bindable(false),
 		focusField = 'summary',
 		snapshotPath = $bindable(),
 		error = $bindable()
@@ -98,9 +95,19 @@ follow.
 				: 'Edit path'
 	)
 
+	// The popover's own state: a host opens this editor by clicking the name it handed over, so
+	// there is nothing for one to drive from outside.
+	let open = $state(false)
+
 	// Treat an empty path as ownable so the popover lets a user pick the path for a brand-new
 	// item. `Path.reset()` then synthesizes a default under their own user/folder scope.
 	const own = $derived(pathEditable && (!path || isOwner(path, actingUser, $operatingWorkspace)))
+
+	/** The path's name field inside this popover. `Path` hardcodes `id="path"`, and melt resolves a
+	 *  string `openFocus` with a document-wide `querySelector`, so a popover portalled to the body
+	 *  would hand the keystrokes to whichever other `Path` the page happens to have mounted. */
+	const pathField = () =>
+		document.querySelector<HTMLInputElement>('[data-path-edit-path] #path') ?? null
 
 	function setOpen(v: boolean) {
 		open = v
@@ -111,8 +118,8 @@ follow.
 	}
 </script>
 
-<!-- `openFocus`: `#path` is the name field inside `Path`. Without naming it melt lands on the
-     row's first button, so a popover opened from the path would not be typing into the path. -->
+<!-- `openFocus`: without naming the path's field melt lands on the row's first button, so a
+     popover opened from the path would not be typing into the path. -->
 <Popover
 	placement="bottom-start"
 	contentClasses="p-4"
@@ -123,7 +130,7 @@ follow.
 	disableFocusTrap
 	closeOnOtherPopoverOpen
 	openFocus={focusField === 'path'
-		? '#path'
+		? pathField
 		: summaryEditable
 			? '[data-path-edit-summary]'
 			: undefined}
@@ -178,19 +185,21 @@ follow.
 				     would make a rename to a taken path look untaken the moment the popover is
 				     reopened on it. With no saved path there is nothing the item occupies, so every
 				     path is checked. -->
-				<Path
-					autofocus
-					bind:path
-					bind:error
-					initialPath={savedPath ?? path ?? ''}
-					allowedExistingPath={savedPath}
-					checkInitialPathExistence={savedPath == undefined}
-					namePlaceholder={kind}
-					{kind}
-					size="sm"
-					drawerOffset={4000}
-					workspaceOverride={workspaceId}
-				/>
+				<div data-path-edit-path>
+					<Path
+						autofocus
+						bind:path
+						bind:error
+						initialPath={savedPath ?? path ?? ''}
+						allowedExistingPath={savedPath}
+						checkInitialPathExistence={savedPath == undefined}
+						namePlaceholder={kind}
+						{kind}
+						size="sm"
+						drawerOffset={4000}
+						workspaceOverride={workspaceId}
+					/>
+				</div>
 				{#if savedPath && path && path !== savedPath}
 					<Alert
 						type="info"

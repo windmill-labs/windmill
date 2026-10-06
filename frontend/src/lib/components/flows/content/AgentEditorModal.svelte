@@ -339,8 +339,9 @@
 	{#snippet agentPathTrigger(pathLabel: Snippet, triggerClass: string)}
 		<!-- Gated like the summary beside it: this renders from the band's tree, where `draft` is
 		     undefined for as long as the modal has not loaded one, and a getter that reads through it
-		     throws there rather than where it was written. Without the trigger the band draws its own
-		     path segment, which is what it does for every page that offers no rename. -->
+		     throws there rather than where it was written. The `{:else}` carries the whole load of
+		     that wait: the band gave up its own segment to this snippet, so without it the trail
+		     would show no path until the draft arrives. -->
 		{#if draft?.state}
 			<PathEditPopover
 				label={pathLabel}
@@ -366,6 +367,8 @@
 				pathEditable={!readOnly}
 				summaryEditable={!readOnly}
 			/>
+		{:else}
+			<span class={triggerClass}>{@render pathLabel()}</span>
 		{/if}
 	{/snippet}
 

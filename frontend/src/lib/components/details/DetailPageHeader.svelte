@@ -269,7 +269,14 @@
 	<!-- The summary keeps its rename-and-labels popover here rather than becoming plain text in
 	     the breadcrumb: renaming a script or flow is done from this page, not from the trail. -->
 	<PageHeaderContent
-		item={{ kind: errorHandlerKind, path, summaryContent, pathTrigger }}
+		item={{
+			kind: errorHandlerKind,
+			path,
+			summaryContent,
+			// Only where this page can save one: without `onSaved` the editor behind it has nothing
+			// to write, and the band keeps its own segment, which copies the path.
+			pathTrigger: onSaved ? pathTrigger : undefined
+		}}
 		{actions}
 		contexts={headerContexts}
 		separator="always"

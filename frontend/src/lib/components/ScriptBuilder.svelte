@@ -2392,9 +2392,9 @@
 		     both instances bind the same slots, and only one is ever open. -->
 		{#snippet scriptPathTrigger(pathLabel: Snippet, triggerClass: string)}
 			<!-- Gated like the summary beside it: `script` is a bindable prop the route can clear in
-			     the same flush that drops this editor, and this renders from the band's tree. Without
-			     the trigger the band draws its own path segment, which is what it does for every page
-			     that offers no rename. -->
+			     the same flush that drops this editor, and this renders from the band's tree. The
+			     `{:else}` is not decoration: the band hands the segment over the moment a page offers
+			     a `pathTrigger`, so a gate that drew nothing would take the path off the trail. -->
 			{#if script}
 				<PathEditPopover
 					label={pathLabel}
@@ -2409,6 +2409,8 @@
 					kind="script"
 					workspaceId={autosaveWorkspace}
 				/>
+			{:else}
+				<span class={triggerClass}>{@render pathLabel()}</span>
 			{/if}
 		{/snippet}
 
