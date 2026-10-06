@@ -1517,6 +1517,10 @@ async fn hash_args(
     #[allow(unused)] ignore_s3_path: bool,
 ) {
     if let Some(Json(hm)) = v {
+        // Resolving an AWS OIDC storage mints a token for the job, so each storage is
+        // resolved once however many arguments point into it.
+        #[cfg(feature = "parquet")]
+        let mut storages: HashMap<Option<String>, Option<ObjectStoreResource>> = HashMap::new();
         for k in hm.keys().sorted() {
             hasher.update(k.as_bytes());
             let arg_value = hm.get(k).unwrap();
@@ -1524,18 +1528,21 @@ async fn hash_args(
             #[cfg(feature = "parquet")]
             let etag = match serde_json::from_str::<S3Object>(arg_value.get()).ok() {
                 Some(s3_object) => {
-                    let s3_resource = get_workspace_s3_resource_path(
-                        db,
-                        client,
-                        workspace_id,
-                        s3_object.storage.as_ref(),
-                        job_id,
-                    )
-                    .await
-                    .ok()
-                    .flatten();
-                    match s3_resource {
-                        Some(s3_resource) => get_etag_or_empty(&s3_resource, s3_object).await,
+                    if !storages.contains_key(&s3_object.storage) {
+                        let s3_resource = get_workspace_s3_resource_path(
+                            db,
+                            client,
+                            workspace_id,
+                            s3_object.storage.as_ref(),
+                            job_id,
+                        )
+                        .await
+                        .ok()
+                        .flatten();
+                        storages.insert(s3_object.storage.clone(), s3_resource);
+                    }
+                    match storages.get(&s3_object.storage).and_then(Option::as_ref) {
+                        Some(s3_resource) => get_etag_or_empty(s3_resource, s3_object).await,
                         None => None,
                     }
                 }
