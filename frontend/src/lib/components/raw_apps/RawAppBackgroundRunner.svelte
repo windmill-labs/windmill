@@ -5,6 +5,7 @@
 	import type { JobById } from '../apps/types'
 	import { JobService } from '$lib/gen'
 	import type { Runnable } from './rawAppPolicy'
+	import { RAW_APP_PREVIEW_RELAY } from './utils'
 	import { undefinedIfEmpty } from '$lib/utils'
 
 	interface Props {
@@ -62,7 +63,11 @@
 		if (!iframe || !sourceWindow) return
 		if (sourceWindow !== iframe.contentWindow && sourceWindow !== detachedWindow) return
 
-		const data = event.data
+		// A sandboxed detached preview speaks through a same-origin relay, wrapped.
+		const data =
+			sourceWindow === detachedWindow && event.data?.type === RAW_APP_PREVIEW_RELAY
+				? event.data.data
+				: event.data
 
 		// Reply to whichever window sent the request (inline iframe or the
 		// detached preview), not a hardcoded target — otherwise the detached
@@ -81,7 +86,7 @@
 				result = e
 			}
 
-			if (event.data.type == 'backend' || event.data.type == 'waitJob') {
+			if (data.type == 'backend' || data.type == 'waitJob') {
 				respond({ result, error })
 			}
 			if (editor) {
@@ -101,7 +106,7 @@
 			}
 			return result
 		}
-		if (event.data.type == 'backend' || event.data.type == 'backendAsync') {
+		if (data.type == 'backend' || data.type == 'backendAsync') {
 			const runnable_id = data.runnable_id
 			let runnable = runnables[runnable_id]
 			if (runnable) {
@@ -152,7 +157,7 @@
 				)
 				launchedJobs.add(uuid)
 				let job: JobById = { component: runnable_id, created_at: Date.now(), job: uuid }
-				if (event.data.type == 'backendAsync') {
+				if (data.type == 'backendAsync') {
 					let result = uuid
 					respond({ result })
 				}
@@ -169,20 +174,20 @@
 			} else {
 				console.error('No runnable found for', runnable_id)
 			}
-		} else if (event.data.type == 'waitJob') {
+		} else if (data.type == 'waitJob') {
 			if (gateJobIds && !launchedJobs.has(data.jobId)) {
 				respond({ result: { message: 'Unknown job' }, error: true })
 				return
 			}
 			await respondWithResult(data.jobId)
-		} else if (event.data.type == 'getJob') {
+		} else if (data.type == 'getJob') {
 			if (gateJobIds && !launchedJobs.has(data.jobId)) {
 				respond({ result: { message: 'Unknown job' }, error: true })
 				return
 			}
 			const job = await JobService.getJob({ workspace, id: data.jobId })
 			respond({ result: job })
-		} else if (event.data.type == 'streamJob') {
+		} else if (data.type == 'streamJob') {
 			// Stream job results using SSE
 			const jobId = data.jobId
 			const reqId = data.reqId

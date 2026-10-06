@@ -3,7 +3,13 @@
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import type { Runnable } from './rawAppPolicy'
 	import { getContext, onMount, untrack } from 'svelte'
-	import { unsandboxedRawAppHtml } from './utils'
+	import {
+		RAW_APP_SANDBOX_FLAGS,
+		applyRawAppStorageOp,
+		rawAppStorageKey,
+		readRawAppStorage,
+		unsandboxedRawAppHtml
+	} from './utils'
 	import { randomSecret } from '$lib/utils/uuid'
 
 	// Per-mount secret proving a `windmill:ready` came from the document we loaded.
@@ -59,11 +65,7 @@
 	// adding no isolation). The sandboxed path keeps the restrictive attribute; the
 	// wrapper document's `CSP: sandbox` response header enforces the opaque origin
 	// regardless.
-	let sandboxAttr = $derived(
-		unsandboxed
-			? undefined
-			: 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation'
-	)
+	let sandboxAttr = $derived(unsandboxed ? undefined : RAW_APP_SANDBOX_FLAGS)
 
 	// WIN-2006: source of the bundle iframe.
 	// - DEFAULT (isolated): a real API URL serving a sandboxed, opaque-origin
@@ -131,7 +133,7 @@
 	// Windmill embedder and would never answer the relay (leaving the bundle without
 	// ctx). The snapshot is handed to the bundle before it evaluates so its
 	// localStorage is hydrated synchronously.
-	const SHARED_LS_KEY = `wm_apps_localstorage:${workspace}:${path}`
+	const SHARED_LS_KEY = rawAppStorageKey(workspace, path)
 	function storageAccessible(): boolean {
 		try {
 			localStorage.getItem(SHARED_LS_KEY)
@@ -148,24 +150,6 @@
 	// that sent it even if the frame is navigated while we wait.
 	let pendingNonce: string | undefined = undefined
 	let pendingPort: MessagePort | undefined = undefined
-
-	function readDirect(): Record<string, string> {
-		try {
-			return JSON.parse(localStorage.getItem(SHARED_LS_KEY) || '{}')
-		} catch (_) {
-			return {}
-		}
-	}
-
-	function applyDirectOp(d: any) {
-		try {
-			const s = readDirect()
-			if (d.op === 'set') s[d.key] = String(d.value)
-			else if (d.op === 'remove') delete s[d.key]
-			else if (d.op === 'clear') for (const k in s) delete s[k]
-			localStorage.setItem(SHARED_LS_KEY, JSON.stringify(s))
-		} catch (_) {}
-	}
 
 	/** The nonce authenticates the asker: it lives in our URL, which a document
 	 * navigated into the frame can't read. Replying on the port that document
@@ -234,7 +218,7 @@
 				const nonceEcho = typeof data.nonce === 'string' ? data.nonce : undefined
 				const port = event.ports?.[0]
 				if (!framed) {
-					bundleStorage = readDirect()
+					bundleStorage = readRawAppStorage(SHARED_LS_KEY)
 					respondCtx(nonceEcho, port)
 				} else if (bundleStorage !== undefined) {
 					respondCtx(nonceEcho, port)
@@ -246,7 +230,7 @@
 			} else if (data?.type === 'wm_ls_op') {
 				// The bundle mutated localStorage — apply it to the shared store.
 				if (!framed) {
-					applyDirectOp(data)
+					applyRawAppStorageOp(SHARED_LS_KEY, data)
 				} else {
 					try {
 						window.parent.postMessage(
