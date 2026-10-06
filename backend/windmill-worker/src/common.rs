@@ -1073,6 +1073,8 @@ pub async fn start_child_process(
 pub enum TimeoutSource {
     /// The timeout set on the script or the flow step.
     Custom,
+    /// What is left of a wall clock that the phases of one job spend down together.
+    RemainingBudget,
     /// The instance `job_default_timeout` setting.
     InstanceDefault,
     /// The instance ceiling (`TIMEOUT`), which no other timeout can exceed.
@@ -1086,6 +1088,9 @@ impl TimeoutSource {
             TimeoutSource::Custom => {
                 format!("the {secs}s custom timeout set on the script or flow step")
             }
+            TimeoutSource::RemainingBudget => format!(
+                "the {secs}s left of the job's timeout, which its phases share"
+            ),
             TimeoutSource::InstanceDefault => format!(
                 "the {secs}s instance default timeout (instance setting 'Default timeout'); set a longer custom timeout on the script or flow step to raise it"
             ),
@@ -1097,34 +1102,40 @@ impl TimeoutSource {
 }
 
 lazy_static! {
-    static ref RUNNING_JOB_CUSTOM_TIMEOUTS: std::sync::Mutex<HashMap<Uuid, i32>> =
+    static ref RUNNING_JOB_CUSTOM_TIMEOUTS: std::sync::Mutex<HashMap<Uuid, Option<i32>>> =
         std::sync::Mutex::new(HashMap::new());
 }
 
 /// Makes a running job's custom timeout visible to the phases that are not handed it (dependency
 /// resolution, install, build), for as long as the guard lives.
-pub struct RunningJobCustomTimeout(Option<Uuid>);
+pub struct RunningJobCustomTimeout(Uuid);
 
 impl RunningJobCustomTimeout {
     pub fn register(job_id: Uuid, custom_timeout_secs: Option<i32>) -> Self {
-        match windmill_common::runnable_settings::none_if_non_positive(custom_timeout_secs) {
-            Some(secs) => {
-                if let Ok(mut m) = RUNNING_JOB_CUSTOM_TIMEOUTS.lock() {
-                    m.insert(job_id, secs);
-                }
-                Self(Some(job_id))
-            }
-            None => Self(None),
+        if let Ok(mut m) = RUNNING_JOB_CUSTOM_TIMEOUTS.lock() {
+            m.insert(
+                job_id,
+                windmill_common::runnable_settings::none_if_non_positive(custom_timeout_secs),
+            );
         }
+        Self(job_id)
     }
 }
 
 impl Drop for RunningJobCustomTimeout {
     fn drop(&mut self) {
-        if let (Some(job_id), Ok(mut m)) = (self.0, RUNNING_JOB_CUSTOM_TIMEOUTS.lock()) {
-            m.remove(&job_id);
+        if let Ok(mut m) = RUNNING_JOB_CUSTOM_TIMEOUTS.lock() {
+            m.remove(&self.0);
         }
     }
+}
+
+/// `None` when the job is not registered, `Some(None)` when it runs without a custom timeout.
+fn registered_custom_timeout(job_id: Uuid) -> Option<Option<i32>> {
+    RUNNING_JOB_CUSTOM_TIMEOUTS
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&job_id).copied())
 }
 
 /// Resolves the time limit of one phase of a job and where that limit comes from.
@@ -1163,11 +1174,15 @@ pub async fn resolve_job_timeout(
         Some(timeout_secs)
             if Duration::from_secs(timeout_secs as u64) < global_max_timeout_duration =>
         {
-            (
-                Duration::from_secs(timeout_secs as u64),
-                warn_msg,
-                TimeoutSource::Custom,
-            )
+            // A phase handed anything but the job's own custom timeout was handed the rest of a
+            // shared wall clock, whatever limit that clock was started from.
+            let source =
+                if registered_custom_timeout(job_id).is_none_or(|t| t == Some(timeout_secs)) {
+                    TimeoutSource::Custom
+                } else {
+                    TimeoutSource::RemainingBudget
+                };
+            (Duration::from_secs(timeout_secs as u64), warn_msg, source)
         }
         Some(timeout_secs) => {
             warn_msg = Some(format!("WARNING: Custom job timeout of {timeout_secs} seconds was greater than the instance maximum job duration of {max_secs} seconds (TIMEOUT env variable of the worker). It will be ignored and the max timeout will be used instead"));
@@ -1197,10 +1212,8 @@ pub async fn resolve_job_timeout(
                     (global_max_timeout_duration, TimeoutSource::InstanceMax)
                 }
             };
-            let job_custom_timeout = RUNNING_JOB_CUSTOM_TIMEOUTS
-                .lock()
-                .ok()
-                .and_then(|m| m.get(&job_id).copied())
+            let job_custom_timeout = registered_custom_timeout(job_id)
+                .flatten()
                 .map(|secs| Duration::from_secs(secs as u64));
             let (timeout, source) = lengthen_with_job_custom_timeout(
                 default_timeout,
