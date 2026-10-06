@@ -79,6 +79,8 @@ pub struct JobClaim {
     pub tag: String,
     pub worker_group: Option<String>,
     pub run_as_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
     pub jti: String,
 }
 
