@@ -1,0 +1,29 @@
+# Worker pod settings for nsjail on clusters without user namespace support.
+# Needs a Pod Security exemption for the added capabilities.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: windmill-worker
+spec:
+  containers:
+    - name: windmill-worker
+      image: ghcr.io/windmill-labs/windmill:main
+      env:
+        - { name: MODE, value: worker }
+        - { name: DISABLE_NSJAIL, value: "false" }
+        - { name: DISABLE_NUSER, value: "true" }
+      securityContext:
+        runAsUser: 0
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+          add:
+            - SYS_ADMIN # nsjail: namespaces, mounts, pivot_root
+            - SETPCAP # nsjail: dropping capabilities before running the job
+            - SYS_RESOURCE # optional, worker: lowering its own oom_score_adj
+        seccompProfile:
+          type: Localhost
+          localhostProfile: profiles/windmill-nsjail.json
+        appArmorProfile:
+          type: Localhost
+          localhostProfile: windmill-nsjail

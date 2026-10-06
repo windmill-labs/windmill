@@ -1,0 +1,29 @@
+# Worker pod settings for nsjail with no added capability.
+# Admitted by the Pod Security Standards "baseline" level on Kubernetes 1.35+.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: windmill-worker
+spec:
+  hostUsers: false
+  containers:
+    - name: windmill-worker
+      image: ghcr.io/windmill-labs/windmill:main
+      env:
+        - { name: MODE, value: worker }
+        - { name: DISABLE_NSJAIL, value: "false" }
+        # DISABLE_NUSER stays unset: nsjail creates its own user namespace.
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        procMount: Unmasked
+        seccompProfile:
+          type: Localhost
+          localhostProfile: profiles/windmill-nsjail.json
+        appArmorProfile:
+          type: Localhost
+          localhostProfile: windmill-nsjail
