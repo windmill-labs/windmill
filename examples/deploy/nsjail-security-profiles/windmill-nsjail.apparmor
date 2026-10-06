@@ -14,6 +14,10 @@ profile windmill-nsjail flags=(attach_disconnected,mediate_deleted) {
   umount,
   pivot_root,
 
+  # Needed where AppArmor mediates user namespace creation for this profile.
+  # AppArmor parsers older than 4.0 reject the rule, hence commented out.
+  # userns,
+
   signal (receive) peer=unconfined,
   signal (receive) peer=runc,
   signal (receive) peer=crun,

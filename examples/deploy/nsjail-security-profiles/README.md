@@ -28,6 +28,8 @@ sudo install -m 0644 windmill-nsjail.apparmor /etc/apparmor.d/windmill-nsjail
 sudo apparmor_parser -r /etc/apparmor.d/windmill-nsjail
 ```
 
+If the node's audit log shows AppArmor denying `userns_create` for the worker, uncomment the `userns,` rule in the profile (it needs AppArmor 4.0 or later, older parsers reject it) and reload it.
+
 A pod that references a profile missing from its node fails to start, so node groups that autoscale need these steps in their bootstrap or in a DaemonSet. On nodes without AppArmor, remove the `appArmorProfile` block from the pod settings.
 
 ## Using the profiles with Docker
@@ -57,7 +59,9 @@ docker run \
 
 ## What the profiles give up
 
-Jobs inherit the seccomp filter, so job code can also call `clone` with namespace flags and `mount`, which the runtime default denies to a container without `SYS_ADMIN`. The AppArmor profile no longer denies mounts, so its path rules on `/proc` and `/sys` do not hold against a process that has the capability to mount: with `kubernetes-sys-admin.yaml` that is the worker, never a job. Both remain far narrower than `Unconfined` or `privileged: true`.
+Jobs inherit the seccomp filter, so job code can also call `clone` with namespace flags and `mount`, which the runtime default denies to a container without `SYS_ADMIN`. Where the kernel allows unprivileged user namespaces, a job can therefore create a nested user and mount namespace and mount filesystems inside it. This grants nothing outside that namespace, but it exposes more of the kernel to job code than the runtime default does.
+
+The AppArmor profile no longer denies mounts, so its path rules on `/proc` and `/sys` do not hold against a process that can mount those filesystems elsewhere. Both profiles remain far narrower than `Unconfined` or `privileged: true`.
 
 ## Regenerating the seccomp profile
 
