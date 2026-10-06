@@ -9,7 +9,7 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import Select from '../select/Select.svelte'
 	import PgGrantBuilder from './PgGrantBuilder.svelte'
-	import ListFilters from '../home/ListFilters.svelte'
+	import Badge from '../common/badge/Badge.svelte'
 	import {
 		ADMIN_ROLE,
 		blockingSources,
@@ -68,17 +68,25 @@
 	const info: DatatableAclInfo | undefined = $derived(acl.current)
 	const controlsDisabled = $derived(planning || applying || !!disabledReason)
 	const grantRows = $derived(groupGrants(info?.grants ?? []))
-	let roleFilter = $state<string | undefined>(undefined)
-	let privilegeFilter = $state<string | undefined>(undefined)
-	const grantRoles = $derived([...new Set(grantRows.map((g) => g.grantee))].sort())
-	const grantPrivileges = $derived([...new Set(grantRows.flatMap((g) => g.privileges))].sort())
+	// Several tags of one kind widen the list; tags of both kinds narrow it to grants matching each.
+	let roleFilters = $state<string[]>([])
+	let privilegeFilters = $state<string[]>([])
+	// A selected tag stays offered after its last grant goes, so it can still be cleared.
+	const roleChips = $derived(
+		[...new Set([...grantRows.map((g) => g.grantee), ...roleFilters])].sort()
+	)
+	const privilegeChips = $derived(
+		[...new Set([...grantRows.flatMap((g) => g.privileges), ...privilegeFilters])].sort()
+	)
 	const shownGrantRows = $derived(
 		grantRows.filter(
 			(g) =>
-				(!roleFilter || g.grantee === roleFilter) &&
-				(!privilegeFilter || g.privileges.includes(privilegeFilter))
+				(roleFilters.length === 0 || roleFilters.includes(g.grantee)) &&
+				(privilegeFilters.length === 0 || g.privileges.some((p) => privilegeFilters.includes(p)))
 		)
 	)
+	const toggled = (list: string[], value: string) =>
+		list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
 	const ownerItems = $derived(
 		info
 			? (info.roles.includes(info.owner) ? info.roles : [info.owner, ...info.roles]).map((r) => ({
@@ -165,6 +173,14 @@
 	{:else}
 		{@render content()}
 	{/if}
+{/snippet}
+
+<!-- The home page's filter chips, any number of them selected at once. -->
+{#snippet filterChip(label: string, selected: boolean, toggle: () => void)}
+	<Badge color="transparent" clickable {selected} onclick={toggle}>
+		{label}
+		{#if selected}&cross;{/if}
+	</Badge>
 {/snippet}
 
 <!-- Styled like the picker's tags in the row that creates a grant. -->
@@ -269,22 +285,18 @@
 				</span>
 			</div>
 			<!-- A set filter keeps its chips, or a revoke that leaves one grant would strand it. -->
-			{#if grantRows.length > 1 || roleFilter || privilegeFilter}
+			{#if grantRows.length > 1 || roleFilters.length > 0 || privilegeFilters.length > 0}
 				<div class="flex flex-wrap items-center gap-2">
-					<ListFilters
-						inline
-						bind:selectedFilter={roleFilter}
-						filters={grantRoles}
-						queryName="grant_role"
-						icon={KeyRound}
-					/>
-					<ListFilters
-						inline
-						bind:selectedFilter={privilegeFilter}
-						filters={grantPrivileges}
-						queryName="grant_privilege"
-						color="blue"
-					/>
+					{#each roleChips as role (`role:${role}`)}
+						{@render filterChip(role, roleFilters.includes(role), () => {
+							roleFilters = toggled(roleFilters, role)
+						})}
+					{/each}
+					{#each privilegeChips as privilege (`privilege:${privilege}`)}
+						{@render filterChip(privilege, privilegeFilters.includes(privilege), () => {
+							privilegeFilters = toggled(privilegeFilters, privilege)
+						})}
+					{/each}
 				</div>
 			{/if}
 			<div class="flex flex-col border rounded-md divide-y">
