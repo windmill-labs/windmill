@@ -9,12 +9,17 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import Select from '../select/Select.svelte'
 	import PgGrantBuilder from './PgGrantBuilder.svelte'
+	import DataTable from '../table/DataTable.svelte'
+	import Head from '../table/Head.svelte'
+	import Row from '../table/Row.svelte'
+	import Cell from '../table/Cell.svelte'
 	import Badge from '../common/badge/Badge.svelte'
 	import {
 		ADMIN_ROLE,
 		blockingSources,
 		grantKey,
 		grantCoverage,
+		scopesOf,
 		groupGrants,
 		revocablePrivileges,
 		revokeScopeOf,
@@ -85,6 +90,8 @@
 				(privilegeFilters.length === 0 || g.privileges.some((p) => privilegeFilters.includes(p)))
 		)
 	)
+	/** What a grant on the object itself reads as, in the scope picker's words. */
+	const targetLabel = $derived(scopesOf(target.kind)[0].label)
 	const toggled = (list: string[], value: string) =>
 		list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
 	const ownerItems = $derived(
@@ -184,12 +191,8 @@
 {/snippet}
 
 <!-- Styled like the picker's tags in the row that creates a grant. -->
-{#snippet tag(text: string, strong = false)}
-	<span
-		class="inline-flex items-center min-h-6 px-2 border bg-surface rounded-full text-emphasis {strong
-			? 'font-semibold'
-			: ''}"
-	>
+{#snippet tag(text: string)}
+	<span class="inline-flex items-center min-h-6 px-2 border bg-surface rounded-full text-emphasis">
 		{text}
 	</span>
 {/snippet}
@@ -299,95 +302,112 @@
 					{/each}
 				</div>
 			{/if}
-			<div class="flex flex-col border rounded-md divide-y">
-				{#each shownGrantRows as grant (grantKey(grant))}
-					{@const revokeScope = revokeScopeOf(grant)}
-					{@const revocable = revocablePrivileges(grant, target)}
-					{@const blocked = blockingSources(grant, revocable)}
-					{@const uncovered = uncoveredCreators(grant, info.roles)}
-					{@const coverage = grantCoverage(grant, target)}
-					{@const unrevocable = unrevocableReason(grant, revokeScope, revocable, blocked)}
-					<div class="flex items-center gap-2 px-3 py-2 min-h-12">
-						<div class="flex flex-col gap-0.5 grow min-w-0">
-							<div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
-								{@render tag(grant.grantee, true)}
-								{#each grant.privileges as privilege (privilege)}
-									{@render tag(privilege)}
-								{/each}
-							</div>
-							{#if coverage || blocked.length > 0 || uncovered.length > 0}
-								<span class="text-2xs text-secondary break-words">
-									{[
-										coverage && `on ${coverage}`,
-										blocked.length > 0 && `granted by ${blocked.join(', ')}`,
-										uncovered.length > 0 &&
-											`not for what ${uncovered.join(', ')} ${uncovered.length === 1 ? 'creates' : 'create'}: a default privilege only covers the roles it was granted for`
-									]
-										.filter(Boolean)
-										.join(' · ')}
-								</span>
-							{/if}
-						</div>
-						{#if info.editable}
-							{#snippet revokeButton()}
-								<Button
-									unifiedSize="xs"
-									variant="subtle"
-									iconOnly
-									startIcon={{ icon: Trash2 }}
-									title={unrevocable ?? `Revoke ${revocable.join(', ')}`}
-									disabled={controlsDisabled || !!unrevocable}
-									onClick={() => {
-										if (!revokeScope) return
-										confirm(
-											{
-												type: 'revoke',
-												role: grant.grantee,
-												privileges: revocable,
-												scope: revokeScope,
-												objects: grant.objects
-											},
-											`Revoked ${revocable.join(', ')} from ${grant.grantee}`
-										)
-									}}
-								/>
-							{/snippet}
-							{#if unrevocable && !disabledReason}
-								<Tooltip>
-									<div class="pointer-events-none">{@render revokeButton()}</div>
-									{#snippet text()}{unrevocable}{/snippet}
-								</Tooltip>
-							{:else}
-								{@render withDisabledReason(revokeButton, 'w-fit')}
-							{/if}
-						{/if}
-					</div>
-				{:else}
-					<span class="flex items-center px-3 py-2 min-h-12 text-xs text-secondary">
-						{grantRows.length === 0 ? 'No grants yet.' : 'No grant matches the filters.'}
-					</span>
-				{/each}
-				{#if info.editable}
-					<!-- The grant to create: a row like the others, set apart until it exists. -->
-					<div class="px-3 py-2 bg-surface-secondary border-dashed rounded-b-md">
-						{#snippet grantBuilder()}
-							<PgGrantBuilder
-								{target}
-								roles={info.roles}
-								disabled={controlsDisabled}
-								manageRoles={manageRoles ? manageRolesEntry : undefined}
-								supportsMaintain={info.supports_maintain}
-								onAdd={({ role, privileges, scope }) =>
-									confirm(
-										{ type: 'grant', role, privileges, scope },
-										`Granted ${privileges.join(', ')} to ${role}`
-									)}
-							/>
-						{/snippet}
-						{@render withDisabledReason(grantBuilder, 'w-full')}
-					</div>
-				{/if}
-			</div>
+			<DataTable size="xs">
+				<Head>
+					<tr>
+						<Cell head first>Role</Cell>
+						<Cell head>Privileges</Cell>
+						<Cell head>On</Cell>
+						<Cell head last />
+					</tr>
+				</Head>
+				<tbody class="divide-y">
+					{#each shownGrantRows as grant (grantKey(grant))}
+						{@const revokeScope = revokeScopeOf(grant)}
+						{@const revocable = revocablePrivileges(grant, target)}
+						{@const blocked = blockingSources(grant, revocable)}
+						{@const uncovered = uncoveredCreators(grant, info.roles)}
+						{@const unrevocable = unrevocableReason(grant, revokeScope, revocable, blocked)}
+						<Row>
+							<Cell first class="font-medium text-emphasis">{grant.grantee}</Cell>
+							<Cell wrap>
+								<div class="flex flex-wrap items-center gap-1">
+									{#each grant.privileges as privilege (privilege)}
+										{@render tag(privilege)}
+									{/each}
+								</div>
+								{#if blocked.length > 0 || uncovered.length > 0}
+									<div class="mt-0.5 text-2xs text-secondary">
+										{[
+											blocked.length > 0 && `granted by ${blocked.join(', ')}`,
+											uncovered.length > 0 &&
+												`not for what ${uncovered.join(', ')} ${uncovered.length === 1 ? 'creates' : 'create'}: a default privilege only covers the roles it was granted for`
+										]
+											.filter(Boolean)
+											.join(' · ')}
+									</div>
+								{/if}
+							</Cell>
+							<Cell wrap class="text-secondary">
+								{grantCoverage(grant, target) ?? targetLabel}
+							</Cell>
+							<Cell last class="w-10">
+								{#if info.editable}
+									{#snippet revokeButton()}
+										<Button
+											unifiedSize="xs"
+											variant="subtle"
+											iconOnly
+											startIcon={{ icon: Trash2 }}
+											title={unrevocable ?? `Revoke ${revocable.join(', ')}`}
+											disabled={controlsDisabled || !!unrevocable}
+											onClick={() => {
+												if (!revokeScope) return
+												confirm(
+													{
+														type: 'revoke',
+														role: grant.grantee,
+														privileges: revocable,
+														scope: revokeScope,
+														objects: grant.objects
+													},
+													`Revoked ${revocable.join(', ')} from ${grant.grantee}`
+												)
+											}}
+										/>
+									{/snippet}
+									{#if unrevocable && !disabledReason}
+										<Tooltip>
+											<div class="pointer-events-none">{@render revokeButton()}</div>
+											{#snippet text()}{unrevocable}{/snippet}
+										</Tooltip>
+									{:else}
+										{@render withDisabledReason(revokeButton, 'w-fit')}
+									{/if}
+								{/if}
+							</Cell>
+						</Row>
+					{:else}
+						<Row>
+							<Cell first last colspan={4} class="text-secondary">
+								{grantRows.length === 0 ? 'No grants yet.' : 'No grant matches the filters.'}
+							</Cell>
+						</Row>
+					{/each}
+					{#if info.editable}
+						<!-- The grant to create: a row of the table, set apart until it exists. -->
+						<Row class="bg-surface-secondary">
+							<Cell first last colspan={4}>
+								{#snippet grantBuilder()}
+									<PgGrantBuilder
+										{target}
+										roles={info.roles}
+										disabled={controlsDisabled}
+										manageRoles={manageRoles ? manageRolesEntry : undefined}
+										supportsMaintain={info.supports_maintain}
+										onAdd={({ role, privileges, scope }) =>
+											confirm(
+												{ type: 'grant', role, privileges, scope },
+												`Granted ${privileges.join(', ')} to ${role}`
+											)}
+									/>
+								{/snippet}
+								{@render withDisabledReason(grantBuilder, 'w-full')}
+							</Cell>
+						</Row>
+					{/if}
+				</tbody>
+			</DataTable>
 		</section>
 	</div>
 {/if}
