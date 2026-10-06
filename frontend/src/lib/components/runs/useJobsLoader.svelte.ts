@@ -22,9 +22,9 @@ import { scanJobWindows } from './jobsWindowScan'
 // windmill_common::utils::MAX_PER_PAGE: the server silently caps per_page at this value
 const MAX_PER_PAGE = 10000
 
-// How long a listing over an open-ended range may run before it is dropped for a scan by time
-// windows. A filter matching fewer jobs than the page holds walks the whole history to find that
-// out, which the server stops after its statement timeout, with nothing to show for it.
+// How long a listing may run before a scan by time windows starts alongside it. A filter
+// matching fewer jobs than the page holds walks the whole history to find that out, which the
+// server stops after its statement timeout, with nothing to show for it.
 const WINDOW_SCAN_AFTER_MS = 4000
 
 const EPOCH = new Date(0).toISOString()
@@ -290,7 +290,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	// Lists one page of jobs older than `before`, handing them to `onJobs` as they arrive, and
 	// resolves to whether the listing reached the end of the range. `query` is the whole page in
-	// one request; when that is too slow the page is listed by time windows instead.
+	// one request. When that is slow, the page is also listed by time windows, and whichever
+	// completes it first wins: the server runs an abandoned request to its timeout regardless, so
+	// dropping it for the scan would only throw away an answer already being paid for.
 	function fetchPage(
 		page: {
 			byCompletedAt: boolean
@@ -302,14 +304,14 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		},
 		onJobs: (jobs: Job[]) => void
 	): CancelablePromise<boolean> {
-		const single = fetchJobs(page.query)
 		if (!canScanWindows || _args.skip) {
-			return CancelablePromiseUtils.map(single, (res) => {
+			return CancelablePromiseUtils.map(fetchJobs(page.query), (res) => {
 				onJobs(res)
 				return res.length < page.pageSize
 			})
 		}
 		const fetched = new CancelablePromise<boolean>((resolve, reject, onCancel) => {
+			const single = listJobs(page.query)
 			let scan: CancelablePromise<boolean> | undefined
 			onCancel(() => {
 				clearTimeout(timer)
@@ -317,21 +319,27 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				scan?.cancel()
 			})
 			const timer = setTimeout(() => {
-				single.cancel()
 				scan = scanWindows(page, onJobs)
-				scan.then(resolve, reject)
+				scan.then((wentToEnd) => {
+					resolve(wentToEnd)
+					single.cancel()
+				}, reject)
 			}, WINDOW_SCAN_AFTER_MS)
 			single.then(
 				(res) => {
 					clearTimeout(timer)
 					onJobs(res)
 					resolve(res.length < page.pageSize)
+					scan?.cancel()
 				},
-				(e) => {
-					if (!scan) {
-						clearTimeout(timer)
-						reject(e)
-					}
+				(e: any) => {
+					// Once the scan runs, the single request failing is the expected server timeout.
+					if (scan || e instanceof CancelError) return
+					clearTimeout(timer)
+					sendUserToast(`Could not load jobs: ${e.body ?? e.message}`, true)
+					console.error(e)
+					onJobs([])
+					resolve(true)
 				}
 			)
 		})
