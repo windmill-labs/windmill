@@ -268,6 +268,17 @@
 		}
 	}
 
+	/** Whether the drawer may close: unsaved roles are only lost once the user says so. */
+	async function confirmDiscard(): Promise<boolean> {
+		if (!hasUnsavedChanges || !drawerOpen) return true
+		return await confirmationModal.ask({
+			title: 'Discard unsaved changes?',
+			children: `The roles of ${datatable} have changes that are not saved. Closing the drawer discards them.`,
+			confirmationText: 'Discard changes',
+			type: 'danger'
+		})
+	}
+
 	export function open() {
 		drawerOpen = true
 		load()
@@ -286,10 +297,12 @@
 	/>
 {/if}
 
-<Drawer bind:open={drawerOpen} size="900px">
+<Drawer bind:open={drawerOpen} size="900px" confirmClose={confirmDiscard}>
 	<DrawerContent
 		title="Roles: {datatable}"
-		on:close={() => (drawerOpen = false)}
+		on:close={async () => {
+			if (await confirmDiscard()) drawerOpen = false
+		}}
 		tooltip="A data table role is a Postgres login. A job that names one connects as it, and Postgres decides what it may touch — grant it privileges under Access. Roles are defined for the whole instance; here you say who may use each one on this data table."
 	>
 		{#snippet titleExtra()}
