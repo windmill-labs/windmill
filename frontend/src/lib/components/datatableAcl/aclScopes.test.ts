@@ -3,7 +3,7 @@ import type { AclGrant } from '$lib/gen'
 import {
 	blockingSources,
 	grantKey,
-	grantStatement,
+	grantCoverage,
 	groupGrants,
 	revocablePrivileges,
 	revokeScopeOf,
@@ -179,7 +179,7 @@ describe('uncoveredCreators', () => {
 	})
 })
 
-describe('grantStatement', () => {
+describe('grantCoverage', () => {
 	const schema = { kind: 'schema' as const, schema: 'sales' }
 	const row = (grant: Partial<GroupedGrant>): GroupedGrant => ({
 		grantee: 'analytics',
@@ -189,19 +189,18 @@ describe('grantStatement', () => {
 		...grant
 	})
 
-	it('reads a default privilege as the statement that sets it', () => {
-		const statement = grantStatement(row({ future: 'TABLES' }), schema)
-		expect(statement.lead).toBe('ALTER DEFAULT PRIVILEGES IN SCHEMA sales GRANT')
-		expect(statement.on).toBe('TABLES')
+	it('says nothing for the object itself, and names what is created later', () => {
+		expect(grantCoverage(row({}), schema)).toBeUndefined()
+		expect(grantCoverage(row({ future: 'TABLES' }), schema)).toBe('tables created later')
+		expect(grantCoverage(row({ future: 'TABLES' }), { kind: 'database' })).toBe(
+			'tables created later, in every schema'
+		)
 	})
 
 	it('names a routine with its arguments, and summarizes past three objects', () => {
-		const routine = grantStatement(
-			row({ objects: [{ name: 'refresh', kind: 'FUNCTION', args: 'integer' }] }),
-			schema
-		)
-		expect(routine.on).toBe('FUNCTION refresh(integer)')
-		const many = grantStatement(row({ objects: ['a', 'b', 'c', 'd', 'e'].map(table) }), schema)
-		expect(many.on).toBe('TABLE a, b, c … (2 more)')
+		const routine = row({ objects: [{ name: 'refresh', kind: 'FUNCTION', args: 'integer' }] })
+		expect(grantCoverage(routine, schema)).toBe('function refresh(integer)')
+		const many = row({ objects: ['a', 'b', 'c', 'd', 'e'].map(table) })
+		expect(grantCoverage(many, schema)).toBe('tables a, b, c and 2 more')
 	})
 })

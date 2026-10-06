@@ -73,28 +73,6 @@ export function privilegesOf(
 	}
 }
 
-/** What a statement built at this scope reads as, for the builder's own preview. */
-export function scopeSql(scope: AclScope, target: AclTarget, dbname?: string): string {
-	if (target.kind === 'database') return `DATABASE ${dbname ?? ''}`.trim()
-	const schema = target.schema
-	switch (scope) {
-		case 'target':
-			return target.kind === 'schema' ? `SCHEMA ${schema}` : `TABLE ${schema}.${target.table}`
-		case 'all_tables':
-			return `ALL TABLES IN SCHEMA ${schema}`
-		case 'all_sequences':
-			return `ALL SEQUENCES IN SCHEMA ${schema}`
-		case 'all_functions':
-			return `ALL FUNCTIONS IN SCHEMA ${schema}`
-		case 'future_tables':
-			return `TABLES (default privileges in ${schema})`
-		case 'future_sequences':
-			return `SEQUENCES (default privileges in ${schema})`
-		case 'future_functions':
-			return `FUNCTIONS (default privileges in ${schema})`
-	}
-}
-
 /** One row of the grants table: the same privileges on several objects read as one line, since
  * granting them per object is what `ON ALL TABLES` does. */
 export type GroupedGrant = {
@@ -198,34 +176,18 @@ export function revocablePrivileges(grant: GroupedGrant, target: AclTarget): str
 /** How many objects a folded row names before it summarizes the rest. */
 const LISTED_OBJECTS = 3
 
-/** A row as the statement that would make it, split so the role and privileges can stand out.
- * For reading only: a row folds several objects into one line, and a row granted by several roles
- * took one statement from each. */
-export function grantStatement(
-	grant: GroupedGrant,
-	target: AclTarget,
-	dbname?: string
-): { lead: string; privileges: string[]; on: string; grantee: string } {
-	const privileges = grant.privileges
+/** What a row covers, when that is not the editor's own object: the objects inside it, or what is
+ * created later. Undefined for a grant on the object itself, which needs no saying. */
+export function grantCoverage(grant: GroupedGrant, target: AclTarget): string | undefined {
 	if (grant.future) {
-		return {
-			lead:
-				target.kind === 'database'
-					? 'ALTER DEFAULT PRIVILEGES GRANT'
-					: `ALTER DEFAULT PRIVILEGES IN SCHEMA ${target.schema} GRANT`,
-			privileges,
-			on: grant.future,
-			grantee: grant.grantee
-		}
+		const created = `${grant.future.toLowerCase()} created later`
+		return target.kind === 'database' ? `${created}, in every schema` : created
 	}
-	let on: string
-	if (grant.objects.length > 0) {
-		const names = grant.objects.map((o) => (o.args !== undefined ? `${o.name}(${o.args})` : o.name))
-		const listed = names.slice(0, LISTED_OBJECTS).join(', ')
-		const rest = names.length - LISTED_OBJECTS
-		on = `${grant.objects[0].kind} ${listed}${rest > 0 ? ` … (${rest} more)` : ''}`
-	} else {
-		on = scopeSql('target', target, dbname)
-	}
-	return { lead: 'GRANT', privileges, on, grantee: grant.grantee }
+	if (grant.objects.length === 0) return undefined
+	// A routine's arguments are part of what it is: two of the same name are different objects.
+	const names = grant.objects.map((o) => (o.args !== undefined ? `${o.name}(${o.args})` : o.name))
+	const listed = names.slice(0, LISTED_OBJECTS).join(', ')
+	const rest = names.length - LISTED_OBJECTS
+	const kind = grant.objects[0].kind.toLowerCase()
+	return `${names.length > 1 ? `${kind}s` : kind} ${listed}${rest > 0 ? ` and ${rest} more` : ''}`
 }

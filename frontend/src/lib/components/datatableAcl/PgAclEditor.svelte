@@ -14,7 +14,7 @@
 		ADMIN_ROLE,
 		blockingSources,
 		grantKey,
-		grantStatement,
+		grantCoverage,
 		groupGrants,
 		revocablePrivileges,
 		revokeScopeOf,
@@ -305,30 +305,26 @@
 					{@const revocable = revocablePrivileges(grant, target)}
 					{@const blocked = blockingSources(grant, revocable)}
 					{@const uncovered = uncoveredCreators(grant, info.roles)}
-					{@const statement = grantStatement(grant, target, info.dbname)}
+					{@const coverage = grantCoverage(grant, target)}
 					{@const unrevocable = unrevocableReason(grant, revokeScope, revocable, blocked)}
 					<div class="flex items-center gap-2 px-3 py-2 min-h-12">
 						<div class="flex flex-col gap-0.5 grow min-w-0">
-							<code
-								class="flex flex-wrap items-center gap-x-1.5 gap-y-1 font-mono text-xs text-secondary"
-							>
-								<span>{statement.lead}</span>
-								{#each statement.privileges as privilege (privilege)}
+							<div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+								{@render tag(grant.grantee, true)}
+								{#each grant.privileges as privilege (privilege)}
 									{@render tag(privilege)}
 								{/each}
-								<span class="break-all">ON {statement.on} TO</span>
-								{@render tag(statement.grantee, true)}
-							</code>
-							{#if blocked.length > 0 || uncovered.length > 0}
-								<span class="text-2xs text-secondary">
-									{#if blocked.length > 0}
-										granted by {blocked.join(', ')}
-									{/if}
-									{#if uncovered.length > 0}
-										{blocked.length > 0 ? ' · ' : ''}not for what {uncovered.join(', ')}
-										{uncovered.length === 1 ? 'creates' : 'create'}: a default privilege only covers
-										the roles it was granted for
-									{/if}
+							</div>
+							{#if coverage || blocked.length > 0 || uncovered.length > 0}
+								<span class="text-2xs text-secondary break-words">
+									{[
+										coverage && `on ${coverage}`,
+										blocked.length > 0 && `granted by ${blocked.join(', ')}`,
+										uncovered.length > 0 &&
+											`not for what ${uncovered.join(', ')} ${uncovered.length === 1 ? 'creates' : 'create'}: a default privilege only covers the roles it was granted for`
+									]
+										.filter(Boolean)
+										.join(' · ')}
 								</span>
 							{/if}
 						</div>
