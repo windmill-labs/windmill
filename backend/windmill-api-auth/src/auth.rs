@@ -1452,6 +1452,8 @@ mod tests {
                 authed: ApiAuthed {
                     email: "memo@windmill.dev".to_string(),
                     username: "memo".to_string(),
+                    // An unscoped job token would be looked up in `job_perms`.
+                    scopes: Some(vec!["jobs:read".to_string()]),
                     ..Default::default()
                 },
                 expiry: chrono::Utc::now() + chrono::Duration::hours(1),
