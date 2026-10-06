@@ -90,6 +90,7 @@ pub mod workspace_dependencies;
 #[cfg(feature = "private")]
 pub mod git_sync_ee;
 pub mod git_sync_oss;
+pub mod item_digest;
 pub mod job_provenance;
 pub mod jobs;
 pub mod jwt;
@@ -126,6 +127,7 @@ pub mod runnable_settings;
 pub mod runnables;
 pub mod schedule;
 pub mod schema;
+pub mod scopes;
 pub mod scripts;
 pub mod secret_backend;
 pub mod sensitive_log_masks;
@@ -1067,6 +1069,18 @@ impl TokioPgConnection {
     }
 }
 
+/// Without these, a server that vanishes without closing the socket (a failover,
+/// a dropped route) leaves a query waiting on a read for the OS default of two
+/// hours. The server's kernel answers the probes, so a slow query is unaffected.
+pub fn set_pg_keepalive(config: &mut tokio_postgres::Config) {
+    config
+        .keepalives(true)
+        .keepalives_idle(std::time::Duration::from_secs(60))
+        .keepalives_interval(std::time::Duration::from_secs(10))
+        .keepalives_retries(6)
+        .tcp_user_timeout(std::time::Duration::from_secs(120));
+}
+
 impl PgDatabase {
     /// The role the connection logs in as, whichever way it authenticates.
     pub fn login_name(&self) -> &str {
@@ -1106,6 +1120,12 @@ impl PgDatabase {
 
     pub fn non_empty_options(&self) -> Option<&str> {
         self.options.as_deref().filter(|o| !o.is_empty())
+    }
+
+    fn uri_config(&self) -> Result<tokio_postgres::Config, error::Error> {
+        let mut config: tokio_postgres::Config = self.to_uri().parse().map_err(to_anyhow)?;
+        set_pg_keepalive(&mut config);
+        Ok(config)
     }
 
     pub async fn connect(
@@ -1225,18 +1245,51 @@ impl PgDatabase {
         }
     }
 
+    fn sslmode_requires_tls(&self) -> bool {
+        matches!(
+            self.sslmode.as_deref(),
+            Some("require") | Some("verify-ca") | Some("verify-full")
+        )
+    }
+
+    /// Asks the server to cancel what the connection behind `token` is running. Dropping a
+    /// connection does not: the server works on until it next writes to the client.
+    ///
+    /// The request goes out the way the connection was made: `token_auth` is set for one
+    /// authenticated with an access token, which is over TLS whatever the sslmode.
+    pub async fn cancel_query(
+        &self,
+        token: tokio_postgres::CancelToken,
+        token_auth: bool,
+    ) -> Result<(), error::Error> {
+        if token_auth || self.sslmode_requires_tls() {
+            let mut connector = native_tls::TlsConnector::builder();
+            Self::configure_pg_tls_verification(
+                &mut connector,
+                self.sslmode.as_deref(),
+                self.root_certificate_pem.as_deref(),
+                self.accept_invalid_certs,
+            )?;
+            let connector =
+                postgres_native_tls::MakeTlsConnector::new(connector.build().map_err(to_anyhow)?);
+            token.cancel_query(connector).await.map_err(to_anyhow)?;
+        } else {
+            token
+                .cancel_query(tokio_postgres::tls::NoTls)
+                .await
+                .map_err(to_anyhow)?;
+        }
+        Ok(())
+    }
+
     async fn connect_inner(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         use native_tls::TlsConnector;
         use postgres_native_tls::MakeTlsConnector;
         use tokio_postgres::tls::NoTls;
-        let ssl_mode_is_require = matches!(
-            self.sslmode.as_deref(),
-            Some("require") | Some("verify-ca") | Some("verify-full")
-        );
 
-        if ssl_mode_is_require {
+        if self.sslmode_requires_tls() {
             tracing::info!("Creating new connection");
             let mut connector = TlsConnector::builder();
             Self::configure_pg_tls_verification(
@@ -1254,10 +1307,8 @@ impl PgDatabase {
 
             let (client, connection) = tokio::time::timeout(
                 std::time::Duration::from_secs(20),
-                tokio_postgres::connect(
-                    &self.to_uri(),
-                    MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
-                ),
+                self.uri_config()?
+                    .connect(MakeTlsConnector::new(connector.build().map_err(to_anyhow)?)),
             )
             .await
             .map_err(to_anyhow)?
@@ -1268,7 +1319,7 @@ impl PgDatabase {
             tracing::info!("Creating new connection");
             let (client, connection) = tokio::time::timeout(
                 std::time::Duration::from_secs(20),
-                tokio_postgres::connect(&self.to_uri(), NoTls),
+                self.uri_config()?.connect(NoTls),
             )
             .await
             .map_err(to_anyhow)?
@@ -1385,6 +1436,7 @@ impl PgDatabase {
         if let Some(options) = self.non_empty_options() {
             config.options(options);
         }
+        set_pg_keepalive(&mut config);
 
         let (client, connection) = tokio::time::timeout(
             std::time::Duration::from_secs(20),
@@ -2229,6 +2281,7 @@ pub struct ScriptHashInfo<SR> {
     pub on_behalf_of: Option<String>,
     pub created_by: String,
     pub labels: Option<Vec<String>>,
+    pub job_token_scopes: Option<Vec<String>>,
     #[sqlx(flatten)]
     pub runnable_settings: SR,
 }
@@ -2322,6 +2375,7 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             on_behalf_of: self.on_behalf_of,
             created_by: self.created_by,
             labels: self.labels,
+            job_token_scopes: self.job_token_scopes,
             runnable_settings: ScriptRunnableSettingsInline {
                 concurrency_settings: concurrency_settings.maybe_fallback(
                     self.runnable_settings.concurrency_key,
@@ -2479,6 +2533,91 @@ pub fn invalidate_deployed_script_hash_cache(w_id: &str, script_path: &str) {
     DEPLOYED_SCRIPT_HASH_CACHE.remove(&(w_id.to_string(), script_path.to_string()));
 }
 
+pub const SCRIPT_VERSION_DELETED_CHANNEL: &str = "notify_script_version_deleted";
+
+/// The payload of a [`SCRIPT_VERSION_DELETED_CHANNEL`] event. `paths` and `hashes` are the
+/// deleted versions' paths and hashes as independent sets, not paired by position.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DeletedScriptVersions {
+    pub workspace_id: String,
+    pub paths: Vec<String>,
+    pub hashes: Vec<i64>,
+}
+
+/// Bounds each event's payload: pruning a workspace deletes every past version of every path
+/// in one call, and every process logs each event it receives.
+const DELETED_SCRIPT_VERSIONS_PER_EVENT: usize = 500;
+
+impl DeletedScriptVersions {
+    pub fn new(workspace_id: &str, deleted: impl IntoIterator<Item = (String, i64)>) -> Self {
+        let (mut paths, hashes): (Vec<String>, Vec<i64>) = deleted.into_iter().unzip();
+        paths.sort();
+        paths.dedup();
+        Self { workspace_id: workspace_id.to_string(), paths, hashes }
+    }
+
+    /// Tell every replica to drop these versions from its caches, in the transaction that
+    /// deletes them. Authorization is the caller's: only call it for versions the caller was
+    /// allowed to delete.
+    pub async fn notify(&self, db: &mut sqlx::PgConnection) -> error::Result<()> {
+        let per_event = DELETED_SCRIPT_VERSIONS_PER_EVENT;
+        let events = self.paths.len().max(self.hashes.len()).div_ceil(per_event);
+        for i in 0..events {
+            let range = i * per_event..(i + 1) * per_event;
+            let event = Self {
+                workspace_id: self.workspace_id.clone(),
+                paths: self
+                    .paths
+                    .get(range.start..range.end.min(self.paths.len()))
+                    .unwrap_or_default()
+                    .to_vec(),
+                hashes: self
+                    .hashes
+                    .get(range.start..range.end.min(self.hashes.len()))
+                    .unwrap_or_default()
+                    .to_vec(),
+            };
+            sqlx::query("INSERT INTO notify_event (channel, payload) VALUES ($1, $2)")
+                .bind(SCRIPT_VERSION_DELETED_CHANNEL)
+                .bind(serde_json::to_string(&event)?)
+                .execute(&mut *db)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// [`Self::evict_with`] for this crate's caches only.
+    pub fn evict(self) {
+        self.evict_with(|_| {});
+    }
+
+    /// Script data is cached by hash, memory and disk, with no expiry: without this, a
+    /// process that ran a version before its deletion keeps running that version's code,
+    /// and a path keeps resolving to its deleted latest version until its cache expires.
+    /// `also` drops the entries of caches other crates own, on both passes. Needs no
+    /// authorization: it only drops cache entries, refilled from the database. Must run
+    /// inside a Tokio runtime.
+    pub fn evict_with(self, also: impl Fn(&Self) + Send + 'static) {
+        let evict = move || {
+            for hash in &self.hashes {
+                cache::script::invalidate(ScriptHash(*hash));
+                DEPLOYED_SCRIPT_INFO_CACHE.remove(&(self.workspace_id.clone(), *hash));
+            }
+            for path in &self.paths {
+                invalidate_latest_script_hash_caches(&self.workspace_id, path);
+            }
+            also(&self);
+        };
+        evict();
+        // A fill that read a row before the deletion committed can still be writing it to
+        // the cache: a second pass, once such a fill has had time to finish, removes it.
+        spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            evict();
+        });
+    }
+}
+
 /// Same, for a new version row, which also moves the import-side answer (that one has no lock
 /// predicate, so only a new row moves it).
 pub fn invalidate_latest_script_hash_caches(w_id: &str, script_path: &str) {
@@ -2601,6 +2740,7 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 on_behalf_of,
                 created_by,
                 labels,
+                job_token_scopes,
                 path
             FROM script WHERE hash = $1 AND workspace_id = $2",
     )
@@ -2622,6 +2762,7 @@ pub struct FlowVersionInfo {
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
     pub labels: Option<Vec<String>>,
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 impl FlowVersionInfo {
@@ -2765,7 +2906,8 @@ pub fn get_flow_version_info_from_version<
                                     flow.dedicated_worker,
                                     flow.on_behalf_of,
                                     flow.edited_by,
-                                    flow.labels
+                                    flow.labels,
+                                    flow.job_token_scopes
                                 FROM
                                     flow_version
                                 INNER JOIN flow
@@ -2900,9 +3042,10 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<jobs::OnBehalfOf>,
     Option<i64>,
     Option<Vec<String>>,
+    Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels, job_token_scopes FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -2934,6 +3077,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         on_behalf_of,
         script.runnable_settings_handle,
         script.labels,
+        script.job_token_scopes,
     ))
 }
 

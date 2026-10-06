@@ -37,6 +37,11 @@ export type PageHeaderContent = {
 	 *  pipeline editors, whose rows are too wide for any bar). Without it the box holds its content
 	 *  width, because squeezing a plain row of buttons only pushes them out of the bar. */
 	actionsFlexible?: boolean
+	/** These actions are not a row of buttons at the far end but a surface of their own, running
+	 *  from the breadcrumb to the bar's right edge: a session in full screen, whose tab strip and
+	 *  controls share one shape that opens into the page below. The bar gives up its right padding
+	 *  to it, since the surface is what meets the edge. */
+	actionsFill?: boolean
 	/** Rendered right after the page's name in the breadcrumb: a mark that belongs to the name,
 	 *  like a documentation tooltip, or a control that acts on the thing named — an app's Edit,
 	 *  which at the far end of the bar would be a journey away from what it edits. */
@@ -45,13 +50,17 @@ export type PageHeaderContent = {
 	 *  running in a fork. The breadcrumb then names that workspace, and its fork part shows only
 	 *  when it really is a fork. */
 	actingWorkspaceId?: string
-	/** The page is the whole viewport — a deployed app. The band leaves the flow and waits behind
-	 *  a handle in the corner, until the viewer pins it. */
-	fullBleed?: boolean
 	/** Width in px, at the right of the viewport, that this page owns from the top down — a
 	 *  session's side panel. The band stops there instead of running over it, and the band floats
 	 *  above the page rather than pushing it down, so that column starts at the top. */
 	barRightInset?: number
+	/** The bottom edge under the bar, which the bar owns so a page cannot draw a second one.
+	 *  `onScroll` (the default) shows it only while something is passing under the bar — at the top
+	 *  of a list there is nothing to divide. `always` is for a page whose content starts right
+	 *  under the bar and needs the division at rest: an editor, a detail page, a settings pane.
+	 *  `none` is for a page that genuinely draws its own first line, such as the script editor's
+	 *  toolbar or the flow editor's canvas. */
+	separator?: 'onScroll' | 'always' | 'none'
 	/** Contexts this registration's snippets look up — its actions, what it hangs after the name,
 	 *  and its summary. They all render under the header rather than under the page that wrote
 	 *  them, so anything the page's tree provides has to travel with them. */
@@ -101,8 +110,9 @@ export const pageHeader = {
 			if (c.contexts !== undefined) merged.contexts = c.contexts
 			if (c.actingWorkspaceId !== undefined) merged.actingWorkspaceId = c.actingWorkspaceId
 			if (c.barRightInset !== undefined) merged.barRightInset = c.barRightInset
-			if (c.fullBleed !== undefined) merged.fullBleed = c.fullBleed
 			if (c.actionsFlexible !== undefined) merged.actionsFlexible = c.actionsFlexible
+			if (c.actionsFill !== undefined) merged.actionsFill = c.actionsFill
+			if (c.separator !== undefined) merged.separator = c.separator
 		}
 		return merged
 	},

@@ -84,6 +84,7 @@ pub(crate) async fn run_agent(
     )?;
 
     let push_authed = authed.clone().into();
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, mut tx) = push(
         &db,
         PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
@@ -118,6 +119,7 @@ pub(crate) async fn run_agent(
         None,
         authed.trigger_or_fallback(None),
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
 

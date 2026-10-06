@@ -60,17 +60,17 @@ use windmill_common::{
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
-        HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        MCP_DISABLE_TOKEN_QUERY_PARAM, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING,
-        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
-        PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DEPENDENCY_JOB_TAG_SETTING, DISABLE_PASSWORD_LOGIN,
+        DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
+        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MCP_DISABLE_TOKEN_QUERY_PARAM,
+        MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
+        NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
@@ -93,11 +93,11 @@ use windmill_common::{
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, store_pull_query, store_suspended_pull_query, Connection, WorkerConfig,
         CLOUD_HOSTED, CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT,
-        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
-        INDEXER_CONFIG, PREVIEW_TAGS_OVERRIDE, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
-        WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
-        WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL, WORKSPACE_MAX_QUEUED_JOBS,
-        WORKSPACE_MAX_QUEUED_JOBS_DEFAULT,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, DEPENDENCY_JOB_TAG,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG, PREVIEW_TAGS_OVERRIDE, SMTP_CONFIG,
+        WINDMILL_DIR, WORKER_CONFIG, WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS,
+        WORKSPACE_FAIRNESS_ENABLED, WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL,
+        WORKSPACE_MAX_QUEUED_JOBS, WORKSPACE_MAX_QUEUED_JOBS_DEFAULT,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED,
@@ -311,6 +311,9 @@ pub async fn initial_load(
         );
         pass.setting(PREVIEW_TAGS_OVERRIDE_SETTING, false, |v| async move {
             apply_preview_tags_override(v)
+        });
+        pass.setting(DEPENDENCY_JOB_TAG_SETTING, false, |v| async move {
+            apply_dependency_job_tag(v)
         });
 
         // Load per-workspace retention overrides before the first cleanup tick so a fresh server
@@ -874,6 +877,24 @@ pub fn apply_preview_tags_override(value: Option<serde_json::Value>) {
     if let Some(serde_json::Value::Bool(t)) = value {
         PREVIEW_TAGS_OVERRIDE.store(t, Ordering::Relaxed)
     }
+}
+
+pub async fn load_dependency_job_tag(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, DEPENDENCY_JOB_TAG_SETTING).await?;
+    apply_dependency_job_tag(v);
+    Ok(())
+}
+
+pub fn apply_dependency_job_tag(value: Option<serde_json::Value>) {
+    let tag = match value {
+        Some(serde_json::Value::String(t)) if !t.trim().is_empty() => Some(t.trim().to_string()),
+        None | Some(serde_json::Value::Null) | Some(serde_json::Value::String(_)) => None,
+        Some(other) => {
+            tracing::error!("{DEPENDENCY_JOB_TAG_SETTING} is not a string: {other}, ignoring");
+            return;
+        }
+    };
+    DEPENDENCY_JOB_TAG.store(std::sync::Arc::new(tag));
 }
 
 // Upper bound on the duration window. Postgres `make_interval(secs => $1::int4)` is the consumer
@@ -6146,6 +6167,21 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             continue;
         }
         if let Some(job) = job.unwrap() {
+            // Read while the job is still queued: a re-run (perpetual, retry) takes its cap from
+            // here once the `job_perms` row is swept after completion. A failed read leaves the
+            // job for the next sweep rather than completing it with no cap.
+            let perms =
+                match windmill_common::auth::get_job_perms(db, &job.id, &job.workspace_id).await {
+                    Ok(perms) => perms,
+                    Err(e) => {
+                        tracing::error!(
+                            "Could not read the permissions of zombie job {}: {e:#}",
+                            job.id
+                        );
+                        continue;
+                    }
+                };
+            let job_token_scopes = perms.as_ref().and_then(|p| p.job_token_scopes.clone());
             let label = ephemeral_script_token_label(&job.permissioned_as, &job.created_by);
             let token = create_token_for_owner(
                 &db,
@@ -6155,7 +6191,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 job_token_expiry_secs(&db, &job.workspace_id).await,
                 &job.permissioned_as_email,
                 &job.id,
-                None,
+                perms,
                 Some(format!("handle_zombie_jobs")),
             )
             .await
@@ -6177,10 +6213,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             );
             let memory_peak = job.memory_peak.unwrap_or(0);
             let (_, killpill_rx_never_used) = KillpillSender::new(1);
+            let mut completed = windmill_queue::MiniCompletedJob::from(job);
+            completed.job_token_scopes = job_token_scopes;
             let _ = handle_job_error(
                 db,
                 &client,
-                &windmill_queue::MiniCompletedJob::from(job),
+                &completed,
                 memory_peak,
                 None,
                 error::Error::ExecutionErr(error_message.clone()),

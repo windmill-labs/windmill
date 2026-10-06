@@ -7,7 +7,8 @@ section name — and the route's own buttons at the far end.
 The row's height matches the sidebar's own header row, so the two read as one band.
 -->
 <script lang="ts">
-	import { PanelLeft, PanelTop, PanelTopDashed } from 'lucide-svelte'
+	import { PanelLeft } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
@@ -18,24 +19,12 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	let {
 		navHidden = false,
-		hideNavHandle = false,
-		panelled = false,
-		onPin,
-		onUnpin
+		panelled = false
 	}: {
 		navHidden?: boolean
-		/** Drops the sidebar's handle, for a page whose own floating control reveals the sidebar
-		 *  along with this band — two handles for one gesture would be one too many. */
-		hideNavHandle?: boolean
 		/** The sidebar is a panel over the page rather than a rail beside it — detached, or a
 		 *  window too narrow to seat one. Either way this bar carries the switch that opens it. */
 		panelled?: boolean
-		/** Keeps the band on a page that owns the viewport. The corner handle that called the band
-		 *  down is underneath it by the time the pointer arrives, so this bar has to carry the pin
-		 *  itself — it lands on the same pixels, in place of the sidebar handle it hides. */
-		onPin?: () => void
-		/** Sends the band back behind its handle, on a page that owns the viewport. */
-		onUnpin?: () => void
 	} = $props()
 
 	const content = $derived(pageHeader.content)
@@ -81,55 +70,35 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	// A page left while scrolled would otherwise hand its edge to the next one, which may have
 	// nothing to scroll at all.
 	afterNavigate(() => (scrolledUnder = false))
+
+	const separator = $derived(pageHeader.content?.separator ?? 'onScroll')
+	const showEdge = $derived(separator === 'always' || (separator === 'onScroll' && scrolledUnder))
 </script>
 
 <svelte:window onscrollcapture={onScrollCapture} />
 
-<!-- The band draws its own bottom edge, and only while a page is scrolled under it: at the top of
-     a page there is nothing to divide, and pages that draw their own first line have dropped it —
-     two would stack. An inset shadow rather than a border: a border would make the row 45px and
-     every page below it would move a pixel the moment the edge appeared. -->
+<!-- The band owns its bottom edge, so a page never draws a second one under it. A page says which
+     rule it wants (see `separator` in the registry); the default shows the edge only while
+     something is passing under the bar. An inset shadow rather than a border: a border would make
+     the row 45px and every page below it would move a pixel the moment the edge appeared. -->
 <div
 	data-page-header
 	bind:clientWidth={() => pageHeader.barWidth, (w) => pageHeader.setBarWidth(w)}
 	class={twMerge(
 		'flex items-center gap-1 shrink-0 min-w-0 bg-surface transition-shadow duration-150',
 		phone ? 'flex-wrap content-center min-h-11 py-1 pl-1 pr-2' : 'h-11 pl-2 pr-4',
-		scrolledUnder &&
+		// The filling surface is what meets the right edge, so the bar keeps no gutter of its own
+		// there — and it cannot wrap, since that surface is as tall as the bar.
+		content?.actionsFill && 'pr-0 flex-nowrap',
+		// The small left padding is there to sit a button against: the sidebar handle, or the
+		// workspace disc, both of which carry their own visual margin. Embedded there is neither,
+		// and the page's name would start as bare text 8px from the edge.
+		navHidden && 'pl-4',
+		showEdge &&
 			'shadow-[inset_0_-1px_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_0_-1px_0_0_#374151] [html.github-dark_&]:shadow-[inset_0_-1px_0_0_rgb(var(--color-border-light))]'
 	)}
 >
-	<!-- Pin before the sidebar's handle, so it holds the first slot whether or not the handle is
-	     there. Pinning brings the handle back — the band is no longer hidden — and from behind the
-	     handle the unpin button would sit one slot over from where the pin was just clicked, which
-	     for an operator (detached by default) means the second click opens the sidebar instead. -->
-	{#if onPin}
-		<!-- Same box and offsets as the corner handle it comes to rest over, so the pointer that
-		     called the band down is already on this button. -->
-		<button
-			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
-			aria-label="Pin the header on deployed apps"
-			title="Pin the header on deployed apps"
-			onclick={() => onPin?.()}
-		>
-			<PanelTop size={16} class="flex-shrink-0 text-hint" />
-		</button>
-	{/if}
-
-	{#if onUnpin}
-		<button
-			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
-			aria-label="Unpin the header from deployed apps"
-			title="Unpin the header from deployed apps"
-			onclick={() => onUnpin?.()}
-		>
-			<!-- Dashed while the band is shown, solid while it is away: the pair the sidebar's own
-			     toggle uses, so the two controls read as one idea. -->
-			<PanelTopDashed size={16} class="flex-shrink-0 text-hint" />
-		</button>
-	{/if}
-
-	{#if (navDetached.val || panelled) && !navHidden && !hideNavHandle}
+	{#if (navDetached.val || panelled) && !navHidden}
 		<!-- Reveals the hidden sidebar, and only that: hovering slides the card in, clicking holds
 		     it there. Attaching it for good belongs to the toggle in the sidebar's own footer, where
 		     detaching it happened — a control that hides the thing it sits on cannot also be the
@@ -142,13 +111,14 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		>
 			<!-- No tooltip: hovering here already slides the sidebar in, which says what the button
 			     does better than a label popping up over it. -->
-			<button
-				class="flex items-center p-1.5 rounded hover:bg-surface-hover"
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				iconOnly
+				startIcon={{ icon: PanelLeft }}
 				aria-label="Show sidebar"
 				onclick={() => navHandleSlot.open()}
-			>
-				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
-			</button>
+			/>
 		</div>
 	{/if}
 
@@ -158,28 +128,28 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	     On a phone it stops yielding at 10rem, and that floor is what makes the bar wrap: the
 	     page's buttons no longer fit beside a trail that wide, so they take the line below
 	     instead of squeezing the name down to an ellipsis.
-	     An embed (`navHidden`) gets the page's controls without the trail that would offer to
-	     navigate the host's workspace. -->
-	{#if !navHidden}
-		<div class={twMerge('flex min-w-0', phone ? 'shrink min-w-[10rem]' : 'shrink-[0.1]')}>
-			<!-- Bridged like the actions below: what a page hangs off its own name renders here, out
-			     of the tree that named it, and the pen in there asks that tree who the acting user is
-			     before it offers to rename anything. -->
-			{#key content?.contexts}
-				<ContextBridge contexts={content?.contexts}>
-					<NavBreadcrumb
-						{item}
-						{section}
-						{narrow}
-						afterName={content?.afterName}
-						actingWorkspaceId={content?.actingWorkspaceId}
-					/>
-				</ContextBridge>
-			{/key}
-		</div>
-	{/if}
+	     An embed (`navHidden`) keeps the page's own name but drops the workspace part around it:
+	     the trail would offer to navigate the host's workspace, while the name is what says which
+	     page the controls beside it belong to. -->
+	<div class={twMerge('flex min-w-0', phone ? 'shrink min-w-[10rem]' : 'shrink-[0.1]')}>
+		<!-- Bridged like the actions below: what a page hangs off its own name renders here, out
+		     of the tree that named it, and the pen in there asks that tree who the acting user is
+		     before it offers to rename anything. -->
+		{#key content?.contexts}
+			<ContextBridge contexts={content?.contexts}>
+				<NavBreadcrumb
+					{item}
+					{section}
+					{narrow}
+					nameOnly={navHidden}
+					afterName={content?.afterName}
+					actingWorkspaceId={content?.actingWorkspaceId}
+				/>
+			</ContextBridge>
+		{/key}
+	</div>
 
-	{#if item && !navHidden && (item.summaryContent || item.summary)}
+	{#if item && (item.summaryContent || item.summary)}
 		<!-- No kind icon: the page below is the item, and saying "this is a flow" above a flow
 		     editor tells the reader what they can already see. -->
 		<div class={twMerge('flex items-center gap-1 min-w-0', phone && 'shrink')}>
@@ -204,11 +174,19 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		     here that can give width back, and it can only do that if this box may shrink. A phone
 		     only tightens the gutter — pages fold their own buttons into a menu at that width, and
 		     a box that refused to shrink would make the one flexible field take its max instead. -->
+		<!-- `actionsFill`: the actions are a surface rather than a row, so they take the rest of the
+		     bar and run to its right edge, and they stretch its full height because that surface
+		     sits on the bottom edge. -->
 		<div
 			class={twMerge(
-				'ml-auto flex items-center',
-				phone && !content?.actionsFlexible ? 'shrink-0' : 'min-w-0',
-				phone ? 'gap-1 pl-1' : 'gap-2 pl-4'
+				'flex',
+				// pl-4: the gap between the breadcrumb and the filling surface is bare bar, so it
+				// belongs here rather than inside that surface, where it would be filled.
+				content?.actionsFill
+					? 'flex-1 min-w-0 self-stretch items-stretch pl-4'
+					: 'ml-auto items-center',
+				!content?.actionsFill && (phone && !content?.actionsFlexible ? 'shrink-0' : 'min-w-0'),
+				!content?.actionsFill && (phone ? 'gap-1 pl-1' : 'gap-2 pl-4')
 			)}
 		>
 			{#each actions as entry, i (i)}

@@ -50,6 +50,9 @@
 		/** Render after the right-pinned tabs, outside the scroll area so it stays
 		 * pinned (e.g. a "Split with Preview" toggle). */
 		trailing?: import('svelte').Snippet
+		/** Tab height. `sm` (the default) is the 24px pill the panel strips use; `md` is 28px, for a
+		 * strip that fills a 44px bar, where the smaller pill leaves too much air around it. */
+		size?: 'sm' | 'md'
 		/** Render inside each tab (after the label; receives the tab + isActive). Clicks
 		 * bubble to the tab unless the accessory stops them. The tab is position:relative
 		 * so an `absolute inset-0 pointer-events-none` child can anchor a whole-tab
@@ -65,6 +68,7 @@
 		onReorder,
 		onActiveClick,
 		class: c = '',
+		size = 'sm',
 		afterTabs,
 		trailing,
 		tabAccessory
@@ -180,7 +184,8 @@
 
 	function tabClasses(isActive: boolean) {
 		return twMerge(
-			'group relative inline-flex items-center gap-1.5 px-2.5 h-6 text-xs rounded-md select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
+			'group relative inline-flex items-center gap-1.5 text-xs rounded-md select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
+			size === 'md' ? 'h-7 px-3 gap-2' : 'h-6 px-2.5',
 			isActive
 				? 'bg-surface-tertiary text-emphasis'
 				: 'bg-transparent text-hint hover:text-secondary'

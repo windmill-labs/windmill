@@ -1,72 +1,25 @@
 <script lang="ts">
 	import { page } from '$app/state'
 	import { Alert } from '$lib/components/common'
-	import Popover from '$lib/components/Popover.svelte'
 	import ServiceLogsInner from '$lib/components/ServiceLogsInner.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { devopsRole } from '$lib/stores'
-	import { Search, AlertTriangle } from 'lucide-svelte'
 
-	let searchTerm = $state(page.url.searchParams.get('query') ?? '')
-	let queryParseErrors: string[] | undefined = $state(undefined)
+	// `query` is what the global search links with; `searchTerm` is what the page writes back.
+	let searchTerm = $state(
+		page.url.searchParams.get('searchTerm') ?? page.url.searchParams.get('query') ?? ''
+	)
 </script>
 
-<div class="flex flex-col w-full h-full max-h-full max-w-screen px-2">
-	<div class="px-2">
-		<div class="flex items-center space-x-2 flex-row justify-between">
-			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
-				<h1 class="!text-2xl font-semibold leading-6 tracking-tight">Service logs</h1>
-				<Tooltip>Explore and search Windmill service logs from within Windmill!</Tooltip>
-			</div>
-		</div>
-	</div>
-
+<!-- `h-full`, not `h-screen`: the page header band sits above this box, so a viewport floor here
+     would overhang the content box by the band's height. -->
+<div class="flex flex-col w-full min-w-0 h-full max-h-full px-4">
 	{#if $devopsRole == false}
-		<Alert title="Service logs are only available to superadmins" type="warning">
-			Service logs are only available to superadmins (or devops)
-		</Alert>
-	{:else}
-		<div class="m-1 px-2 flex flex-row gap-1 items-center border-2 rounded-lg">
-			<Search size="16" />
-			<!-- svelte-ignore a11y_autofocus -->
-			<input
-				id="quickSearchInput"
-				type="text"
-				class="quick-search-input !bg-surface"
-				bind:value={searchTerm}
-				autocomplete="off"
-				autofocus
-			/>
-			{#if searchTerm !== '' && queryParseErrors && queryParseErrors.length > 0}
-				<Popover notClickable placement="bottom-start">
-					<AlertTriangle size={16} class="text-yellow-500" />
-					{#snippet text()}
-						Some of your search terms have been ignored because one or more parse errors:<br /><br
-						/>
-						{#if queryParseErrors}
-							<ul>
-								{#each queryParseErrors as msg}
-									<li>- {msg}</li>
-								{/each}
-							</ul>
-						{/if}
-					{/snippet}
-				</Popover>
-			{/if}
+		<div class="flex flex-col gap-2 pt-4">
+			<Alert title="Service logs are only available to superadmins and devops users" type="warning">
+				Ask one of them to look at the logs, or to grant you the devops role.
+			</Alert>
 		</div>
-
-		<ServiceLogsInner {searchTerm} bind:queryParseErrors />
+	{:else}
+		<ServiceLogsInner bind:searchTerm />
 	{/if}
 </div>
-
-<style>
-	.quick-search-input {
-		outline: none;
-		border: none !important;
-		box-shadow: none !important;
-	}
-
-	.quick-search-input:focus-visible {
-		outline: none !important;
-	}
-</style>

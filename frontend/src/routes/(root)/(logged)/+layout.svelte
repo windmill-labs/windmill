@@ -19,7 +19,6 @@
 		isSessionPreviewFrame,
 		rememberMenuHidden
 	} from '$lib/components/sessions/sessionMode.svelte'
-	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
 	import SidebarUsage from '$lib/components/sidebar/SidebarUsage.svelte'
@@ -74,7 +73,6 @@
 	import {
 		PanelLeft,
 		PanelLeftClose,
-		PanelTop,
 		PanelLeftDashed,
 		PanelLeftOpen,
 		Home,
@@ -87,7 +85,6 @@
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
-	import { appHeaderPinned } from '$lib/components/apps/appHeaderPin.svelte'
 	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
@@ -455,10 +452,6 @@
 		} else {
 			menuOpen = false
 		}
-		// The next page may not be one the band floats over, and then the band loses the hover
-		// handlers that would clear this — leaving it already down when a full-bleed page comes
-		// back. Clicking a control in the band (an app's Edit) is exactly that navigation.
-		bandPeeked = false
 
 		// Inside a sessions-preview iframe, hand an editor-route navigation up to the
 		// parent so it mounts the in-process editor (sharing the session runtime)
@@ -534,46 +527,9 @@
 		menuOpen = false
 	}, PEEK_CLOSE_DELAY_MS)
 
-	// A deployed app owns the viewport: the band floats above it until the corner handle calls it
-	// down, and stays once pinned. The sidebar is untouched — docked stays docked, detached stays a
-	// peek — since the pin is about the header alone.
-	const fullBleed = $derived(pageHeader.content?.fullBleed === true && !menuHidden)
-	const bandPeek = $derived(fullBleed && !appHeaderPinned.val)
-	let bandPeeked = $state(false)
-	let bandHandleHot = $state(false)
-	let bandHandleEl: HTMLDivElement | undefined = $state(undefined)
-	const bandShown = $derived(!bandPeek || bandPeeked)
-	// A page registers on mount, so the band is an ordinary header for the frames before that and
-	// would slide away once the app claims the viewport. The slide belongs to the hover, not to
-	// arriving: it is armed a frame after the claim, so the first hide is a cut.
-	let bandPeekSettled = $state(false)
-	$effect(() => {
-		if (!bandPeek) {
-			bandPeekSettled = false
-			return
-		}
-		const id = requestAnimationFrame(() => (bandPeekSettled = true))
-		return () => cancelAnimationFrame(id)
-	})
-	const floatBand = $derived(pageHeader.content?.barRightInset != null || bandPeek)
-	// Same delay as the sidebar's peek, and for the same reason: the handle and the band do not
-	// touch, so the leave of one has to survive long enough for the enter of the other.
-	// The band carries menus of its own — the workspace disc, the fork family, every path level —
-	// and they portal out of it just as the card's do, so it holds for the same reason.
-	const { debounced: scheduleBandHide, clearDebounce: cancelBandHide } = debounce(() => {
-		if (pointerInMenu()) {
-			scheduleBandHide()
-			return
-		}
-		bandPeeked = false
-	}, PEEK_CLOSE_DELAY_MS)
-
-	// Offered both by the corner handle and by the band it calls down, which covers that handle.
-	function pinAppHeader() {
-		appHeaderPinned.val = true
-		// The band stays because it is pinned now, not because the pointer is still on it.
-		bandPeeked = false
-	}
+	// A page that owns the right edge from the top — a session's side panel — makes the band float
+	// and stop where that column starts, instead of running over it.
+	const floatBand = $derived(pageHeader.content?.barRightInset != null)
 
 	// The handle and the edge band both open the card this layout owns.
 	navHandleSlot.setOpener(() => (menuOpen = true), {
@@ -1392,12 +1348,16 @@
 				></div>
 			{/if}
 			{#if useDrawer}
+				<!-- `inert` while closed, not only `pointer-events-none`: the card stays mounted so it
+				     can slide rather than pop, and a card parked off the left edge still holds every
+				     one of its links in the tab order. -->
 				<div
 					class={classNames(
 						'relative',
 						menuOpen ? 'z-40' : 'pointer-events-none',
 						devOnly ? 'hidden' : ''
 					)}
+					inert={!menuOpen}
 					role="dialog"
 				>
 					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -1409,10 +1369,7 @@
 					     the viewport: it would otherwise cover the header's toggle, whose hover opened the
 					     card, and swallow the click meant to put the sidebar back. -->
 					<div
-						class={classNames(
-							'fixed left-0 right-0 bottom-0 flex z-40',
-							fullBleed ? '' : 'pl-1 pb-2'
-						)}
+						class={classNames('fixed left-0 right-0 bottom-0 flex z-40', 'pl-1 pb-2')}
 						style:top="{navHandleSlot.cardTop}px"
 						onclick={(e) => {
 							if (e.target === e.currentTarget) menuOpen = false
@@ -1423,22 +1380,13 @@
 							data-nav-card
 							onmouseenter={() => {
 								cancelPeekClose()
-								// Revealed together by the floating control, so they leave together: the
-								// pointer resting on either one holds both.
-								if (bandPeek) cancelBandHide()
 							}}
 							onmouseleave={() => {
 								schedulePeekClose()
-								if (bandPeek) scheduleBandHide()
 							}}
 							class={classNames(
-								'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform shadow-lg overflow-hidden',
-								fullBleed ? 'border-r' : 'rounded-lg border',
-								menuOpen
-									? 'translate-x-0'
-									: fullBleed
-										? '-translate-x-full'
-										: '-translate-x-[calc(100%+0.5rem)]'
+								'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform shadow-lg overflow-hidden rounded-lg border',
+								menuOpen ? 'translate-x-0' : '-translate-x-[calc(100%+0.5rem)]'
 							)}
 						>
 							{@render sidebarColumn(true)}
@@ -1462,101 +1410,6 @@
 					{@render sidebarColumn(false)}
 				</div>
 			{/if}
-			<!-- Legacy menu -->
-			<div
-				class={classNames(
-					'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300',
-					'opacity-0 pointer-events-none'
-				)}
-			>
-				<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
-					<div
-						class={classNames(
-							'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-100 transform',
-							'-translate-x-full'
-						)}
-					>
-						<div
-							class={classNames(
-								'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-100',
-								'opacity-0'
-							)}
-						>
-							<button
-								type="button"
-								onclick={() => {
-									// menuSlide = !menuSlide
-								}}
-								aria-label="Close"
-								class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
-							>
-								<svg
-									class="h-6 w-6 text-white"
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke-width="2"
-									stroke="currentColor"
-									aria-hidden="true"
-								>
-									<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-								</svg>
-							</button>
-						</div>
-						<div class="h-full" style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
-							<div
-								class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-10"
-								class:w-40={!isCollapsed}
-							>
-								<WindmillIcon white={darkMode} height="20px" width="20px" />
-								{#if !isCollapsed}{#if $whitelabelNameStore}{capitalize(
-											$whitelabelNameStore
-										)}{:else}Windmill{/if}{/if}
-							</div>
-
-							<div class="px-2 py-4 space-y-2 border-y border-light dark:border-gray-700">
-								<Menubar>
-									{#snippet children({ createMenu })}
-										<WorkspaceMenu {createMenu} />
-										<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
-									{/snippet}
-								</Menubar>
-								<MenuButton
-									stopPropagationOnClick={true}
-									on:click={() => openSearchModal()}
-									{isCollapsed}
-									icon={Search}
-									label="Search"
-									class="!text-xs"
-									shortcut={`${getModifierKey()}k`}
-								/>
-								{#if !$copilotInfo.workspaceDisabled}
-									<MenuButton
-										stopPropagationOnClick={true}
-										on:click={() => aiChatManager.toggleOpen()}
-										{isCollapsed}
-										icon={WandSparkles}
-										iconProps={{
-											forceDarkMode: true
-										}}
-										label="Ask AI"
-										class="!text-xs"
-										iconClasses="!text-ai"
-										shortcut={`${getModifierKey()}L`}
-									/>
-								{/if}
-							</div>
-
-							<SidebarContent
-								{isCollapsed}
-								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-									? 0
-									: numUnacknowledgedCriticalAlerts}
-							/>
-						</div>
-					</div>
-				</div>
-			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full relative">
 			<!-- Not gated on `$enterpriseLicense`: it paints the cached accent before the license
@@ -1574,89 +1427,15 @@
 				     up into the gap and the workspace menu losing the trigger it hangs from.
 				     In flow, the band spans the content beside the rail. With an inset, a page owns
 				     the right edge from the top (a session's side panel): the band floats, stopping
-				     where that column starts, and the page pads its own content to clear it. Over a
-				     full-bleed page (a deployed app) it floats too, but waits above the viewport
-				     until the corner handle calls it down — and takes no pointer events up there. -->
+				     where that column starts, and the page pads its own content to clear it. -->
 				<div
-					class={classNames(
-						floatBand ? 'absolute top-0 z-30' : 'shrink-0',
-						bandPeek
-							? (bandPeekSettled ? 'transition-transform duration-150 ease-out ' : '') +
-									(bandShown ? 'translate-y-0' : '-translate-y-full pointer-events-none')
-							: bandTransitionClass
-					)}
+					class={classNames(floatBand ? 'absolute top-0 z-30' : 'shrink-0', bandTransitionClass)}
 					style:left={floatBand ? `${leftInset}rem` : undefined}
 					style:right={floatBand ? `${rightInset ?? 0}px` : undefined}
 					style:padding-left={floatBand ? undefined : `${leftInset}rem`}
-					onmouseenter={bandPeek
-						? () => {
-								cancelBandHide()
-								// The band comes to rest over the access point, so the pointer leaves it the
-								// moment the band arrives. Hold both open while the pointer is anywhere on
-								// the band, or the card would retract under a header that stayed.
-								if (navDetached.val) navHandleSlot.open(bandHandleEl)
-							}
-						: undefined}
-					onmouseleave={bandPeek
-						? () => {
-								scheduleBandHide()
-								if (navDetached.val) navHandleSlot.scheduleClose()
-							}
-						: undefined}
-					role={bandPeek ? 'presentation' : undefined}
 				>
-					<PageHeaderBar
-						navHidden={menuHidden}
-						hideNavHandle={bandPeek}
-						panelled={useDrawer}
-						onPin={bandPeek ? pinAppHeader : undefined}
-						onUnpin={fullBleed && appHeaderPinned.val
-							? () => (appHeaderPinned.val = false)
-							: undefined}
-					/>
+					<PageHeaderBar navHidden={menuHidden} panelled={useDrawer} />
 				</div>
-
-				{#if bandPeek}
-					<!-- The way back to the chrome from an app that owns the viewport: an access point in
-					     the page's top-left corner. Hovering calls the band down, which comes to rest
-					     over this button — below the band's z-index, so the regular view simply covers
-					     it — and a click pins that view. Faded once the page has settled, so it costs
-					     an app's own corner as little as an always-present control can. -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="absolute top-2 z-20 transition-opacity duration-300 {bandShown || bandHandleHot
-							? 'opacity-100'
-							: 'opacity-40'}"
-						style:left="calc({leftInset}rem + 0.5rem)"
-						bind:this={bandHandleEl}
-						onmouseenter={() => {
-							bandHandleHot = true
-							cancelBandHide()
-							bandPeeked = true
-							// The one control for the chrome this page is hiding: the band always, and
-							// the sidebar too when it is detached — hung from this button, since the
-							// header's own handle is off-screen with the band.
-							if (navDetached.val) navHandleSlot.open(bandHandleEl)
-						}}
-						onmouseleave={() => {
-							bandHandleHot = false
-							scheduleBandHide()
-							navHandleSlot.scheduleClose()
-						}}
-					>
-						<!-- Standing where the band's own first button will be — same 28px box, same offsets
-						     as its pl-2 and 44px row — so pinning moves nothing. A border would make it
-						     30 and the icon would jump on the click. -->
-						<button
-							class="flex items-center p-1.5 rounded bg-surface/80 backdrop-blur-sm shadow-sm hover:bg-surface"
-							aria-label="Pin the header on deployed apps"
-							title="Pin the header on deployed apps"
-							onclick={pinAppHeader}
-						>
-							<PanelTop size={16} class="flex-shrink-0 text-hint" />
-						</button>
-					</div>
-				{/if}
 			{/if}
 			{#if $enterpriseLicense && !menuHidden}
 				<!-- Announcements are an EE feature, so the component never mounts on CE. Also

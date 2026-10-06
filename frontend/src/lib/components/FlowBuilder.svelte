@@ -642,7 +642,9 @@
 						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
-						labels: (flow as any).labels
+						labels: (flow as any).labels,
+						// Sent explicitly: an omitted field keeps the deployed value.
+						job_token_scopes: flow.job_token_scopes ?? null
 					}
 				})
 				// Gated for operators without `manage_triggers`, who cannot have captures to move.
@@ -694,7 +696,9 @@
 						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
-						labels: (flow as any).labels
+						labels: (flow as any).labels,
+						// Sent explicitly: an omitted field keeps the deployed value.
+						job_token_scopes: flow.job_token_scopes ?? null
 					}
 				})
 			}
@@ -1136,10 +1140,11 @@
 		onClick: () => void
 	}> = []
 
-	// In a session pane every one of these leaves the session (details page, new
-	// tab), so the deploy button carries no dropdown there — as in ScriptBuilder.
-	if (untrack(() => customUi).topBar?.extraDeployOptions != false && !inSessionPane) {
-		if (!newFlow) {
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
+		// The one option that stays in a session pane: the session hosts the details page
+		// itself, so this flips the tab to it rather than leaving the session. Everything
+		// below opens a details page or a new tab outside the session, so it stays hidden.
+		if (!newFlow && savedFlow?.no_deployed !== true) {
 			dropdownItems.push({
 				label: 'Exit & see details',
 				// Use the deployed path, not the live `$pathStore` — the latter
@@ -1149,7 +1154,7 @@
 			})
 		}
 
-		if (!untrack(() => newFlow)) {
+		if (!untrack(() => newFlow) && !inSessionPane) {
 			dropdownItems.push({
 				label: 'Fork',
 				onClick: () => window.open(`/flows/add?template=${initialPath}`)
@@ -1158,6 +1163,7 @@
 
 		if (
 			!untrack(() => newFlow) &&
+			!inSessionPane &&
 			!isCloudHosted() &&
 			editInForkAllowed(opWorkspace, $userWorkspaces)
 		) {
@@ -1568,6 +1574,8 @@
 			{#if ownsPageHeader}
 				<!-- The editor's own top bar is the page header on this route: its breadcrumb and
 				     summary are the header's, and its buttons are the header's actions. -->
+				<!-- `separator="none"`: the canvas right below the bar draws its own top line, and the
+				     bar's edge would be a second one on top of it. -->
 				<PageHeaderContent
 					item={{
 						// Frozen while the pen's popover is open so the trail holds still as the user types.
@@ -1577,6 +1585,7 @@
 					}}
 					actions={flowHeaderActions}
 					contexts={headerContexts}
+					separator="none"
 				/>
 			{:else}
 				<!-- Nav between steps-->

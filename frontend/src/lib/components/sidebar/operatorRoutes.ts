@@ -1,8 +1,27 @@
 import type { OperatorSettings } from '$lib/gen'
 import type { UserWorkspace } from '$lib/stores'
 
-/** An `operator_settings` key: each admits an operator to one page (`triggers` to all of them). */
-export type OperatorPageKey = keyof NonNullable<OperatorSettings>
+/**
+ * An `operator_settings` key that admits an operator to one page (`triggers` to all of them).
+ *
+ * Only the visibility flags: the same object also carries the write rights `builder_flows`,
+ * `manage_schedules` and `manage_triggers`, which the `=== true` rule below answers wrongly. A
+ * write right is granted unless withdrawn, so its absence means "never configured" rather than
+ * "no" — see `docs/operator-write-rights.md`.
+ */
+export type OperatorPageKey = Extract<
+	keyof NonNullable<OperatorSettings>,
+	| 'runs'
+	| 'schedules'
+	| 'resources'
+	| 'variables'
+	| 'assets'
+	| 'audit_logs'
+	| 'triggers'
+	| 'groups'
+	| 'folders'
+	| 'workers'
+>
 
 /**
  * Whether the sidebar shows the page behind `key`. Everyone but an operator sees every page

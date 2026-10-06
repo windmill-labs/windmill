@@ -18,7 +18,10 @@
 	import type { ActionKind } from '$lib/common'
 
 	import Button from '$lib/components/common/button/Button.svelte'
-	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
+	import TimeframeSelect, {
+		auditTimeframes,
+		useSyncedTimeframe
+	} from '$lib/components/runs/TimeframeSelect.svelte'
 	import {
 		type AuditLog,
 		ResourceService,
@@ -29,7 +32,7 @@
 	} from '$lib/gen'
 
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { ChevronDown, Download, Loader2, RefreshCcw } from 'lucide-svelte'
+	import { ChevronDown, Download } from 'lucide-svelte'
 	import { onDestroy, onMount, untrack } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -44,7 +47,6 @@
 	interface Props {
 		logs?: AuditLog[]
 		username?: string
-		pageIndex?: number | undefined
 		before?: string | undefined
 		after?: string | undefined
 		perPage?: number | undefined
@@ -53,13 +55,14 @@
 		actionKind?: ActionKind | 'all'
 		scope?: undefined | 'all_workspaces' | 'instance'
 		loading?: boolean
+		/** Lay the filters out in a row (the page header band) rather than stacked (the popover). */
+		inline?: boolean
 		onRefresh?: () => void
 	}
 
 	let {
 		logs = undefined,
 		username = $bindable('all'),
-		pageIndex = $bindable(1),
 		before = $bindable(undefined),
 		after = $bindable(undefined),
 		perPage = $bindable(100),
@@ -68,6 +71,7 @@
 		actionKind = $bindable(undefined),
 		scope = $bindable(undefined),
 		loading = false,
+		inline = false,
 		onRefresh
 	}: Props = $props()
 
@@ -100,7 +104,6 @@
 		}
 
 		addQueryParam('username', username)
-		addQueryParam('page', pageIndex)
 		addQueryParam('perPage', perPage)
 		addQueryParam('before', before)
 		addQueryParam('after', after)
@@ -120,7 +123,6 @@
 	function handlePopState() {
 		const urlSearchParams = new URLSearchParams(window.location.search)
 		username = urlSearchParams.get('username') ?? 'all'
-		pageIndex = Number(urlSearchParams.get('page')) || 1
 		before = urlSearchParams.get('before') ?? undefined
 		after = urlSearchParams.get('after') ?? undefined
 		perPage = Number(urlSearchParams.get('perPage')) || 100
@@ -263,15 +265,38 @@
 
 	// observe all the variables that should be reflected in the url
 	$effect(() => {
-		;[username, perPage, before, after, operation, resource, actionKind, scope, pageIndex]
+		;[username, perPage, before, after, operation, resource, actionKind, scope]
 		untrack(() => updateQueryParams())
 	})
+
+	// The bounds stay the filters' own `after`/`before`, because the timeline's zoom writes them
+	// too; picking a preset resolves it to a concrete pair here rather than keeping a label that
+	// the chart could then contradict.
+	const _timeframe = useSyncedTimeframe(
+		auditTimeframes,
+		() => ({ minTs: after, maxTs: before }),
+		(v) => {
+			const { minTs, maxTs } = v.timeframe
+				? (auditTimeframes.find((t) => t.label === v.timeframe)?.computeMinMax() ?? {
+						minTs: null,
+						maxTs: null
+					})
+				: { minTs: v.minTs ?? null, maxTs: v.maxTs ?? null }
+			after = minTs ?? undefined
+			before = maxTs ?? undefined
+		}
+	)
 </script>
 
-<div class="flex flex-col gap-8 2xl:gap-2 2xl:flex-row mt-4 xl:mt-0 pr-2">
+<!-- No labels above the controls: each one says what it filters while it is unset ("all usernames"),
+     and once it is set the value names the field by itself. That halves the row's height, which is
+     what lets it sit in the header band, and halves its width, which is what lets it stay there.
+     `inline` rather than a breakpoint: the caller measures whether the row fits the width the band
+     leaves it, which a media query cannot see — the sidebar, a side panel and the filters' own
+     values all move that width without moving the viewport's. -->
+<div class={inline ? 'flex flex-row gap-2 items-center pr-2' : 'flex flex-col gap-2'}>
 	{#if $workspaceStore == 'admins'}
-		<div class="flex gap-1 relative">
-			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
+		<div class="flex min-w-0 shrink-0">
 			<ToggleButtonGroup
 				selected={scope ?? 'admins'}
 				on:selected={({ detail }) => {
@@ -301,49 +326,31 @@
 			</ToggleButtonGroup>
 		</div>
 	{/if}
-	<div class="flex relative bg-surface-input">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">From</span>
-		<input type="text" value={after ?? 'From'} disabled />
-		<CalendarPicker
-			clearable
-			date={after}
-			placement="bottom-end"
-			label="From"
-			on:change={({ detail }) => {
-				after = new Date(detail).toISOString()
-			}}
-			on:clear={() => {
-				after = undefined
-			}}
-		/>
-	</div>
-	<div class="flex relative bg-surface-input">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">To</span>
-		<input type="text" value={before ?? 'To'} disabled />
-		<CalendarPicker
-			clearable
-			bind:date={before}
-			label="To"
-			placement="bottom-end"
-			on:change={({ detail }) => {
-				before = new Date(detail).toISOString()
-			}}
-			on:clear={() => {
-				before = undefined
-			}}
-		/>
-	</div>
+	<!-- The same control the runs page uses: presets and a two-calendar range in one popover,
+	     in place of the two date fields this row used to carry. -->
+	<TimeframeSelect
+		unifiedSize="sm"
+		items={auditTimeframes}
+		bind:value={_timeframe.val}
+		{loading}
+		wrapperClasses="shrink-0"
+		onClick={() => {
+			loadUsers()
+			resources.refresh()
+			onRefresh?.()
+		}}
+	/>
 
-	<div class="flex relative">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">Username</span>
+	<div class="w-40 min-w-0 shrink">
 		<Select
 			class="w-full"
+			size="sm"
 			bind:value={username}
 			RightIcon={ChevronDown}
 			items={usernames
 				? [
 						...($userStore?.is_admin || $userStore?.is_super_admin
-							? [{ value: 'all', label: 'all' }]
+							? [{ value: 'all', label: 'all usernames' }]
 							: []),
 						...usernames.map((e) => ({
 							value: e,
@@ -354,41 +361,41 @@
 				: []}
 		/>
 	</div>
-	<div class="flex relative">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">Resource</span>
-
+	<div class="w-40 min-w-0 shrink">
 		<Select
 			class="w-full"
+			size="sm"
 			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
 			createText="Press enter to use this value"
 			bind:value={resource}
-			items={safeSelectItems(['all', ...(resources.value ?? [])])}
+			items={[{ value: 'all', label: 'all resources' }, ...safeSelectItems(resources.value ?? [])]}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
 		/>
 	</div>
 
-	<div class="flex relative">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">Operation</span>
-
+	<div class="w-40 min-w-0 shrink">
 		<Select
 			class="w-full"
+			size="sm"
 			bind:value={operation}
-			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
+			items={[
+				{ value: 'all', label: 'all operations' },
+				...Object.values(operations).map((r) => ({ value: r, label: r }))
+			]}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
 		/>
 	</div>
 
-	<div class="flex relative">
-		<span class="text-xs absolute font-semibold text-emphasis -top-4">Action</span>
-
+	<div class="w-36 min-w-0 shrink">
 		<Select
 			class="w-full"
+			size="sm"
 			bind:value={actionKind}
 			RightIcon={ChevronDown}
 			items={[
-				{ value: 'all', label: 'all' },
+				{ value: 'all', label: 'all actions' },
 				{ value: 'create', label: 'Create' },
 				{ value: 'update', label: 'Update' },
 				{ value: 'delete', label: 'Delete' },
@@ -397,7 +404,7 @@
 		/>
 	</div>
 
-	<div class="flex flex-row">
+	<div class="flex flex-row items-center gap-1">
 		<Button
 			variant="subtle"
 			on:click={() => {
@@ -406,41 +413,21 @@
 				username = 'all'
 				operation = 'all'
 				actionKind = 'all'
-				pageIndex = 1
 				perPage = 100
 				resource = 'all'
 				scope = undefined
 			}}
-			unifiedSize="md"
+			unifiedSize="sm"
 		>
 			Clear filters
 		</Button>
 		<Button
 			variant="subtle"
 			on:click={downloadAuditLogsAsJson}
-			unifiedSize="md"
+			unifiedSize="sm"
 			title="Downloads currently displayed logs only (up to {perPage} entries)"
 			startIcon={{ icon: Download }}
 			iconOnly
 		/>
-		<Button
-			variant="accent"
-			on:click={() => {
-				loadUsers()
-				resources.refresh()
-				onRefresh?.()
-			}}
-			unifiedSize="md"
-			wrapperClasses="ml-auto"
-		>
-			<div class="flex flex-row gap-1 items-center">
-				{#if loading}
-					<Loader2 size={14} class="animate-spin" />
-				{:else}
-					<RefreshCcw size={14} />
-				{/if}
-				Refresh
-			</div>
-		</Button>
 	</div>
 </div>

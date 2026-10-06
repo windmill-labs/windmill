@@ -78,23 +78,28 @@
 	}
 </script>
 
-<PublicAppFrame
-	{fetchEmbedToken}
-	onViewerReady={(_token, requestTokenRefresh) => {
-		refresh = requestTokenRefresh
-		loadApp()
-	}}
->
-	{#snippet viewer()}
-		<PublicApp
-			{app}
-			{workspace}
-			{notExists}
-			{noPermission}
-			jwtError={false}
-			inWorkspace
-			{hideRefreshBar}
-			onLoginSuccess={() => loadApp()}
-		></PublicApp>
-	{/snippet}
-</PublicAppFrame>
+<!-- Everything the viewer renders is `h-full`, so the route is what says how tall the app is:
+     nothing above it has a height (`app.html` wraps the body in `display: contents`), and an
+     unfloored app collapses to nothing. -->
+<div class="h-screen w-full">
+	<PublicAppFrame
+		{fetchEmbedToken}
+		onViewerReady={(_token, requestTokenRefresh) => {
+			refresh = requestTokenRefresh
+			loadApp()
+		}}
+	>
+		{#snippet viewer()}
+			<PublicApp
+				{app}
+				{workspace}
+				{notExists}
+				{noPermission}
+				jwtError={false}
+				inWorkspace
+				{hideRefreshBar}
+				onLoginSuccess={() => loadApp()}
+			></PublicApp>
+		{/snippet}
+	</PublicAppFrame>
+</div>

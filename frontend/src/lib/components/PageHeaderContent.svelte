@@ -17,10 +17,11 @@ the header, so nesting is decided by the caller rather than guessed from context
 		actions,
 		actionsOrder,
 		actionsFlexible,
+		actionsFill,
+		separator,
 		contexts,
 		actingWorkspaceId,
-		barRightInset,
-		fullBleed
+		barRightInset
 	}: PageHeaderContent = $props()
 
 	onMount(() => {
@@ -31,10 +32,11 @@ the header, so nesting is decided by the caller rather than guessed from context
 			actions,
 			actionsOrder,
 			actionsFlexible,
+			actionsFill,
+			separator,
 			contexts,
 			actingWorkspaceId,
-			barRightInset,
-			fullBleed
+			barRightInset
 		}))
 		return () => pageHeader.release(id)
 	})

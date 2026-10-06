@@ -7,13 +7,13 @@ popover is open this holds the path as it was when it opened, so the trail — a
 to it — does not reflow under the pointer as the user types, which floating-ui would follow.
 -->
 <script lang="ts">
-	import { Pencil } from 'lucide-svelte'
-	import { Alert, Button } from '$lib/components/common'
+	import type { ComponentProps } from 'svelte'
+	import { Alert } from '$lib/components/common'
+	import PathEditPen from '$lib/components/PathEditPen.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import type { WorkspaceItemKind } from '$lib/components/workspacePicker'
 	import { isOwner } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import {
@@ -36,7 +36,10 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 		path?: string
 		/** The item's *saved* path on the server, so the popover can say a rename needs deploying. */
 		savedPath?: string
-		kind?: WorkspaceItemKind
+		/** Scopes the path picker's validation, and names the item in the placeholder and the
+		 *  deploy note. An agent lives at a resource path, so this is wider than the three
+		 *  workspace item kinds. */
+		kind?: ComponentProps<typeof Path>['kind']
 		/** Workspace the path picker scopes to; defaults to the operating workspace. */
 		workspaceId?: string
 		/** When set, warns that a redeploy happens on behalf of the current user instead. */
@@ -45,6 +48,10 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 		/** The path as it was when the popover opened, undefined while it is closed. See the
 		 *  component note: the caller draws its trail from this so it holds still mid-rename. */
 		snapshotPath?: string | undefined
+		/** The path field's verdict, for a host that refuses to deploy while it is non-empty.
+		 *  A host whose item has a second path field has to bind both to the same slot, or
+		 *  whichever one is unmounted leaves its last verdict standing. */
+		error?: string
 	}
 
 	let {
@@ -57,7 +64,8 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 		workspaceId,
 		onBehalfOfEmail,
 		penVisibility = 'hover',
-		snapshotPath = $bindable()
+		snapshotPath = $bindable(),
+		error = $bindable()
 	}: Props = $props()
 
 	let open = $state(false)
@@ -92,17 +100,7 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 	bind:isOpen={() => open, setOpen}
 >
 	{#snippet trigger()}
-		<Button
-			variant="subtle"
-			unifiedSize="xs"
-			iconOnly
-			startIcon={{ icon: Pencil }}
-			title={penLabel}
-			aria-label={penLabel}
-			btnClasses={penVisibility === 'hover' && !open
-				? 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
-				: ''}
-		/>
+		<PathEditPen label={penLabel} visibility={penVisibility} {open} />
 	{/snippet}
 	{#snippet content()}
 		<div class="flex flex-col gap-6 w-[480px]">
@@ -128,10 +126,19 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 				</Label>
 			{/if}
 			{#if own}
+				<!-- Both of these say the same thing — the item's own saved path is not a collision —
+				     and both are needed, because `Path` skips the whole existence check while the
+				     typed path equals `initialPath`. Seeding that from the working path instead
+				     would make a rename to a taken path look untaken the moment the popover is
+				     reopened on it. With no saved path there is nothing the item occupies, so every
+				     path is checked. -->
 				<Path
 					autofocus
 					bind:path
-					initialPath={snapshotPath ?? path ?? ''}
+					bind:error
+					initialPath={savedPath ?? path ?? ''}
+					allowedExistingPath={savedPath}
+					checkInitialPathExistence={savedPath == undefined}
 					namePlaceholder={kind}
 					{kind}
 					size="sm"

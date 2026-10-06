@@ -764,6 +764,7 @@ async fn list_apps(
                       path,
                       value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
                       created_at,
+                      email IS NULL as "legacy!",
                       typ::text as "typ!"
                FROM draft
                WHERE workspace_id = $1
@@ -813,9 +814,9 @@ async fn list_apps(
                 inherited_labels: None,
                 is_draft: true,
                 draft_path,
-                // Synthesized rows are the authed user's own draft.
+                // Owned by nobody when legacy; see scripts.rs.
                 draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
-                    username: Some(authed.username.clone()),
+                    username: (!row.legacy).then(|| authed.username.clone()),
                 }])),
             });
         }
@@ -2755,6 +2756,7 @@ async fn create_app_internal<'a>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -3896,6 +3898,7 @@ async fn update_app_internal<'a>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -4490,6 +4493,10 @@ async fn execute_component(
     let app_trigger =
         (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
 
+    let scope_ceiling = match opt_authed.as_ref() {
+        Some(authed) => windmill_api_auth::caller_scope_ceiling(&db, authed).await?,
+        None => None,
+    };
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -4525,6 +4532,7 @@ async fn execute_component(
         end_user_email,
         app_trigger,
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
 

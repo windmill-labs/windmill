@@ -13,11 +13,27 @@ import {
 	parseRunFormRoute,
 	previewLocationContext,
 	previewLocationLabel,
+	previewModeFor,
 	resolvePreviewTab,
 	runFormUrl,
 	workspacePageHref
 } from './previewRouter'
 import { pageItemUrl } from './previewPaths'
+
+describe('previewModeFor', () => {
+	// Every opener that shows the reader an item that already exists routes through
+	// this, so the two halves are one decision rather than a repeated conditional.
+	it('sends a deployed item to its page and a draft-only one to its editor', () => {
+		expect(previewModeFor({ draftOnly: false })).toBe('view')
+		expect(previewModeFor({ draftOnly: true })).toBe('edit')
+	})
+
+	// A row from a lister that was not asked for draft-only items carries no flag,
+	// and everything it lists is deployed.
+	it('treats a missing flag as deployed', () => {
+		expect(previewModeFor({})).toBe('view')
+	})
+})
 
 describe('workspacePageHref', () => {
 	it('sends a page item tab to its list page with the row open, never to its scheme', () => {
@@ -214,22 +230,38 @@ describe('parsePreviewItemRoute', () => {
 		expect(parsePreviewItemRoute('/scripts/edit/f/foo/bar')).toEqual({
 			kind: 'script',
 			raw_app: false,
-			itemPath: 'f/foo/bar'
+			itemPath: 'f/foo/bar',
+			mode: 'edit'
 		})
 		expect(parsePreviewItemRoute('/flows/get/u/admin/baz')).toEqual({
 			kind: 'flow',
 			raw_app: false,
-			itemPath: 'u/admin/baz'
+			itemPath: 'u/admin/baz',
+			mode: 'view'
 		})
 		expect(parsePreviewItemRoute('/apps_raw/edit/f/a/b')).toEqual({
 			kind: 'app',
 			raw_app: true,
-			itemPath: 'f/a/b'
+			itemPath: 'f/a/b',
+			mode: 'edit'
 		})
 		expect(parsePreviewItemRoute('/apps/edit/f/a/b')).toEqual({
 			kind: 'app',
 			raw_app: false,
-			itemPath: 'f/a/b'
+			itemPath: 'f/a/b',
+			mode: 'edit'
+		})
+	})
+
+	// The two sides are one tab, keyed by the item path: a query — `?version=` pinning an
+	// old deployed version among them — must not read as part of the path, or the tab
+	// would count as a different item and stop deduping against itself.
+	it('reads the side from the segment and ignores the query', () => {
+		expect(parsePreviewItemRoute('/scripts/get/f/foo/bar?version=42')).toEqual({
+			kind: 'script',
+			raw_app: false,
+			itemPath: 'f/foo/bar',
+			mode: 'view'
 		})
 	})
 
@@ -303,6 +335,15 @@ describe('resolvePreviewTab', () => {
 		})
 	})
 
+	it('leaves an edit of a historical script version to the standalone editor', () => {
+		const historical = '/scripts/edit/f/foo/bar?hash=abc123&topHash=def456'
+		expect(resolvePreviewTab(historical)).toEqual({ kind: 'iframe' })
+		// Sharing the live editor's identity would let opening it re-point that editor's tab.
+		expect(describeLocation(historical).identity).not.toBe(
+			describeLocation('/scripts/edit/f/foo/bar').identity
+		)
+	})
+
 	it('routes any flow item to a live editor', () => {
 		expect(resolvePreviewTab('/flows/edit/f/foo/bar')).toEqual({
 			kind: 'editor',
@@ -319,8 +360,30 @@ describe('resolvePreviewTab', () => {
 		})
 	})
 
+	// `/get/` used to resolve to the editor, so a tab pointed at a deployed item mounted
+	// the thing that edits it. The side now comes from the segment, which is what lets one
+	// tab hold both.
+	it('routes the /get/ side of each wrappable kind to its viewer', () => {
+		expect(resolvePreviewTab('/scripts/get/f/foo/bar')).toEqual({
+			kind: 'viewer',
+			viewerKind: 'script',
+			path: 'f/foo/bar'
+		})
+		expect(resolvePreviewTab('/flows/get/f/foo/bar')).toEqual({
+			kind: 'viewer',
+			viewerKind: 'flow',
+			path: 'f/foo/bar'
+		})
+		expect(resolvePreviewTab('/apps_raw/get/f/a/b')).toEqual({
+			kind: 'viewer',
+			viewerKind: 'raw_app',
+			path: 'f/a/b'
+		})
+	})
+
 	it('never routes a regular drag-and-drop app to an editor (no wrapper exists)', () => {
 		expect(resolvePreviewTab('/apps/edit/f/a/b')).toEqual({ kind: 'iframe' })
+		expect(resolvePreviewTab('/apps/get/f/a/b')).toEqual({ kind: 'iframe' })
 	})
 
 	it('routes a pipeline folder to the pipeline editor kind', () => {

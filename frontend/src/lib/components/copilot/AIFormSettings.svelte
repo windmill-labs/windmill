@@ -1,8 +1,6 @@
 <script lang="ts">
-	import { slide } from 'svelte/transition'
 	import Label from '../Label.svelte'
-	import Toggle from '../Toggle.svelte'
-	import Tooltip from '../Tooltip.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 
 	interface Props {
@@ -10,40 +8,21 @@
 		type?: 'flow' | 'script'
 	}
 
-	let { prompt = $bindable(undefined), type = 'script' }: Props = $props()
+	let { prompt = $bindable(), type = 'script' }: Props = $props()
 </script>
 
 {#if !$copilotInfo.workspaceDisabled}
-	<div>
-		<Toggle
-			textClass="font-medium"
-			size="xs"
-			checked={prompt !== undefined}
-			on:change={() => {
-				if (prompt !== undefined) {
-					prompt = undefined
-				} else {
-					prompt = ''
-				}
+	<Label
+		label="Additional prompt for AI"
+		tooltip="An AI choosing this {type}'s inputs already reads its description and each field's description. Anything written here is given to it as extra guidance: mention specific fields and how they interact."
+	>
+		<TextInput
+			underlyingInputEl="textarea"
+			bind:value={() => prompt ?? '', (v) => (prompt = v === '' ? undefined : String(v))}
+			inputProps={{
+				placeholder: `Instructions for the AI about how to choose this ${type}'s inputs`,
+				rows: 3
 			}}
-			options={{ right: `Enable filling ${type} inputs with AI` }}
 		/>
-		{#if prompt !== undefined}
-			<div transition:slide={{ duration: 120 }} class="mt-6">
-				<Label label="Additional prompt for AI">
-					{#snippet header()}
-						<Tooltip>
-							AI will use script description and each field description to fill the inputs form. In
-							addition, any prompt passed here will be used by AI to guide it. You can mention
-							specific fields and interaction between fields here.
-						</Tooltip>
-					{/snippet}
-					<textarea
-						bind:value={prompt}
-						placeholder="Instructions for the AI about how to fill the form"
-					></textarea>
-				</Label>
-			</div>
-		{/if}
-	</div>
+	</Label>
 {/if}

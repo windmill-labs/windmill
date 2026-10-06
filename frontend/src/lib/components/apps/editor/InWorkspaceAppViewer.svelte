@@ -10,30 +10,71 @@
 	 * scoped embed token / opaque isolation.
 	 */
 	import { base } from '$lib/base'
+	import { sendUserToast } from '$lib/toast'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import type { Item } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import { AppService, OpenAPI } from '$lib/gen'
-	import { userStore } from '$lib/stores'
+	import type { UserExt } from '$lib/stores'
 	import { canWrite } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
-	import { Pen } from 'lucide-svelte'
+	import { ExternalLink, Pen } from 'lucide-svelte'
 	import { page } from '$app/state'
 	import { isMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
+	import {
+		setOperatingWorkspace,
+		useOperatingUser
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	let {
 		workspace,
-		path
+		path,
+		onEdit,
+		onLoadState,
+		syncHashToUrl = true,
+		ownsPageHeader = false
 	}: {
 		workspace: string
 		path: string
+		/** True for the route's own page: the app becomes what the page header names. A host that
+		 * renders this inside something else — a session's preview panel, whose band names the
+		 * session — leaves it false, and the app keeps its Edit over its own canvas. */
+		ownsPageHeader?: boolean
+		/** Handle Edit in place instead of following `editHref`. An AI session shows
+		 * this viewer inside a preview tab, where a plain link would navigate the whole
+		 * page out of the session rather than flipping the tab to its editor. */
+		onEdit?: () => void
+		/** How the load ended, for a host that renders its own state around this viewer.
+		 * A 403 is deliberately neither: the app exists, this member just cannot open it. */
+		onLoadState?: (state: 'loaded' | 'not_found') => void
+		/** Whether a raw app's route lives in the page URL's hash; see `RawAppPreview`. */
+		syncHashToUrl?: boolean
 	} = $props()
 
+	// The app, its permission check and everything this viewer renders belong to `workspace`,
+	// which on a session preview tab is the session's and not the one the nav points at.
+	setOperatingWorkspace(() => workspace)
+	const operatingUser = useOperatingUser()
+
+	/** This workspace's membership for the viewer, which is what the app's `ctx.username` /
+	 * `ctx.groups` must describe — they sit beside `ctx.workspace` in the same object. */
+	let appUser: UserExt | undefined = $state(undefined)
 	let app: any = $state(undefined)
 	let notExists = $state(false)
 	let noPermission = $state(false)
-	let canWriteApp = $state(false)
+	/** The app's own permissions, kept apart from the verdict: `loadPerms` resolves before the
+	 * acting user's `whoami` does in a workspace that is not the navigation one, and a verdict
+	 * computed there would stick at "cannot write" with nothing to recompute it. */
+	let appPerms = $state<{ path: string; extraPerms: Record<string, boolean> } | undefined>(
+		undefined
+	)
+	const canWriteApp = $derived(
+		!!appPerms && canWrite(appPerms.path, appPerms.extraPerms, operatingUser.current)
+	)
 	/** Raw vs low-code, read from the app itself rather than from the route:
 	 * both kinds render here and either route serves either kind (links to a raw
 	 * app point at /apps/get all over the app), so only the app can say which
@@ -82,11 +123,13 @@
 	// getAppByPath returns bundle_secret + runnables for raw apps, which
 	// PublicApp -> RawAppPreview needs.
 	async function loadApp() {
-		try {
-			userStore.set(await getUserExt(workspace))
-		} catch (e) {
-			console.warn('Anonymous user')
-		}
+		// Kept local and handed to PublicApp rather than written to `userStore`: this is the
+		// membership in `workspace`, and a session preview tab shows a workspace the rest of
+		// the page is not on — writing it globally would answer every permission check on
+		// that page (the sidebar, the session bar's fork button) for the wrong workspace.
+		// The routes that mount this are all under `(logged)`, whose layout has already
+		// populated `userStore` for the workspace the page *is* on.
+		appUser = await getUserExt(workspace)
 		try {
 			const loaded: any = await AppService.getAppByPath({ workspace, path })
 			// Raw apps need the bundle secret to load their bundle. getAppByPath
@@ -106,10 +149,16 @@
 			app = loaded
 			noPermission = false
 			notExists = false
+			onLoadState?.('loaded')
 		} catch (e: any) {
 			if (e.status == 401) refresh?.()
 			else if (e.status == 403) noPermission = true
-			else notExists = true
+			else {
+				notExists = true
+				// Only a 404 is "nothing deployed here"; anything else is a failure to say so.
+				if (e.status == 404) onLoadState?.('not_found')
+				else sendUserToast('Could not load app: ' + (e.body ?? e.message ?? e), true)
+			}
 		}
 	}
 
@@ -119,16 +168,60 @@
 	async function loadPerms() {
 		try {
 			const lite: any = await AppService.getAppLiteByPath({ workspace, path })
-			canWriteApp = canWrite(lite?.path, lite?.extra_perms ?? {}, $userStore)
+			appPerms = { path: lite?.path ?? path, extraPerms: lite?.extra_perms ?? {} }
 			isRawApp = !!lite?.raw_app
 		} catch (_) {
-			canWriteApp = false
+			appPerms = undefined
+		}
+	}
+
+	/** The app's public url, undefined until it is known and for anything that has none — an app
+	 *  that was never deployed has no row for `secret_of` to answer about. Only fetched where the
+	 *  button that opens it is shown. */
+	let publicUrl = $state<string | undefined>(undefined)
+	async function loadPublicUrl() {
+		try {
+			const secret = await AppService.getPublicSecretOfApp({ workspace, path })
+			// Built from this viewer's workspace rather than the navigation one, like everything
+			// else here: the two differ inside a session's preview panel.
+			publicUrl = secret
+				? `${window.location.origin}${base}/public/${workspace}/${secret}`
+				: undefined
+		} catch (_) {
+			publicUrl = undefined
 		}
 	}
 
 	$effect(() => {
 		if (workspace && path) loadPerms()
 	})
+	$effect(() => {
+		publicUrl = undefined
+		if (ownsPageHeader && !menuHidden && workspace && path) loadPublicUrl()
+	})
+
+	// Both of this page's buttons carry a label, and a phone's bar has room for neither beside the
+	// app's path — so below that width they become one menu. Unmeasured (0) counts as wide: the bar
+	// measures itself on mount, and starting compact would pop them out a frame later.
+	const compact = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
+	const compactItems: Item[] = $derived([
+		...(publicUrl
+			? [
+					{
+						displayName: 'Public url',
+						icon: ExternalLink,
+						href: publicUrl,
+						hrefTarget: '_blank' as const
+					}
+				]
+			: []),
+		{
+			displayName: 'Edit',
+			icon: Pen,
+			href: onEdit ? undefined : editHref,
+			action: onEdit ? () => onEdit() : undefined
+		}
+	])
 </script>
 
 <div class="h-full">
@@ -144,11 +237,13 @@
 			<PublicApp
 				{app}
 				{workspace}
+				user={appUser}
 				{notExists}
 				{noPermission}
 				jwtError={false}
 				inWorkspace
 				{hideRefreshBar}
+				{syncHashToUrl}
 				onLoginSuccess={() => loadApp()}
 			></PublicApp>
 		{/snippet}
@@ -157,28 +252,53 @@
 
 <!-- The band names the app for whoever opened it, write access or not: the route alone registers
      no item, and the breadcrumb would fall back to the section name "Apps". -->
-<PageHeaderContent
-	item={{ kind: 'app', path }}
-	afterName={showEdit && !menuHidden ? editAction : undefined}
-	fullBleed
-/>
+{#if ownsPageHeader}
+	<PageHeaderContent
+		item={{ kind: 'app', path }}
+		actions={showEdit && !menuHidden ? editAction : undefined}
+		separator="always"
+	/>
+{/if}
 
-<!-- With a band, Edit sits with the app's name rather than at the far end of the bar: on a page
-     whose header is only there while hovered, the far end is a journey across the window. An
-     embed has no band — it would cost the app 44px of the iframe to carry one button — so Edit
-     floats over the canvas there instead. -->
-{#if showEdit && menuHidden}
+<!-- Edit is the bar's action when this viewer owns the bar, and floats over the canvas otherwise:
+     an embed has no bar — it would cost the app 44px of the iframe to carry one button — and
+     inside a session's preview panel the bar belongs to the session, so an Edit up there would
+     sit beside the session's name and act on the panel below it. -->
+{#if showEdit && (menuHidden || !ownsPageHeader)}
 	<div class="absolute bottom-4 right-4 z-50">
 		{@render editAction()}
 	</div>
 {/if}
 
 {#snippet editAction()}
-	<Button
-		unifiedSize="sm"
-		startIcon={{ icon: Pen }}
-		variant="subtle"
-		href={editHref}
-		id="app-edit-btn">Edit</Button
-	>
+	{#if compact}
+		<!-- Too little bar to seat both: they fold into one menu rather than losing their labels,
+		     which are what say where each one goes. -->
+		<DropdownV2 items={compactItems} placement="bottom-end" size="sm" />
+	{:else}
+		{#if publicUrl}
+			<!-- The app on its own, at the url anyone it is shared with uses. A new tab rather than
+			     this one: the viewer here is the same app, so replacing it would look like nothing
+			     happened. -->
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				startIcon={{ icon: ExternalLink }}
+				href={publicUrl}
+				target="_blank"
+				title="Open the app's public url in a new tab">Public url</Button
+			>
+		{/if}
+		<!-- `onEdit` wins over the href: a host that embeds this viewer opens its own editor rather
+		     than navigating the frame to one. -->
+		<Button
+			unifiedSize="sm"
+			startIcon={{ icon: Pen }}
+			variant="default"
+			href={onEdit ? undefined : editHref}
+			on:click={() => onEdit?.()}
+			title="Edit this app"
+			id="app-edit-btn">Edit</Button
+		>
+	{/if}
 {/snippet}

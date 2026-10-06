@@ -571,7 +571,21 @@ export async function inferArgs(
 			schema.properties[arg.name].originalType = (arg as any).otyp
 		}
 
-		schema.properties[arg.name].default = arg.default
+		// Most languages cannot write a resource default in code, so one picked in the
+		// schema (`$res:` path) is kept while the code sets none and the arg is still that
+		// resource type; any code default wins.
+		const old = oldProperties[arg.name]
+		const format = schema.properties[arg.name].format
+		const keepResourceDefault =
+			arg.default == null &&
+			typeof old?.default == 'string' &&
+			old.default.startsWith('$res:') &&
+			schema.properties[arg.name].type == 'object' &&
+			format?.startsWith('resource-') &&
+			format == old.format
+		if (!keepResourceDefault) {
+			schema.properties[arg.name].default = arg.default
+		}
 
 		if (!arg.has_default && !schema.required.includes(arg.name)) {
 			schema.required.push(arg.name)

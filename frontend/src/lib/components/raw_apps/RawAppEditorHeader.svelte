@@ -68,7 +68,7 @@
 	// `if (!inSessionPane) UserDraft.remove(...)` guards below skip the editor's
 	// own removal (it would target the wrong, navigation-workspace key). The
 	// session-side equivalent is RawAppEditorView's `onDeploy` →
-	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
+	// `runtime.itemDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import { stripRawAppDiffNoise } from './utils'
@@ -186,6 +186,9 @@
 		pendingDraftPath?: string | undefined
 		// Threaded to the `AutosaveIndicator` popover so its "Reset to
 		// deployed" button can do the same thing the load-time toast offers.
+		/** `Exit & see details`: leaves the editor for the app's deployed page. A session hosts that
+		 *  page itself, so it flips the tab there rather than navigating out of the session. */
+		onDetails?: (e: { path: string }) => void
 		onResetToDeployed?: () => void | Promise<void>
 		// See ScriptBuilderProps — same semantics for the raw-app editor's
 		// indicator.
@@ -236,6 +239,7 @@
 		autosavePath = undefined,
 		onDeploy = undefined,
 		pendingDraftPath = $bindable(undefined),
+		onDetails,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -935,7 +939,9 @@
 
 {#if ownsPageHeader}
 	<!-- The editor's own top bar is the page header on this route: the app's path and summary are
-	     the breadcrumb's, and everything else the bar carried rides along as the header's actions. -->
+	     the breadcrumb's, and everything else the bar carried rides along as the header's actions.
+	     `separator="none"`: the splitpanes below draw their own top line, and the bar's edge would
+	     be a second one on top of it. -->
 	<PageHeaderContent
 		item={{
 			// The path being edited, not the stored one: a brand-new app is parked at a
@@ -948,6 +954,7 @@
 		}}
 		actions={rawAppHeaderActions}
 		contexts={headerContexts}
+		separator="none"
 	/>
 {:else}
 	<div
@@ -1139,6 +1146,16 @@
 		variant="accent"
 		dropdownItems={appPath != ''
 			? () => [
+					// `appPath`, not the live edited path: a rename that has not been deployed yet
+					// would land on a details page for something that does not exist.
+					...(newApp
+						? []
+						: [
+								{
+									label: 'Exit & see details',
+									onClick: () => onDetails?.({ path: appPath })
+								}
+							]),
 					{
 						label: 'Fork',
 						onClick: () => {

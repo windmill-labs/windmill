@@ -37,15 +37,16 @@
 	<title>Pipelines — Windmill</title>
 </svelte:head>
 
-<PageHeaderContent section={{ label: 'Pipelines' }} afterName={alphaBadge} />
+<!-- No title row of its own: the band already names this page, and the badge that sat beside the
+     title rides after that name. -->
+<PageHeaderContent section={{ label: 'Pipelines' }} afterName={alphaBadge} separator="always" />
 
 {#snippet alphaBadge()}
 	<Badge color="green">Alpha</Badge>
 {/snippet}
 
 <div class="flex flex-col h-full">
-
-	<div class="flex-1 min-h-0 overflow-y-auto bg-surface">
+	<div class="flex-1 min-h-0 overflow-y-auto bg-surface-secondary">
 		<div class="max-w-2xl mx-auto flex flex-col gap-6 px-4 py-8">
 			<div class="flex flex-col gap-2">
 				<h2 class="text-lg font-semibold text-emphasis">Data pipelines</h2>

@@ -10,7 +10,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	import { Building, ChevronDown, Folder, GitFork, User } from 'lucide-svelte'
 	import WorkspaceItemKindIcon from './WorkspaceItemKindIcon.svelte'
 	import { Menu, Menubar } from '$lib/components/meltComponents'
-	import NavBreadcrumbTrigger from './NavBreadcrumbTrigger.svelte'
+	import MeltButton from '$lib/components/meltComponents/MeltButton.svelte'
 	import BreadcrumbItemContent from './BreadcrumbItemContent.svelte'
 	import WorkspacePickerBody from '$lib/components/sidebar/WorkspacePickerBody.svelte'
 	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
@@ -34,7 +34,8 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		section,
 		afterName,
 		actingWorkspaceId,
-		narrow = false
+		narrow = false,
+		nameOnly = false
 	}: {
 		item?: PageHeaderItem
 		section?: PageHeaderSection
@@ -45,12 +46,13 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		actingWorkspaceId?: string
 		/** The bar is short of room: the workspace part drops its names and keeps its marks. */
 		narrow?: boolean
+		/** Only the page's own name, with no workspace part and no picker — the band inside a
+		 *  session's preview frame, where the workspace is the host's and leading the reader out of
+		 *  it is exactly what that band must not offer. The page still has to say what it is. */
+		nameOnly?: boolean
 	} = $props()
 
 	const scopeId = $derived(actingWorkspaceId ?? $workspaceStore ?? undefined)
-	// In session mode the workspace is the session's scope, not a place to navigate to: the name
-	// says which workspace the chat acts on, and going home from it would leave the session.
-	const sessionMode = $derived(page.url.pathname.startsWith(`${base}/sessions`))
 	const homeHref = $derived(
 		actingWorkspaceId ? `${base}/?workspace=${encodeURIComponent(actingWorkspaceId)}` : `${base}/`
 	)
@@ -98,9 +100,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	const forkableWorkspaces = $derived(forkable.current)
 	const currentWs = $derived(forkableWorkspaces.find((w) => w.id === scopeId))
 	const inFork = $derived(!!currentWs?.parent_workspace_id)
-	// A session names the workspace it acts on beside its own title, so here the family name alone
-	// says where the user is browsing — the fork in this spot would read as a workspace switch.
-	const showFork = $derived(inFork && !actingWorkspaceId)
+	const showFork = $derived(inFork)
 	const familyName = $derived(family?.name ?? scopeId ?? '')
 	// The workspace the user actually stands in, which is the fork's own name inside a fork.
 	const scopeName = $derived(currentWs?.name ?? familyName)
@@ -111,7 +111,6 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	// A dev workspace wears its environment; the root wears "prod", so which environment the user
 	// is standing in is answered the same way whichever one it is.
 	const envBadge = $derived.by(() => {
-		if (actingWorkspaceId) return undefined
 		if (!inFork) return { text: 'prod', dev: false }
 		if (currentWs?.is_dev_workspace)
 			return { text: devBadgeText(currentWs.dev_workspace_label), dev: true }
@@ -177,87 +176,90 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	{/if}
 {/snippet}
 
-{#snippet slash()}
-	<span class="shrink-0 text-hint/40 text-xs" aria-hidden="true">/</span>
+{#snippet slash(extra = '')}
+	<!-- `extra` tops the workspace part's own 4px gap up to the 6px the breadcrumb puts around its
+	     other separators, so the slash before a fork is spaced like every other slash on the line. -->
+	<span class={twMerge('shrink-0 text-hint/40 text-xs', extra)} aria-hidden="true">/</span>
 {/snippet}
 
 <nav
 	aria-label="Breadcrumb"
 	class="flex items-center gap-1.5 min-w-0 text-xs font-normal text-primary"
 >
-	<!-- One part for where the user is: the name of the workspace they are standing in — a fork
+	{#if !nameOnly}
+		<!-- One part for where the user is: the name of the workspace they are standing in — a fork
 	     included, in its own colour — leading home, and one chevron whose picker changes it. The
 	     picker lists the families and expands one to reach its forks, so a fork needs no part of
 	     its own here. -->
-	<div class={narrow ? 'flex items-center shrink-0' : 'flex items-center min-w-0'}>
-		<!-- No hover fill on the name: the chevron beside it is the thing that lights up, and two
+		<div class={narrow ? 'flex items-center shrink-0' : 'flex items-center min-w-0'}>
+			<!-- No hover fill on the name: the chevron beside it is the thing that lights up, and two
 		     boxes reacting to one pass of the pointer read as two controls fighting. -->
-		<!-- bind:clientWidth: the menu hangs from the chevron, so it is shifted back by the width of
+			<!-- bind:clientWidth: the menu hangs from the chevron, so it is shifted back by the width of
 		     the name to line its left edge up with the disc. -->
-		<div class="flex items-center min-w-0" bind:clientWidth={nameWidth}>
-			<svelte:element
-				this={sessionMode ? 'span' : 'a'}
-				href={sessionMode ? undefined : homeHref}
-				class={scopeChipClass}
-				title={showFork ? `${familyName} / ${scopeName}` : familyName}
-			>
-				{#if narrow}
-					<!-- Short of room, the part keeps what it cannot be read without: the disc in the
+			<div class="flex items-center min-w-0" bind:clientWidth={nameWidth}>
+				<a
+					href={homeHref}
+					class={scopeChipClass}
+					title={showFork ? `${familyName} / ${scopeName}` : familyName}
+				>
+					{#if narrow}
+						<!-- Short of room, the part keeps what it cannot be read without: the disc in the
 					     workspace's own colour, the fork mark, and the environment. The names go — the
 					     hover title still carries them, and the picker beside it names them all. -->
-					{@render workspaceDisc()}
-					{#if showFork}
-						<span class={forkChipClass} style={forkAccent}>
-							<GitFork size={ICON} class="flex-shrink-0" />
+						{@render workspaceDisc()}
+						{#if showFork}
+							<span class={forkChipClass} style={forkAccent}>
+								<GitFork size={ICON} class="flex-shrink-0" />
+								{@render envBadgeMark()}
+							</span>
+						{:else}
 							{@render envBadgeMark()}
-						</span>
+						{/if}
 					{:else}
-						{@render envBadgeMark()}
-					{/if}
-				{:else}
-					<BreadcrumbItemContent label={familyName} icon={workspaceDisc} />
-					{#if showFork}
-						<!-- Both names: the fork is where the work happens, the family is which product it
+						<BreadcrumbItemContent label={familyName} icon={workspaceDisc} />
+						{#if showFork}
+							<!-- Both names: the fork is where the work happens, the family is which product it
 					     is part of, and either alone leaves the other to be guessed. -->
-						{@render slash()}
-						<span class={forkChipClass} style={forkAccent}>
-							<GitFork size={ICON} class="flex-shrink-0" />
-							<span class="truncate">{scopeName}</span>
+							{@render slash('mx-0.5')}
+							<span class={forkChipClass} style={forkAccent}>
+								<GitFork size={ICON} class="flex-shrink-0" />
+								<span class="truncate">{scopeName}</span>
+								{@render envBadgeMark()}
+							</span>
+						{:else}
 							{@render envBadgeMark()}
-						</span>
-					{:else}
-						{@render envBadgeMark()}
+						{/if}
 					{/if}
-				{/if}
-			</svelte:element>
+				</a>
+			</div>
+			<Menubar>
+				{#snippet children({ createMenu })}
+					<Menu
+						bind:this={workspaceMenu}
+						{createMenu}
+						usePointerDownOutside
+						placement="bottom-start"
+						contentStyle="margin-left: {-nameWidth}px"
+					>
+						{#snippet triggr({ trigger })}
+							<MeltButton
+								meltElement={trigger}
+								class="flex items-center p-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
+								title="Switch workspace"
+							>
+								<ChevronDown size={ICON} class="flex-shrink-0" />
+							</MeltButton>
+						{/snippet}
+						{#snippet children({ item: menuItem })}
+							<WorkspacePickerBody item={menuItem} closeMenu={() => workspaceMenu?.close()} />
+						{/snippet}
+					</Menu>
+				{/snippet}
+			</Menubar>
 		</div>
-		<Menubar>
-			{#snippet children({ createMenu })}
-				<Menu
-					bind:this={workspaceMenu}
-					{createMenu}
-					usePointerDownOutside
-					placement="bottom-start"
-					contentStyle="margin-left: {-nameWidth}px"
-				>
-					{#snippet triggr({ trigger })}
-						<NavBreadcrumbTrigger
-							{trigger}
-							class="flex items-center p-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
-							title="Switch workspace"
-						>
-							<ChevronDown size={ICON} class="flex-shrink-0" />
-						</NavBreadcrumbTrigger>
-					{/snippet}
-					{#snippet children({ item: menuItem })}
-						<WorkspacePickerBody item={menuItem} closeMenu={() => workspaceMenu?.close()} />
-					{/snippet}
-				</Menu>
-			{/snippet}
-		</Menubar>
-	</div>
+	{/if}
 
-	{#if item || section || routePage}
+	{#if !nameOnly && (item || section || routePage)}
 		{@render slash()}
 	{/if}
 

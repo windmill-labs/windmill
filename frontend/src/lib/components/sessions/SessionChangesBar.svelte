@@ -194,7 +194,9 @@
 	// Routed on the storage `path` — the edit route's key, which for a draft-only
 	// item is its `draft_<uuid>` path, not the friendly `displayPath`.
 	function previewTargetFor(item: DeployItem): PreviewTarget | undefined {
-		return previewTargetForDeployKind(item.deployKind, item.path)
+		// `done` means this session already deployed it, so there is a deployed
+		// version to show even though the row was built from a draft-only item.
+		return previewTargetForDeployKind(item.deployKind, item.path, item.draftOnly && !item.done)
 	}
 
 	// The row's primary action is the preview; kinds the panel can't host fall back

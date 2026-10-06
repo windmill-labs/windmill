@@ -355,6 +355,8 @@ pub async fn get_raw_postgres_connection(
         config.options(options);
     }
 
+    windmill_common::set_pg_keepalive(&mut config);
+
     let connector = build_tls_connector(ssl_mode, database.root_certificate_pem.as_ref())?;
     let client = if let Some(connector) = connector {
         let (client, connection) = config.connect(connector).await.map_err(to_anyhow)?;

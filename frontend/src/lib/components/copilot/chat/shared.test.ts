@@ -1875,12 +1875,23 @@ describe('openItemPreviewAction', () => {
 	// to previewTargetForSessionTarget.
 	it('carries the kind and path through to the dispatch action', () => {
 		expect(openItemPreviewAction('flow', 'f/team/etl')).toEqual({
-			id: 'open-item-preview:flow:f/team/etl',
+			id: 'open-item-preview:flow:edit:f/team/etl',
 			type: 'open_item_preview',
 			label: 'Open flow preview',
 			previewKind: 'flow',
-			path: 'f/team/etl'
+			path: 'f/team/etl',
+			mode: 'edit'
 		})
+	})
+
+	// The side is part of the id: a transcript can offer the same path both ways —
+	// a write card opening its draft's editor, a prose mention opening the deployed
+	// page — and one id would collapse them into a single action.
+	it('distinguishes the two sides of the same item', () => {
+		const edit = openItemPreviewAction('flow', 'f/team/etl')
+		const view = openItemPreviewAction('flow', 'f/team/etl', 'view')
+		expect(view.mode).toBe('view')
+		expect(view.id).not.toBe(edit.id)
 	})
 
 	// raw_app is the internal kind; the user-facing label says "app".

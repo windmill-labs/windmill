@@ -854,6 +854,7 @@ fn run_main_script_job(hash: i64) -> RunJob {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         labels: None,
+        job_token_scopes: None,
     })
 }
 

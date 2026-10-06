@@ -33,6 +33,7 @@
 		darkMode,
 		fullscreen = false,
 		onNavigate,
+		onSeeDetails,
 		onLoad
 	}: {
 		tab: SessionPreviewTab
@@ -57,6 +58,9 @@
 		darkMode: boolean
 		/** A link click inside a live editor re-points the active preview tab. */
 		onNavigate: (item: WorkspaceItem) => void
+		/** An editor's `Exit & see details` — re-points this tab at the item's deployed
+		 * view instead of navigating out of the session. */
+		onSeeDetails: (item: WorkspaceItem) => void
 		/** Iframe finished loading — the page reads back its observed location. */
 		onLoad: (frame: HTMLIFrameElement) => void
 	} = $props()
@@ -65,6 +69,32 @@
 	// any editable item (script/flow/raw app) or a pipeline folder mounts its own
 	// live editor.
 	const slot = $derived(resolvePreviewTab(tab.url))
+	// The item this tab is on and the side of it its URL addresses, whichever side that is.
+	const itemKind = $derived(
+		slot.kind === 'editor' ? slot.editorKind : slot.kind === 'viewer' ? slot.viewerKind : undefined
+	)
+	const itemPath = $derived(
+		slot.kind === 'editor' || slot.kind === 'viewer' ? slot.path : undefined
+	)
+	const mode = $derived(slot.kind === 'viewer' ? 'view' : 'edit')
+	// A pinned deployed version, read from the tab URL rather than passed down: the tab
+	// URL is the single record of where this tab points.
+	const pinnedVersion = $derived(
+		slot.kind === 'viewer'
+			? (new URL(tab.url, 'http://x').searchParams.get('version') ?? undefined)
+			: undefined
+	)
+
+	// The path an editor reports is its deployed one, which a staged rename can make
+	// differ from this tab's — so the view opens on what actually exists.
+	const seeDetails = (e: { path: string }) =>
+		onSeeDetails({
+			path: e.path,
+			summary: '',
+			kind: itemKind === 'raw_app' ? 'app' : (itemKind as 'script' | 'flow'),
+			raw_app: itemKind === 'raw_app'
+		})
+
 	// Where inside the editor the tab was opened on ("open this flow step in a
 	// session"). Only the in-process editors need it handed over — an iframe tab
 	// loads the URL whole, params included.
@@ -82,6 +112,7 @@
 	)
 
 	let frame: HTMLIFrameElement | undefined = $state()
+	let viewer: { refresh: () => void } | undefined = $state()
 
 	// Pages whose theme we mirror on live toggles. Regular apps are the only item
 	// route that resolves to an iframe (scripts/flows/raw apps mount live editors)
@@ -110,9 +141,15 @@
 	export function reload() {
 		// A live editor shares the runtime store the chat mutates, so generic chat
 		// edits are already reflected — no reload needed. Deploys refresh it via
-		// each editor view's onDeploy → runtime.syncPreviewWithDeployed. So only the
+		// each editor view's onDeploy → runtime.itemDeployed. So only the
 		// iframe fallback (a separate page) has to be told to refresh.
 		if (slot.kind === 'editor') return
+		// The viewer is the exception to that invariant: it reads the deployed item over
+		// the API, so nothing about a store mutation reaches it and it has to refetch.
+		if (slot.kind === 'viewer') {
+			viewer?.refresh()
+			return
+		}
 		if (slot.kind === 'pageitem') {
 			pageItemReloadNonce++
 			return
@@ -264,66 +301,94 @@
 	</div>
 {/snippet}
 
-{#if slot.kind === 'editor' && mounted && runtime}
+{#if itemKind && itemPath && mounted && runtime}
 	<div
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
 	>
-		<!-- Dynamic imports: the live editors pull in the heaviest module graphs in
-		     the app (FlowBuilder, ScriptBuilder/Monaco, the raw-app editor, the
-		     pipeline graph). Loading them only when an editor tab first mounts keeps
-		     the /sessions route chunk thin, so entering session mode stays snappy. -->
-		{#if slot.editorKind === 'flow'}
-			{#await import('./FlowEditorView.svelte')}
-				{@render editorLoading()}
-			{:then Module}
-				<Module.default
-					{runtime}
-					path={slot.path}
-					{workspaceId}
-					{onNavigate}
-					{isActiveSession}
-					{active}
-					initialSelectedId={selectedId}
-				/>
-			{/await}
-		{:else if slot.editorKind === 'script'}
-			{#await import('./ScriptEditorView.svelte')}
-				{@render editorLoading()}
-			{:then Module}
-				<Module.default
-					{runtime}
-					path={slot.path}
-					{workspaceId}
-					{onNavigate}
-					{isActiveSession}
-					{active}
-					{fullscreen}
-				/>
-			{/await}
-		{:else if slot.editorKind === 'pipeline'}
-			{#await import('./PipelineEditorView.svelte')}
-				{@render editorLoading()}
-			{:then Module}
-				<!-- Keyed: the view binds one folder's state for its lifetime. -->
-				{#key slot.path}
-					<Module.default {runtime} path={slot.path} {workspaceId} {isActiveSession} {active} />
-				{/key}
-			{/await}
-		{:else}
-			{#await import('./RawAppEditorView.svelte')}
-				{@render editorLoading()}
-			{:then Module}
-				<Module.default
-					{runtime}
-					path={slot.path}
-					{workspaceId}
-					{onNavigate}
-					{isActiveSession}
-					{active}
-				/>
-			{/await}
+		<!-- Only the side the tab shows is mounted. A hidden editor would be a second editor on
+		     the item's one cell that tab dedupe, reading URLs, cannot see; a hidden side's drawers
+		     portal into this shared host and would stay over the other. -->
+		{#if mode === 'edit'}
+			<div class="absolute inset-0 flex flex-col min-h-0 bg-surface">
+				<!-- Dynamic imports: the live editors pull in the heaviest module graphs in
+				     the app (FlowBuilder, ScriptBuilder/Monaco, the raw-app editor, the
+				     pipeline graph). Loading them only when an editor tab first mounts keeps
+				     the /sessions route chunk thin, so entering session mode stays snappy. -->
+				{#if itemKind === 'flow'}
+					{#await import('./FlowEditorView.svelte')}
+						{@render editorLoading()}
+					{:then Module}
+						<Module.default
+							{runtime}
+							path={itemPath}
+							{workspaceId}
+							{onNavigate}
+							onSeeDetails={seeDetails}
+							{isActiveSession}
+							{active}
+							initialSelectedId={selectedId}
+						/>
+					{/await}
+				{:else if itemKind === 'script'}
+					{#await import('./ScriptEditorView.svelte')}
+						{@render editorLoading()}
+					{:then Module}
+						<Module.default
+							{runtime}
+							path={itemPath}
+							{workspaceId}
+							{onNavigate}
+							onSeeDetails={seeDetails}
+							{isActiveSession}
+							{active}
+							{fullscreen}
+						/>
+					{/await}
+				{:else if itemKind === 'pipeline'}
+					{#await import('./PipelineEditorView.svelte')}
+						{@render editorLoading()}
+					{:then Module}
+						<!-- Keyed: the view binds one folder's state for its lifetime. -->
+						{#key itemPath}
+							<Module.default {runtime} path={itemPath} {workspaceId} {isActiveSession} {active} />
+						{/key}
+					{/await}
+				{:else}
+					{#await import('./RawAppEditorView.svelte')}
+						{@render editorLoading()}
+					{:then Module}
+						<Module.default
+							{runtime}
+							path={itemPath}
+							{workspaceId}
+							{onNavigate}
+							onSeeDetails={seeDetails}
+							{isActiveSession}
+							{active}
+						/>
+					{/await}
+				{/if}
+			</div>
+		{:else if itemKind !== 'pipeline'}
+			<div class="absolute inset-0 flex flex-col min-h-0 bg-surface">
+				{#await import('./ItemViewerView.svelte')}
+					{@render editorLoading()}
+				{:then Module}
+					<Module.default
+						bind:this={viewer}
+						{runtime}
+						kind={itemKind}
+						path={itemPath}
+						version={pinnedVersion}
+						{workspaceId}
+						tabId={tab.id}
+						container={overlayHostEl}
+						active={active && !collapsed}
+					/>
+				{/await}
+			</div>
 		{/if}
 	</div>
 {:else if slot.kind === 'pageitem' && mounted && runtime}

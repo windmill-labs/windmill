@@ -3,7 +3,8 @@
 		type Timeframe,
 		buildManualTimeframe,
 		serviceLogsTimeframes,
-		runsTimeframes
+		runsTimeframes,
+		auditTimeframes
 	} from './timeframes'
 	import { type Timeframe, buildManualTimeframe } from './timeframes'
 
