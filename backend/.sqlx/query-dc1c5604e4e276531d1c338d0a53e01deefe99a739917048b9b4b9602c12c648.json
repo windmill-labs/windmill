@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE job_perms jp SET sweep_after = NULL FROM v2_job_queue q\n         WHERE q.id = jp.job_id AND jp.sweep_after IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "dc1c5604e4e276531d1c338d0a53e01deefe99a739917048b9b4b9602c12c648"
+}

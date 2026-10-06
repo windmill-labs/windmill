@@ -7549,6 +7549,15 @@ async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
     // can delete the completed job first; a push reusing the id of a deleted job clears it.
     let restricted_row_retention_secs =
         windmill_common::auth::max_job_token_expiry_secs().saturating_add(600) as f64;
+    // A stamp on a queued job is one the statement below raced a re-push of a deleted job's
+    // id into setting: its clock would start before that job has run. Cleared while the job
+    // is still queued, it is at most a cycle early, which the margin above absorbs.
+    sqlx::query!(
+        "UPDATE job_perms jp SET sweep_after = NULL FROM v2_job_queue q
+         WHERE q.id = jp.job_id AND jp.sweep_after IS NOT NULL"
+    )
+    .execute(db)
+    .await?;
     sqlx::query!(
         "UPDATE job_perms jp SET sweep_after = now() + make_interval(secs => $1)
          WHERE jp.job_token_scopes IS NOT NULL AND jp.sweep_after IS NULL
