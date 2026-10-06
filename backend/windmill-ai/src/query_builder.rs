@@ -1,5 +1,7 @@
+use std::borrow::Cow;
+
 use async_trait::async_trait;
-use windmill_common::{client::AuthedClient, error::Error};
+use windmill_common::{client::AuthedClient, error::Error, utils::strip_json_nul};
 use windmill_types::s3::S3Object;
 
 use crate::ai_types::OpenAIToolCall;
@@ -90,6 +92,33 @@ pub enum ParsedResponse {
     Image {
         base64_data: String,
     },
+}
+
+impl ParsedResponse {
+    /// Drops every U+0000 the model emitted. Postgres stores neither a NUL in `text` nor its
+    /// `\u0000` escape in `jsonb`, and this output is written to both: tool job args, the flow
+    /// status, agent memory, conversation rows.
+    pub fn without_nul(mut self) -> Self {
+        fn strip(s: &mut String) {
+            if s.contains('\0') {
+                s.retain(|c| c != '\0');
+            }
+        }
+        if let ParsedResponse::Text { content, reasoning, tool_calls, .. } = &mut self {
+            for text in [content, reasoning].into_iter().flatten() {
+                strip(text);
+            }
+            for tool_call in tool_calls {
+                strip(&mut tool_call.function.name);
+                // Arguments are serialized JSON, where a NUL is spelled as its escape.
+                strip(&mut tool_call.function.arguments);
+                if let Cow::Owned(stripped) = strip_json_nul(&tool_call.function.arguments) {
+                    tool_call.function.arguments = stripped;
+                }
+            }
+        }
+        self
+    }
 }
 
 /// Trait for streaming AI events to a sink (e.g., database persistence).
