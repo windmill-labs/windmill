@@ -524,7 +524,13 @@
 		if (mode === 'ai' && prefersSessionHandoff($userStore?.operator) && $workspaceStore) {
 			// Nothing is written here: the session opens this path on the template in memory
 			// (`new_draft`) and saves it only once it changes.
-			void openEditorInSession({ kind: 'raw_app', path }, $workspaceStore, { new_draft: 'true' })
+			const { datatable, roles } = result.data
+			const role = datatable ? roles?.[datatable] : undefined
+			void openEditorInSession({ kind: 'raw_app', path }, $workspaceStore, {
+				new_draft: 'true',
+				...(datatable ? { datatable } : {}),
+				...(role ? { datatable_role: role } : {})
+			})
 			return
 		}
 		files = { ...result.files }
