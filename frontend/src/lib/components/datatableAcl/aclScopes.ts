@@ -195,17 +195,37 @@ export function revocablePrivileges(grant: GroupedGrant, target: AclTarget): str
 	return grant.privileges
 }
 
-/** How a row reads back: what it covers, in one phrase. */
-export function grantScopeLabel(grant: GroupedGrant): string {
-	if (grant.future) return `${grant.future.toLowerCase()} created later`
-	if (grant.objects.length === 1) {
-		const object = grant.objects[0]
-		// A routine's arguments are part of what it is, so two of the same name would otherwise
-		// read as one row twice.
-		const args = object.args !== undefined ? `(${object.args})` : ''
-		return `${object.kind.toLowerCase()} ${object.name}${args}`
+/** How many objects a folded row names before it summarizes the rest. */
+const LISTED_OBJECTS = 3
+
+/** A row as the statement that would make it, split so the role and privileges can stand out.
+ * For reading only: a row folds several objects into one line, and a row granted by several roles
+ * took one statement from each. */
+export function grantStatement(
+	grant: GroupedGrant,
+	target: AclTarget,
+	dbname?: string
+): { lead: string; privileges: string[]; on: string; grantee: string } {
+	const privileges = grant.privileges
+	if (grant.future) {
+		return {
+			lead:
+				target.kind === 'database'
+					? 'ALTER DEFAULT PRIVILEGES GRANT'
+					: `ALTER DEFAULT PRIVILEGES IN SCHEMA ${target.schema} GRANT`,
+			privileges,
+			on: grant.future,
+			grantee: grant.grantee
+		}
 	}
-	if (grant.objects.length > 1)
-		return `${grant.objects.length} ${grant.objects[0].kind.toLowerCase()}s`
-	return 'itself'
+	let on: string
+	if (grant.objects.length > 0) {
+		const names = grant.objects.map((o) => (o.args !== undefined ? `${o.name}(${o.args})` : o.name))
+		const listed = names.slice(0, LISTED_OBJECTS).join(', ')
+		const rest = names.length - LISTED_OBJECTS
+		on = `${grant.objects[0].kind} ${listed}${rest > 0 ? ` … (${rest} more)` : ''}`
+	} else {
+		on = scopeSql('target', target, dbname)
+	}
+	return { lead: 'GRANT', privileges, on, grantee: grant.grantee }
 }

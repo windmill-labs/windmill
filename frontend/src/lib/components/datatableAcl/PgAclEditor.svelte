@@ -1,36 +1,43 @@
 <script lang="ts">
 	import { WorkspaceService, type AclChange, type AclTarget, type DatatableAclInfo } from '$lib/gen'
 	import { resource } from 'runed'
-	import { Trash2 } from 'lucide-svelte'
+	import type { Snippet } from 'svelte'
+	import { Tooltip } from '../meltComponents'
+	import { KeyRound, Trash2 } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { Alert, Button } from '../common'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import Select from '../select/Select.svelte'
-	import DataTable from '../table/DataTable.svelte'
-	import Head from '../table/Head.svelte'
-	import Row from '../table/Row.svelte'
-	import Cell from '../table/Cell.svelte'
 	import PgGrantBuilder from './PgGrantBuilder.svelte'
+	import ListFilters from '../home/ListFilters.svelte'
 	import {
 		ADMIN_ROLE,
 		blockingSources,
 		grantKey,
-		grantScopeLabel,
+		grantStatement,
 		groupGrants,
 		revocablePrivileges,
 		revokeScopeOf,
-		uncoveredCreators
+		uncoveredCreators,
+		type AclScope,
+		type GroupedGrant
 	} from './aclScopes'
 
 	let {
 		workspace,
 		datatable,
-		target
+		target,
+		disabledReason,
+		manageRoles
 	}: {
 		workspace: string
 		datatable: string
 		/** What owner and grants are read and written for. */
 		target: AclTarget
+		/** Shows owner and grants without letting them change, with this reason on hover. */
+		disabledReason?: string
+		/** Offered at the bottom of every role picker. `blocker` keeps the entry, disabled, with why. */
+		manageRoles?: { open: () => void; blocker?: string }
 	} = $props()
 
 	const acl = resource(
@@ -45,6 +52,11 @@
 			})
 	)
 
+	/** Re-read owner, grants and the roles they can name, e.g. after the data table's roles changed. */
+	export function refresh() {
+		acl.refetch()
+	}
+
 	// Nothing is written before its SQL has been shown, and the apply runs exactly that SQL: the
 	// server plans again and refuses if the result differs.
 	let pending = $state<
@@ -54,7 +66,19 @@
 	let applying = $state(false)
 
 	const info: DatatableAclInfo | undefined = $derived(acl.current)
+	const controlsDisabled = $derived(planning || applying || !!disabledReason)
 	const grantRows = $derived(groupGrants(info?.grants ?? []))
+	let roleFilter = $state<string | undefined>(undefined)
+	let privilegeFilter = $state<string | undefined>(undefined)
+	const grantRoles = $derived([...new Set(grantRows.map((g) => g.grantee))].sort())
+	const grantPrivileges = $derived([...new Set(grantRows.flatMap((g) => g.privileges))].sort())
+	const shownGrantRows = $derived(
+		grantRows.filter(
+			(g) =>
+				(!roleFilter || g.grantee === roleFilter) &&
+				(!privilegeFilter || g.privileges.includes(privilegeFilter))
+		)
+	)
 	const ownerItems = $derived(
 		info
 			? (info.roles.includes(info.owner) ? info.roles : [info.owner, ...info.roles]).map((r) => ({
@@ -67,6 +91,28 @@
 	const pendingCoversObjects = $derived(
 		pending?.change.type === 'revoke' && (pending.change.objects?.length ?? 0) > 1
 	)
+
+	/** Why a row's delete button is disabled, or undefined when it can revoke. */
+	function unrevocableReason(
+		grant: GroupedGrant,
+		revokeScope: AclScope | undefined,
+		revocable: string[],
+		blocked: string[]
+	): string | undefined {
+		// What `admin` holds is what every role here connects through.
+		if (grant.grantee === ADMIN_ROLE)
+			return 'admin is the connection every role reaches this data table through, so its grants are not changed here'
+		if (!info?.roles.includes(grant.grantee))
+			return `Only grants to this data table's roles are revoked here, and ${grant.grantee} is not one`
+		if (!revokeScope) return 'Grants on types are read only here'
+		if (revocable.length === 0)
+			return grant.future
+				? 'Default privileges set database-wide are not revoked from here'
+				: "CONNECT follows the data table's roles and TEMPORARY is left as Postgres sets it, so nothing here can be revoked"
+		if (blocked.length > 0)
+			return `Only ${blocked.join(', ')} can revoke this: Postgres takes a grant back through the role that made it`
+		return undefined
+	}
 
 	function errorText(e: any): string {
 		return e?.body ?? e?.message ?? String(e)
@@ -108,6 +154,56 @@
 	}
 </script>
 
+<!-- A disabled control receives no hover, so the tooltip's trigger is a wrapper the hover falls
+     through to. -->
+{#snippet withDisabledReason(content: Snippet, widthClass: string)}
+	{#if disabledReason}
+		<Tooltip class="block {widthClass}" anchor="cursor">
+			<div class="pointer-events-none">{@render content()}</div>
+			{#snippet text()}{disabledReason}{/snippet}
+		</Tooltip>
+	{:else}
+		{@render content()}
+	{/if}
+{/snippet}
+
+<!-- Styled like the picker's tags in the row that creates a grant. -->
+{#snippet tag(text: string, strong = false)}
+	<span
+		class="inline-flex items-center min-h-6 px-2 border bg-surface rounded-full text-emphasis {strong
+			? 'font-semibold'
+			: ''}"
+	>
+		{text}
+	</span>
+{/snippet}
+
+{#snippet manageRolesEntry({ close }: { close: () => void })}
+	<div class="flex items-center gap-1 border-t p-1">
+		<Button
+			unifiedSize="sm"
+			variant="subtle"
+			startIcon={{ icon: KeyRound }}
+			disabled={!!manageRoles?.blocker}
+			btnClasses="w-full justify-start"
+			wrapperClasses="grow"
+			onClick={() => {
+				close()
+				manageRoles?.open()
+			}}
+		>
+			Manage roles
+		</Button>
+		{#if manageRoles?.blocker}
+			<span class="pr-2 flex">
+				<Tooltip>
+					{#snippet text()}{manageRoles?.blocker}{/snippet}
+				</Tooltip>
+			</span>
+		{/if}
+	</div>
+{/snippet}
+
 {#if acl.error}
 	<Alert type="error" title="Could not read access" size="xs">{errorText(acl.error)}</Alert>
 {:else if !info}
@@ -137,22 +233,26 @@
 					</span>
 				</div>
 				{#if info.editable}
-					<Select
-						items={ownerItems}
-						disabled={planning || applying}
-						size="sm"
-						class="w-64"
-						bind:value={
-							() => info.owner,
-							(role) => {
-								// The select shows what the database says; a pick is a request, and only the
-								// applied change moves it.
-								if (role && role !== info.owner) {
-									confirm({ type: 'set_owner', role }, `Ownership transferred to ${role}`)
+					{#snippet ownerSelect()}
+						<Select
+							items={ownerItems}
+							disabled={controlsDisabled}
+							size="sm"
+							class="w-64"
+							bind:value={
+								() => info.owner,
+								(role) => {
+									// The select shows what the database says; a pick is a request, and only the
+									// applied change moves it.
+									if (role && role !== info.owner) {
+										confirm({ type: 'set_owner', role }, `Ownership transferred to ${role}`)
+									}
 								}
 							}
-						}
-					/>
+							bottomSnippet={manageRoles ? manageRolesEntry : undefined}
+						/>
+					{/snippet}
+					{@render withDisabledReason(ownerSelect, 'w-64')}
 				{:else}
 					<span class="font-mono text-xs">{info.owner}</span>
 				{/if}
@@ -168,93 +268,117 @@
 						: 'What each role may do here, beyond what it owns.'}
 				</span>
 			</div>
-			{#if info.editable}
-				<PgGrantBuilder
-					{target}
-					roles={info.roles}
-					disabled={planning || applying}
-					supportsMaintain={info.supports_maintain}
-					dbname={info.dbname}
-					onAdd={({ role, privileges, scope }) =>
-						confirm(
-							{ type: 'grant', role, privileges, scope },
-							`Granted ${privileges.join(', ')} to ${role}`
-						)}
-				/>
+			{#if grantRows.length > 1}
+				<div class="flex flex-wrap items-center gap-2">
+					<ListFilters
+						inline
+						bind:selectedFilter={roleFilter}
+						filters={grantRoles}
+						queryName="grant_role"
+						icon={KeyRound}
+					/>
+					<ListFilters
+						inline
+						bind:selectedFilter={privilegeFilter}
+						filters={grantPrivileges}
+						queryName="grant_privilege"
+						color="blue"
+					/>
+				</div>
 			{/if}
-			{#if grantRows.length === 0}
-				<span class="text-xs text-secondary">No grants yet.</span>
-			{:else}
-				<DataTable size="xs">
-					<Head>
-						<tr>
-							<Cell head first>Role</Cell>
-							<Cell head>Privileges</Cell>
-							<Cell head>On</Cell>
-							<Cell head last></Cell>
-						</tr>
-					</Head>
-					<tbody class="divide-y">
-						{#each grantRows as grant (grantKey(grant))}
-							{@const revokeScope = revokeScopeOf(grant)}
-							{@const revocable = revocablePrivileges(grant, target)}
-							{@const blocked = blockingSources(grant, revocable)}
-							{@const uncovered = uncoveredCreators(grant, info.roles)}
-							<Row>
-								<Cell first>{grant.grantee}</Cell>
-								<Cell wrap
-									><span class="font-mono text-2xs">{grant.privileges.join(', ')}</span></Cell
-								>
-								<Cell wrap>
-									{grantScopeLabel(grant)}
+			<div class="flex flex-col border rounded-md divide-y">
+				{#each shownGrantRows as grant (grantKey(grant))}
+					{@const revokeScope = revokeScopeOf(grant)}
+					{@const revocable = revocablePrivileges(grant, target)}
+					{@const blocked = blockingSources(grant, revocable)}
+					{@const uncovered = uncoveredCreators(grant, info.roles)}
+					{@const statement = grantStatement(grant, target, info.dbname)}
+					{@const unrevocable = unrevocableReason(grant, revokeScope, revocable, blocked)}
+					<div class="flex items-center gap-2 px-3 py-2 min-h-12">
+						<div class="flex flex-col gap-0.5 grow min-w-0">
+							<code
+								class="flex flex-wrap items-center gap-x-1.5 gap-y-1 font-mono text-xs text-secondary"
+							>
+								<span>{statement.lead}</span>
+								{#each statement.privileges as privilege (privilege)}
+									{@render tag(privilege)}
+								{/each}
+								<span class="break-all">ON {statement.on} TO</span>
+								{@render tag(statement.grantee, true)}
+							</code>
+							{#if blocked.length > 0 || uncovered.length > 0}
+								<span class="text-2xs text-secondary">
 									{#if blocked.length > 0}
-										<span
-											class="text-2xs text-secondary"
-											title="Only this role can take the grant back: Postgres revokes a grant through the role that made it"
-										>
-											from {blocked.join(', ')}
-										</span>
+										granted by {blocked.join(', ')}
 									{/if}
 									{#if uncovered.length > 0}
-										<span
-											class="text-2xs text-secondary"
-											title="A default privilege covers only the roles it was granted for: grant it again to cover these"
-										>
-											· not for what {uncovered.join(', ')}
-											{uncovered.length === 1 ? 'creates' : 'create'}
-										</span>
+										{blocked.length > 0 ? ' · ' : ''}not for what {uncovered.join(', ')}
+										{uncovered.length === 1 ? 'creates' : 'create'}: a default privilege only covers
+										the roles it was granted for
 									{/if}
-								</Cell>
-								<Cell last>
-									<!-- What `admin` holds is what every role here connects through, so it is not
-									this editor's to take away. -->
-									{#if info.editable && revokeScope && revocable.length > 0 && blocked.length === 0 && info.roles.includes(grant.grantee) && grant.grantee !== ADMIN_ROLE}
-										<Button
-											unifiedSize="xs"
-											variant="subtle"
-											iconOnly
-											startIcon={{ icon: Trash2 }}
-											title="Revoke {revocable.join(', ')}"
-											disabled={planning || applying}
-											onClick={() =>
-												confirm(
-													{
-														type: 'revoke',
-														role: grant.grantee,
-														privileges: revocable,
-														scope: revokeScope,
-														objects: grant.objects
-													},
-													`Revoked ${revocable.join(', ')} from ${grant.grantee}`
-												)}
-										/>
-									{/if}
-								</Cell>
-							</Row>
-						{/each}
-					</tbody>
-				</DataTable>
-			{/if}
+								</span>
+							{/if}
+						</div>
+						{#if info.editable}
+							{#snippet revokeButton()}
+								<Button
+									unifiedSize="xs"
+									variant="subtle"
+									iconOnly
+									startIcon={{ icon: Trash2 }}
+									title={unrevocable ?? `Revoke ${revocable.join(', ')}`}
+									disabled={controlsDisabled || !!unrevocable}
+									onClick={() => {
+										if (!revokeScope) return
+										confirm(
+											{
+												type: 'revoke',
+												role: grant.grantee,
+												privileges: revocable,
+												scope: revokeScope,
+												objects: grant.objects
+											},
+											`Revoked ${revocable.join(', ')} from ${grant.grantee}`
+										)
+									}}
+								/>
+							{/snippet}
+							{#if unrevocable && !disabledReason}
+								<Tooltip>
+									<div class="pointer-events-none">{@render revokeButton()}</div>
+									{#snippet text()}{unrevocable}{/snippet}
+								</Tooltip>
+							{:else}
+								{@render withDisabledReason(revokeButton, 'w-fit')}
+							{/if}
+						{/if}
+					</div>
+				{:else}
+					<span class="flex items-center px-3 py-2 min-h-12 text-xs text-secondary">
+						{grantRows.length === 0 ? 'No grants yet.' : 'No grant matches the filters.'}
+					</span>
+				{/each}
+				{#if info.editable}
+					<!-- The grant to create: a row like the others, set apart until it exists. -->
+					<div class="px-3 py-2 bg-surface-secondary border-dashed rounded-b-md">
+						{#snippet grantBuilder()}
+							<PgGrantBuilder
+								{target}
+								roles={info.roles}
+								disabled={controlsDisabled}
+								manageRoles={manageRoles ? manageRolesEntry : undefined}
+								supportsMaintain={info.supports_maintain}
+								onAdd={({ role, privileges, scope }) =>
+									confirm(
+										{ type: 'grant', role, privileges, scope },
+										`Granted ${privileges.join(', ')} to ${role}`
+									)}
+							/>
+						{/snippet}
+						{@render withDisabledReason(grantBuilder, 'w-full')}
+					</div>
+				{/if}
+			</div>
 		</section>
 	</div>
 {/if}
