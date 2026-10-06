@@ -43,7 +43,7 @@
 
 	// New only while it is still the untouched template: once built on, telling the chat it
 	// is a fresh app would steer it away from the work already there.
-	function isUntouchedTemplate(): boolean {
+	const untouchedTemplate = $derived.by(() => {
 		const files = cell.store.val?.files
 		if (!newRawApp || cell.saved.val || !files) return false
 		const keys = Object.keys(react19Template)
@@ -51,7 +51,7 @@
 			Object.keys(files).length === keys.length &&
 			keys.every((k) => files[k] === react19Template[k as keyof typeof react19Template])
 		)
-	}
+	})
 	let diffDrawer: DiffDrawer | undefined = $state()
 
 	// Path typed in the editor header, surfaced when it differs from the stored
@@ -250,7 +250,7 @@
 	{isActiveSession}
 	isActiveTab={active}
 	{newRawApp}
-	isNew={isUntouchedTemplate}
+	isNew={() => untouchedTemplate}
 	effectivePath={() =>
 		// A raw app's typed rename lives in `draft_path` (`val.path` is the storage
 		// key), unlike scripts where `val.path` is the typed name — without it the

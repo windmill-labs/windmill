@@ -261,6 +261,8 @@
 	// everyone who has one, and opens the docked chat for the rest.
 	const handsOffToSession = $derived(prefersSessionHandoff($userStore?.operator))
 	const isAiEnabled = $derived(aiConfigLoaded && $copilotInfo.enabled)
+	// The AI starts on the default data table and its role, so both must have answered.
+	const dataSettled = $derived(hasNoDatatables || (rolesSettled && accessSettled))
 
 	$effect(() => {
 		if (open && opWs && !aiConfigLoaded) {
@@ -374,10 +376,10 @@
 					<button
 						type="button"
 						onclick={buildWithAI}
-						disabled={!isAiEnabled}
+						disabled={!isAiEnabled || !dataSettled}
 						class="flex flex-col items-start gap-3 rounded-lg border border-ai/30 bg-ai/5 p-6 text-left transition-colors hover:bg-ai/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-ai/5"
 					>
-						{#if aiConfigLoaded}
+						{#if aiConfigLoaded && dataSettled}
 							<Sparkles size={28} class="text-ai" />
 						{:else}
 							<Loader2 size={28} class="text-ai animate-spin" />
