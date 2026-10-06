@@ -5401,6 +5401,7 @@ async fn handle_code_execution_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
+    let _custom_timeout = crate::common::RunningJobCustomTimeout::register(job.id, job.timeout);
     let script_hash = || {
         job.runnable_id
             .ok_or_else(|| Error::internal_err("expected script hash"))
