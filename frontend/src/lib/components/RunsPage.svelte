@@ -949,7 +949,7 @@
 			<Splitpanes>
 				<Pane minSize={40}>
 					<div class="h-full flex">
-						<div class="flex flex-col flex-1 m-4 mt-2 mr-2">
+						<div class="flex flex-col flex-1 min-w-0 m-4 mt-2 mr-2">
 							{#if scanProgress}
 								<div class="px-1 pb-2 flex items-center gap-2">
 									<Loader2 size={14} class="animate-spin shrink-0 text-accent" />

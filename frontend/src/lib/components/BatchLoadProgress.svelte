@@ -33,9 +33,12 @@
 </script>
 
 <div class="flex items-center gap-3 text-xs text-secondary">
-	<span class="whitespace-nowrap shrink-0"
-		>{label ?? `Loading ${itemsLabel}: ${loaded} of ${total}...`}</span
-	>
+	{#if label}
+		<!-- A custom label has no bounded length: it gives way before the bar and Stop do. -->
+		<span class="min-w-0 truncate" title={label}>{label}</span>
+	{:else}
+		<span class="whitespace-nowrap shrink-0">Loading {itemsLabel}: {loaded} of {total}...</span>
+	{/if}
 	<div class="flex-1 min-w-8 bg-surface-hover rounded-full h-1.5">
 		<div
 			class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
