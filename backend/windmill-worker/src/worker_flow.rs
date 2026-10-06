@@ -449,6 +449,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         skip_if_stop_early,
         nresult,
         is_failure_step,
+        failure_step_recovers,
         _cleanup_module,
         chat_ai_info,
     ) = {
@@ -1823,6 +1824,13 @@ pub async fn update_flow_status_after_job_completion_internal(
             _ => false,
         };
 
+        let failure_step_recovers = is_failure_step
+            && (flow_value
+                .failure_module
+                .as_ref()
+                .is_some_and(|m| m.recover_on_success == Some(true))
+                || result_has_recover_true(nresult.clone()));
+
         let chat_ai_info = ChatAiInfo {
             chat_input_enabled: old_status.chat_input_enabled.unwrap_or(false),
             conversation_id: old_status.memory_id,
@@ -1837,6 +1845,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             skip_if_stop_early,
             nresult,
             is_failure_step,
+            failure_step_recovers,
             old_status.cleanup_module,
             chat_ai_info,
         )
@@ -1851,7 +1860,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             } else if stop_early {
                 format!("Flow job stopped early because of a stop early predicate returning true\n")
             } else if is_failure_step {
-                format!("Flow job completed with error, and error handler was triggered.\nIt completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, result_has_recover_true(nresult.clone()))
+                format!("Flow job completed with error, and error handler was triggered.\nIt completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, failure_step_recovers)
             } else {
                 format!(
                     "Flow job completed with {}\n",
@@ -2048,7 +2057,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .await;
             }
 
-            let success = success && (!is_failure_step || result_has_recover_true(nresult.clone()));
+            let success = success && (!is_failure_step || failure_step_recovers);
 
             add_time!(bench, "flow status update 1");
 
@@ -2168,7 +2177,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     RecUpdateFlowStatusAfterJobCompletion {
                         flow: parent_job,
                         job_id_for_status: flow,
-                        success: success && !is_failure_step,
+                        success: success && (!is_failure_step || failure_step_recovers),
                         canceled_by: if !success { canceled_by.clone() } else { None },
                         flow_job_duration: flow_job_duration.clone(),
                         result: nresult.clone(),

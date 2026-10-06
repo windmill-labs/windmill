@@ -172,6 +172,21 @@
 								"The flow continues to the next step even if this step fails (after exhausting retries, if any). The step's error becomes its return, so a following branch can handle it."
 						}}
 					/>
+					{#if isFailure}
+						<Toggle
+							size="xs"
+							textClass="text-xs font-normal text-primary"
+							bind:checked={
+								() => Boolean(flowModule.recover_on_success),
+								(v) => (flowModule.recover_on_success = v || undefined)
+							}
+							options={{
+								right: 'Mark the flow as successful if the error handler succeeds',
+								rightTooltip:
+									"The flow ends as a success with the error handler's result, instead of failing. With this off, the error handler can still decide per run by returning recover: true."
+							}}
+						/>
+					{/if}
 					{#if suspendNeedsItsOwnContinueToggle}
 						<Alert type="info" title="Does not cover the approval" size="xs">
 							This only applies when the step's own code fails. A disapproval or an approval timeout

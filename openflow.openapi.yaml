@@ -376,6 +376,9 @@ components:
         continue_on_error:
           type: boolean
           description: If true, flow continues even if this step fails
+        recover_on_success:
+          type: boolean
+          description: "Only on the flow's failure_module: if true and the error handler succeeds, the flow is marked as successful instead of failed. Same effect as the error handler returning `recover: true`."
         job_token_scopes:
           type: array
           nullable: true
