@@ -3,7 +3,7 @@
 
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ErrorHandlerToggleButton from './ErrorHandlerToggleButton.svelte'
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, tick, type Snippet } from 'svelte'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
@@ -187,6 +187,23 @@
 	/>
 {/snippet}
 
+<!-- The same editor as the summary's, hung off the band's path segment so it opens under the path.
+     with the cursor in the path field. `bind:` cannot be spread, so `labels` is bound twice; both
+     instances bind the same slot and only one is ever open. -->
+{#snippet pathTrigger(pathLabel: Snippet, triggerClass: string)}
+	<SummaryPathDisplay
+		label={pathLabel}
+		{triggerClass}
+		focusField="path"
+		{summary}
+		{path}
+		bind:labels
+		{inheritedLabels}
+		{onSaved}
+		kind={renameKind}
+	/>
+{/snippet}
+
 <!-- The two halves of the row, rendered side by side in the band and in the two groups of the
      row below. One copy each: a button added to one placement belongs in both. -->
 {#snippet badges(size: 'sm' | 'md')}
@@ -252,7 +269,7 @@
 	<!-- The summary keeps its rename-and-labels popover here rather than becoming plain text in
 	     the breadcrumb: renaming a script or flow is done from this page, not from the trail. -->
 	<PageHeaderContent
-		item={{ kind: errorHandlerKind, path, summaryContent }}
+		item={{ kind: errorHandlerKind, path, summaryContent, pathTrigger }}
 		{actions}
 		contexts={headerContexts}
 		separator="always"

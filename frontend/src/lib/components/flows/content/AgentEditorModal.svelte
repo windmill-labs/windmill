@@ -2,7 +2,7 @@
 	import { FlaskConical, Settings, FormInput, History, MessageSquare, Save } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { onDestroy, untrack } from 'svelte'
+	import { onDestroy, untrack, type Snippet } from 'svelte'
 	import { resource } from 'runed'
 	import Modal, { type ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
@@ -89,7 +89,7 @@
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
 	let settingsDrawer: Drawer | undefined = $state(undefined)
-	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	/** Held by the rename popover while it is open; the band's trail reads it so the path does not
 	 *  reflow under the pointer as the user types. */
 	let pathSnapshot = $state<string | undefined>(undefined)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
@@ -316,7 +316,11 @@
 			     breadcrumb, the level it is on reads after that name, and its controls are the band's
 			     actions. -->
 			<PageHeaderContent
-				item={{ path: pathSnapshot ?? shownPath, summaryContent: agentSummary }}
+				item={{
+					path: pathSnapshot ?? shownPath,
+					summaryContent: agentSummary,
+					pathTrigger: agentPathTrigger
+				}}
 				afterName={agentHint}
 				actions={settings}
 				separator="always"
@@ -329,23 +333,62 @@
 		{/if}
 	{/key}
 
+	<!-- The summary's editor again, hung off the band's path segment so it opens under the path,
+	     with the cursor in the path field. `bind:` cannot be spread, so the slots are written out
+	     twice; both instances bind the same ones and only one is ever open. -->
+	{#snippet agentPathTrigger(pathLabel: Snippet, triggerClass: string)}
+		<!-- Gated like the summary beside it: this renders from the band's tree, where `draft` is
+		     undefined for as long as the modal has not loaded one, and a getter that reads through it
+		     throws there rather than where it was written. Without the trigger the band draws its own
+		     path segment, which is what it does for every page that offers no rename. -->
+		{#if draft?.state}
+			<PathEditPopover
+				label={pathLabel}
+				{triggerClass}
+				focusField="path"
+				bind:summary={
+					() => draft.state?.description ?? '',
+					(v) => {
+						if (draft.state) draft.state.description = v
+					}
+				}
+				bind:path={
+					() => draft.state?.path ?? '',
+					(v) => {
+						if (draft.state) draft.state.path = v
+					}
+				}
+				bind:snapshotPath={pathSnapshot}
+				bind:error={() => host?.pathError(), (error) => host?.setPathError(error)}
+				savedPath={draft?.noDeployed ? undefined : target?.path}
+				kind="resource"
+				workspaceId={ws}
+				pathEditable={!readOnly}
+				summaryEditable={!readOnly}
+			/>
+		{/if}
+	{/snippet}
+
 	{#snippet agentSummary()}
-		<!-- What the agent is, beside what it is called, and the pen that renames both — the same
+		<!-- What the agent is, beside what it is called, and clicking it renames both — the same
 		     shape the script, flow and app editors carry. The version rides along, as the
 		     linked-agent card in the step panel has it. The trail's levels are not here: this layout
 		     opens settings in a drawer and evals over the page, so it never stands on one. -->
-		<div class="group flex items-center gap-1 min-w-0">
+		<div class="flex items-center gap-1 min-w-0">
 			{#if draft?.state}
-				<span
-					class="min-w-0 truncate text-xs {emptyString(draft.state.description)
-						? 'text-tertiary italic font-normal'
-						: 'font-medium text-emphasis'}"
-					title={draft.state.description}
-					>{emptyString(draft.state.description)
-						? 'Add a summary...'
-						: draft.state.description}</span
-				>
+				{#snippet summaryText()}
+					<span
+						class="min-w-0 truncate text-xs {emptyString(draft.state?.description)
+							? 'text-tertiary italic font-normal'
+							: 'font-medium text-emphasis'}"
+						title={draft.state?.description}
+						>{emptyString(draft.state?.description)
+							? 'Add a summary...'
+							: draft.state?.description}</span
+					>
+				{/snippet}
 				<PathEditPopover
+					label={summaryText}
 					bind:summary={
 						() => draft.state?.description ?? '',
 						(v) => {

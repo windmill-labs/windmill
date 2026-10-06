@@ -1,13 +1,15 @@
 <!--
 @component
-The pen that opens an item's summary and path for editing, beside the breadcrumb that shows them.
+The editor behind an item's name: clicking the name it is given opens the summary and the path.
+A caller that has no name to give it — a bar with a summary field of its own — gets a pen instead.
 
 A caller that draws the path itself should render it from `snapshotPath ?? path`: while the
-popover is open this holds the path as it was when it opened, so the trail — and the pen anchored
-to it — does not reflow under the pointer as the user types, which floating-ui would follow.
+popover is open this holds the path as it was when it opened, so the trail — and the popover
+anchored to it — does not reflow under the pointer as the user types, which floating-ui would
+follow.
 -->
 <script lang="ts">
-	import type { ComponentProps } from 'svelte'
+	import type { ComponentProps, Snippet } from 'svelte'
 	import { Alert } from '$lib/components/common'
 	import PathEditPen from '$lib/components/PathEditPen.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -31,7 +33,7 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 		/** When false the summary is shown but not editable, for a host whose `customUi` says so. */
 		summaryEditable?: boolean
 		/** When false the path is shown but not editable, the same way. A host may allow one and
-		 *  refuse the other, and the pen offers whichever it is given. */
+		 *  refuse the other, and the popover offers whichever it is given. */
 		pathEditable?: boolean
 		path?: string
 		/** The item's *saved* path on the server, so the popover can say a rename needs deploying. */
@@ -44,10 +46,26 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 		workspaceId?: string
 		/** When set, warns that a redeploy happens on behalf of the current user instead. */
 		onBehalfOfEmail?: string | undefined
+		/** Only read when there is no `label`, where the pen is the whole trigger. */
 		penVisibility?: 'hover' | 'always'
 		/** The path as it was when the popover opened, undefined while it is closed. See the
 		 *  component note: the caller draws its trail from this so it holds still mid-rename. */
 		snapshotPath?: string | undefined
+		/** The item's name, rendered inside the trigger so clicking it opens the editor. Without
+		 *  one the trigger is a pen, for a host that draws its name somewhere this cannot reach. */
+		label?: Snippet
+		/** The trigger's own classes, for a host that needs it to wear the look of the row it sits
+		 *  in — the band's path segment. The default is a name with a hover fill behind it: the
+		 *  click opens an editor here rather than going anywhere, and the fill is what says the
+		 *  name is a control at all now that no pen sits beside it. */
+		triggerClass?: string
+		/** Bindable, for a host that drives the popover from elsewhere. */
+		open?: boolean
+		/** Which field takes the cursor on open. A popover anchored under the path opens on the
+		 *  path, one under the summary opens on the summary: the click says which half of the name
+		 *  the user came to change. `Path` autofocuses itself, so 'path' is the absence of a
+		 *  claim on the summary rather than a claim of its own. */
+		focusField?: 'summary' | 'path'
 		/** The path field's verdict, for a host that refuses to deploy while it is non-empty.
 		 *  A host whose item has a second path field has to bind both to the same slot, or
 		 *  whichever one is unmounted leaves its last verdict standing. */
@@ -64,11 +82,14 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 		workspaceId,
 		onBehalfOfEmail,
 		penVisibility = 'hover',
+		label,
+		triggerClass = 'inline-flex items-center gap-1.5 min-w-0 max-w-full px-1 py-0.5 rounded cursor-pointer text-left hover:bg-surface-hover transition-colors',
+		open = $bindable(false),
+		focusField = 'summary',
 		snapshotPath = $bindable(),
 		error = $bindable()
 	}: Props = $props()
 
-	let open = $state(false)
 	const penLabel = $derived(
 		summaryEditable && pathEditable
 			? 'Edit summary and path'
@@ -90,31 +111,56 @@ to it — does not reflow under the pointer as the user types, which floating-ui
 	}
 </script>
 
+<!-- `openFocus`: `#path` is the name field inside `Path`. Without naming it melt lands on the
+     row's first button, so a popover opened from the path would not be typing into the path. -->
 <Popover
 	placement="bottom-start"
 	contentClasses="p-4"
+	class={triggerClass}
+	triggerAttrs={{ title: penLabel, 'aria-label': penLabel }}
 	usePointerDownOutside
 	excludeSelectors=".drawer"
 	disableFocusTrap
 	closeOnOtherPopoverOpen
+	openFocus={focusField === 'path'
+		? '#path'
+		: summaryEditable
+			? '[data-path-edit-summary]'
+			: undefined}
 	bind:isOpen={() => open, setOpen}
 >
 	{#snippet trigger()}
-		<PathEditPen label={penLabel} visibility={penVisibility} {open} />
+		{#if label}
+			<!-- The name is the affordance; a pen next to it would be a second one for the same
+			     click, and the band keeps its line quiet. -->
+			{@render label()}
+		{:else}
+			<PathEditPen label={penLabel} visibility={penVisibility} {open} />
+		{/if}
 	{/snippet}
 	{#snippet content()}
 		<div class="flex flex-col gap-6 w-[480px]">
 			<!-- The summary first: it is the name a reader sees, and the path below is where that
-			     name lives. Not autofocused — the pen's own job is the path, which takes the cursor. -->
+			     name lives. -->
 			{#if summaryEditable}
 				<Label label="Summary">
 					<TextInput
 						bind:value={summary}
 						inputProps={{
 							placeholder: 'Add a summary...',
+							'data-path-edit-summary': '',
 							// The popover sits in a page that binds keys of its own (the editors all do),
-							// and a summary is prose — it must not reach them.
-							onkeydown: (e: KeyboardEvent) => e.stopPropagation(),
+							// and a summary is prose — it must not reach them. Enter commits the line and
+							// closes, which is what a one-line field reads as; the path below is reached
+							// with Tab, not Enter.
+							onkeydown: (e: KeyboardEvent) => {
+								e.stopPropagation()
+								if (e.key === 'Enter') {
+									e.preventDefault()
+									summary = summary?.trim()
+									setOpen(false)
+								}
+							},
 							onblur: () => (summary = summary?.trim())
 						}}
 						size="sm"

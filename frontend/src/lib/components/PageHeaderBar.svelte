@@ -33,9 +33,9 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	const item = $derived(content?.item)
 	const section = $derived(content?.section)
 
-	// Below this, the bar is short enough that the workspace's name is the first thing worth
-	// giving up: it is the part of the trail the user changes least and the picker beside it still
-	// names every workspace.
+	// Below this the trail holds a tighter cap on the path it draws. The names in it truncate on
+	// their own at any width (see NavBreadcrumb), so this is not a breakpoint the look changes at —
+	// it only stops a long path from claiming a third of a short bar before the squeeze starts.
 	const NARROW_BAR = 1000
 	const narrow = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < NARROW_BAR)
 	/** A phone's bar: the trail gives way before the page's buttons do (see the markup). */
@@ -86,7 +86,11 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	bind:clientWidth={() => pageHeader.barWidth, (w) => pageHeader.setBarWidth(w)}
 	class={twMerge(
 		'flex items-center gap-1 shrink-0 min-w-0 bg-surface transition-shadow duration-150',
-		phone ? 'flex-wrap content-center min-h-11 py-1 pl-1 pr-2' : 'h-11 pl-2 pr-4',
+		// One row at every width. A wrapping row never squeezes anything — flex moves an item to the
+		// next line instead of taking it below its content width — so wrapping here would hand the
+		// trail a line of its own and leave it whole, which is the opposite of what a narrow bar
+		// wants: the trail truncating from its start.
+		phone ? 'h-11 pl-1 pr-2' : 'h-11 pl-2 pr-4',
 		// The filling surface is what meets the right edge, so the bar keeps no gutter of its own
 		// there — and it cannot wrap, since that surface is as tall as the bar.
 		content?.actionsFill && 'pr-0 flex-nowrap',
@@ -123,31 +127,38 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		</div>
 	{/if}
 
-	<!-- The breadcrumb yields width grudgingly (shrink-[0.1]): when a page fills the bar with
-	     controls, they are what should narrow, not the name of where the user is. It still gives
-	     way rather than pushing them off the bar once there is nothing left to take.
-	     On a phone it stops yielding at 10rem, and that floor is what makes the bar wrap: the
-	     page's buttons no longer fit beside a trail that wide, so they take the line below
-	     instead of squeezing the name down to an ellipsis.
+	<!-- The breadcrumb yields width more slowly than the page's controls (shrink-[0.3]) but it does
+	     yield, at every width: the trail truncates from its start, so the squeeze is spent on the
+	     workspace and the folders before it ever reaches the name of the thing the page is about.
+	     The 5rem floor is what is left when every name in it has gone — the workspace disc, the
+	     fork mark and the environment badge, which is as small as the part can be and still say
+	     where the user is. Only below that does the bar wrap and give the trail a line of its own.
 	     An embed (`navHidden`) keeps the page's own name but drops the workspace part around it:
 	     the trail would offer to navigate the host's workspace, while the name is what says which
 	     page the controls beside it belong to. -->
-	<div class={twMerge('flex min-w-0', phone ? 'shrink min-w-[10rem]' : 'shrink-[0.1]')}>
+	<div class="flex shrink-[0.3] min-w-[5rem]">
 		<!-- Bridged like the actions below: what a page hangs off its own name renders here, out
 		     of the tree that named it, and the pen in there asks that tree who the acting user is
 		     before it offers to rename anything. -->
-		{#key content?.contexts}
-			<ContextBridge contexts={content?.contexts}>
-				<NavBreadcrumb
-					{item}
-					{section}
-					{narrow}
-					nameOnly={navHidden}
-					afterName={content?.afterName}
-					actingWorkspaceId={content?.actingWorkspaceId}
-				/>
-			</ContextBridge>
-		{/key}
+		<!-- Each fragment the band renders comes from another tree and reads that tree's state. The
+		     registry already tolerates a registration that cannot answer while its owner's data is
+		     being cleared (see `read`); the same window reaches rendering, and an error here would
+		     otherwise travel to the root and blank the app rather than the one fragment. A
+		     boundary per fragment keeps that to the fragment. -->
+		<svelte:boundary onerror={(e) => console.error('page header: breadcrumb failed to render', e)}>
+			{#key content?.contexts}
+				<ContextBridge contexts={content?.contexts}>
+					<NavBreadcrumb
+						{item}
+						{section}
+						{narrow}
+						nameOnly={navHidden}
+						afterName={content?.afterName}
+						actingWorkspaceId={content?.actingWorkspaceId}
+					/>
+				</ContextBridge>
+			{/key}
+		</svelte:boundary>
 	</div>
 
 	{#if item && (item.summaryContent || item.summary)}
@@ -159,11 +170,13 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			     carries it down with the summary instead of stranding it on the line above. -->
 			<span class="shrink-0 text-hint/40 text-xs px-0.5" aria-hidden="true">·</span>
 			{#if item.summaryContent}
-				{#key content?.contexts}
-					<ContextBridge contexts={content?.contexts}>
-						{@render item.summaryContent()}
-					</ContextBridge>
-				{/key}
+				<svelte:boundary onerror={(e) => console.error('page header: summary failed to render', e)}>
+					{#key content?.contexts}
+						<ContextBridge contexts={content?.contexts}>
+							{@render item.summaryContent()}
+						</ContextBridge>
+					{/key}
+				</svelte:boundary>
 			{:else}
 				<span class="min-w-0 truncate text-xs font-medium text-emphasis">{item.summary}</span>
 			{/if}
@@ -191,11 +204,13 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			)}
 		>
 			{#each actions as entry, i (i)}
-				{#key entry.contexts}
-					<ContextBridge contexts={entry.contexts}>
-						{@render entry.render()}
-					</ContextBridge>
-				{/key}
+				<svelte:boundary onerror={(e) => console.error('page header: actions failed to render', e)}>
+					{#key entry.contexts}
+						<ContextBridge contexts={entry.contexts}>
+							{@render entry.render()}
+						</ContextBridge>
+					{/key}
+				</svelte:boundary>
 			{/each}
 		</div>
 	{/if}

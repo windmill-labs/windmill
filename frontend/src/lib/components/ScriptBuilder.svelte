@@ -93,7 +93,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { getContext, onDestroy, onMount, setContext, tick, untrack } from 'svelte'
+	import { getContext, onDestroy, onMount, setContext, tick, untrack, type Snippet } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
@@ -201,7 +201,7 @@
 	// right group (hide the ~200px tag select, icon-only Diff/Settings) before the
 	// full group crowds the path into heavy truncation; ~900 is where the path
 	// keeps a usable width given the right group's natural ~440px.
-	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	/** Held by the rename popover while it is open; the band's trail reads it so the path does not
 	 *  reflow under the pointer as the user types. */
 	let pathSnapshot = $state<string | undefined>(undefined)
 
@@ -2291,10 +2291,15 @@
 			     bar's edge would be a second line on top of it. -->
 			<PageHeaderContent
 				item={{
-					// Frozen while the pen's popover is open so the trail holds still as the user types.
+					// Frozen while the rename popover is open so the trail holds still as the user types.
 					kind: 'script',
-					path: pathSnapshot ?? script.path,
-					summaryContent: scriptSummary
+					// `script?`: this object is built inside a getter the band evaluates from its own
+					// tree, and `script` is a bindable prop. Deploying a new script clears the draft the
+					// route binds here and drops the `{#if}` around this editor in one flush, which
+					// invalidates the band before this component is torn down.
+					path: pathSnapshot ?? script?.path,
+					summaryContent: scriptSummary,
+					pathTrigger: scriptPathTrigger
 				}}
 				afterName={scriptMarks}
 				actions={scriptHeaderActions}
@@ -2345,48 +2350,88 @@
 		{/if}
 
 		{#snippet scriptSummary()}
-			<!-- Not edited in place: the pen beside it opens the summary and the path together,
-		     so the band reads as a name rather than a form. `title` for one it truncates. -->
-			<div class="group flex items-center gap-1 min-w-0">
-				<span
-					class="min-w-0 truncate text-xs {emptyString(script.summary)
-						? 'text-tertiary italic font-normal'
-						: 'font-medium text-emphasis'}"
-					title={script.summary}
-					>{emptyString(script.summary) ? 'Add a summary...' : script.summary}</span
-				>
-				{#if customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false}
-					<PathEditPopover
-						penVisibility={emptyString(script.summary) ? 'always' : 'hover'}
-						bind:summary={script.summary}
-						summaryEditable={customUi?.topBar?.editableSummary != false}
-						pathEditable={customUi?.topBar?.editablePath != false}
-						bind:path={script.path}
-						bind:snapshotPath={pathSnapshot}
-						savedPath={initialPath}
-						kind="script"
-						workspaceId={autosaveWorkspace}
-					/>
-				{/if}
-			</div>
+			<!-- Everything the band pulls from this editor is gated on `script`. It is a bindable prop,
+			     and these snippets render from the band's tree, where nothing orders the route clearing
+			     that prop against this component's teardown: deploying a new script discards the draft
+			     bound here and drops the `{#if}` around this editor in the same flush. -->
+			{#if script}
+				<!-- Not edited in place: clicking the name opens the summary and the path together, so
+				     the band reads as a name rather than a form. `title` for one it truncates. -->
+				<div class="flex items-center gap-1 min-w-0">
+					{#snippet summaryText()}
+						<span
+							class="min-w-0 truncate text-xs {emptyString(script.summary)
+								? 'text-tertiary italic font-normal'
+								: 'font-medium text-emphasis'}"
+							title={script.summary}
+							>{emptyString(script.summary) ? 'Add a summary...' : script.summary}</span
+						>
+					{/snippet}
+					{#if customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false}
+						<PathEditPopover
+							label={summaryText}
+							bind:summary={script.summary}
+							summaryEditable={customUi?.topBar?.editableSummary != false}
+							pathEditable={customUi?.topBar?.editablePath != false}
+							bind:path={script.path}
+							bind:snapshotPath={pathSnapshot}
+							savedPath={initialPath}
+							kind="script"
+							workspaceId={autosaveWorkspace}
+						/>
+					{:else}
+						{@render summaryText()}
+					{/if}
+				</div>
+			{/if}
+		{/snippet}
+
+		<!-- The same editor as the summary's, hung off the band's path segment: anchored there it
+		     opens under the path, and `focusField` puts the cursor in the field that half of the
+		     name belongs to. The bindings are written out again because `bind:` cannot be spread;
+		     both instances bind the same slots, and only one is ever open. -->
+		{#snippet scriptPathTrigger(pathLabel: Snippet, triggerClass: string)}
+			<!-- Gated like the summary beside it: `script` is a bindable prop the route can clear in
+			     the same flush that drops this editor, and this renders from the band's tree. Without
+			     the trigger the band draws its own path segment, which is what it does for every page
+			     that offers no rename. -->
+			{#if script}
+				<PathEditPopover
+					label={pathLabel}
+					{triggerClass}
+					focusField="path"
+					bind:summary={script.summary}
+					summaryEditable={customUi?.topBar?.editableSummary != false}
+					pathEditable={customUi?.topBar?.editablePath != false}
+					bind:path={script.path}
+					bind:snapshotPath={pathSnapshot}
+					savedPath={initialPath}
+					kind="script"
+					workspaceId={autosaveWorkspace}
+				/>
+			{/if}
 		{/snippet}
 
 		{#snippet scriptMarks()}
-			<!-- Concurrency, cache, a dedicated worker: settings that hold whatever the editor shows,
-			     so they belong with the script's name. The language icon the editor's own bar carried
-			     does not come along — the code under it says which language this is. -->
-			{@render settingsBadges('pl-1.5')}
+			{#if script}
+				<!-- Concurrency, cache, a dedicated worker: settings that hold whatever the editor shows,
+				     so they belong with the script's name. The language icon the editor's own bar carried
+				     does not come along — the code under it says which language this is. -->
+				{@render settingsBadges('pl-1.5')}
+			{/if}
 		{/snippet}
 
 		{#snippet scriptHeaderActions()}
-			<!-- Saving state and other people's drafts: the editor's own bar carries them beside the
-			     path, so the header has to carry them when it owns the bar — without them a
-			     full-page editor saves with no word either way. -->
-			{@render autosaveIndicator()}
-			{#if $enterpriseLicense && initialPath != '' && !inSessionPane}
-				<Awareness />
+			{#if script}
+				<!-- Saving state and other people's drafts: the editor's own bar carries them beside the
+				     path, so the header has to carry them when it owns the bar — without them a
+				     full-page editor saves with no word either way. -->
+				{@render autosaveIndicator()}
+				{#if $enterpriseLicense && initialPath != '' && !inSessionPane}
+					<Awareness />
+				{/if}
+				{@render rightButtons()}
 			{/if}
-			{@render rightButtons()}
 		{/snippet}
 
 		{#snippet languageButton(size: number)}

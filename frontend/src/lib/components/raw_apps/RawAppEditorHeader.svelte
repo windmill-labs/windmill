@@ -28,7 +28,7 @@
 		Undo,
 		WandSparkles
 	} from 'lucide-svelte'
-	import { onDestroy, untrack } from 'svelte'
+	import { onDestroy, untrack, type Snippet } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 
@@ -340,7 +340,7 @@
 	// header uses.
 	const headerBtnSize = $derived(condensedHeader || ownsPageHeader ? 'sm' : 'md')
 
-	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	/** Held by the rename popover while it is open; the band's trail reads it so the path does not
 	 *  reflow under the pointer as the user types. */
 	let pathSnapshot = $state<string | undefined>(undefined)
 
@@ -947,10 +947,11 @@
 			// The path being edited, not the stored one: a brand-new app is parked at a
 			// `draft_<uuid>` placeholder, and the trail would name that instead of the path Deploy
 			// will create — which is why `newEditedPath` refuses the placeholder. Frozen while the
-			// pen's popover is open so the trail holds still as the user types.
+			// rename popover is open so the trail holds still as the user types.
 			kind: 'app',
 			path: pathSnapshot ?? (newEditedPath || appPath || newPath || undefined),
-			summaryContent: appSummary
+			summaryContent: appSummary,
+			pathTrigger: rawAppPathTrigger
 		}}
 		actions={rawAppHeaderActions}
 		contexts={headerContexts}
@@ -1027,18 +1028,37 @@
 	{/if}
 {/snippet}
 
+<!-- The summary's editor again, hung off the band's path segment so it opens under the path, with
+     the cursor in the path field. `bind:` cannot be spread, so the slots are written out twice;
+     both instances bind the same ones and only one is ever open. -->
+{#snippet rawAppPathTrigger(pathLabel: Snippet, triggerClass: string)}
+	<PathEditPopover
+		label={pathLabel}
+		{triggerClass}
+		focusField="path"
+		bind:summary
+		bind:path={newEditedPath}
+		bind:snapshotPath={pathSnapshot}
+		savedPath={appPath || undefined}
+		kind="app"
+		workspaceId={autosaveWorkspace}
+	/>
+{/snippet}
+
 {#snippet appSummary()}
-	<!-- Not edited in place: the pen beside it opens the summary and the path together,
-		     so the band reads as a name rather than a form. `title` for one it truncates. -->
-	<div class="group flex items-center gap-1 min-w-0">
-		<span
-			class="min-w-0 truncate text-xs {emptyString(summary)
-				? 'text-tertiary italic font-normal'
-				: 'font-medium text-emphasis'}"
-			title={summary}>{emptyString(summary) ? 'Add a summary...' : summary}</span
-		>
+	<!-- Not edited in place: clicking the name opens the summary and the path together, so the band
+	     reads as a name rather than a form. `title` for one it truncates. -->
+	<div class="flex items-center gap-1 min-w-0">
+		{#snippet summaryText()}
+			<span
+				class="min-w-0 truncate text-xs {emptyString(summary)
+					? 'text-tertiary italic font-normal'
+					: 'font-medium text-emphasis'}"
+				title={summary}>{emptyString(summary) ? 'Add a summary...' : summary}</span
+			>
+		{/snippet}
 		<PathEditPopover
-			penVisibility={emptyString(summary) ? 'always' : 'hover'}
+			label={summaryText}
 			bind:summary
 			bind:path={newEditedPath}
 			bind:snapshotPath={pathSnapshot}
