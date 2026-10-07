@@ -496,8 +496,9 @@ async fn update_draft(
         }
     }
 
-    // The raw-app editor runs a draft's inline runnables as whoever opens it, so a builder's
-    // draft is refused the inline code its deploy would be.
+    // The raw-app editor runs a draft as whoever opens it: its inline runnables, and its frontend
+    // code with their session unless the policy sandboxes the preview. So a builder's draft is
+    // held to what its deploy would be.
     if authed.is_operator && kind == UserDraftItemKind::RawApp {
         if let Some(value) = &req.value {
             let draft: serde_json::Value = serde_json::from_str(&strip_json_nul(value.0.get()))
@@ -506,6 +507,11 @@ async fn update_draft(
                 return Err(Error::PermissionDenied(
                     "Operators with builder rights cannot save an app carrying inline scripts"
                         .to_string(),
+                ));
+            }
+            if draft.pointer("/policy/sandbox") != Some(&serde_json::Value::Bool(true)) {
+                return Err(Error::PermissionDenied(
+                    "Operators with builder rights must keep an app draft sandboxed".to_string(),
                 ));
             }
         }
