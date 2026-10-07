@@ -112,7 +112,8 @@
 			? config.worker_tags != undefined ||
 				config.dedicated_worker != undefined ||
 				config.dedicated_workers != undefined
-				? config
+				? // a copy: editing the draft must not touch the saved config it is compared against
+					$state.snapshot(config)
 				: {
 						worker_tags: []
 					}
