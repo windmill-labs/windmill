@@ -391,34 +391,28 @@
 	// Seeded once per call rather than once per mount: a tab already showing this item is
 	// reused for the next request, so a latch on "seeded" would leave the previous call's
 	// arguments on screen.
+	//
+	// An effect because neither end of this is an event: the form does not exist when the
+	// reader presses Preview — the page fetches the deployed item first — so there is nothing
+	// to seed until `runForm` lands, and a call arriving on an already-open tab has to seed a
+	// form that is already mounted. `onMount` answers neither.
 	let seededCallId: string | undefined = undefined
+	let seededCall: PendingRun | undefined = undefined
 	$effect(() => {
 		if (!pendingRun || !runForm) return
 		if (seededCallId === pendingRun.toolCallId) return
 		seededCallId = pendingRun.toolCallId
+		seededCall = pendingRun
 		runForm.setArgs(pendingRun.args ?? {})
 	})
 
 	// The form here is a copy, so what the reader typed into it would be lost when the call
 	// goes back to the card — the card would then offer, and run, the arguments this page
-	// opened with. Written on the way out rather than per keystroke: one hand-back, whether
-	// the tab closed, was re-pointed, or the reader picked a version.
+	// opened with. Written on the way out rather than per keystroke.
 	//
-	// Keyed on the call rather than the object naming it, which is rebuilt whenever the draft
-	// or the posture changes: this must not re-run on either, since its own write to that
-	// draft would be what re-ran it.
-	$effect(() => {
-		const id = pendingRun?.toolCallId
-		if (!id) return
-		const call = untrack(() => pendingRun)
-		return () =>
-			untrack(() => {
-				// Only what this call's own form held. The next call for this item re-points the
-				// same tab without remounting, and its seeding may land first — handing this one
-				// the arguments of a proposal that was never on screen for it.
-				if (seededCallId === id) call?.handBack(args ?? {})
-			})
-	})
+	// The call this page was holding, not whichever one it holds now: by the time this runs
+	// the tab has usually already stopped naming it, which is what ended the ownership.
+	onDestroy(() => seededCall?.handBack(args ?? {}))
 
 	// The dev workspace's editor is not one the session panel can host, so from a preview tab
 	// it opens in a new browser tab, as the session editors' own entry does.
