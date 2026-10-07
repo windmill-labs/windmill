@@ -128,6 +128,11 @@ pub fn build_agent_http_client(
 pub struct PingJobStatus {
     pub mem_peak: Option<i32>,
     pub current_mem: Option<i32>,
+    /// Read the cancel state without writing the ping. A server that predates the field
+    /// ignores it and does the full ping with the fields above, which answers the same
+    /// question.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cancel_check_only: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug)]

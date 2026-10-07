@@ -2189,6 +2189,34 @@ pub async fn update_worker_ping_from_job_query(
     Ok(())
 }
 
+/// The cancel half of [`update_job_ping_query`] without its write: same answer, but the
+/// job's ping is left alone, so it does not count as a liveness signal. Checks no
+/// permission: the caller MUST be the worker running the job, or a server acting for it.
+pub async fn job_cancel_status_query(
+    job_id: &Uuid,
+    db: &DB,
+) -> anyhow::Result<PingJobStatusResponse> {
+    let r = sqlx::query!(
+        "SELECT canceled_by, canceled_reason FROM v2_job_queue WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(to_anyhow)?;
+    Ok(match r {
+        Some(x) => PingJobStatusResponse {
+            canceled_by: x.canceled_by,
+            canceled_reason: x.canceled_reason,
+            already_completed: false,
+        },
+        None => PingJobStatusResponse {
+            canceled_by: None,
+            canceled_reason: None,
+            already_completed: true,
+        },
+    })
+}
+
 pub async fn update_job_ping_query(
     job_id: &Uuid,
     db: &DB,
