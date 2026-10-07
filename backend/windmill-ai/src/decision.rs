@@ -201,17 +201,28 @@ struct OpenAIDecisionsResponse {
 fn openai_input(state: &Value) -> Value {
     match state {
         Value::String(_) => state.clone(),
-        Value::Array(items)
-            if !items.is_empty()
-                && items.iter().all(|m| {
-                    m.get("role").and_then(Value::as_str) == Some("user")
-                        && m.get("content").is_some()
-                }) =>
-        {
+        Value::Array(items) if !items.is_empty() && items.iter().all(is_openai_user_message) => {
             state.clone()
         }
         _ => Value::String(state.to_string()),
     }
+}
+
+/// Exactly a message the Decisions API reads: `role: "user"` with a text, or with parts that are
+/// each an `input_text` or an `input_image`.
+fn is_openai_user_message(message: &Value) -> bool {
+    let is_part = |part: &Value| {
+        matches!(
+            part.get("type").and_then(Value::as_str),
+            Some("input_text" | "input_image")
+        )
+    };
+    message.get("role").and_then(Value::as_str) == Some("user")
+        && match message.get("content") {
+            Some(Value::String(_)) => true,
+            Some(Value::Array(parts)) => !parts.is_empty() && parts.iter().all(is_part),
+            _ => false,
+        }
 }
 
 /// The questions as OpenAI's Decisions API takes them: a list naming each question, with a
@@ -488,6 +499,17 @@ mod tests {
         assert_eq!(
             openai_input(&json!([{"role": "admin"}])),
             json!("[{\"role\":\"admin\"}]")
+        );
+        for records in [
+            json!([{"role": "user", "content": {"ticket": "charged twice"}}]),
+            json!([{"role": "user", "content": null}]),
+            json!([{"role": "user", "content": ["a"]}]),
+        ] {
+            assert_eq!(openai_input(&records), json!(records.to_string()));
+        }
+        assert_eq!(
+            openai_input(&json!([{"role": "user", "content": "Hi"}])),
+            json!([{"role": "user", "content": "Hi"}])
         );
         // A chat history is evaluated as text: OpenAI takes user messages only.
         let history =
