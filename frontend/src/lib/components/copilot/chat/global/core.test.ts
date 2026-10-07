@@ -4709,6 +4709,7 @@ describe('global AI tools', () => {
 			expect(onDeployed).toHaveBeenCalledWith({
 				sessionId: 'sess-123',
 				kind: 'raw_app',
+				storagePath: 'f/apps/report',
 				path: 'f/apps/report'
 			})
 		} finally {

@@ -5038,6 +5038,9 @@ function getSessionScreenshot(sessionId: string | undefined): Promise<SessionScr
 export type DeployedInSessionHandler = (req: {
 	sessionId: string | undefined
 	kind: 'script' | 'flow' | 'raw_app'
+	/** The path the item's draft, and so its open editor, is keyed on. */
+	storagePath: string
+	/** Where the deploy landed. */
 	path: string
 }) => void
 
@@ -8651,24 +8654,29 @@ async function deployDraft(
 	// synthetic storage key never exists deployed, so the entry would otherwise
 	// stop matching anything after the draft is gone.
 	const deployedKind = itemKindFor(type, triggerKind)
+	const draftStoragePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
 	if (deployedKind) {
-		toolCallbacks.onItemDeployed?.(
-			deployedKind,
-			getGlobalDraftStoragePath(workspace, type, path, triggerKind),
-			deployedPath
-		)
+		toolCallbacks.onItemDeployed?.(deployedKind, draftStoragePath, deployedPath)
 	}
 
-	// Reload the session preview if it's open on the deployed item. Map the
-	// deploy type to the preview kind — a raw app deploys under 'app' but the
-	// preview addresses it as 'raw_app'; non-previewable types map to undefined.
+	// Reload the session preview if it's open on the deployed item, which its editor
+	// knows by the draft's storage path. Map the deploy type to the preview kind — a
+	// raw app deploys under 'app' but the preview addresses it as 'raw_app';
+	// non-previewable types map to undefined.
 	const previewKindByType: Partial<Record<WorkspaceItemType, 'script' | 'flow' | 'raw_app'>> = {
 		script: 'script',
 		flow: 'flow',
 		app: 'raw_app'
 	}
 	const kind = previewKindByType[type]
-	if (kind) deployedInSessionHandler?.({ sessionId, kind, path })
+	if (kind) {
+		deployedInSessionHandler?.({
+			sessionId,
+			kind,
+			storagePath: draftStoragePath,
+			path: deployedPath
+		})
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
@@ -8942,8 +8950,6 @@ export function prepareGlobalUserMessage(
 		content += `path: ${activeEditor.path}\n`
 		content += `isLiveDraft: true\n`
 		if (activeEditor.isNew) {
-			// The template only lives in the open editor until the first edit saves it, so
-			// init_app would see no draft and overwrite it with a second app.
 			content +=
 				'isNew: true — the user just started this item from the new-item builder; it holds the starter template and is the item to build. Edit it in place; do not create another one.\n'
 		}
