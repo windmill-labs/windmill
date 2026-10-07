@@ -301,6 +301,47 @@
 	let openDelete = $state(false)
 	let openClean = $state(false)
 	let openRestart = $state(false)
+	let pendingConfig: typeof nconfig | undefined = $state()
+
+	// Mirrors `reload_worker_config` in backend/src/monitor.rs, which decides the restart. It
+	// compares the body that is sent rather than the draft, and only the fields a worker loads.
+	const RESTART_FIELDS = [
+		'dedicated_worker',
+		'dedicated_workers',
+		'init_bash',
+		'periodic_script_bash',
+		'periodic_script_interval_seconds',
+		'native_mode'
+	] as const
+	const OTHER_WORKER_FIELDS = [
+		'worker_tags',
+		'priority_tags',
+		'additional_python_paths',
+		'pip_local_dependencies',
+		'object_store_cache_config'
+	] as const
+	function restartsWorkers(body: typeof nconfig): boolean {
+		if (activeWorkers === 0) return false
+		const saved: typeof nconfig = config ?? {}
+		const comparable = (c: typeof nconfig, k: keyof typeof nconfig) =>
+			orderedJsonStringify(replaceFalseWithUndefined(cleanWorkerGroupConfig({ v: c[k] })))
+		const changed = (k: keyof typeof nconfig) => comparable(saved, k) !== comparable(body, k)
+		const restartFieldChanged = RESTART_FIELDS.some(changed)
+		const onlyPauseChanged =
+			changed('paused') &&
+			!restartFieldChanged &&
+			!OTHER_WORKER_FIELDS.some(changed) &&
+			!hasEnvVarChanges
+		const dedicated =
+			body.dedicated_worker != undefined || (body.dedicated_workers?.length ?? 0) > 0
+		return !onlyPauseChanged && (dedicated || restartFieldChanged)
+	}
+
+	async function saveConfig(body: typeof nconfig) {
+		await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: body })
+		sendUserToast('Configuration set')
+		dispatch('reload')
+	}
 
 	// Compute hashed tags for display (actual tags used by the worker)
 	let hashedDedicatedTags: Map<string, string> = $state(new Map())
@@ -399,6 +440,31 @@
 			>Are you sure you want to clean the cache of all workers of this worker group (will also
 			restart the workers and expect supervisor to restart them) ?</span
 		>
+	</div>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={pendingConfig != undefined}
+	title="Apply changes and restart workers"
+	confirmationText="Apply and restart"
+	on:canceled={() => {
+		pendingConfig = undefined
+	}}
+	on:confirmed={async () => {
+		const body = pendingConfig
+		pendingConfig = undefined
+		if (body) {
+			await saveConfig(body)
+		}
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span
+			>Applying these changes will restart the {pluralize(activeWorkers, 'worker')} of worker group '{name}'.
+			Workers finish their running job, shut down gracefully and are expected to be restarted by
+			their supervisor.</span
+		>
+		<span>Pausing or resuming a worker group alone does not restart its workers.</span>
 	</div>
 </ConfirmationModal>
 
@@ -1252,12 +1318,12 @@
 									config?.dedicated_worker == undefined &&
 									config?.dedicated_workers == undefined &&
 									nconfig.worker_tags?.length === 0
-								await ConfigService.updateConfig({
-									name: 'worker__' + name,
-									requestBody: inheritsTags ? { ...nconfig, worker_tags: undefined } : nconfig
-								})
-								sendUserToast('Configuration set')
-								dispatch('reload')
+								const body = inheritsTags ? { ...nconfig, worker_tags: undefined } : nconfig
+								if (restartsWorkers(body)) {
+									pendingConfig = body
+								} else {
+									await saveConfig(body)
+								}
 							}}
 							disabled={(!hasChanges &&
 								!hasEnvVarChanges &&
