@@ -908,7 +908,7 @@ const command = new Command()
   )
   .option(
     "--schema <schema:string>",
-    "Schema to use with --datatable. Created (CREATE SCHEMA IF NOT EXISTS) if it doesn't already exist."
+    "Schema to use with --datatable. If it doesn't exist yet, a sql_to_apply/ migration (CREATE SCHEMA IF NOT EXISTS) is written for it."
   )
   .option(
     "--overwrite",
