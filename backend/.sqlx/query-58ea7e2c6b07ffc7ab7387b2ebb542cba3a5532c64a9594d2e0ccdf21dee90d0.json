@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1 AND workspace_id = $2 AND running)",
+  "query": "SELECT canceled_by IS NOT NULL FROM v2_job_queue WHERE id = $1 AND workspace_id = $2 AND running",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "exists",
+        "name": "?column?",
         "type_info": "Bool"
       }
     ],
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "ee769c78ec0a782de18911cdcb655aad93cf23321cd0f42f7ffa5348bfbea26e"
+  "hash": "58ea7e2c6b07ffc7ab7387b2ebb542cba3a5532c64a9594d2e0ccdf21dee90d0"
 }
