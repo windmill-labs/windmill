@@ -47,7 +47,7 @@ wmill app new \
 | Flag | When to add it |
 |---|---|
 | `--datatable <name>` | The app stores data: the data table settled in step 1. Without it, the app is created with no datatable. |
-| `--schema <name>` | Together with `--datatable`, when the app's tables go in a schema, new or existing. Creates the schema with `CREATE SCHEMA IF NOT EXISTS` if it doesn't already exist. Leave it out for `public`. |
+| `--schema <name>` | Together with `--datatable`, when the app's tables go in a schema, new or existing. If the schema doesn't exist yet, writes a `sql_to_apply/` migration with `CREATE SCHEMA IF NOT EXISTS`, applied like any other migration (see "SQL Migrations" below). Leave it out for `public`. |
 | `--overwrite` | The target directory already exists and the user said it's OK to replace. Without it, non-interactive mode aborts with an error so you don't clobber existing work. |
 | `--no-open-in-desktop` | Already implied in non-interactive mode; only needed if you're somehow running interactively. |
 

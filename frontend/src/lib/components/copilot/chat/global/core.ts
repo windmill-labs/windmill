@@ -8984,7 +8984,7 @@ export function prepareGlobalUserMessage(
 			// The template only lives in the open editor until the first edit saves it, so
 			// init_app would see no draft and overwrite it with a second app.
 			content +=
-				'isNew: true — the user just started this item from the new-item builder; it holds the starter template and is the item to build. Edit it in place; do not create another one. For an app, its files are the framework they chose and the `data` config read_workspace_item shows is the data setup they chose: ask about neither again.\n'
+				'isNew: true — the user just started this item from the new-item builder; it holds the starter template and is the item to build. Edit it in place; do not create another one. For an app, its files are the framework it was started with and the `data` config read_workspace_item shows is the data setup it was started with: ask about neither.\n'
 		}
 		content += '\n'
 	}

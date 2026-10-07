@@ -41,13 +41,13 @@ A question left unanswered or dismissed is not a go-ahead for the defaults: stop
 
 Then build what was chosen: the data table and schema become the app's `data.datatable` and `data.schema`, the tables it uses, reused or new, go in `data.tables`, and a new schema is created (`CREATE SCHEMA IF NOT EXISTS`) before the tables that go in it.
 <!-- cli-only -->
-`wmill app new --datatable <name> --schema <name>` records both and creates the schema.
+`wmill app new --datatable <name> --schema <name>` records both and, for a schema that does not exist yet, writes the migration in `sql_to_apply/` that creates it: nothing exists in the database until `wmill app dev` applies that migration, so the app's table migrations come after it.
 <!-- /cli-only -->
 <!-- chat-only -->
 
 ### An app that arrives already set up
 
-An app the user just started from the new-app dialog is already set up: its files are the framework template they picked, and a `data` config it carries (`data.datatable`, `data.schema` or `data.tables`) is the data setup they chose. Build that app in place, in that framework and with that data config. Do not ask for either again, and do not create a second app. Only when it carries no data config and has to store data is the data setup still to ask.
+An app the user just started from the new-app dialog is already set up: its files are the framework template it was started with, and a `data` config it carries (`data.datatable`, `data.schema` or `data.tables`) is the data setup it was started with. Build that app in place, with that data config, and in that framework unless the user now names another. Do not ask for either, and do not create a second app. Only when it carries no data config and has to store data is the data setup still to ask.
 <!-- /chat-only -->
 
 ## Frontend

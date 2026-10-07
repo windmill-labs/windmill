@@ -921,7 +921,7 @@ Then build what was chosen: the data table and schema become the app's \`data.da
 
 ### An app that arrives already set up
 
-An app the user just started from the new-app dialog is already set up: its files are the framework template they picked, and a \`data\` config it carries (\`data.datatable\`, \`data.schema\` or \`data.tables\`) is the data setup they chose. Build that app in place, in that framework and with that data config. Do not ask for either again, and do not create a second app. Only when it carries no data config and has to store data is the data setup still to ask.
+An app the user just started from the new-app dialog is already set up: its files are the framework template it was started with, and a \`data\` config it carries (\`data.datatable\`, \`data.schema\` or \`data.tables\`) is the data setup it was started with. Build that app in place, with that data config, and in that framework unless the user now names another. Do not ask for either, and do not create a second app. Only when it carries no data config and has to store data is the data setup still to ask.
 
 ## Frontend
 

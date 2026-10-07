@@ -52,7 +52,7 @@ wmill app new \
 | Flag | When to add it |
 |---|---|
 | `--datatable <name>` | The app stores data: the data table settled in step 1. Without it, the app is created with no datatable. |
-| `--schema <name>` | Together with `--datatable`, when the app's tables go in a schema, new or existing. Creates the schema with `CREATE SCHEMA IF NOT EXISTS` if it doesn't already exist. Leave it out for `public`. |
+| `--schema <name>` | Together with `--datatable`, when the app's tables go in a schema, new or existing. If the schema doesn't exist yet, writes a `sql_to_apply/` migration with `CREATE SCHEMA IF NOT EXISTS`, applied like any other migration (see "SQL Migrations" below). Leave it out for `public`. |
 | `--overwrite` | The target directory already exists and the user said it's OK to replace. Without it, non-interactive mode aborts with an error so you don't clobber existing work. |
 | `--no-open-in-desktop` | Already implied in non-interactive mode; only needed if you're somehow running interactively. |
 
@@ -287,7 +287,7 @@ With no data table in the workspace there is nothing to choose: say that one has
 A question left unanswered or dismissed is not a go-ahead for the defaults: stop there and say what is still needed.
 
 Then build what was chosen: the data table and schema become the app's `data.datatable` and `data.schema`, the tables it uses, reused or new, go in `data.tables`, and a new schema is created (`CREATE SCHEMA IF NOT EXISTS`) before the tables that go in it.
-`wmill app new --datatable <name> --schema <name>` records both and creates the schema.
+`wmill app new --datatable <name> --schema <name>` records both and, for a schema that does not exist yet, writes the migration in `sql_to_apply/` that creates it: nothing exists in the database until `wmill app dev` applies that migration, so the app's table migrations come after it.
 
 ## Frontend
 
