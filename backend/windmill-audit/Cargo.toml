@@ -21,3 +21,6 @@ serde_json.workspace = true
 tracing.workspace = true
 windmill-common = { workspace = true, default-features = false }
 lazy_static.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
