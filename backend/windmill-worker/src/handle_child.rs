@@ -1074,8 +1074,8 @@ fn child_joined_output_stream(
         .take()
         .expect("child did not have a handle to stdout");
 
-    let stdout = BufReader::new(stdout).lines();
-    let stderr = BufReader::new(stderr).lines();
+    let stdout = BufReader::new(stdout).split(b'\n');
+    let stderr = BufReader::new(stderr).split(b'\n');
     stream::select(
         lines_to_stream(stderr, true, job_id.clone(), w_id.clone())
             .map(|l| l.map(|line| OutputLine { stderr: true, line })),
@@ -1085,16 +1085,30 @@ fn child_joined_output_stream(
 }
 
 pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
-    mut lines: tokio::io::Lines<R>,
+    mut lines: tokio::io::Split<R>,
     stderr: bool,
     job_id: Uuid,
     w_id: String,
 ) -> impl futures::Stream<Item = io::Result<String>> {
     stream::poll_fn(move |cx| {
         std::pin::Pin::new(&mut lines)
-            .poll_next_line(cx)
-            .map(|result| process_streaming_log_lines(result, stderr, &job_id, &w_id))
+            .poll_next_segment(cx)
+            .map(|result| {
+                let result = result.map(|segment| segment.map(decode_output_line));
+                process_streaming_log_lines(result, stderr, &job_id, &w_id)
+            })
     })
+}
+
+/// Child output is not guaranteed to be UTF-8 (e.g. pwsh on Windows writes in the
+/// console code page), so decode lossily: a strict decode errors out and ends log
+/// capture for the rest of the job. Strips a trailing `\r` like `lines()` did.
+fn decode_output_line(mut segment: Vec<u8>) -> String {
+    if segment.last() == Some(&b'\r') {
+        segment.pop();
+    }
+    String::from_utf8(segment)
+        .unwrap_or_else(|err| String::from_utf8_lossy(err.as_bytes()).into_owned())
 }
 
 pub fn process_status(
@@ -1142,5 +1156,34 @@ mod tests {
         assert_eq!(spent.remaining_secs(), Some(1));
         let left = JobDeadline(Some(Instant::now() + Duration::from_secs(120)));
         assert!(matches!(left.remaining_secs(), Some(s) if (118..=120).contains(&s)));
+    }
+
+    // "Prüfe" in CP850/1252 is not UTF-8. A strict decode used to error on that
+    // line and stop log capture, dropping every line after it.
+    #[tokio::test]
+    async fn a_non_utf8_line_is_decoded_lossily_and_later_lines_still_arrive() {
+        let output: &[u8] =
+            b"start\r\nPr\x81fe Benutzer\nPr\xfcfe\nGr\xc3\xbc\xc3\x9fe\r\nafter\n\nlast";
+        let lines: Vec<String> = lines_to_stream(
+            BufReader::new(output).split(b'\n'),
+            false,
+            Uuid::nil(),
+            "w".into(),
+        )
+        .map(|line| line.expect("reading from a byte slice cannot fail"))
+        .collect()
+        .await;
+        assert_eq!(
+            lines,
+            vec![
+                "start",
+                "Pr\u{FFFD}fe Benutzer",
+                "Pr\u{FFFD}fe",
+                "Grüße",
+                "after",
+                "",
+                "last",
+            ]
+        );
     }
 }
