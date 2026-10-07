@@ -283,32 +283,56 @@
 		}
 	}
 
+	async function createSchema(input: {
+		workspace: string
+		datatable: string
+		schema: string
+		role: string | undefined
+		migrationRole: string | undefined
+	}) {
+		try {
+			const { dbSchemaOpsWithPreviewScripts } = await import('$lib/components/dbOps')
+			const dbOps = dbSchemaOpsWithPreviewScripts({
+				workspace: input.workspace,
+				input: {
+					type: 'database',
+					resourceType: 'postgresql',
+					resourcePath: `datatable://${input.datatable}`,
+					role: input.role,
+					migrationRole: input.migrationRole
+				}
+			})
+			await dbOps.onCreateSchema({ schema: input.schema })
+		} catch (e) {
+			console.error('Failed to create schema:', e)
+			sendUserToast(`Failed to create schema ${input.schema}: ${e}`, true)
+		}
+	}
+
+	// The start that is in flight, and the schema it is waiting on: creating one is a job,
+	// which can sit in the queue long enough for a silent modal to look dead.
+	let starting = $state<{ mode: RawAppBuildMode; schema?: string } | undefined>(undefined)
+
 	async function start(mode: RawAppBuildMode) {
+		if (starting) return
 		const template = templates[selectedTemplateIndex]
 
 		if (schemaMode === 'new' && newSchemaName && usableDatatable && opWs) {
-			try {
-				const { dbSchemaOpsWithPreviewScripts } = await import('$lib/components/dbOps')
-				const dbOps = dbSchemaOpsWithPreviewScripts({
-					workspace: opWs,
-					input: {
-						type: 'database',
-						resourceType: 'postgresql',
-						resourcePath: `datatable://${usableDatatable}`,
-						role: effectiveRole,
-						migrationRole: defaultMigrationRole(
-							usableDatatable,
-							roles.current.permissioned,
-							roles.current.defaultRole
-						)
-					}
-				})
-				await dbOps.onCreateSchema({ schema: newSchemaName })
-			} catch (e) {
-				console.error('Failed to create schema:', e)
-				sendUserToast(`Failed to create schema: ${e}`, true)
-			}
+			starting = { mode, schema: newSchemaName }
+			await createSchema({
+				workspace: opWs,
+				datatable: usableDatatable,
+				schema: newSchemaName,
+				role: effectiveRole,
+				migrationRole: defaultMigrationRole(
+					usableDatatable,
+					roles.current.permissioned,
+					roles.current.defaultRole
+				)
+			})
 		}
+
+		starting = undefined
 
 		const formattedTables = preWhitelistedTables.map(formatDataTableRef)
 		const keepsDatatable = usableDatatable !== undefined
@@ -364,17 +388,17 @@
 					{#each templates as t, i}
 						<button
 							onclick={() => (selectedTemplateIndex = i)}
-							class="relative w-24 h-24 flex justify-between py-5 flex-col {selectedTemplateIndex ===
+							class="relative w-20 h-[4.5rem] flex justify-between py-3 flex-col {selectedTemplateIndex ===
 							i
 								? 'bg-surface-accent-selected border border-accent'
 								: ''} hover:bg-surface-hover border rounded-lg transition-all"
 						>
 							<div class="w-full flex items-center justify-center">
-								<FileEditorIcon file={'.' + t.icon} size={32} />
+								<FileEditorIcon file={'.' + t.icon} size={22} />
 							</div>
-							<div class="center-center w-full text-sm text-secondary">{t.name}</div>
+							<div class="center-center w-full text-xs text-secondary">{t.name}</div>
 							{#if t.recommended}
-								<div class="absolute -top-2 left-1/2 -translate-x-1/2">
+								<div class="absolute -top-3 left-1/2 -translate-x-1/2">
 									<Badge color="blue" small>Recommended</Badge>
 								</div>
 							{/if}
@@ -572,7 +596,9 @@
 			{/if}
 
 			<div class="pt-6 flex items-center justify-end gap-3">
-				{#if aiOffered}
+				{#if starting?.schema}
+					<p class="mr-auto text-xs text-secondary">Creating schema {starting.schema}…</p>
+				{:else if aiOffered}
 					<p class="mr-auto text-xs text-hint">You can always switch later.</p>
 				{/if}
 				<!-- One accent per view: the editor button takes it only when AI cannot. -->
@@ -581,7 +607,8 @@
 					unifiedSize="md"
 					onclick={() => start('code')}
 					startIcon={aiOffered ? { icon: Code } : undefined}
-					disabled={!canStart}
+					loading={starting?.mode === 'code'}
+					disabled={!canStart || starting !== undefined}
 				>
 					{aiOffered ? 'Start with code editor' : 'Create app'}
 				</Button>
@@ -591,8 +618,8 @@
 						unifiedSize="md"
 						onclick={() => start('ai')}
 						startIcon={{ icon: Sparkles }}
-						loading={!aiConfigLoaded}
-						disabled={!canStart || !isAiEnabled}
+						loading={!aiConfigLoaded || starting?.mode === 'ai'}
+						disabled={!canStart || !isAiEnabled || starting !== undefined}
 					>
 						Start with AI
 					</Button>

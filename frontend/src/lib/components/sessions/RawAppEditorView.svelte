@@ -10,12 +10,12 @@
 		type RawAppTemplatePickerResult
 	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
 	import { runtimeRawAppToDraft } from './appDraftCodec'
+	import ViewportOverlays from '$lib/components/common/ViewportOverlays.svelte'
 	import { withWorkspaceParam } from './sessionMode.svelte'
-	import { deleteSession } from './sessionState.svelte'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
-	import type { SessionRuntime } from './sessionRuntime.svelte'
+	import { removeSession, type SessionRuntime } from './sessionRuntime.svelte'
 	import { FRAMEWORK_TEMPLATES, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
@@ -108,7 +108,7 @@
 			// The session was opened for this app alone; with nothing said in it, it goes.
 			const unused = runtime.manager.displayMessages.length === 0
 			await goto(withWorkspaceParam(`${base}/apps_raw/edit/${path}`, workspaceId))
-			if (unused) deleteSession(runtime.sessionId)
+			if (unused) removeSession(runtime.sessionId)
 			return
 		}
 		// Remounts the editor so the preview builds the picked template.
@@ -319,10 +319,13 @@
 		(cell.store.val?.draft_path || cell.store.val?.path) ?? path}
 >
 	{#snippet editor()}
-		<RawAppTemplatePicker
-			bind:open={() => awaitingSetup, (open) => (setupSettled = !open)}
-			onStart={onSetup}
-		/>
+		<!-- Over the whole page, not the preview pane: it decides what the session is for. -->
+		<ViewportOverlays>
+			<RawAppTemplatePicker
+				bind:open={() => awaitingSetup, (open) => (setupSettled = !open)}
+				onStart={onSetup}
+			/>
+		</ViewportOverlays>
 		{#if cell.store.val}
 			<!-- newApp: a draft-only app (no_deployed=true) has a truthy synthesized
 			     savedApp but no deployed row, so it must deploy via createApp — keying
