@@ -20,7 +20,15 @@
 
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ArrowUp, Globe2, KeyRound, PlugZap, Settings, WandSparkles, X } from 'lucide-svelte'
+	import {
+		ArrowUp,
+		ExternalLink,
+		Globe2,
+		KeyRound,
+		PlugZap,
+		Settings,
+		WandSparkles
+	} from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { Badge } from '../common'
 	import CloseButton from '../common/CloseButton.svelte'
@@ -366,19 +374,25 @@
 		     goes when the bar cannot hold it, not where it belongs. They fold back below the width
 		     above. -->
 		{#if sideTripsInBar}
+			<!-- The same quiet shape the hero gave them before the bar took them: xs, hint-coloured,
+			     and the hub keeps its outbound mark. They sit beside the page's own buttons, and a
+			     side trip should not read as loudly as the thing the page is for. -->
 			<Button
 				variant="subtle"
-				unifiedSize="sm"
+				unifiedSize="xs"
+				btnClasses="!text-2xs !text-hint"
 				startIcon={{ icon: PlugZap }}
-				on:click={() => homeConnectDrawer?.openDrawer?.()}
+				onClick={() => homeConnectDrawer?.openDrawer?.()}
 			>
 				CLI / MCP
 			</Button>
 			{#if hubOffered}
 				<Button
 					variant="subtle"
-					unifiedSize="sm"
+					unifiedSize="xs"
+					btnClasses="!text-2xs !text-hint"
 					startIcon={{ icon: Globe2 }}
+					endIcon={{ icon: ExternalLink }}
 					href={$hubBaseUrlStore}
 					target="_blank"
 				>
@@ -400,26 +414,21 @@
 		{/if}
 		<!-- Nothing left to hold once the side trips stand in the bar and the composer is on the
 		     page: an ellipsis that opens an empty menu is a button that does nothing. -->
-		{#if showComposer || !sideTripsInBar}
+		<!-- No menu while the hero is on the page and its side trips are in the bar: the hero's own
+		     cross removes it, so an ellipsis holding a second way to do that is a button whose only
+		     item is a duplicate. -->
+		{#if !sideTripsInBar || (showComposer && collapsed)}
 			<DropdownV2
 				placement="bottom-end"
 				size="sm"
 				items={[
-					...(showComposer
+					...(showComposer && collapsed
 						? [
-								collapsed
-									? {
-											displayName: 'Restore session chat',
-											icon: WandSparkles,
-											action: () => setCollapsed(false)
-										}
-									: {
-											// The same words as the cross on the composer itself: one thing, one name,
-											// whichever of the two a reader reaches for.
-											displayName: 'Remove session chat',
-											icon: X,
-											action: () => setCollapsed(true)
-										}
+								{
+									displayName: 'Pin session hero to homepage',
+									icon: WandSparkles,
+									action: () => setCollapsed(false)
+								}
 							]
 						: []),
 					...(sideTripsInBar
