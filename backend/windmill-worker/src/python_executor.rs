@@ -279,9 +279,8 @@ pub async fn uv_pip_compile(
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(conn, w_id, &requirements, worker_name, job_id).await?;
 
-    let PipIndexes { extra_index_url: pip_extra_index_url, index_url: pip_index_url, ws_scoped } =
-        PipIndexes::read(job_id, w_id, conn).await;
-    let ws_suffix = if ws_scoped {
+    let pip_indexes = PipIndexes::snapshot(w_id).await;
+    let ws_suffix = if pip_indexes.ws_scoped {
         format!(":ws:{w_id}")
     } else {
         String::new()
@@ -349,6 +348,7 @@ pub async fn uv_pip_compile(
         if no_cache {
             args.extend(["--no-cache"]);
         }
+        let (pip_extra_index_url, pip_index_url) = pip_indexes.urls(job_id, w_id, conn).await;
         if let Some(url) = pip_extra_index_url.as_ref() {
             url.split(",").for_each(|url| {
                 args.extend(["--extra-index-url", url]);
@@ -2054,8 +2054,11 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
     Ok((pyv, additional_python_paths))
 }
 
-/// The pip index URLs a job resolves and installs from, and whether its workspace overrides
-/// any registry.
+/// The pip index settings a job resolves and installs from, and whether its workspace
+/// overrides any registry.
+///
+/// Both come from one snapshot of the workspace's overrides: read separately, a settings
+/// reload in between could file an install from an overridden index under a shared cache name.
 struct PipIndexes {
     extra_index_url: Option<String>,
     index_url: Option<String>,
@@ -2064,25 +2067,35 @@ struct PipIndexes {
 }
 
 impl PipIndexes {
-    /// Reads the URLs and the scope from one snapshot of the workspace's overrides: read
-    /// separately, a settings reload in between could file an install from an overridden
-    /// index under a shared cache name.
-    async fn read(job_id: &Uuid, w_id: &str, conn: &Connection) -> Self {
+    async fn snapshot(w_id: &str) -> Self {
         let overrides = crate::workspace_registry_overrides(w_id).await;
         let ws_value = |key: &str| match overrides.get(key) {
             Some(serde_json::Value::String(s)) => Some(s.clone()),
             _ => None,
         };
         // An empty value means unset, and an empty workspace override unsets the global one.
-        let extra_index_url = ws_value("pip_extra_index_url")
-            .or(PIP_EXTRA_INDEX_URL.read().await.clone())
-            .filter(|s| !s.trim().is_empty());
-        let index_url = ws_value("pip_index_url")
-            .or(PIP_INDEX_URL.read().await.clone())
-            .filter(|s| !s.trim().is_empty());
         Self {
-            extra_index_url: read_ee_registry(
-                extra_index_url,
+            extra_index_url: ws_value("pip_extra_index_url")
+                .or(PIP_EXTRA_INDEX_URL.read().await.clone())
+                .filter(|s| !s.trim().is_empty()),
+            index_url: ws_value("pip_index_url")
+                .or(PIP_INDEX_URL.read().await.clone())
+                .filter(|s| !s.trim().is_empty()),
+            ws_scoped: !overrides.is_empty(),
+        }
+    }
+
+    /// The `(extra index, index)` URLs to hand uv. Kept apart from [`Self::snapshot`]: it runs
+    /// `EPHEMERAL_TOKEN_CMD`, which a caller served from a cache has no reason to pay for.
+    async fn urls(
+        self,
+        job_id: &Uuid,
+        w_id: &str,
+        conn: &Connection,
+    ) -> (Option<String>, Option<String>) {
+        (
+            read_ee_registry(
+                self.extra_index_url,
                 "pip extra index url",
                 job_id,
                 w_id,
@@ -2090,11 +2103,10 @@ impl PipIndexes {
             )
             .await
             .map(handle_ephemeral_token),
-            index_url: read_ee_registry(index_url, "pip index url", job_id, w_id, conn)
+            read_ee_registry(self.index_url, "pip index url", job_id, w_id, conn)
                 .await
                 .map(handle_ephemeral_token),
-            ws_scoped: !overrides.is_empty(),
-        }
+        )
     }
 }
 
@@ -2557,9 +2569,9 @@ pub async fn handle_python_reqs(
         job_id
     );
 
-    let PipIndexes { extra_index_url, index_url, ws_scoped } =
-        PipIndexes::read(job_id, w_id, conn).await;
-    let pip_indexes = (extra_index_url, index_url);
+    let pip_indexes = PipIndexes::snapshot(w_id).await;
+    let ws_scoped = pip_indexes.ws_scoped;
+    let pip_indexes = pip_indexes.urls(job_id, w_id, conn).await;
     // The wheel dir is shared by every workspace on the worker, and by every worker through
     // the object store, under a name that says nothing of the index it was filled from. A
     // workspace with its own registries gets its own, as its resolution cache does. The id
