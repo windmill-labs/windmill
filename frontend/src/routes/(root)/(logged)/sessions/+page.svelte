@@ -15,6 +15,7 @@
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { BAR_TOP_PAD } from '$lib/components/pageHeaderRegistry.svelte'
 	import { Button } from '$lib/components/common'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { cubicOut } from 'svelte/easing'
@@ -1101,7 +1102,7 @@
 					<Pane
 						bind:size={chatPaneSize}
 						minSize={fullscreen ? 0 : 25}
-						class="flex flex-col min-h-0 {previewCollapsed ? '' : 'pt-11'} {panesAnimating &&
+						class="flex flex-col min-h-0 {previewCollapsed ? '' : BAR_TOP_PAD} {panesAnimating &&
 						!fullscreen
 							? '!bg-transparent'
 							: ''}"
@@ -1140,7 +1141,7 @@
 								if (!fullscreen && !panesAnimating && contentWidth > 0)
 									panelShare = w / contentWidth
 							}}
-							class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0 pt-11' : 'p-2 pl-0'}"
+							class="flex-1 min-h-0 flex flex-col {fullscreen ? `p-0 ${BAR_TOP_PAD}` : 'p-2 pl-0'}"
 						>
 							<!-- The action controls float over the tab strip, so the strip has to reserve
 							     their width or tabs slide underneath them. Measured rather than guessed:

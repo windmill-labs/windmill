@@ -12,7 +12,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
-	import { pageHeader, PHONE_BAR } from './pageHeaderRegistry.svelte'
+	import { BAR_HEIGHT, pageHeader, PHONE_BAR } from './pageHeaderRegistry.svelte'
 	import ContextBridge from './ContextBridge.svelte'
 	import { afterNavigate } from '$app/navigation'
 	import { twMerge } from 'tailwind-merge'
@@ -90,7 +90,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		// next line instead of taking it below its content width — so wrapping here would hand the
 		// trail a line of its own and leave it whole, which is the opposite of what a narrow bar
 		// wants: the trail truncating from its start.
-		phone ? 'h-11 pl-1 pr-2' : 'h-11 pl-2 pr-4',
+		phone ? `${BAR_HEIGHT} pl-1 pr-2` : `${BAR_HEIGHT} pl-2 pr-4`,
 		// The filling surface is what meets the right edge, so the bar keeps no gutter of its own
 		// there.
 		content?.actionsFill && 'pr-0',

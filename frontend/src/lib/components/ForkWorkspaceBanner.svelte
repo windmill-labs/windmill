@@ -1,5 +1,6 @@
 <script lang="ts">
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { Badge } from './common'
 	import { AlertTriangle, ArrowDown, ArrowUp, Pencil } from 'lucide-svelte'
 	import { workspaceStore, userWorkspaces, userStore, type UserExt } from '$lib/stores'
@@ -55,6 +56,11 @@
 		return !isLoading && !!c && !c.skipped_comparison
 	}
 	const hasAnswer = $derived(isAnswerable(comparison, loading))
+
+	/** Bar width from which each badge says what it counts. Below it they keep the icon and the
+	 *  number, which is the part a reader scans for; the tooltip names them either way. */
+	const BAR_FITS_COUNT_LABELS = 1280
+	const compactCounts = $derived(pageHeader.barWidth < BAR_FITS_COUNT_LABELS)
 
 	// Fork is fully in sync with its parent (comparison ran, no ahead/behind diffs).
 	function isUpToDate(c: WorkspaceComparison | undefined): boolean {
@@ -226,7 +232,7 @@
 				title="{changesAhead} ahead of {parentWorkspaceId} — review what this {currentNoun} has to give"
 			>
 				<ArrowUp class="w-3 h-3 inline" />
-				{changesAhead}
+				{changesAhead}{compactCounts ? '' : ' ahead'}
 			</Badge>
 		{/if}
 		{#if changesBehind > 0}
@@ -238,7 +244,7 @@
 				title="{changesBehind} behind {parentWorkspaceId} — review what this {currentNoun} has yet to take"
 			>
 				<ArrowDown class="w-3 h-3 inline" />
-				{changesBehind}
+				{changesBehind}{compactCounts ? '' : ' behind'}
 			</Badge>
 		{/if}
 		{#if conflicts > 0}
@@ -252,7 +258,7 @@
 				title="{conflicts} conflicting item{conflicts !== 1 ? 's' : ''} — review them"
 			>
 				<AlertTriangle class="w-3 h-3 inline" />
-				{conflicts} conflict{conflicts !== 1 ? 's' : ''}
+				{conflicts}{compactCounts ? '' : ` conflict${conflicts !== 1 ? 's' : ''}`}
 			</Badge>
 		{/if}
 		<!-- Drafts are a different axis from the drift beside them: ahead and behind count deployed
@@ -272,7 +278,7 @@
 					: ''} in this {currentNoun}, not deployed anywhere yet — review and deploy"
 			>
 				<Pencil class="w-3 h-3 inline" />
-				{draftCount} draft{draftCount !== 1 ? 's' : ''}
+				{draftCount}{compactCounts ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
 			</Badge>
 		{/if}
 	{/if}

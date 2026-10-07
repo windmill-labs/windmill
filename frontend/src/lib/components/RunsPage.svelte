@@ -21,7 +21,6 @@
 	} from '$lib/stores'
 	import {
 		Button,
-		ButtonType,
 		Drawer,
 		DrawerContent,
 		Skeleton,
@@ -624,216 +623,223 @@
 {/snippet}
 
 {#snippet headerActions()}
-	<!-- Always the icon form: the bar has room for two counters, never for the two labelled
-	     blocks. pr-2 on top of the row's own gap because the counts hang outside their icons,
-	     so without it the badge butts against the first filter.
-	     A phone's bar has room for the filter field and the timeframe and nothing else: the
-	     counters are a glance, and the same numbers are on the chart below. -->
-	<div class="flex items-center pr-2 {phone ? 'hidden' : ''}">
-		<RunsQueue
-			success={filters.val.status ?? null}
-			{queue_count}
-			{suspended_count}
-			onJobsWaiting={() => {
-				jobsFilter('waiting')
-			}}
-			onJobsSuspended={() => {
-				jobsFilter('suspended')
-			}}
-			small
-		/>
-	</div>
-	<!-- The two groups are the widest thing in the bar: they appear only once the bar is wide
-	     enough to hold them next to the search field, below which the same filtering is reachable
-	     from the search field's own `kind` and `status` chips. -->
-	<div class="hidden min-[1500px]:flex gap-2">
-		<ToggleButtonGroup
-			tabListClass="hidden min-[1500px]:flex"
-			bind:selected={
-				() => filters.val.job_kinds ?? 'runs',
-				(v) => (v === 'runs' ? delete filters.val.job_kinds : (filters.val.job_kinds = v))
-			}
-		>
-			{#snippet children({ item })}
-				<ToggleButton size="sm" value="all" label="All" {item} />
-				<ToggleButton
-					size="sm"
-					value="runs"
-					label="Runs"
-					tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
-					{item}
-				/>
-				<ToggleButton
-					size="sm"
-					value="dependencies"
-					label="Deps"
-					tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
-					{item}
-				/>
-				<ToggleButtonMore
-					small
-					hideSelectedOption={innerWidth < smallScreenWidth}
-					togglableItems={[
-						{
-							label: 'Previews',
-							value: 'previews',
-							tooltip: "Previews are jobs that have been started in the editor as 'Tests'"
-						},
-						{
-							label: 'Sync',
-							value: 'deploymentcallbacks',
-							tooltip:
-								'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings'
-						}
-					]}
-					{item}
-					bind:selected={filters.val.job_kinds}
-				/>
-			{/snippet}
-		</ToggleButtonGroup>
-		<ToggleButtonGroup
-			bind:selected={
-				() => filters.val.status ?? 'all',
-				(v) => (v === 'all' ? delete filters.val.status : (filters.val.status = v))
-			}
-			id="status"
-		>
-			{#snippet children({ item })}
-				<ToggleButton size="sm" value={'all'} label="All" {item} />
-				<ToggleButton
-					size="sm"
-					value={'running'}
-					tooltip="Running"
-					class="whitespace-nowrap"
-					icon={CirclePlay}
-					iconProps={{
-						class:
-							'group-data-[state=on]:text-yellow-600 dark:group-data-[state=on]:text-yellow-400'
-					}}
-					{item}
-				/>
-				<ToggleButton
-					size="sm"
-					value={'success'}
-					tooltip="Success"
-					class="whitespace-nowrap"
-					icon={CircleCheck}
-					iconProps={{
-						class: 'group-data-[state=on]:text-green-500 dark:group-data-[state=on]:text-green-300'
-					}}
-					{item}
-				/>
-				<ToggleButton
-					size="sm"
-					value={'failure'}
-					tooltip="Failure"
-					class="whitespace-nowrap"
-					icon={CircleAlert}
-					iconProps={{
-						class: 'group-data-[state=on]:text-red-500 dark:group-data-[state=on]:text-red-300'
-					}}
-					{item}
-				/>
-				<ToggleButton
-					size="sm"
-					value={'canceled'}
-					tooltip="Canceled"
-					class="whitespace-nowrap"
-					icon={Hourglass}
-					selectedColor="gray"
-					{item}
-				/>
-				{#if filters.val.status == 'waiting'}
+	<!-- The page's own row inside the band's actions box: these controls are denser than a page's
+	     two or three buttons, so they take a wider gap than the band's own. `flex-1 min-w-0` passes
+	     the band's flexibility through to the search field, which is what yields under pressure. -->
+	<div class="flex items-center gap-3 flex-1 min-w-0">
+		<!-- Always the icon form: the bar has room for two counters, never for the two labelled
+		     blocks. pr-2 on top of the row's own gap because the counts hang outside their icons,
+		     so without it the badge butts against the first filter.
+		     A phone's bar has room for the filter field and the timeframe and nothing else: the
+		     counters are a glance, and the same numbers are on the chart below. -->
+		<div class="flex items-center pr-2 {phone ? 'hidden' : ''}">
+			<RunsQueue
+				success={filters.val.status ?? null}
+				{queue_count}
+				{suspended_count}
+				onJobsWaiting={() => {
+					jobsFilter('waiting')
+				}}
+				onJobsSuspended={() => {
+					jobsFilter('suspended')
+				}}
+				small
+			/>
+		</div>
+		<!-- The two groups are the widest thing in the bar: they appear only once the bar is wide
+		     enough to hold them next to the search field, below which the same filtering is reachable
+		     from the search field's own `kind` and `status` chips. -->
+		<div class="hidden min-[1500px]:flex gap-2">
+			<ToggleButtonGroup
+				tabListClass="hidden min-[1500px]:flex"
+				bind:selected={
+					() => filters.val.job_kinds ?? 'runs',
+					(v) => (v === 'runs' ? delete filters.val.job_kinds : (filters.val.job_kinds = v))
+				}
+			>
+				{#snippet children({ item })}
+					<ToggleButton size="sm" value="all" label="All" {item} />
 					<ToggleButton
 						size="sm"
-						value={'waiting'}
-						tooltip="Waiting"
-						class="whitespace-nowrap"
-						icon={Hourglass}
-						selectedColor="blue"
+						value="runs"
+						label="Runs"
+						tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
 						{item}
 					/>
-				{:else if filters.val.status == 'suspended'}
 					<ToggleButton
 						size="sm"
-						value={'suspended'}
-						tooltip="Suspended"
-						class="whitespace-nowrap"
-						icon={Hourglass}
-						selectedColor="purple"
+						value="dependencies"
+						label="Deps"
+						tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
 						{item}
 					/>
-				{/if}
-			{/snippet}
-		</ToggleButtonGroup>
-	</div>
+					<ToggleButtonMore
+						small
+						hideSelectedOption={innerWidth < smallScreenWidth}
+						togglableItems={[
+							{
+								label: 'Previews',
+								value: 'previews',
+								tooltip: "Previews are jobs that have been started in the editor as 'Tests'"
+							},
+							{
+								label: 'Sync',
+								value: 'deploymentcallbacks',
+								tooltip:
+									'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings'
+							}
+						]}
+						{item}
+						bind:selected={filters.val.job_kinds}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+			<ToggleButtonGroup
+				bind:selected={
+					() => filters.val.status ?? 'all',
+					(v) => (v === 'all' ? delete filters.val.status : (filters.val.status = v))
+				}
+				id="status"
+			>
+				{#snippet children({ item })}
+					<ToggleButton size="sm" value={'all'} label="All" {item} />
+					<ToggleButton
+						size="sm"
+						value={'running'}
+						tooltip="Running"
+						class="whitespace-nowrap"
+						icon={CirclePlay}
+						iconProps={{
+							class:
+								'group-data-[state=on]:text-yellow-600 dark:group-data-[state=on]:text-yellow-400'
+						}}
+						{item}
+					/>
+					<ToggleButton
+						size="sm"
+						value={'success'}
+						tooltip="Success"
+						class="whitespace-nowrap"
+						icon={CircleCheck}
+						iconProps={{
+							class: 'group-data-[state=on]:text-green-500 dark:group-data-[state=on]:text-green-300'
+						}}
+						{item}
+					/>
+					<ToggleButton
+						size="sm"
+						value={'failure'}
+						tooltip="Failure"
+						class="whitespace-nowrap"
+						icon={CircleAlert}
+						iconProps={{
+							class: 'group-data-[state=on]:text-red-500 dark:group-data-[state=on]:text-red-300'
+						}}
+						{item}
+					/>
+					<ToggleButton
+						size="sm"
+						value={'canceled'}
+						tooltip="Canceled"
+						class="whitespace-nowrap"
+						icon={Hourglass}
+						selectedColor="gray"
+						{item}
+					/>
+					{#if filters.val.status == 'waiting'}
+						<ToggleButton
+							size="sm"
+							value={'waiting'}
+							tooltip="Waiting"
+							class="whitespace-nowrap"
+							icon={Hourglass}
+							selectedColor="blue"
+							{item}
+						/>
+					{:else if filters.val.status == 'suspended'}
+						<ToggleButton
+							size="sm"
+							value={'suspended'}
+							tooltip="Suspended"
+							class="whitespace-nowrap"
+							icon={Hourglass}
+							selectedColor="purple"
+							{item}
+						/>
+					{/if}
+				{/snippet}
+			</ToggleButtonGroup>
+		</div>
 
-	<div class="hidden xl:flex gap-2 items-center">
-		{#if !filters.val.job_trigger_kind || filters.val.job_trigger_kind === '!schedule'}
-			<div class="flex items-center gap-1" title="Show schedules">
+		<div class="hidden xl:flex gap-2 items-center">
+			{#if !filters.val.job_trigger_kind || filters.val.job_trigger_kind === '!schedule'}
+				<div class="flex items-center gap-1" title="Show schedules">
+					<Toggle
+						size="xs"
+						id="show-schedules"
+						bind:checked={
+							() => filters.val.job_trigger_kind !== '!schedule',
+							(v) =>
+								v ? delete filters.val.job_trigger_kind : (filters.val.job_trigger_kind = '!schedule')
+						}
+					/>
+					<Calendar size={14} />
+				</div>
+			{/if}
+			<div class="flex items-center gap-1" title="Show future jobs">
 				<Toggle
 					size="xs"
-					id="show-schedules"
+					id="show-future-jobs"
 					bind:checked={
-						() => filters.val.job_trigger_kind !== '!schedule',
-						(v) =>
-							v ? delete filters.val.job_trigger_kind : (filters.val.job_trigger_kind = '!schedule')
+						() => filters.val.show_future_jobs !== false,
+						(v) => (v ? delete filters.val.show_future_jobs : (filters.val.show_future_jobs = false))
 					}
 				/>
-				<Calendar size={14} />
+				<Clock size={14} />
 			</div>
-		{/if}
-		<div class="flex items-center gap-1" title="Show future jobs">
-			<Toggle
-				size="xs"
-				id="show-future-jobs"
-				bind:checked={
-					() => filters.val.show_future_jobs !== false,
-					(v) => (v ? delete filters.val.show_future_jobs : (filters.val.show_future_jobs = false))
-				}
-			/>
-			<Clock size={14} />
 		</div>
-	</div>
 
-	<!-- The one control in the band that gives way: everything else keeps its width and the
-	     search field takes what is left, down to a width that still shows a filter chip. -->
-	<FilterSearchbar
-		class={twMerge(
-			'relative flex-1',
-			// A phone's bar cannot spare 8rem before the timeframe beside it: the field gives back
-			// whatever is left over once the trail and the timeframe have theirs.
-			phone ? 'min-w-0' : 'min-w-[8rem]',
-			Object.keys(filters.val).length <= 3 ? 'max-w-[20rem]' : 'max-w-[26rem]',
-			ButtonType.UnifiedMinHeightClasses.sm
-		)}
-		schema={runsFilterSearchbarSchema}
-		presets={buildRunsFilterPresets({
-			isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
-			isAdminsWorkspace: $workspaceStore === 'admins'
-		})}
-		bind:value={filters.val}
-		placeholder="Filter runs..."
-		autofocus
-	/>
-	<TimeframeSelect
-		unifiedSize="sm"
-		onClick={() => jobsLoader?.loadJobs(true)}
-		loading={jobsLoader?.loading}
-		items={runsTimeframes}
-		bind:value={_timeframe.val}
-	/>
-	<!-- The filters are shallow-routed, so the search has to come off `window.location` at click
-	     time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
-	     preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway. -->
-	<div class={phone ? 'hidden' : 'contents'}>
-		<OpenInSessionButton
-			source={{
-				page: () => pageHref(RUNS_PATH) + window.location.search,
-				workspaceId: $workspaceStore ?? undefined
-			}}
-			btnProps={{ unifiedSize: 'sm' }}
+		<!-- The one control in the band that gives way: everything else keeps its width and the
+		     search field takes what is left, down to a width that still shows a filter chip. -->
+		<FilterSearchbar
+			class={twMerge(
+				// One width, held: as `flex-1` the field was whatever the row had left over, so a chip
+				// appearing or a filter committing resized it under the cursor, and the last pixels
+				// came off the breadcrumb. `shrink-0` keeps it at 18rem whatever the content does —
+				// the trail is what yields when the bar runs short, which it already does.
+				'relative w-[18rem] shrink-0 max-w-full',
+				// A phone's bar cannot spare that much before the timeframe beside it.
+				phone && 'w-[10rem]'
+			)}
+			schema={runsFilterSearchbarSchema}
+			presets={buildRunsFilterPresets({
+				isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
+				isAdminsWorkspace: $workspaceStore === 'admins'
+			})}
+			bind:value={filters.val}
+			placeholder="Filter runs..."
+			size="sm"
+			autofocus
 		/>
+		<TimeframeSelect
+			unifiedSize="sm"
+			onClick={() => jobsLoader?.loadJobs(true)}
+			loading={jobsLoader?.loading}
+			items={runsTimeframes}
+			bind:value={_timeframe.val}
+		/>
+		<!-- The filters are shallow-routed, so the search has to come off `window.location` at click
+		     time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
+		     preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway. -->
+		<div class={phone ? 'hidden' : 'contents'}>
+			<OpenInSessionButton
+				source={{
+					page: () => pageHref(RUNS_PATH) + window.location.search,
+					workspaceId: $workspaceStore ?? undefined
+				}}
+				btnProps={{ unifiedSize: 'sm' }}
+			/>
+		</div>
 	</div>
 {/snippet}
 
@@ -910,7 +916,7 @@
 		<PageHeaderContent afterName={runsHint} actions={headerActions} actionsFlexible />
 
 		<!-- Graph -->
-		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 mt-2 border rounded-md">
+		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 border rounded-md">
 			<div class="relative z-10 mb-2 flex gap-2">
 				<Tabs bind:selected={graph}>
 					<Tab value="RunChart" label="Duration" id="runs-chart-duration-tab" />

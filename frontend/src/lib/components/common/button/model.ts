@@ -264,7 +264,9 @@ export namespace ButtonType {
 	export const UnifiedSizingClasses: Record<ButtonType.UnifiedSize, string> = {
 		'2xs': 'px-1', // Compact horizontal padding
 		xs: 'px-2',
-		sm: 'px-2', // Regular horizontal padding
+		// One step of its own rather than sharing xs's: sm is the size a page's header buttons are,
+		// where a label needs room to read as a button rather than as text with a box around it.
+		sm: 'px-3',
 		md: 'px-4',
 		lg: 'px-6'
 	}
