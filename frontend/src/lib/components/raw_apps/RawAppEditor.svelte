@@ -1756,8 +1756,11 @@ addEventListener('message', function (e) {
 		if (!sdkPrompt) return
 		const { scopes, ws, key } = sdkPrompt
 		sdkPrompt = undefined
-		if (!(await mintPreviewSdkToken(scopes, ws, key))) return
+		// Recorded before the mint answers, as the deployed app does: a scope edit
+		// reverted while it is in flight must not ask again, or a Decline there would
+		// be overridden by this request's late token.
 		sessionSdkConsent = { ws, scopes }
+		if (!(await mintPreviewSdkToken(scopes, ws, key))) return
 		const viewer = $userStore?.email
 		if (dontAskAgain && viewer) storeSdkConsent(viewer, ws, path, scopes, true)
 	}
