@@ -335,9 +335,9 @@ const NAMEABLE_DRAFT_KINDS: ReadonlySet<UserDraftItemKind> = new Set(
 	Object.keys(deployedExists) as UserDraftItemKind[]
 )
 
-/** What a path resolved to: where the draft is stored, and its value when reaching it
- * already fetched one, so a read does not ask for the same draft twice. */
-type ResolvedDraft = { storagePath: string; value?: unknown }
+/** What a path resolved to: where the draft is stored. Deliberately not the value read on
+ * the way there — see `readGlobalDraftValue` for why a caller must fetch its own. */
+type ResolvedDraft = { storagePath: string }
 
 /**
  * Where the draft a path names is stored. A new item is stored at a generated
@@ -362,7 +362,7 @@ async function resolveDraft(
 	// chat is handed storage paths.
 	if (UserDraft.get(itemKind, path, { workspace }) !== undefined) return { storagePath: path }
 	const own = await fetchBackendDraftValue(workspace, itemKind, path)
-	if (own !== undefined) return { storagePath: path, value: own }
+	if (own !== undefined) return { storagePath: path }
 	return { storagePath: await storagePathForChosenName(workspace, itemKind, path, opts) }
 }
 

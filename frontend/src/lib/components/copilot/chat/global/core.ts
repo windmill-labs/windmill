@@ -4815,8 +4815,8 @@ function addressedDisplayPath(
 	triggerKind?: TriggerKind
 ): string {
 	// From the open editor, which holds the freshest name and answers without a request. A
-	// draft no editor holds falls back to the path the call named; the write's own result
-	// names it properly once the value has been read.
+	// draft no editor holds falls back to the path the call named; the result the write
+	// returns names it from the draft itself.
 	const live = liveGlobalDraftDisplayPath(workspace, type, target.storagePath, triggerKind)
 	return live === target.storagePath ? target.path : live
 }
