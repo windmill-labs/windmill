@@ -175,29 +175,34 @@
 		}
 	}
 
-	/** The app's public url, undefined until it is known and for anything that has none — an app
-	 *  that was never deployed has no row for `secret_of` to answer about. Only fetched where the
-	 *  button that opens it is shown. */
-	let publicUrl = $state<string | undefined>(undefined)
-	async function loadPublicUrl() {
+	/** Whether the app answers at a public url at all. Read from the app this viewer has already
+	 *  loaded, the way the apps table decides the same thing (AppRow) — the secret itself is a
+	 *  request, and asking for one on every app view to decide whether to draw a button is a
+	 *  request per view that most views never use. */
+	// `policy.execution_mode` is where `getAppByPath` carries it; the flat `execution_mode` beside
+	// it is the apps *list* row's field (ListableApp, which is what AppRow reads), so both spellings
+	// are accepted rather than assuming the one the list uses.
+	const hasPublicUrl = $derived(
+		(app?.policy?.execution_mode ?? app?.execution_mode) === 'anonymous'
+	)
+	/** Resolved when the button is used, not when it is drawn. */
+	async function openPublicUrl() {
 		try {
 			const secret = await AppService.getPublicSecretOfApp({ workspace, path })
+			if (!secret) {
+				sendUserToast('This app has no public url', true)
+				return
+			}
 			// Built from this viewer's workspace rather than the navigation one, like everything
 			// else here: the two differ inside a session's preview panel.
-			publicUrl = secret
-				? `${window.location.origin}${base}/public/${workspace}/${secret}`
-				: undefined
-		} catch (_) {
-			publicUrl = undefined
+			window.open(`${window.location.origin}${base}/public/${workspace}/${secret}`, '_blank')
+		} catch (e: any) {
+			sendUserToast('Could not open the public url: ' + (e?.body ?? e?.message ?? e), true)
 		}
 	}
 
 	$effect(() => {
 		if (workspace && path) loadPerms()
-	})
-	$effect(() => {
-		publicUrl = undefined
-		if (ownsPageHeader && !menuHidden && workspace && path) loadPublicUrl()
 	})
 
 	// Both of this page's buttons carry a label, and a phone's bar has room for neither beside the
@@ -205,13 +210,12 @@
 	// measures itself on mount, and starting compact would pop them out a frame later.
 	const compact = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
 	const compactItems: Item[] = $derived([
-		...(publicUrl
+		...(hasPublicUrl
 			? [
 					{
 						displayName: 'Public url',
 						icon: ExternalLink,
-						href: publicUrl,
-						hrefTarget: '_blank' as const
+						action: () => openPublicUrl()
 					}
 				]
 			: []),
@@ -276,16 +280,15 @@
 		     which are what say where each one goes. -->
 		<DropdownV2 items={compactItems} placement="bottom-end" size="sm" />
 	{:else}
-		{#if publicUrl}
+		{#if hasPublicUrl}
 			<!-- The app on its own, at the url anyone it is shared with uses. A new tab rather than
 			     this one: the viewer here is the same app, so replacing it would look like nothing
-			     happened. -->
+			     happened. The secret is fetched by the click, so the url exists only once asked for. -->
 			<Button
 				unifiedSize="sm"
 				variant="subtle"
 				startIcon={{ icon: ExternalLink }}
-				href={publicUrl}
-				target="_blank"
+				onclick={openPublicUrl}
 				title="Open the app's public url in a new tab">Public url</Button
 			>
 		{/if}

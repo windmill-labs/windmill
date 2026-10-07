@@ -15,7 +15,6 @@
 	import { page } from '$app/state'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { onDestroy, untrack } from 'svelte'
-	import { replaceState } from '$app/navigation'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -35,45 +34,19 @@
 
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
 
-	// Which workspace this URL names, in the order the app means them. `?workspace=` is a switch
-	// already made: the root layout applies it to the store, and a modifier-click in the picker
-	// opens a tab carrying it. `?workspace_id=` names a workspace to compare, and nothing else
-	// about where the user is — a session's Review button passes the fork it committed to while
-	// deliberately leaving the navigation workspace alone (SessionChangesBar), as does the
-	// prod→dev link in UpdateDevWorkspaceModal. So a switch outranks it, and in its absence it is
-	// read exactly as it was sent.
-	let currentWorkspaceId: string | undefined = $state(
+	// Which workspace this page compares, read rather than followed. The URL answers it when it
+	// names one: `?workspace=` is a switch already made, which the root layout applies to the
+	// store, and `?workspace_id=` is the workspace a link asked to compare — a session's Review
+	// button passes the fork it committed to while deliberately leaving the navigation workspace
+	// alone (SessionChangesBar), as does the prod→dev link in UpdateDevWorkspaceModal, so it has
+	// to outrank the store. With neither param the store is the answer, and a switch in the trail
+	// moves the page because `fixupUrlAfterWorkspaceSwitch` rewrites whichever param is there.
+	const currentWorkspaceId = $derived(
 		page.url.searchParams.get('workspace') ??
 			page.url.searchParams.get('workspace_id') ??
 			$workspaceStore ??
 			undefined
 	)
-
-	// The breadcrumb's picker switches the workspace without touching `?workspace_id` — so
-	// switching a fork up there left the page comparing the one it opened on. Follow the store:
-	// picking a fork in the trail means comparing that fork.
-	//
-	// Only a change counts, measured against what the store held when the page opened. Reading it
-	// on mount instead would override the `workspace_id` the page was linked with, which is the
-	// case above where the two differ by design.
-	//
-	// `workspace` is written here so a reload keeps the pair now on screen. A plain click in the
-	// picker preventDefaults its own link and switches the store directly, so nothing navigates
-	// afterwards and nothing overwrites this; `fixupUrlAfterWorkspaceSwitch` would rewrite the
-	// param but only once it is already there, which on a page opened with `workspace_id` alone it
-	// never is. A modifier-click navigates instead, to a URL already carrying the same param.
-	let followedWorkspaceId = $workspaceStore
-	$effect(() => {
-		const switched = $workspaceStore
-		untrack(() => {
-			if (!switched || switched === followedWorkspaceId) return
-			followedWorkspaceId = switched
-			currentWorkspaceId = switched
-			const url = new URL(window.location.href)
-			url.searchParams.set('workspace', switched)
-			replaceState(url, page.state)
-		})
-	})
 
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === currentWorkspaceId))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
@@ -300,7 +273,9 @@
 		untrack(() => {
 			comparison = undefined
 			comparisonError = undefined
-			comparisonLoading = true
+			// The flag belongs to `checkForChanges`, which raises it per request and lowers it for
+			// the one still being waited on. Raising it here too left it stuck on the pair that
+			// function refuses — no workspace, or no target yet.
 			checkForChanges()
 		})
 	})
@@ -495,10 +470,12 @@
 			onModeSelected={selectMode}
 		/>
 	{:else if compareTargetId}
-		<!-- Remount on a target change: the merge card owns a selection, a deploy
-		     direction and per-item deployment statuses, none of which carry over to a
-		     different destination. -->
-		{#key compareTargetId}
+		<!-- Remount on either side of the pair changing: the merge card owns a selection, a deploy
+		     direction, per-item deployment statuses, item summaries, pinned rows, deploy
+		     permissions and CI results — none of which carry over to a different pair. Keyed on
+		     the target alone, two forks of one parent shared a mount, since the target is the
+		     parent they have in common. -->
+		{#key `${currentWorkspaceId}->${compareTargetId}`}
 			<CompareWorkspaces
 				{currentWorkspaceId}
 				parentWorkspaceId={compareTargetId}

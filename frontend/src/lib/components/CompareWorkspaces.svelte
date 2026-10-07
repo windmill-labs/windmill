@@ -16,7 +16,7 @@
 		RefreshCw,
 		UserPlus
 	} from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import type { CiTestResult } from '$lib/gen'
 	import { Alert, Badge } from './common'
 	import {
@@ -533,13 +533,26 @@
 		return undefined
 	}
 
+	// Both loops below run one item at a time and outlive the mount that started them: the page
+	// remounts this component when either side of the pair changes, and whatever was in flight then
+	// still resolves. It must not be stored — the summary key is kind and path, which the other
+	// pair spells the same way — and the loop must not keep asking for a pair nobody is looking at.
+	let alive = true
+	onDestroy(() => {
+		alive = false
+	})
+
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
 		// Only fetch summaries for scripts, flows, and apps
 		const itemsToFetch = diffs.filter((diff) =>
 			['script', 'flow', 'app', 'raw_app', 'folder'].includes(diff.kind)
 		)
+		// Read once, so every request in this pass names the pair the pass was started for.
+		const source = currentWorkspaceId
+		const target = parentWorkspaceId
 
 		for (const diff of itemsToFetch) {
+			if (!alive) return
 			const key = getItemKey(diff)
 
 			// Asked for already — including one still in flight, and one whose answer was nothing.
@@ -550,9 +563,10 @@
 
 			// Fetch from both workspaces in parallel
 			const [currentSummary, parentSummary] = await Promise.all([
-				fetchSummary(diff.kind, diff.path, currentWorkspaceId),
-				fetchSummary(diff.kind, diff.path, parentWorkspaceId)
+				fetchSummary(diff.kind, diff.path, source),
+				fetchSummary(diff.kind, diff.path, target)
 			])
+			if (!alive) return
 
 			summaryCache[key] = {
 				current: currentSummary,
@@ -570,8 +584,10 @@
 			(d) =>
 				['flow', 'script', 'app', 'raw_app'].includes(d.kind) || isTriggerOrScheduleKind(d.kind)
 		)
+		const pair = [currentWorkspaceId, parentWorkspaceId]
 		for (const diff of itemsWithOnBehalfOf) {
-			for (const workspace of [currentWorkspaceId, parentWorkspaceId]) {
+			for (const workspace of pair) {
+				if (!alive) return
 				const workspacedKey = getWorkspacedKey(workspace, getItemKey(diff))
 				// Marked before the request, not after it answers: an item that is only ahead does not
 				// exist in the parent, so that side always fails, and a guard keyed on the value it
@@ -580,12 +596,11 @@
 				onBehalfOfRequested.add(workspacedKey)
 
 				try {
-					onBehalfOfInfo[workspacedKey] = await getOnBehalfOf(
-						diff.kind as Kind,
-						diff.path,
-						workspace
-					)
+					const email = await getOnBehalfOf(diff.kind as Kind, diff.path, workspace)
+					if (!alive) return
+					onBehalfOfInfo[workspacedKey] = email
 				} catch {
+					if (!alive) return
 					onBehalfOfInfo[workspacedKey] = undefined
 				}
 			}
@@ -1016,19 +1031,6 @@
 				.map((d) => d.kind)
 		)
 	)
-
-	// A different pair is a different question, and what was asked answered the old one. The summary
-	// key carries only kind and path, so without this a switched target keeps the previous parent's
-	// summaries — and the two Sets would keep it from ever asking again.
-	$effect(() => {
-		;[currentWorkspaceId, parentWorkspaceId]
-		untrack(() => {
-			summaryCache = {}
-			onBehalfOfInfo = {}
-			summariesRequested.clear()
-			onBehalfOfRequested.clear()
-		})
-	})
 
 	// Fetch summaries and on_behalf_of_email when comparison data loads. `untrack`: both fetchers
 	// write the state they also read, and without this the effect depends on their writes and
