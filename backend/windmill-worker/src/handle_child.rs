@@ -317,7 +317,10 @@ pub async fn handle_child(
         };
 
         // Resolves once the process is reaped, to the last signal it was sent, or to `None`
-        // when the kill could not be confirmed.
+        // when the kill could not be confirmed. SIGINT and SIGTERM are only sent where the
+        // sends below are compiled in.
+        let unix_signal =
+            |s: &'static str| cfg!(any(target_os = "linux", target_os = "macos")).then_some(s);
         let kill = async {
             #[allow(unused_variables)]
             if let Some(id) = child.id() {
@@ -333,7 +336,7 @@ pub async fn handle_child(
                     }
                     if child.try_wait().is_ok_and(|x| x.is_some()) {
                         set_reason.await;
-                        return Ok(Some("SIGINT"));
+                        return Ok(unix_signal("SIGINT"));
                     }
                 }
                 if sigterm {
@@ -348,7 +351,7 @@ pub async fn handle_child(
                     }
                     if child.try_wait().is_ok_and(|x| x.is_some()) {
                         set_reason.await;
-                        return Ok(Some("SIGTERM"));
+                        return Ok(unix_signal("SIGTERM"));
                     }
                 }
             }
