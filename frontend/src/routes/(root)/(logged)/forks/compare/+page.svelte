@@ -15,6 +15,7 @@
 	import { page } from '$app/state'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { onDestroy, untrack } from 'svelte'
+	import { replaceState } from '$app/navigation'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -35,17 +36,17 @@
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
 
 	// Which workspace this URL names, in the order the app means them. `?workspace=` is a switch
-	// the user made in this session: the picker's items are links that swap it and the root layout
-	// applies it to the store, so it describes the workspace now in play. `?workspace_id=` names a
-	// workspace to compare, and nothing else about where the user is — a session's Review button
-	// passes the fork it committed to while deliberately leaving the navigation workspace alone
-	// (SessionChangesBar), as does the prod→dev link in UpdateDevWorkspaceModal. So a switch
-	// outranks it, and in its absence it is read exactly as it was sent.
-	const urlWorkspaceId =
-		page.url.searchParams.get('workspace') ?? page.url.searchParams.get('workspace_id') ?? undefined
-
+	// already made: the root layout applies it to the store, and a modifier-click in the picker
+	// opens a tab carrying it. `?workspace_id=` names a workspace to compare, and nothing else
+	// about where the user is — a session's Review button passes the fork it committed to while
+	// deliberately leaving the navigation workspace alone (SessionChangesBar), as does the
+	// prod→dev link in UpdateDevWorkspaceModal. So a switch outranks it, and in its absence it is
+	// read exactly as it was sent.
 	let currentWorkspaceId: string | undefined = $state(
-		urlWorkspaceId ?? $workspaceStore ?? undefined
+		page.url.searchParams.get('workspace') ??
+			page.url.searchParams.get('workspace_id') ??
+			$workspaceStore ??
+			undefined
 	)
 
 	// The breadcrumb's picker switches the workspace without touching `?workspace_id` — so
@@ -56,10 +57,11 @@
 	// on mount instead would override the `workspace_id` the page was linked with, which is the
 	// case above where the two differ by design.
 	//
-	// No URL writing here: the picker's item is a link carrying every other param forward, so its
-	// navigation lands after this effect and would put back whatever this rewrote. The URL it
-	// leaves is the one the seed above reads, which is why the switch has to be a param the
-	// picker itself writes rather than one this page maintains.
+	// `workspace` is written here so a reload keeps the pair now on screen. A plain click in the
+	// picker preventDefaults its own link and switches the store directly, so nothing navigates
+	// afterwards and nothing overwrites this; `fixupUrlAfterWorkspaceSwitch` would rewrite the
+	// param but only once it is already there, which on a page opened with `workspace_id` alone it
+	// never is. A modifier-click navigates instead, to a URL already carrying the same param.
 	let followedWorkspaceId = $workspaceStore
 	$effect(() => {
 		const switched = $workspaceStore
@@ -67,6 +69,9 @@
 			if (!switched || switched === followedWorkspaceId) return
 			followedWorkspaceId = switched
 			currentWorkspaceId = switched
+			const url = new URL(window.location.href)
+			url.searchParams.set('workspace', switched)
+			replaceState(url, page.state)
 		})
 	})
 
@@ -78,13 +83,10 @@
 	// target): nothing tallies such a pair, so a cold diff has no deploy history
 	// telling which side a change came from.
 	//
-	// It named a destination for the workspace the URL named, so it lapses once the trail has
-	// moved the page somewhere else — and comes back if the user picks that workspace again.
-	const targetParam = $derived(
-		currentWorkspaceId === urlWorkspaceId
-			? (page.url.searchParams.get('target') ?? undefined)
-			: undefined
-	)
+	// Read whatever the URL holds, including on a page opened with no workspace param at all —
+	// which is how the migration starts, from "Merge into another workspace" in the workspace
+	// settings, and where the picker below is the only thing that sets this.
+	const targetParam = $derived(page.url.searchParams.get('target') ?? undefined)
 	const compareTargetId = $derived(targetParam ?? parentWorkspaceId ?? undefined)
 	const isArbitraryTarget = $derived(!!compareTargetId && compareTargetId !== parentWorkspaceId)
 	// Fork/dev workspaces are identified by their parent link, not the `wm-fork-` id

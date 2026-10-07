@@ -797,8 +797,8 @@
 			</div>
 		</div>
 
-		<!-- The one control in the band that gives way: everything else keeps its width and the
-		     search field takes what is left, down to a width that still shows a filter chip. -->
+		<!-- The one control in the band that gives way: everything else keeps the width it asked
+		     for, or drops out of the row at a width, and this takes what is left. -->
 		<FilterSearchbar
 			class={twMerge(
 				// A width of its own, and only ever less. As `flex-1` the field was whatever the row
