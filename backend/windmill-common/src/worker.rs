@@ -2714,57 +2714,32 @@ fn requirement_comment_start(line: &str) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
-/// One installable entry of a python lockfile, with the artifact hashes pinned for it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PyLockEntry {
-    pub requirement: String,
-    /// `<algorithm>:<hex>`, as written after `--hash=`. Empty for an entry the lock does
-    /// not pin: a lock generated without hashes, or a git/local requirement.
-    pub hashes: Vec<String>,
+/// The installable requirement carried by one lockfile line, or `None` for a comment, a
+/// `-r`/`-e`/`--flag` directive, or a blank.
+///
+/// Windmill installs a lockfile one entry at a time as a `uv pip install` argument, so
+/// requirements-file syntax a file-level parser would absorb is an unparseable package name
+/// here and has to be stripped first.
+pub fn requirement_from_lockfile_line(line: &str) -> Option<&str> {
+    let requirement = match requirement_comment_start(line) {
+        Some(i) => &line[..i],
+        None => line,
+    }
+    .trim()
+    // Continuations are stripped, not joined: right for `--generate-hashes` locks, whose
+    // continued lines are `--hash=` flags this function drops, but a lock continuing onto a
+    // marker or extra would lose it.
+    .trim_end_matches('\\')
+    .trim_end();
+
+    (!requirement.is_empty() && !requirement.starts_with('-')).then_some(requirement)
 }
 
-/// The installable entries of a python lockfile, skipping comments, blanks and
-/// `-r`/`-e`/`--flag` directives.
-///
-/// Windmill installs a lockfile one entry at a time, so each entry has to come out as a
-/// standalone requirement: `\` continuations are joined first (`uv pip compile
-/// --generate-hashes` writes one `--hash=` per continued line), then the `--hash=` options
-/// are split off the requirement they pin.
-pub fn parse_python_lockfile(lockfile: &str) -> Vec<PyLockEntry> {
-    let mut entries = vec![];
-    let mut logical = String::new();
-    let mut lines = lockfile.lines().peekable();
-    while let Some(line) = lines.next() {
-        let line = match requirement_comment_start(line) {
-            Some(i) => &line[..i],
-            None => line,
-        }
-        .trim();
-        let continued = line.ends_with('\\');
-        logical.push_str(line.trim_end_matches('\\'));
-        logical.push(' ');
-        if continued && lines.peek().is_some() {
-            continue;
-        }
-
-        let (requirement, options) = match logical.find("--hash=") {
-            Some(i) if i == 0 || logical[..i].ends_with(char::is_whitespace) => logical.split_at(i),
-            _ => (logical.as_str(), ""),
-        };
-        let requirement = requirement.trim();
-        if !requirement.is_empty() && !requirement.starts_with('-') {
-            entries.push(PyLockEntry {
-                requirement: requirement.to_string(),
-                hashes: options
-                    .split_whitespace()
-                    .filter_map(|o| o.strip_prefix("--hash="))
-                    .map(str::to_string)
-                    .collect(),
-            });
-        }
-        logical.clear();
-    }
-    entries
+/// Whether a lockfile line continues onto the next one. The continued lines reach the
+/// installer as entries of their own rather than being joined, so a caller that cares what
+/// they carried — `--hash=` pins, for a `--generate-hashes` lock — has to say so itself.
+pub fn lockfile_line_has_continuation(line: &str) -> bool {
+    line.trim_end().ends_with('\\')
 }
 
 #[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
@@ -2935,38 +2910,50 @@ mod tests {
         ids.iter().map(|s| s.to_string()).collect()
     }
 
+    /// Fixtures are verbatim `uv pip compile` output (uv 0.11.28): split and inline
+    /// annotation styles, and `--generate-hashes`.
     #[test]
-    fn test_parse_python_lockfile() {
-        let entry = |requirement: &str, hashes: &[&str]| PyLockEntry {
-            requirement: requirement.to_string(),
-            hashes: hashes.iter().map(|h| h.to_string()).collect(),
-        };
-        // Verbatim `uv pip compile --generate-hashes` layout, then the same pins inline.
-        let lock = "# py: 3.11\n\
-anyio==4.15.1 \\\n    --hash=sha256:aa \\\n    --hash=sha256:bb\n\
-    # via httpx\n\
---index-url https://x\n\
--r other.txt\n\
-\n\
-httpx==0.27.0 --hash=sha256:cc  # via -r requirements.in\n\
-idna==3.7\n\
-six @ https://h/six.whl#sha256=abc \\\n    --hash=sha256:dd\n\
-pyfiglet @ git+https://h/pyfiglet@be130d\n\
-marked==1.0 ; \\\n    python_version > '3'";
+    fn test_requirement_from_lockfile_line() {
+        assert_eq!(requirement_from_lockfile_line("    # via httpx"), None);
+        assert_eq!(requirement_from_lockfile_line("    # via"), None);
+        assert_eq!(requirement_from_lockfile_line("    #   anyio"), None);
         assert_eq!(
-            parse_python_lockfile(lock),
-            vec![
-                entry("anyio==4.15.1", &["sha256:aa", "sha256:bb"]),
-                entry("httpx==0.27.0", &["sha256:cc"]),
-                entry("idna==3.7", &[]),
-                // A `#` not preceded by whitespace is part of the requirement.
-                entry("six @ https://h/six.whl#sha256=abc", &["sha256:dd"]),
-                entry("pyfiglet @ git+https://h/pyfiglet@be130d", &[]),
-                entry("marked==1.0 ;  python_version > '3'", &[]),
-            ]
+            requirement_from_lockfile_line("    # via -r .tmp/requirements.in"),
+            None
         );
-        // Hash lines cut off from their requirement pin nothing.
-        assert_eq!(parse_python_lockfile("    --hash=sha256:aa \\\n"), vec![]);
+        assert_eq!(
+            requirement_from_lockfile_line("anyio==4.15.1 \\"),
+            Some("anyio==4.15.1")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line(
+                "    --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7 \\"
+            ),
+            None
+        );
+        assert_eq!(requirement_from_lockfile_line("# py: 3.11"), None);
+        assert_eq!(requirement_from_lockfile_line("-r other.txt"), None);
+        assert_eq!(
+            requirement_from_lockfile_line("--index-url https://x"),
+            None
+        );
+        assert_eq!(requirement_from_lockfile_line("   "), None);
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0"),
+            Some("httpx==0.27.0")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0  # via -r requirements.in"),
+            Some("httpx==0.27.0")
+        );
+        // A `#` not preceded by whitespace is part of the requirement, not a comment.
+        assert_eq!(
+            requirement_from_lockfile_line("wmill @ https://h/wmill.whl#sha256=abc"),
+            Some("wmill @ https://h/wmill.whl#sha256=abc")
+        );
+
+        assert!(lockfile_line_has_continuation("anyio==4.15.1 \\"));
+        assert!(!lockfile_line_has_continuation("anyio==4.15.1"));
     }
 
     #[test]

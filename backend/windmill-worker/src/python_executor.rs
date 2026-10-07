@@ -34,13 +34,12 @@ use windmill_common::{
         Error::{self},
     },
     jobs::JobKind,
-    min_version::MIN_VERSION_SUPPORTS_PY_LOCK_HASHES,
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
-        copy_dir_recursively, is_allowed_file_location, pad_string, parse_python_lockfile,
-        split_python_requirements, write_file, Connection, PyLockEntry, PyVAlias,
-        PythonAnnotations, WORKER_CONFIG,
+        copy_dir_recursively, is_allowed_file_location, lockfile_line_has_continuation, pad_string,
+        requirement_from_lockfile_line, split_python_requirements, write_file, Connection,
+        PyVAlias, PythonAnnotations, WORKER_CONFIG,
     },
 };
 
@@ -63,10 +62,6 @@ lazy_static::lazy_static! {
 
     static ref PY_CONCURRENT_DOWNLOADS: usize =
     var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
-
-    /// Refuse to install a lockfile entry that pins no artifact hash.
-    static ref PY_REQUIRE_LOCK_HASHES: bool =
-    var("PY_REQUIRE_LOCK_HASHES").ok().is_some_and(|flag| flag == "true" || flag == "1");
 
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
 
@@ -120,8 +115,6 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
 }
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
-/// Where the download jail sees the requirements file of a hash-pinned install.
-const NSJAIL_HASHED_REQ_FILE: &str = "/hashed_requirement.txt";
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
@@ -163,7 +156,7 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, read_ee_registry_with_workspace_override,
+    is_sandboxing_enabled, read_ee_registry,
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
     NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
@@ -286,16 +279,19 @@ pub async fn uv_pip_compile(
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(conn, w_id, &requirements, worker_name, job_id).await?;
 
-    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    let PipIndexes { extra_index_url: pip_extra_index_url, index_url: pip_index_url, ws_scoped } =
+        PipIndexes::read(job_id, w_id, conn).await;
+    let ws_suffix = if ws_scoped {
+        format!(":ws:{w_id}")
+    } else {
+        String::new()
+    };
     let exclude_newer_suffix = uv_exclude_newer
         .as_deref()
         .map(|v| format!("-en{}", v))
         .unwrap_or_default();
-    let generate_hashes = MIN_VERSION_SUPPORTS_PY_LOCK_HASHES.met().await;
-    // Resolutions cached under the `py` prefix carry no hashes.
     let req_hash = format!(
-        "{}-{}-{uv_index_strategy}{exclude_newer_suffix}{ws_suffix}",
-        if generate_hashes { "pyh" } else { "py" },
+        "py-{}-{uv_index_strategy}{exclude_newer_suffix}{ws_suffix}",
         calculate_hash(&requirements)
     );
 
@@ -350,38 +346,14 @@ pub async fn uv_pip_compile(
 
         args.extend(["-p", &py_version_str, "--python-preference", "only-managed"]);
 
-        if generate_hashes {
-            args.extend(["--generate-hashes"]);
-        }
-
         if no_cache {
             args.extend(["--no-cache"]);
         }
-        let pip_extra_index_url = read_ee_registry_with_workspace_override(
-            PIP_EXTRA_INDEX_URL.read().await.clone(),
-            "pip_extra_index_url",
-            "pip extra index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token);
         if let Some(url) = pip_extra_index_url.as_ref() {
             url.split(",").for_each(|url| {
                 args.extend(["--extra-index-url", url]);
             });
         }
-        let pip_index_url = read_ee_registry_with_workspace_override(
-            PIP_INDEX_URL.read().await.clone(),
-            "pip_index_url",
-            "pip index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token);
         if let Some(url) = pip_index_url.as_ref() {
             args.extend(["--index-url", url]);
         }
@@ -1927,12 +1899,12 @@ pub(crate) async fn handle_python_deps(
         .clone()
         .unwrap_or_else(|| vec![]);
 
-    let (pyv, mut lock_entries) = match requirements_o {
+    let (pyv, resolved_lines) = match requirements_o {
         // Deployed
-        Some(r) => (
-            PyV::parse_from_requirements(&split_python_requirements(r)),
-            parse_python_lockfile(r),
-        ),
+        Some(r) => {
+            let rl = split_python_requirements(r);
+            (PyV::parse_from_requirements(&rl), rl)
+        }
         // Preview
         None => {
             let (v, requirements_lines, error_hint) = match conn {
@@ -2010,7 +1982,7 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
             (
                 v.clone(),
                 if !requirements_lines.is_empty() {
-                    let lockfile = uv_pip_compile(
+                    uv_pip_compile(
                         job_id,
                         &requirements_lines.join("\n"),
                         mem_peak,
@@ -2031,8 +2003,10 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
                             e.to_string(),
                             error_hint.unwrap_or_default()
                         ))
-                    })?;
-                    parse_python_lockfile(&lockfile)
+                    })?
+                    .lines()
+                    .map(|s| s.to_owned())
+                    .collect_vec()
                 } else {
                     vec![]
                 },
@@ -2044,12 +2018,9 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
     // handled inside uv_pip_compile, but deployed scripts skip uv_pip_compile entirely and
     // would otherwise pass every lockfile entry to handle_python_reqs — causing duplicate
     // installs alongside additional_python_paths and triggering expensive postinstall copies.
-    {
-        let (_, ignored) = filter_pip_local_dependencies(
-            lock_entries.iter().map(|e| e.requirement.clone()).collect(),
-        );
+    let resolved_lines = {
+        let (kept, ignored) = filter_pip_local_dependencies(resolved_lines);
         if !ignored.is_empty() {
-            lock_entries.retain(|e| !ignored.contains(&e.requirement));
             append_logs(
                 job_id,
                 w_id,
@@ -2058,11 +2029,12 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
             )
             .await;
         }
-    }
+        kept
+    };
 
-    if !lock_entries.is_empty() {
+    if !resolved_lines.is_empty() {
         let mut venv_path = handle_python_reqs(
-            lock_entries,
+            resolved_lines,
             job_id,
             w_id,
             mem_peak,
@@ -2080,6 +2052,50 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
     }
 
     Ok((pyv, additional_python_paths))
+}
+
+/// The pip index URLs a job resolves and installs from, and whether its workspace overrides
+/// any registry.
+struct PipIndexes {
+    extra_index_url: Option<String>,
+    index_url: Option<String>,
+    /// Caches filled through these URLs must not be shared with other workspaces.
+    ws_scoped: bool,
+}
+
+impl PipIndexes {
+    /// Reads the URLs and the scope from one snapshot of the workspace's overrides: read
+    /// separately, a settings reload in between could file an install from an overridden
+    /// index under a shared cache name.
+    async fn read(job_id: &Uuid, w_id: &str, conn: &Connection) -> Self {
+        let overrides = crate::workspace_registry_overrides(w_id).await;
+        let ws_value = |key: &str| match overrides.get(key) {
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            _ => None,
+        };
+        // An empty value means unset, and an empty workspace override unsets the global one.
+        let extra_index_url = ws_value("pip_extra_index_url")
+            .or(PIP_EXTRA_INDEX_URL.read().await.clone())
+            .filter(|s| !s.trim().is_empty());
+        let index_url = ws_value("pip_index_url")
+            .or(PIP_INDEX_URL.read().await.clone())
+            .filter(|s| !s.trim().is_empty());
+        Self {
+            extra_index_url: read_ee_registry(
+                extra_index_url,
+                "pip extra index url",
+                job_id,
+                w_id,
+                conn,
+            )
+            .await
+            .map(handle_ephemeral_token),
+            index_url: read_ee_registry(index_url, "pip index url", job_id, w_id, conn)
+                .await
+                .map(handle_ephemeral_token),
+            ws_scoped: !overrides.is_empty(),
+        }
+    }
 }
 
 lazy_static::lazy_static! {
@@ -2113,52 +2129,12 @@ async fn get_venv_install_lock(venv_p: &str) -> Arc<tokio::sync::Mutex<()>> {
         .clone()
 }
 
-/// Cache location of one lockfile entry as `(group, name)`: the directory is
-/// `<cache root>/<group>/<name>`, and its object-store tarball is filed the same way.
-///
-/// The directory is shared by every workspace on the worker, and by every worker through
-/// the object store, so its location has to determine its content. A hash-pinned entry is
-/// named after its hashes, and only an install verified against them writes there. Pinned
-/// entries get a group of their own because an unpinned requirement can spell any directory
-/// name, including a pinned one.
-///
-/// `index_scope` is the workspace when it overrides the instance index, and keeps it out of
-/// the names the others share. That covers pinned entries too: the hashes vouch for the
-/// downloaded artifact, not for the build backend an sdist pulls from that index.
-fn py_cache_location(
-    py_version: &PyV,
-    entry: &PyLockEntry,
-    index_scope: Option<&str>,
-) -> (String, String) {
-    let group = py_version.to_cache_dir_top_level(false);
-    let req = entry.requirement.as_str();
-    let name = req.replace(' ', "").replace('/', "").replace(':', "");
-    let (group, name) = if !entry.hashes.is_empty() {
-        let hashes = entry.hashes.iter().sorted().dedup().join(" ");
-        (
-            format!("{group}_pinned"),
-            format!("{name}-h{}", &calculate_hash(&hashes)[..32]),
-        )
-    // Dropping `/` and `:` maps distinct URLs to one name (`h.com/ab.whl`, `h.co/mab.whl`),
-    // and a bare `..` would name the cache root itself.
-    } else if req.contains(['/', ':']) || name.trim_matches('.').is_empty() {
-        (group, format!("{name}-r{}", &calculate_hash(req)[..16]))
-    } else {
-        (group, name)
-    };
-    match index_scope {
-        // Hashed: a workspace id is not restricted to characters safe in a file name.
-        Some(w_id) => (group, format!("{name}-ws-{}", &calculate_hash(w_id)[..16])),
-        None => (group, name),
-    }
-}
-
 /// Spawn process of uv install
 /// Can be wrapped by nsjail depending on configuration
 #[inline]
 async fn spawn_uv_install(
     w_id: &str,
-    PyLockEntry { requirement: req, hashes }: &PyLockEntry,
+    req: &str,
     venv_p: &str,
     job_dir: &str,
     (pip_extra_index_url, pip_index_url): (Option<String>, Option<String>),
@@ -2173,19 +2149,6 @@ async fn spawn_uv_install(
     let uv_exclude_newer = (*UV_EXCLUDE_NEWER.read().await).map(|secs| format!("{}s", secs));
     let uv_exclude_newer = uv_exclude_newer.as_deref();
     let uv_python_install_mirror = UV_PYTHON_INSTALL_MIRROR.read().await.clone();
-
-    // Hashes can only be given to uv through a requirements file.
-    let hashed_req_file = if hashes.is_empty() {
-        None
-    } else {
-        let file = format!(
-            "{}.requirements.txt",
-            venv_p.rsplit(['/', '\\']).next().unwrap_or(venv_p)
-        );
-        let pinned = hashes.iter().map(|h| format!(" --hash={h}")).join("");
-        write_file(job_dir, &file, &format!("{req}{pinned}\n"))?;
-        Some(format!("{job_dir}/{file}"))
-    };
 
     if is_sandboxing_enabled() {
         tracing::info!(
@@ -2222,9 +2185,6 @@ async fn spawn_uv_install(
             vars.push(("PY_PATH", &_owner));
         }
         vars.push(("REQ", &req));
-        if hashed_req_file.is_some() {
-            vars.push(("REQ_FILE", NSJAIL_HASHED_REQ_FILE));
-        }
         vars.push(("TARGET", venv_p));
         vars.push(("UV_INDEX_STRATEGY", uv_index_strategy));
         if let Some(v) = uv_exclude_newer {
@@ -2244,17 +2204,6 @@ async fn spawn_uv_install(
                 .replace("{WORKER_DIR}", worker_dir)
                 .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{TARGET_DIR}", &venv_p)
-                .replace(
-                    "{HASHED_REQ_FILE_MOUNT}",
-                    &hashed_req_file
-                        .as_ref()
-                        .map(|f| {
-                            format!(
-                                "mount {{\n    src: \"{f}\"\n    dst: \"{NSJAIL_HASHED_REQ_FILE}\"\n    is_bind: true\n}}"
-                            )
-                        })
-                        .unwrap_or_default(),
-                )
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
@@ -2282,12 +2231,11 @@ async fn spawn_uv_install(
         #[cfg(windows)]
         let req = format!("{}", req);
 
-        let mut command_args = vec![UV_PATH.as_str(), "pip", "install"];
-        match hashed_req_file.as_ref() {
-            Some(file) => command_args.extend(["-r", file, "--require-hashes"]),
-            None => command_args.push(&req),
-        }
-        command_args.extend([
+        let mut command_args = vec![
+            UV_PATH.as_str(),
+            "pip",
+            "install",
+            &req,
             "--no-deps",
             "--no-color",
             // Prevent uv from discovering configuration files.
@@ -2302,7 +2250,7 @@ async fn spawn_uv_install(
             // Compile .py to .pyc at install time so imports are fast even
             // through read-only nsjail mounts (no in-memory compilation per job).
             "--compile-bytecode",
-        ]);
+        ];
 
         if let Some(py_path) = py_path.as_ref() {
             command_args.extend([
@@ -2531,7 +2479,7 @@ async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
 
 /// uv pip install, include cached or pull from S3
 pub async fn handle_python_reqs(
-    requirements: Vec<PyLockEntry>,
+    requirements: Vec<String>,
     job_id: &Uuid,
     w_id: &str,
     mem_peak: &mut i32,
@@ -2609,66 +2557,48 @@ pub async fn handle_python_reqs(
         job_id
     );
 
-    // The index URLs and whether the workspace overrode them come from one snapshot, so an
-    // install from an overridden index can never be filed under a shared cache name.
-    let [ws_extra_index_url, ws_index_url] =
-        crate::workspace_registry_overrides(w_id, ["pip_extra_index_url", "pip_index_url"]).await;
-    let index_scope = (ws_extra_index_url.is_some() || ws_index_url.is_some()).then_some(w_id);
-    let pip_indexes = (
-        read_ee_registry(
-            ws_extra_index_url
-                .or(PIP_EXTRA_INDEX_URL.read().await.clone())
-                .filter(|s| !s.trim().is_empty()),
-            "pip extra index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token),
-        read_ee_registry(
-            ws_index_url
-                .or(PIP_INDEX_URL.read().await.clone())
-                .filter(|s| !s.trim().is_empty()),
-            "pip index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token),
-    );
-
-    if *PY_REQUIRE_LOCK_HASHES {
-        let unpinned = requirements
-            .iter()
-            .filter(|e| e.hashes.is_empty())
-            .map(|e| e.requirement.as_str())
-            .join(", ");
-        if !unpinned.is_empty() {
-            return Err(Error::ExecutionErr(format!(
-                "PY_REQUIRE_LOCK_HASHES is set and the lockfile pins no hash for: {unpinned}. \
-                 Redeploying regenerates the lockfile with hashes once every worker runs {} or \
-                 newer; git and local requirements cannot be pinned.",
-                MIN_VERSION_SUPPORTS_PY_LOCK_HASHES.version()
-            )));
-        }
-    }
-
+    let PipIndexes { extra_index_url, index_url, ws_scoped } =
+        PipIndexes::read(job_id, w_id, conn).await;
+    let pip_indexes = (extra_index_url, index_url);
+    // The wheel dir is shared by every workspace on the worker, and by every worker through
+    // the object store, under a name that says nothing of the index it was filled from. A
+    // workspace with its own registries gets its own, as its resolution cache does. The id
+    // is hashed: it is not restricted to characters safe in a file name.
+    let ws_dir_suffix = if ws_scoped {
+        format!("-ws-{}", &calculate_hash(w_id)[..16])
+    } else {
+        String::new()
+    };
 
     // Cached paths
-    let mut req_with_penv: Vec<(PyLockEntry, String)> = vec![];
+    let mut req_with_penv: Vec<(String, String)> = vec![];
     // Requirements to pull (not cached)
     let mut req_paths: Vec<String> = vec![];
     // Find out if there is already cached dependencies
     // If so, skip them
     let mut in_cache = vec![];
-    for entry in &requirements {
-        let req = entry.requirement.as_str();
-        let (group, name) = py_cache_location(&py_version, entry, index_scope);
+    if requirements
+        .iter()
+        .any(|r| lockfile_line_has_continuation(r))
+    {
+        tracing::warn!(workspace_id = %w_id, job_id = %job_id, "lockfile continues entries across lines; the continued lines are dropped");
+        append_logs(
+            job_id,
+            w_id,
+            "\n[!] lockfile continues entries across lines and the continued lines are dropped: `--hash=` pins, extras and markers written that way do not apply\n".to_string(),
+            conn,
+        )
+        .await;
+    }
+    for req in &requirements {
+        let Some(req) = requirement_from_lockfile_line(req) else {
+            continue;
+        };
+        let py_prefix = &py_version.to_cache_dir(false);
+
         let venv_p = format!(
-            "{}{group}/{name}",
-            *windmill_common::worker::ROOT_CACHE_DIR
+            "{py_prefix}/{}{ws_dir_suffix}",
+            req.replace(' ', "").replace('/', "").replace(':', "")
         );
         if metadata(venv_p.clone() + "/.valid.windmill").await.is_ok() {
             // The .valid.windmill marker is written once at creation time, after
@@ -2715,12 +2645,12 @@ pub async fn handle_python_reqs(
                             "could not remove broken cache dir {venv_p}: {rm_err}"
                         );
                     }
-                    req_with_penv.push((entry.clone(), venv_p));
+                    req_with_penv.push((req.to_string(), venv_p));
                 }
             }
         } else {
             // There is no valid or no wheel at all. Regardless of if there is content or not, we will overwrite it with --reinstall flag
-            req_with_penv.push((entry.clone(), venv_p));
+            req_with_penv.push((req.to_string(), venv_p));
         }
     }
     if in_cache.len() > 0 {
@@ -2861,7 +2791,7 @@ pub async fn handle_python_reqs(
         let mut logs = String::new();
         logs.push_str("\n\n--- UV PIP INSTALL ---\n");
         logs.push_str("\nTo be installed: \n\n");
-        for (PyLockEntry { requirement: req, .. }, _) in &req_with_penv {
+        for (req, _) in &req_with_penv {
             if req.len() > req_tl {
                 req_tl = req.len();
             }
@@ -2903,7 +2833,7 @@ pub async fn handle_python_reqs(
         .await?;
 
     let has_work = req_with_penv.len() > 0;
-    for ((i, (entry, venv_p)), mut kill_rx) in
+    for ((i, (req, venv_p)), mut kill_rx) in
         req_with_penv.iter().enumerate().zip(kill_rxs.into_iter())
     {
         let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
@@ -2927,8 +2857,7 @@ pub async fn handle_python_reqs(
         let job_id = job_id.clone();
         let job_dir = job_dir.to_owned();
         let w_id = w_id.to_owned();
-        let entry = entry.clone();
-        let req = entry.requirement.clone();
+        let req = req.clone();
         let venv_p = venv_p.clone();
         let counter_arc = counter_arc.clone();
         let pip_indexes = pip_indexes.clone();
@@ -3051,7 +2980,7 @@ pub async fn handle_python_reqs(
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(Error::from(anyhow::anyhow!("S3 pull was canceled"))),
-                        pull = pull_from_tar(os, venv_p.clone(), py_cache_location(&py_version, &entry, None).0, None, false) => {
+                        pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level(false), None, false) => {
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
@@ -3116,7 +3045,7 @@ pub async fn handle_python_reqs(
 
             let mut uv_install_proccess = match spawn_uv_install(
                 &w_id,
-                &entry,
+                &req,
                 &venv_p,
                 &job_dir,
                 pip_indexes,
@@ -3293,7 +3222,7 @@ pub async fn handle_python_reqs(
                 // Send to upload channel for sequential processing
                 let upload_task = PiptarUploadTask {
                     venv_path: venv_p.clone(),
-                    cache_dir: py_cache_location(&py_version, &entry, None).0,
+                    cache_dir: py_version.to_cache_dir_top_level(false),
                 };
 
                 if let Err(e) = PIPTAR_UPLOAD_CHANNEL.send(upload_task) {
@@ -3760,46 +3689,6 @@ mod tests {
         // Non-keyword ids are unaffected.
         let cg2 = compute_py_codegen(code, "u/admin/myflow/step");
         assert_eq!(cg2.module_name, "step");
-    }
-
-    #[test]
-    fn test_py_cache_location() {
-        let entry = |requirement: &str, hashes: &[&str]| PyLockEntry {
-            requirement: requirement.to_string(),
-            hashes: hashes.iter().map(|h| h.to_string()).collect(),
-        };
-        let py = PyV::from(PyVAlias::Py312);
-        let loc = |e: &PyLockEntry, scope| py_cache_location(&py, e, scope);
-
-        // A pinned entry is named after its set of hashes.
-        let pinned = entry("tiny==0.1.3", &["sha256:aa", "sha256:bb"]);
-        assert_eq!(
-            loc(&pinned, None),
-            loc(&entry("tiny==0.1.3", &["sha256:bb", "sha256:aa"]), None)
-        );
-        assert_ne!(loc(&pinned, None), loc(&entry("tiny==0.1.3", &["sha256:aa"]), None));
-
-        // A workspace overriding the index shares no name with the others, and its id
-        // cannot steer the path.
-        let unpinned = entry("tiny==0.1.3", &[]);
-        assert_eq!(loc(&unpinned, None).1, "tiny==0.1.3");
-        for e in [&pinned, &unpinned] {
-            assert_ne!(loc(e, Some("ws")), loc(e, None));
-            assert_ne!(loc(e, Some("ws")), loc(e, Some("ws2")));
-            assert!(!loc(e, Some("../../tiny==0.1.3")).1.contains('/'));
-        }
-
-        // An unpinned requirement spelling a pinned entry's name lands elsewhere.
-        let (pinned_group, pinned_name) = loc(&pinned, None);
-        let (group, name) = loc(&entry(&pinned_name, &[]), None);
-        assert_eq!(name, pinned_name);
-        assert_ne!(group, pinned_group);
-
-        assert_ne!(loc(&entry("..", &[]), None).1, "..");
-        assert_ne!(
-            loc(&entry("p @ https://h.com/ab.whl", &[]), None),
-            loc(&entry("p @ https://h.co/mab.whl", &[]), None)
-        );
     }
 
     #[test]

@@ -20,15 +20,8 @@ then
       echo "\$TRUSTED_HOST is set to $TRUSTED_HOST"
 fi
 
-if [ -z "$REQ_FILE" ]
-then
-      REQ_ARG="\"$REQ\""
-else
-      REQ_ARG="-r \"$REQ_FILE\" --require-hashes"
-fi
-
 CMD="/usr/local/bin/uv pip install
-$REQ_ARG
+\"$REQ\"
 --target \"$TARGET\"
 --no-cache
 --no-config

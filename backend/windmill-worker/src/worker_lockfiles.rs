@@ -2937,7 +2937,7 @@ async fn python_dep(
     py_version: crate::PyV,
     annotations: PythonAnnotations,
 ) -> std::result::Result<String, Error> {
-    use windmill_common::worker::{parse_python_lockfile, PyVAlias};
+    use windmill_common::worker::{split_python_requirements, PyVAlias};
 
     create_dependencies_dir(job_dir).await;
 
@@ -2958,7 +2958,7 @@ async fn python_dep(
     // install the dependencies to pre-fill the cache
     if let Ok(req) = req.as_ref() {
         let r = handle_python_reqs(
-            parse_python_lockfile(req),
+            split_python_requirements(req),
             job_id,
             w_id,
             mem_peak,
