@@ -1,12 +1,13 @@
 <script lang="ts">
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import { GitBranchPlus, Move, Copy, Trash2, StickyNote, PictureInPicture2 } from 'lucide-svelte'
+	import { GitBranchPlus } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import AiDecisionNodeBranch from './AiDecisionNodeBranch.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
-	import { isMac, type Item } from '$lib/utils'
+	import type { Item } from '$lib/utils'
+	import { buildModuleMenuItems } from '../../moduleMenuItems'
 	import { getContext } from 'svelte'
 	import { getGraphContext } from '../../graphContext'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
@@ -99,66 +100,18 @@
 		return typ
 	})
 
-	// Define context menu items
-	let noteDisabled = $derived(
-		!noteEditorContext?.noteEditor ||
-			(noteEditorContext?.noteEditor?.isNodeOnlyMemberOfGroupNote(data.id) ?? false)
-	)
-
-	let isPreprocessor = $derived(data.id === 'preprocessor')
-
-	// In modal-panel mode (sessions) step details open on double-click, or on a click on the
-	// already selected step. Surface the action in the ellipsis menu too, with the gesture
-	// that works from any state as its shortcut.
 	const stepExploreHint = getContext<(() => boolean) | undefined>('flowGraphStepExploreHint')
 	const selectionManager = getGraphContext()?.selectionManager
 
 	const menuItems: Item[] = $derived(
 		data.editMode
-			? [
-					...(stepExploreHint?.()
-						? [
-								{
-									displayName: 'Open details',
-									icon: PictureInPicture2,
-									shortcut: 'Double click',
-									action: () => selectionManager?.selectId(data.id, { openPanel: true })
-								}
-							]
-						: []),
-					...(isPreprocessor
-						? []
-						: [
-								{
-									displayName: 'Move',
-									icon: Move,
-									action: () => data.eventHandlers.move({ id: data.id })
-								},
-								{
-									displayName: 'Duplicate',
-									icon: Copy,
-									action: () => data.eventHandlers.duplicate({ id: data.id })
-								}
-							]),
-					{
-						displayName: 'Delete',
-						icon: Trash2,
-						type: 'delete' as const,
-						shortcut: isMac() ? '⌫' : 'Del',
-						action: () => data.eventHandlers.delete({ id: data.id }, '')
-					},
-					{
-						displayName: 'Add note',
-						icon: StickyNote,
-						separatorTop: true,
-						disabled: noteDisabled,
-						action: () => {
-							if (noteEditorContext?.noteEditor && !noteDisabled) {
-								noteEditorContext.noteEditor.createGroupNote([data.id])
-							}
-						}
-					}
-				]
+			? buildModuleMenuItems({
+					id: data.id,
+					eventHandlers: data.eventHandlers,
+					noteEditor: noteEditorContext?.noteEditor,
+					selectionManager,
+					stepExploreHint
+				})
 			: []
 	)
 </script>
