@@ -56,7 +56,7 @@
 		policy: Policy
 	}
 
-	/** `ai` hands the new app to the AI right away; `code` opens the editor on the setup's choices. */
+	/** Both go through the same setup; `ai` then hands the app to the AI, `code` opens the editor. */
 	export type RawAppBuildMode = 'ai' | 'code'
 
 	let {
@@ -74,6 +74,7 @@
 	]
 
 	let step = $state<'choice' | 'setup'>('choice')
+	let mode = $state<RawAppBuildMode>('code')
 	let selectedTemplateIndex = $state(0)
 	let selectedDatatable = $state<string | undefined>(undefined)
 	let schemaMode = $state<'none' | 'new' | 'existing'>('new')
@@ -275,8 +276,6 @@
 	// everyone who has one, and opens the docked chat for the rest.
 	const handsOffToSession = $derived(prefersSessionHandoff($userStore?.operator))
 	const isAiEnabled = $derived(aiConfigLoaded && $copilotInfo.enabled)
-	// The AI starts on the default data table and its role, so both must have answered.
-	const dataSettled = $derived(hasNoDatatables || (rolesSettled && accessSettled))
 
 	$effect(() => {
 		if (open && opWs && !aiConfigLoaded) {
@@ -286,6 +285,12 @@
 
 	// With AI turned off for the workspace there is nothing to choose between.
 	const shownStep = $derived($copilotInfo.workspaceDisabled ? 'setup' : step)
+	const shownMode = $derived($copilotInfo.workspaceDisabled ? 'code' : mode)
+
+	function chooseMode(picked: RawAppBuildMode) {
+		mode = picked
+		step = 'setup'
+	}
 	const choiceCardClasses =
 		'h-full flex-col items-start justify-start gap-3 rounded-lg p-6 text-left whitespace-normal'
 
@@ -297,29 +302,6 @@
 			on_behalf_of_email: $userStore?.email,
 			execution_mode: 'publisher'
 		}
-	}
-
-	/** The AI builds on the default template and the default data table: it picks the framework
-	 * and creates the tables it needs itself. */
-	function buildWithAI() {
-		const datatable = usableDatatable
-		const role = rolesAnswered ? effectiveRole : undefined
-		open = false
-		onStart(
-			{
-				files: templates[0].files,
-				runnables: {},
-				data: {
-					tables: [],
-					datatable,
-					schema: undefined,
-					roles: datatable && role ? { [datatable]: role } : undefined
-				},
-				summary: '',
-				policy: appPolicy()
-			},
-			'ai'
-		)
 	}
 
 	async function start() {
@@ -374,7 +356,7 @@
 				summary: appSummary.trim(),
 				policy: appPolicy()
 			},
-			'code'
+			shownMode
 		)
 	}
 </script>
@@ -391,11 +373,11 @@
 				<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 					<Button
 						variant="default"
-						onClick={buildWithAI}
-						disabled={!isAiEnabled || !dataSettled}
+						onClick={() => chooseMode('ai')}
+						disabled={!isAiEnabled}
 						btnClasses="{choiceCardClasses} border-ai/30 bg-ai/5 hover:bg-ai/10 disabled:opacity-50 disabled:cursor-not-allowed"
 					>
-						{#if aiConfigLoaded && dataSettled}
+						{#if aiConfigLoaded}
 							<Sparkles size={28} class="text-ai" />
 						{:else}
 							<Loader2 size={28} class="text-ai animate-spin" />
@@ -407,7 +389,11 @@
 								: 'Describe your app to the AI chat and let it build the frontend, backend and tables.'}
 						</span>
 					</Button>
-					<Button variant="default" onClick={() => (step = 'setup')} btnClasses={choiceCardClasses}>
+					<Button
+						variant="default"
+						onClick={() => chooseMode('code')}
+						btnClasses={choiceCardClasses}
+					>
 						<Code size={28} class="text-primary" />
 						<span class="text-base font-semibold text-emphasis">Start with code editor</span>
 						<span class="text-xs text-secondary">
@@ -638,7 +624,7 @@
 				</div>
 
 				<div class="pt-6 flex items-center justify-end gap-3">
-					{#if isAiEnabled}
+					{#if isAiEnabled && shownMode === 'code'}
 						{@const AiIcon = handsOffToSession ? MessagesSquare : WandSparkles}
 						<p class="mr-auto text-xs text-hint">
 							Click on
@@ -662,12 +648,14 @@
 						variant="accent"
 						unifiedSize="md"
 						onclick={() => start()}
+						startIcon={shownMode === 'ai' ? { icon: Sparkles } : undefined}
 						disabled={!templates[selectedTemplateIndex] ||
 							newSchemaAlreadyExists ||
 							!rolesSettled ||
-							!accessSettled}
+							!accessSettled ||
+							(shownMode === 'ai' && !isAiEnabled)}
 					>
-						Create app
+						{shownMode === 'ai' ? 'Start with AI' : 'Create app'}
 					</Button>
 				</div>
 			</div>

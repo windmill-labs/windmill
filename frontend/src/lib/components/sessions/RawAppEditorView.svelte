@@ -3,8 +3,8 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
-	import type { NewRawAppSeed, SessionRuntime } from './sessionRuntime.svelte'
-	import { react19Template } from '$lib/components/raw_apps/templates'
+	import type { SessionRuntime } from './sessionRuntime.svelte'
+	import { FRAMEWORK_TEMPLATES } from '$lib/components/raw_apps/templates'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -23,7 +23,7 @@
 		onNavigate,
 		isActiveSession = true,
 		active = true,
-		newRawApp = undefined
+		newRawApp = false
 	}: {
 		runtime: SessionRuntime
 		path: string
@@ -34,8 +34,8 @@
 		isActiveSession?: boolean
 		/** Whether this is the visible preview tab (forwarded as isActiveTab). */
 		active?: boolean
-		/** Forwarded to SessionEditorTarget: the tab was opened on a brand-new app. */
-		newRawApp?: NewRawAppSeed
+		/** The tab was opened on an app the new-app builder just started. */
+		newRawApp?: boolean
 	} = $props()
 
 	// This tab's own raw-app cell; each open app editor binds its own store.
@@ -45,12 +45,12 @@
 	// is a fresh app would steer it away from the work already there.
 	const untouchedTemplate = $derived.by(() => {
 		const files = cell.store.val?.files
-		if (!newRawApp || cell.saved.val || !files) return false
-		const keys = Object.keys(react19Template)
-		return (
-			Object.keys(files).length === keys.length &&
-			keys.every((k) => files[k] === react19Template[k as keyof typeof react19Template])
-		)
+		if (!newRawApp || (cell.saved.val && !cell.saved.val.no_deployed) || !files) return false
+		const count = Object.keys(files).length
+		return Object.values(FRAMEWORK_TEMPLATES).some((template: Record<string, string>) => {
+			const keys = Object.keys(template)
+			return count === keys.length && keys.every((k) => files[k] === template[k])
+		})
 	})
 	let diffDrawer: DiffDrawer | undefined = $state()
 
@@ -249,7 +249,6 @@
 	{onNavigate}
 	{isActiveSession}
 	isActiveTab={active}
-	{newRawApp}
 	isNew={() => untouchedTemplate}
 	effectivePath={() =>
 		// A raw app's typed rename lives in `draft_path` (`val.path` is the storage
@@ -292,7 +291,7 @@
 				{onNavigate}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
-				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', e.path)}
+				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', path, e.path)}
 				defaultSidebarCollapsed
 				sidebarStorageKey="raw-app-sidebar-collapsed-preview"
 				defaultSplitWithPreview={false}

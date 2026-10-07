@@ -3,7 +3,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import type { NewRawAppSeed, SessionRuntime, SessionTargetKind } from './sessionRuntime.svelte'
+	import type { SessionRuntime, SessionTargetKind } from './sessionRuntime.svelte'
 	import { useUserDraftSync, type DraftSyncCodec } from './useUserDraftSync.svelte'
 	import { makeFlowCodec, makeScriptCodec, makeRawAppCodec } from './sessionDraftCodecs'
 	import { itemDisplayName } from './previewRouter'
@@ -21,7 +21,6 @@
 		onNavigate,
 		isActiveSession = true,
 		isActiveTab = true,
-		newRawApp = undefined,
 		isNew = undefined
 	}: {
 		runtime: SessionRuntime
@@ -45,9 +44,6 @@
 		 * tab must not, else chat actions resolve to the wrong item's path.
 		 */
 		isActiveTab?: boolean
-		/** A raw app just started from the new-app builder: when nothing exists at `path` yet
-		 * the editor opens on the template, in memory until the first edit saves it. */
-		newRawApp?: NewRawAppSeed
 		/** Whether the item is still the template a new-item builder started it on. */
 		isNew?: () => boolean
 	} = $props()
@@ -78,7 +74,7 @@
 	function triggerLoad(): Promise<void> {
 		if (kind === 'flow') return runtime.loadFlow(workspaceId, path)
 		if (kind === 'script') return runtime.loadScript(workspaceId, path)
-		return runtime.loadRawApp(workspaceId, path, false, false, newRawApp)
+		return runtime.loadRawApp(workspaceId, path)
 	}
 
 	function buildCodec(): DraftSyncCodec<any> {
