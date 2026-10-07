@@ -1181,6 +1181,8 @@ async fn get_runnables_activity(
 
     // A run not yet started is left out, so a schedule's next pending job does not
     // show up as activity. The LATERAL walks `ix_job_root_job_index_by_path_2`.
+    // `singlestepflow` is how a runnable runs behind an error handler or a schedule's
+    // skip handler, and the runs page lists it under the runnable's path.
     let runs_sql = format!(
         "{VISIBLE} \
          SELECT v.path AS runnable_path, v.is_flow, j.id, j.created_at, j.status \
@@ -1190,7 +1192,7 @@ async fn get_runnables_activity(
            LEFT JOIN v2_job_completed c ON c.id = job.id \
            LEFT JOIN v2_job_queue q ON q.id = job.id \
            WHERE job.workspace_id = $1 AND job.runnable_path = v.path AND job.parent_job IS NULL \
-             AND job.kind = (CASE WHEN v.is_flow THEN 'flow' ELSE 'script' END)::job_kind \
+             AND job.kind IN ((CASE WHEN v.is_flow THEN 'flow' ELSE 'script' END)::job_kind, 'singlestepflow') \
              AND (c.id IS NOT NULL OR q.running) \
            ORDER BY job.created_at DESC LIMIT $4 \
          ) j \

@@ -137,8 +137,8 @@
 					?.split('/')
 					?.slice(-1)?.[0]) ?? ''
 
-	setCompactBadges()
 	const homeTable = isHomeTable()
+	if (homeTable) setCompactBadges()
 
 	let rowEl: HTMLDivElement | undefined = $state()
 	$effect(() => {
@@ -380,15 +380,9 @@
 {/if}
 
 {#snippet favorite()}
-	{#if kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow'}
+	{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow')}
 		<div class="center-center h-full text-xs font-semibold text-secondary w-7">
-			{#if canFavorite}
-				<Star {kind} {path} {workspaceId} {summary} />
-			{:else}
-				<span class="p-1 opacity-20" title="Deploy it to add it to favorites">
-					<StarIcon size={16} />
-				</span>
-			{/if}
+			<Star {kind} {path} {workspaceId} {summary} />
 		</div>
 	{:else}
 		<div class="w-7"></div>
