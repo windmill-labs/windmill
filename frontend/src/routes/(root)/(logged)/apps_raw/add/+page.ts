@@ -18,8 +18,9 @@ const openInEditor = makeDraftAddLoad('apps_raw/edit')
  * the user has sessions and AI to build with. Anything that arrives with content of its
  * own (an import, a seeded path) is an editor hand-off and stays one. */
 async function newAppSessionHref(url: URL): Promise<string | undefined> {
-	const params = [...url.searchParams.keys()].filter((k) => k !== 'workspace')
-	if (params.length > 0 || get(importStore) || sessionStorage.getItem('rawAppImport')) {
+	let hasOwnParams = false
+	url.searchParams.forEach((_, k) => (hasOwnParams ||= k !== 'workspace'))
+	if (hasOwnParams || get(importStore) || sessionStorage.getItem('rawAppImport')) {
 		return undefined
 	}
 	const user = get(userStore)
