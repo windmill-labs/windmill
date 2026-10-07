@@ -151,6 +151,8 @@
 			}
 			if (dbType === 'snowflake' && fieldType === 'date') {
 				schemaProperty.format = 'date'
+				// DateInput defaults to dd-MM-yyyy, which Snowflake's AUTO input format rejects
+				schemaProperty.dateFormat = 'yyyy-MM-dd'
 			}
 
 			properties[field.name] = schemaProperty
