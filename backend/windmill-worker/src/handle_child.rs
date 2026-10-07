@@ -52,7 +52,7 @@ use futures::{
 use crate::common::{resolve_job_timeout, OccupancyMetrics, StreamNotifier, TimeoutSource};
 use crate::job_logger::{append_job_logs, append_result_stream, append_with_limit, strip_nul};
 use crate::job_logger_oss::process_streaming_log_lines;
-use crate::worker_utils::{job_cancel_status, ping_job_status, update_worker_ping_from_job};
+use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
 use windmill_common::tracing_init::{OTEL_JOB_LOGS, OTEL_PREFIX, QUIET_MODE, VERBOSE_TARGET};
@@ -1067,11 +1067,7 @@ where
 
 
                 let update_job_row = i == 1 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
-                // An agent worker pays an HTTP round trip per ping, so it asks every 2 s rather
-                // than every tick. Off the schedule above it only reads the cancel state, which
-                // keeps cancel detection at 2 s without more writes than a long job already costs.
-                let agent_tick = matches!(conn, Connection::Http(_)) && i % 4 == 0;
-                if (update_job_row || agent_tick) && job_id != Uuid::nil() {
+                if update_job_row && job_id != Uuid::nil() {
                     if let Connection::Sql(ref db) = conn {
                         // Only track memory when it's non-zero (avoids storing all-zero timeseries for jobs that don't report memory)
                         if current_mem > 0 {
@@ -1094,15 +1090,12 @@ where
                             }
                         }
                     }
-                    if matches!(conn, Connection::Http(_)) && !agent_tick {
+                    // An agent worker pays an HTTP round trip per ping, so it pings every 2 s for
+                    // the first 10 s, then every 5 s.
+                    if matches!(conn, Connection::Http(_)) && i % if i < 20 { 4 } else { 10 } != 0 {
                         continue;
                     }
-                    let current_mem = if current_mem > 0 { Some(current_mem) } else { None };
-                    let ping_job_status = if update_job_row {
-                        ping_job_status(&conn, &job_id, Some(*mem_peak), current_mem).await
-                    } else {
-                        job_cancel_status(&conn, &job_id, Some(*mem_peak), current_mem).await
-                    }.unwrap_or_else(|e| {
+                    let ping_job_status = ping_job_status(&conn, &job_id, Some(*mem_peak), if current_mem > 0 { Some(current_mem) } else { None }).await.unwrap_or_else(|e| {
                         tracing::error!("Unable to ping job status for job {job_id}. Error was: {:?}", e);
                         PingJobStatusResponse {
                             canceled_by: None,

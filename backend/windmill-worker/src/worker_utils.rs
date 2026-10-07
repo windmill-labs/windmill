@@ -7,9 +7,9 @@ use windmill_common::{
     external_ip::UNKNOWN_IP,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
-        insert_ping_query, job_cancel_status_query, update_job_ping_query,
-        update_worker_ping_from_job_query, update_worker_ping_main_loop_query, Connection, Ping,
-        PingType, NATIVE_MODE_RESOLVED, WORKER_CONFIG, WORKER_GROUP,
+        insert_ping_query, update_job_ping_query, update_worker_ping_from_job_query,
+        update_worker_ping_main_loop_query, Connection, Ping, PingType, NATIVE_MODE_RESOLVED,
+        WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, DB,
 };
@@ -355,31 +355,7 @@ pub async fn ping_job_status(
                 .post(
                     &format!("/api/agent_workers/ping_job_status/{}", job_id),
                     None,
-                    &PingJobStatus { mem_peak, current_mem, cancel_check_only: false },
-                )
-                .await
-        }
-    }
-}
-
-/// Whether the job was canceled or completed, without refreshing its ping. The memory
-/// readings still travel: a server that predates `cancel_check_only` does a full ping
-/// with them, and one sent without would erase the job's recorded peak. Checks no
-/// permission: the caller MUST be the worker running the job.
-pub async fn job_cancel_status(
-    conn: &Connection,
-    job_id: &Uuid,
-    mem_peak: Option<i32>,
-    current_mem: Option<i32>,
-) -> anyhow::Result<PingJobStatusResponse> {
-    match conn {
-        Connection::Sql(ref db) => job_cancel_status_query(job_id, db).await,
-        Connection::Http(client) => {
-            client
-                .post(
-                    &format!("/api/agent_workers/ping_job_status/{}", job_id),
-                    None,
-                    &PingJobStatus { mem_peak, current_mem, cancel_check_only: true },
+                    &PingJobStatus { mem_peak, current_mem },
                 )
                 .await
         }
