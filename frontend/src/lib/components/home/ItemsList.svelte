@@ -837,6 +837,8 @@
 		// was on screen so the selection can drop what this reload removes instead of
 		// keeping a dead path. `tick` lets the reloaded rows re-register first.
 		const renderedBefore = homeSelection.renderedKeys
+		// A row action can add, toggle or remove a trigger, or start a run.
+		homeActivity.reset()
 		void ownerCountsRes.refetch()
 		await reloadItems()
 		await tick()

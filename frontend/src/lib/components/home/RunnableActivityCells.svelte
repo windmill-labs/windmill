@@ -2,7 +2,7 @@
 	import { base } from '$lib/base'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { triggerDisplayNamesMap, triggerIconMapMono } from '$lib/components/triggers/utils'
-	import { displayDate } from '$lib/utils'
+	import { displayDate, formatCron } from '$lib/utils'
 	import { describeSchedule } from '$lib/utils/describeCron'
 	import { twMerge } from 'tailwind-merge'
 	import { getHomeActivity, type ActivityKind } from './homeActivity.svelte'
@@ -41,9 +41,25 @@
 	)
 	let loneScheduleText = $derived(
 		loneSchedule?.schedule
-			? (describeSchedule(loneSchedule.schedule, loneSchedule.timezone) ?? loneSchedule.schedule)
+			? (describeLoneSchedule(
+					loneSchedule.schedule,
+					loneSchedule.timezone,
+					loneSchedule.cron_version
+				) ?? loneSchedule.schedule)
 			: undefined
 	)
+
+	// `describeCron` reads weekdays the v2 way (0 = Sunday); a v1 cron numbers them
+	// from 1 = Sunday, so one that names weekdays is shown as the raw expression.
+	function describeLoneSchedule(
+		cron: string,
+		timezone: string | undefined,
+		cronVersion: string | undefined
+	): string | undefined {
+		const dow = formatCron(cron.trim()).split(/\s+/)[5]
+		if (cronVersion === 'v1' && dow !== undefined && dow !== '*' && dow !== '?') return undefined
+		return describeSchedule(cron, timezone)
+	}
 
 	type RunStatus = (typeof runs)[number]['status']
 
@@ -111,7 +127,9 @@
 		{/if}
 	</div>
 
-	<div class="relative z-[1] hidden lg:flex items-center justify-start gap-0.5 w-44 min-w-0 shrink-0">
+	<div
+		class="relative z-[1] hidden lg:flex items-center justify-start gap-0.5 w-44 min-w-0 shrink-0"
+	>
 		{#if loneSchedule}
 			<Tooltip class="min-w-0">
 				<div
@@ -128,7 +146,7 @@
 				{/snippet}
 			</Tooltip>
 		{:else}
-			{#each visibleTriggers as trigger (trigger.kind + trigger.path)}
+			{#each visibleTriggers as trigger, i (i)}
 				<Tooltip>
 					{@render triggerChip(trigger.kind, trigger.mode)}
 					{#snippet text()}
@@ -146,7 +164,7 @@
 					{#snippet text()}
 						<div class="flex flex-col gap-1">
 							<span class="font-semibold">{triggers.length} triggers</span>
-							{#each triggers as trigger (trigger.kind + trigger.path)}
+							{#each triggers as trigger, i (i)}
 								{@render triggerLine(trigger)}
 							{/each}
 						</div>

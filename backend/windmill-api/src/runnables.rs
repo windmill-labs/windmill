@@ -1130,11 +1130,14 @@ struct AttachedTrigger {
     path: String,
     /// `enabled` | `disabled` | `suspended`
     mode: String,
-    /// A schedule's cron expression and timezone; absent for every other kind.
+    /// A schedule's cron expression, timezone and cron version (`v1` numbers
+    /// weekdays from 1 = Sunday); absent for every other kind.
     #[serde(skip_serializing_if = "Option::is_none")]
     schedule: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     timezone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cron_version: Option<String>,
 }
 
 #[derive(Serialize, Default)]
@@ -1194,7 +1197,8 @@ async fn get_runnables_activity(
          ORDER BY j.created_at DESC"
     );
 
-    const NO_CRON: &str = "NULL::text AS schedule, NULL::text AS timezone";
+    const NO_CRON: &str =
+        "NULL::text AS schedule, NULL::text AS timezone, NULL::text AS cron_version";
     let branch = |table: &str, kind: &str, mode: &str, cron: &str| {
         format!(
             "SELECT '{kind}' AS kind, path, script_path, is_flow, {mode} AS mode, {cron} FROM {table} \
@@ -1204,7 +1208,12 @@ async fn get_runnables_activity(
     let trigger_mode = "mode::text";
     let bool_mode = "CASE WHEN enabled THEN 'enabled' ELSE 'disabled' END";
     let branches = [
-        branch("schedule", "schedule", bool_mode, "schedule, timezone"),
+        branch(
+            "schedule",
+            "schedule",
+            bool_mode,
+            "schedule, timezone, cron_version::text",
+        ),
         branch("http_trigger", "http", trigger_mode, NO_CRON),
         branch("websocket_trigger", "websocket", trigger_mode, NO_CRON),
         branch("kafka_trigger", "kafka", trigger_mode, NO_CRON),

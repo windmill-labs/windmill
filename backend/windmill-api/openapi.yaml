@@ -33369,6 +33369,11 @@ components:
               timezone:
                 description: the schedule's timezone, for a schedule only
                 type: string
+              cron_version:
+                description: >-
+                  the schedule's cron version, for a schedule only; v1 numbers
+                  weekdays from 1 = Sunday
+                type: string
 
     TriggersCount:
       type: object
