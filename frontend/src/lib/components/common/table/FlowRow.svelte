@@ -189,7 +189,6 @@
 			</div>
 		{/if}
 		<InheritedLabels labels={flow.inherited_labels} />
-		<div class="w-5 center-center"></div>
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">

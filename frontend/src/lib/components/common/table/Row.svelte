@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte'
 	import Star from '$lib/components/Star.svelte'
 	import RowIcon from './RowIcon.svelte'
-	import { BellOff } from 'lucide-svelte'
+	import { BellOff, Star as StarIcon } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$lib/navigation'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
@@ -181,7 +181,7 @@
 	data-row-selection-key={rowSelection?.key}
 	data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 	class={twMerge(
-		'group/row w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-3 border-b last:border-b-0',
+		'group/row relative w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-3 border-b last:border-b-0',
 		depth > 0 ? '!rounded-none' : '',
 		disabled ? 'opacity-25' : 'hover:bg-surface-hover',
 		clickToSelect || inSelectionMode ? 'cursor-pointer select-none' : '',
@@ -197,13 +197,19 @@
 	onclick={handleRowClick}
 	onkeydown={clickToSelect ? handleRowKeydown : undefined}
 >
+	<!-- Everything interactive sits at z-[1], above the title link's row-wide
+	     click overlay. -->
 	{#if isSelectable}
-		<Checkbox checked={selected} onChange={onSelect} />
+		<div class="relative z-[1] flex">
+			<Checkbox checked={selected} onChange={onSelect} />
+		</div>
 	{:else if selectDisabledReason}
-		<Tooltip class="cursor-not-allowed">
-			<Checkbox disabled checked={false} />
-			{#snippet text()}{selectDisabledReason}{/snippet}
-		</Tooltip>
+		<div class="relative z-[1] flex">
+			<Tooltip class="cursor-not-allowed">
+				<Checkbox disabled checked={false} />
+				{#snippet text()}{selectDisabledReason}{/snippet}
+			</Tooltip>
+		</div>
 	{:else if alignWithSelectable}
 		<div class="rounded max-w-4 w-full"></div>
 	{/if}
@@ -212,7 +218,7 @@
 		<!-- The icon slot itself: the kind icon until the row is hovered (or
 		     selection mode is on), the checkbox from then on. Both are stacked in a
 		     fixed 16px box and swapped with visibility so nothing shifts. -->
-		<div class="shrink relative w-4 h-4">
+		<div class="shrink relative z-[1] w-4 h-4">
 			<div
 				class={twMerge(
 					'absolute inset-0',
@@ -243,7 +249,7 @@
 	{#if href && !inSelectionMode}
 		<a
 			{href}
-			class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4"
+			class="min-w-0 hover:underline decoration-gray-400 inline-flex items-center gap-4 after:absolute after:inset-0 after:content-['']"
 		>
 			{@render rowContent(!rowSelection)}
 		</a>
@@ -251,17 +257,19 @@
 		{@render rowContent(!rowSelection)}
 	{/if}
 
-	{#if errorHandlerMuted}
-		<BellOff class="w-8 opacity-60" size={12} fill="currentcolor" />
-	{/if}
-
 	{#if badges}
-		<div class="hidden lg:flex flex-row gap-1.5 items-center">
+		<div class="relative z-[1] hidden lg:flex flex-row gap-1.5 items-center">
 			{@render badges?.()}
 		</div>
 	{/if}
 
-	<div class="flex items-center gap-1.5 shrink-0">
+	<div class="grow"></div>
+
+	{#if errorHandlerMuted}
+		<BellOff class="w-8 opacity-60" size={12} fill="currentcolor" />
+	{/if}
+
+	<div class="relative z-[1] flex items-center gap-1.5 shrink-0">
 		{#if kind == 'script' || kind == 'flow' || kind == 'app' || kind == 'raw_app' || kind == 'agent'}
 			<RunnableActivityCells
 				kind={kind == 'script' || kind == 'flow' ? kind : undefined}
@@ -269,9 +277,15 @@
 			/>
 		{/if}
 
-		{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow')}
+		{#if kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow'}
 			<div class="center-center h-full text-xs font-semibold text-secondary w-7">
-				<Star {kind} {path} {workspaceId} {summary} />
+				{#if canFavorite}
+					<Star {kind} {path} {workspaceId} {summary} />
+				{:else}
+					<span class="p-1 opacity-20" title="Deploy it to add it to favorites">
+						<StarIcon size={16} />
+					</span>
+				{/if}
 			</div>
 		{:else}
 			<div class="w-7"></div>
@@ -289,7 +303,7 @@
 			<RowIcon {kind} {triggerKind} />
 		</div>
 	{/if}
-	<div class="grow min-w-0">
+	<div class="min-w-0">
 		<div
 			class={twMerge(
 				'text-emphasis flex-wrap text-left text-xs font-semibold',
