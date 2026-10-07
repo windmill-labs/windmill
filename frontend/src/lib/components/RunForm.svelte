@@ -146,6 +146,12 @@
 		 * if the press then ends before `runAction`, so a guard that counts presses can stop
 		 * counting this one. */
 		claimRun?: { claim: () => boolean; release: () => void }
+		/** What the form opens holding, applied as it is created rather than pushed in after.
+		 * For a caller whose arguments arrive with the form itself — render it under `{#key}`
+		 * and a new set makes a new form, already filled, with no mounted instance to reach
+		 * for. Ignored on later renders of the same instance: from then on the arguments are
+		 * the reader's. */
+		initialArgs?: Record<string, any>
 		/** Take no writes from the reader: no edits, and no dynamic-select helper. Both write
 		 * before Run is ever pressed — a `password` field mints an ephemeral variable as it is
 		 * typed, and the helper runs the `dynselect-` entrypoint when the field mounts — so
@@ -179,6 +185,7 @@
 	let {
 		runnable,
 		runAction,
+		initialArgs = undefined,
 		claimRun = undefined,
 		argsReadonly = false,
 		buttonText = 'Run',
@@ -198,6 +205,15 @@
 		syncArgsToUrl = true,
 		actions = undefined
 	}: Props = $props()
+
+	// Once, as this instance is created, so the form renders already holding them — the
+	// `reloadArgs`/`syncJsonEditor` that `setArgs` needs are for re-seeding a form that is
+	// already on screen, which a fresh instance is not.
+	if (initialArgs !== undefined) {
+		const { scriptArgs, commonParams } = extractPsCommonParams(initialArgs)
+		args = scriptArgs
+		psCommonParams = commonParams
+	}
 
 	let showPsCommonParams = $derived(
 		runnable?.language === 'powershell' && runnable?.schema?.['x-windmill-ps-cmd-binding'] === true

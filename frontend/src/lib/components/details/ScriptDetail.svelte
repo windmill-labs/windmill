@@ -437,31 +437,12 @@
 		}
 	})
 
-	// Seeded once per call rather than once per mount: a tab already showing this item is
-	// reused for the next request, so a latch on "seeded" would leave the previous call's
-	// arguments on screen.
-	//
-	// An effect because neither end of this is an event: the form does not exist when the
-	// reader presses Preview — the page fetches the deployed item first — so there is nothing
-	// to seed until `runForm` lands, and a call arriving on an already-open tab has to seed a
-	// form that is already mounted. `onMount` answers neither.
-	let seededCallId: string | undefined = undefined
-	let seededCall: PendingRun | undefined = undefined
-	$effect(() => {
-		if (!pendingRun || !runForm) return
-		if (seededCallId === pendingRun.toolCallId) return
-		seededCallId = pendingRun.toolCallId
-		seededCall = pendingRun
-		runForm.setArgs(pendingRun.args ?? {})
-	})
-
 	// The form here is a copy, so what the reader typed into it would be lost when the call
 	// goes back to the card — the card would then offer, and run, the arguments this page
-	// opened with. Written on the way out rather than per keystroke.
-	//
-	// The call this page was holding, not whichever one it holds now: by the time this runs
-	// the tab has usually already stopped naming it, which is what ended the ownership.
-	onDestroy(() => seededCall?.handBack(args ?? {}))
+	// opened with. Written on the way out rather than per keystroke: every way the page stops
+	// carrying a call and still holds edits destroys it, since the tab either closes or
+	// changes url, and `loadKey` remounts on that.
+	onDestroy(() => pendingRun?.handBack(args ?? {}))
 
 	// Read once on purpose: these args seed the form, so tracking the fragment would
 	// overwrite what the user has typed whenever it changes.
@@ -1145,27 +1126,33 @@
 									onReject={() => pendingRun.decline()}
 								/>
 							{/if}
-							<RunForm
-								bind:scheduledForStr
-								bind:invisible_to_owner
-								bind:overrideTag
-								{overrideTagNote}
-								syncArgsToUrl={!embedded}
-								viewKeybinding
-								loading={runLoading}
-								autofocus
-								detailed={false}
-								bind:isValid
-								runnable={script}
-								{runAction}
-								claimRun={pendingRun}
-								argsReadonly={pendingRun?.planModeActive}
-								bind:args
-								schedulable={!pendingRun}
-								bind:this={runForm}
-								{jsonView}
-								actions={promptForAi ? undefined : aiAssistant}
-							/>
+							<!-- Keyed on the call, so a request arriving on a tab that is already open
+							     builds a new form already holding what it proposed. Re-seeding one
+							     that is already on screen would have to wait for it to exist. -->
+							{#key pendingRun?.toolCallId}
+								<RunForm
+									initialArgs={pendingRun?.args}
+									bind:scheduledForStr
+									bind:invisible_to_owner
+									bind:overrideTag
+									{overrideTagNote}
+									syncArgsToUrl={!embedded}
+									viewKeybinding
+									loading={runLoading}
+									autofocus
+									detailed={false}
+									bind:isValid
+									runnable={script}
+									{runAction}
+									claimRun={pendingRun}
+									argsReadonly={pendingRun?.planModeActive}
+									bind:args
+									schedulable={!pendingRun}
+									bind:this={runForm}
+									{jsonView}
+									actions={promptForAi ? undefined : aiAssistant}
+								/>
+							{/key}
 						</div>
 
 						<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
