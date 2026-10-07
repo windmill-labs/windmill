@@ -473,12 +473,12 @@
 	/** The arriving strip fades in over the expansion; the leaving one goes quickly, so the two
 	 *  are never both legible at once — they stand in different places, and a slow dissolve would
 	 *  read as two tab rows rather than one changing place. */
-	function stripArrive() {
+	function stripArrive(_node: Element) {
 		return reducedMotion.val
 			? { duration: 0 }
 			: { duration: 180, delay: 60, easing: cubicOut, css: (t: number) => `opacity: ${t}` }
 	}
-	function stripLeave() {
+	function stripLeave(_node: Element) {
 		return reducedMotion.val
 			? { duration: 0 }
 			: { duration: 80, easing: cubicOut, css: (t: number) => `opacity: ${t}` }

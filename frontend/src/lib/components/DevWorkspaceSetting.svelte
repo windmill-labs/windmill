@@ -2,7 +2,7 @@
 	import { workspaceStore, userWorkspaces, usersWorkspaceStore, superadmin } from '$lib/stores'
 	import { WorkspaceService, type ProtectionRuleset } from '$lib/gen'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
-	import { Badge, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
