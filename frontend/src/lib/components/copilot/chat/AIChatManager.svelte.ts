@@ -1305,8 +1305,21 @@ export class AIChatManager implements ChatViewHost {
 		}, 5_000)
 	}
 
+	#autoResumeHolds = 0
+	/** Keep background-job completions from starting a turn until the returned release runs. */
+	holdAutoResume(): () => void {
+		this.#autoResumeHolds++
+		let released = false
+		return () => {
+			if (released) return
+			released = true
+			this.#autoResumeHolds--
+			void this.#maybeAutoResumeFromJobs()
+		}
+	}
+
 	async #maybeAutoResumeFromJobs() {
-		if (this.#autoResuming) return
+		if (this.#autoResuming || this.#autoResumeHolds > 0) return
 		// Global/sessions chat only (the only mode with a jobs tray + preamble).
 		if (this.mode !== AIMode.GLOBAL) return
 		// Mid-turn: the notes will ride that turn's preamble, so don't start another.

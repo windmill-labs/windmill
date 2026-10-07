@@ -9,6 +9,7 @@
 		open,
 		parentName,
 		targetName,
+		newFork = false,
 		items,
 		conflicts = [],
 		error,
@@ -20,6 +21,8 @@
 		open: boolean
 		parentName: string
 		targetName: string
+		// A new fork is cloned with every draft of the user, not only this session's.
+		newFork?: boolean
 		items: Item[]
 		conflicts?: DraftItemRef[]
 		error?: string
@@ -45,8 +48,13 @@
 >
 	<div class="flex flex-col gap-3">
 		<p>
-			The session will act on <span class="font-medium text-primary">{targetName}</span>. These
-			drafts are copied there:
+			The session will act on <span class="font-medium text-primary">{targetName}</span>.
+			{#if newFork}
+				The new fork starts with a copy of all your drafts in {parentName}, including these from
+				this session:
+			{:else}
+				These drafts are copied there:
+			{/if}
 		</p>
 		<ul class="flex flex-col gap-0.5 max-h-48 overflow-y-auto text-xs">
 			{#each items as item (`${item.kind}:${item.path}`)}
@@ -61,13 +69,13 @@
 			{/each}
 		</ul>
 		<div class="flex items-start gap-2 border rounded-md p-3 bg-surface-secondary">
-			<Toggle size="xs" bind:checked={removeFromParent} />
-			<div class="flex flex-col">
+			<Toggle size="xs" id="move-remove-from-parent" bind:checked={removeFromParent} />
+			<label for="move-remove-from-parent" class="flex flex-col cursor-pointer">
 				<span class="text-xs font-medium text-primary">Remove these drafts from {parentName}</span>
 				<span class="text-3xs text-tertiary"
 					>Leaves {parentName} at its deployed versions. The work then exists only in the fork.</span
 				>
-			</div>
+			</label>
 		</div>
 		{#if conflicts.length > 0}
 			<p class="text-xs text-red-600 dark:text-red-400">

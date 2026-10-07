@@ -645,9 +645,9 @@ pub async fn delete_own_draft_for_path(
     Ok(())
 }
 
-/// Copy drafts from `source` into its fork `target`, returning the `(path, typ)` of each row
+/// Copy drafts from `source` into its fork `target`, returning the `(kind, path)` of each row
 /// copied. With `items = None` this is the fork-time clone: every row of `email` plus the legacy
-/// NULL-email row. With `items`, only `email`'s own rows at those `(path, kind)` pairs.
+/// NULL-email row. With `items`, only `email`'s own rows at those `(kind, path)` pairs.
 ///
 /// A plain INSERT: the caller guarantees the target holds none of the copied rows (an empty
 /// fork, or a conflict check under the same transaction), else `draft_pkey_with_user` aborts it.

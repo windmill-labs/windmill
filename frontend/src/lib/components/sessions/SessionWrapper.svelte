@@ -12,7 +12,7 @@
 	import { DraftService, WorkspaceService, type DraftItemRef } from '$lib/gen'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
 	import SessionMoveModal from './SessionMoveModal.svelte'
-	import { moveSessionToFork, type MoveTarget } from './moveSessionToFork'
+	import { flushPendingSaves, moveSessionToFork, type MoveTarget } from './moveSessionToFork'
 	import { maskHasDraftRow } from './modifiedItemsMask'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -375,6 +375,12 @@
 		const mask = sessionMask()
 		let items: MoveRequest['items']
 		let conflicts: DraftItemRef[] = []
+		// The list comes from the server, so an edit still debounced would be left out of it.
+		const unsaved = await flushPendingSaves(parent)
+		if (unsaved) {
+			sendUserToast(unsaved, true)
+			return
+		}
 		try {
 			// Only the user's own rows move; a legacy workspace-level draft is nobody's.
 			items = (await DraftService.listDrafts({ workspace: parent }))
@@ -414,10 +420,12 @@
 		const req = moveRequest
 		if (!session || !req || moving) return
 		moving = true
+		const releaseAutoResume = runtime?.manager.holdAutoResume()
 		try {
 			const res = await moveSessionToFork(session.id, req.parent, req.target, {
 				items: req.items.map(({ kind, path }) => ({ kind, path })),
-				removeFromParent: moveRemoveFromParent
+				removeFromParent: moveRemoveFromParent,
+				isBusy: () => !canMoveToFork
 			})
 			if (!res.ok) {
 				if (!req.open) {
@@ -443,6 +451,7 @@
 			sendUserToast(`Session moved to ${req.targetName}`)
 		} finally {
 			moving = false
+			releaseAutoResume?.()
 		}
 	}
 
@@ -709,6 +718,7 @@
 			open={moveRequest.open}
 			parentName={moveRequest.parentName}
 			targetName={moveRequest.targetName}
+			newFork={moveRequest.target.kind === 'new'}
 			items={moveRequest.items}
 			conflicts={moveRequest.conflicts}
 			error={moveRequest.error}

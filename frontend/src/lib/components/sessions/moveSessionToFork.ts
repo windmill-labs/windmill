@@ -16,6 +16,26 @@ export type MoveSessionResult =
 	| { ok: false; error: string; conflicts?: DraftItemRef[] }
 
 /**
+ * Send every debounced draft save for `workspace` to the server. Returns an error message
+ * when one of them failed or conflicted.
+ *
+ * A save still debounced in an open editor would otherwise land in the parent after the
+ * move: re-creating a draft just removed there, or missing from the copy. Three debounces
+ * stand between a keystroke and the server, and each hands on to the next through an
+ * effect, hence the ticks.
+ */
+export async function flushPendingSaves(workspace: string): Promise<string | undefined> {
+	flushPendingKeystrokes()
+	await tick()
+	flushEditorSaves(workspace)
+	await tick()
+	const unsaved = await UserDraftDbSyncer.flushWorkspace(workspace)
+	if (unsaved.length > 0) {
+		return `Could not save ${unsaved.map((q) => q.path).join(', ')} before moving. Resolve it and retry.`
+	}
+}
+
+/**
  * Move a session into a fork of its workspace, bringing its drafts along. The session's
  * workspace changes only once its drafts are where they must be, so a failure at any step
  * leaves it acting on the parent with its drafts intact.
@@ -28,23 +48,18 @@ export async function moveSessionToFork(
 	sessionId: string,
 	parent: string,
 	target: MoveTarget,
-	opts: { items: DraftItemRef[]; removeFromParent: boolean }
-): Promise<MoveSessionResult> {
-	// A save still debounced in an open editor would otherwise land in the parent after the
-	// move: re-creating a draft just removed there, or missing from the copy. Three debounces
-	// stand between a keystroke and the server, and each hands on to the next through an
-	// effect, hence the ticks.
-	flushPendingKeystrokes()
-	await tick()
-	flushEditorSaves(parent)
-	await tick()
-	const unsaved = await UserDraftDbSyncer.flushWorkspace(parent)
-	if (unsaved.length > 0) {
-		return {
-			ok: false,
-			error: `Could not save ${unsaved.map((q) => q.path).join(', ')} before moving. Resolve it and retry.`
-		}
+	opts: {
+		items: DraftItemRef[]
+		removeFromParent: boolean
+		// A turn running in the parent keeps writing there while its drafts move away.
+		isBusy?: () => boolean
 	}
+): Promise<MoveSessionResult> {
+	const busy = { ok: false as const, error: 'A chat turn is running. Retry once it ends.' }
+	const unsaved = await flushPendingSaves(parent)
+	if (unsaved) return { ok: false, error: unsaved }
+
+	if (opts.isBusy?.()) return busy
 
 	let forkId: string
 	let copied = 0
@@ -53,6 +68,7 @@ export async function moveSessionToFork(
 		if (target.kind === 'new') {
 			const created = await materializeFork(target.fork)
 			if (!created) return { ok: false, error: 'Could not create the fork' }
+			if (opts.isBusy?.()) return busy
 			forkId = created
 			copied = opts.items.length
 			if (opts.removeFromParent && opts.items.length > 0) {

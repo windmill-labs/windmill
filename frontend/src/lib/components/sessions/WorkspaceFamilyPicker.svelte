@@ -192,10 +192,16 @@
 	// is premium-only (backend caps it per paid seat). DisableWorkspaceForking on the active workspace
 	// (a locked prod) doesn't apply when there's a dev to fork from instead — the dev isn't locked, and
 	// devOfRoot only resolves when the user is a member of it.
+	// In `forksOf` mode the fork is always based on that workspace, so only its own rule counts.
 	const forksGateOpen = $derived(
 		(!isCloudHosted() || $maybePremium) &&
-			$workspaceStore !== 'admins' &&
-			(canCreateFork($userStore) || !!devOfRoot)
+			(forksOf
+				? forksOf !== 'admins' &&
+					!rootRulesetsResource.loading &&
+					!rootUserInfoResource.loading &&
+					(!isRuleActiveInRulesets(rootRulesets, 'DisableWorkspaceForking') ||
+						canUserBypassRuleKindInRulesets(rootRulesets, 'DisableWorkspaceForking', rootUserInfo))
+				: $workspaceStore !== 'admins' && (canCreateFork($userStore) || !!devOfRoot))
 	)
 	// A fork is a new workspace, so it's subject to the community-edition cap on
 	// the number of non-'admins' workspaces (backend _check_nb_of_workspaces,
