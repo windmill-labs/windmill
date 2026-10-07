@@ -266,7 +266,7 @@
 								aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
 								aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
 								variant="accent"
-								wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible"
+								wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible group-data-[row-keyboard-selected=true]/row:visible"
 								startIcon={{ icon: Pen }}
 								unifiedSize="sm"
 								href="{base}/scripts/edit/{script.path}"

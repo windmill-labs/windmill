@@ -202,7 +202,7 @@
 				<div>
 					<Button
 						variant="accent"
-						wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible"
+						wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible group-data-[row-keyboard-selected=true]/row:visible"
 						startIcon={{ icon: Pen }}
 						unifiedSize="sm"
 						href="{base}/flows/edit/{flow.path}"

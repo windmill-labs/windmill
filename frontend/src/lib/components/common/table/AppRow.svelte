@@ -171,7 +171,7 @@
 							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
 							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
 							variant="accent"
-							wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible"
+							wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible group-data-[row-keyboard-selected=true]/row:visible"
 							unifiedSize="sm"
 							startIcon={{ icon: Pen }}
 							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
