@@ -15,7 +15,6 @@
 	import { page } from '$app/state'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { onDestroy, untrack } from 'svelte'
-	import { replaceState } from '$app/navigation'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -35,24 +34,39 @@
 
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
 
+	// Which workspace this URL names, in the order the app means them. `?workspace=` is a switch
+	// the user made in this session: the picker's items are links that swap it and the root layout
+	// applies it to the store, so it describes the workspace now in play. `?workspace_id=` names a
+	// workspace to compare, and nothing else about where the user is — a session's Review button
+	// passes the fork it committed to while deliberately leaving the navigation workspace alone
+	// (SessionChangesBar), as does the prod→dev link in UpdateDevWorkspaceModal. So a switch
+	// outranks it, and in its absence it is read exactly as it was sent.
+	const urlWorkspaceId =
+		page.url.searchParams.get('workspace') ?? page.url.searchParams.get('workspace_id') ?? undefined
+
 	let currentWorkspaceId: string | undefined = $state(
-		page.url.searchParams.get('workspace_id') ?? $workspaceStore ?? undefined
+		urlWorkspaceId ?? $workspaceStore ?? undefined
 	)
 
-	// The breadcrumb's picker switches the workspace without touching `?workspace_id`, which this
-	// page seeded itself from once and then never read again — so switching a fork up there left
-	// the page comparing the one it opened on. Follow the store: picking a fork in the trail means
-	// comparing that fork. The param is rewritten so a reload keeps the pair now on screen, and an
-	// arbitrary `?target=` is dropped, since it named a destination for the workspace just left.
+	// The breadcrumb's picker switches the workspace without touching `?workspace_id` — so
+	// switching a fork up there left the page comparing the one it opened on. Follow the store:
+	// picking a fork in the trail means comparing that fork.
+	//
+	// Only a change counts, measured against what the store held when the page opened. Reading it
+	// on mount instead would override the `workspace_id` the page was linked with, which is the
+	// case above where the two differ by design.
+	//
+	// No URL writing here: the picker's item is a link carrying every other param forward, so its
+	// navigation lands after this effect and would put back whatever this rewrote. The URL it
+	// leaves is the one the seed above reads, which is why the switch has to be a param the
+	// picker itself writes rather than one this page maintains.
+	let followedWorkspaceId = $workspaceStore
 	$effect(() => {
 		const switched = $workspaceStore
 		untrack(() => {
-			if (!switched || switched === currentWorkspaceId) return
+			if (!switched || switched === followedWorkspaceId) return
+			followedWorkspaceId = switched
 			currentWorkspaceId = switched
-			const url = new URL(window.location.href)
-			if (url.searchParams.has('workspace_id')) url.searchParams.set('workspace_id', switched)
-			url.searchParams.delete('target')
-			replaceState(url, page.state)
 		})
 	})
 
@@ -63,7 +77,14 @@
 	// one-off migration the lineage cannot express. It is one-way (current →
 	// target): nothing tallies such a pair, so a cold diff has no deploy history
 	// telling which side a change came from.
-	const targetParam = $derived(page.url.searchParams.get('target') ?? undefined)
+	//
+	// It named a destination for the workspace the URL named, so it lapses once the trail has
+	// moved the page somewhere else — and comes back if the user picks that workspace again.
+	const targetParam = $derived(
+		currentWorkspaceId === urlWorkspaceId
+			? (page.url.searchParams.get('target') ?? undefined)
+			: undefined
+	)
 	const compareTargetId = $derived(targetParam ?? parentWorkspaceId ?? undefined)
 	const isArbitraryTarget = $derived(!!compareTargetId && compareTargetId !== parentWorkspaceId)
 	// Fork/dev workspaces are identified by their parent link, not the `wm-fork-` id

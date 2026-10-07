@@ -101,6 +101,9 @@ export const PHONE_BAR = 800
  *  class names so Tailwind sees them. */
 export const BAR_HEIGHT = 'h-12'
 export const BAR_TOP_PAD = 'pt-12'
+/** The same height in px, for the places that animate to the bar's bottom edge rather than
+ *  standing under it — a transition's `css` and a measurement's fallback take a number. */
+export const BAR_HEIGHT_PX = 48
 
 // The bar's own width, written by the bar and read by the pages that fill it. A page's buttons
 // share that row with the breadcrumb, so it is the width they crowd against — not the window's,

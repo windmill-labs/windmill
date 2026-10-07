@@ -19,14 +19,7 @@
 		devopsRole,
 		enterpriseLicense
 	} from '$lib/stores'
-	import {
-		Button,
-		Drawer,
-		DrawerContent,
-		Skeleton,
-		Tab,
-		Tabs
-	} from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
 
@@ -625,7 +618,8 @@
 {#snippet headerActions()}
 	<!-- The page's own row inside the band's actions box: these controls are denser than a page's
 	     two or three buttons, so they take a wider gap than the band's own. `flex-1 min-w-0` passes
-	     the band's flexibility through to the search field, which is what yields under pressure. -->
+	     the band's flexibility down to the search field, the one control here that gives width
+	     back; the rest keep theirs or drop out of the row entirely at a width. -->
 	<div class="flex items-center gap-3 flex-1 min-w-0">
 		<!-- Always the icon form: the bar has room for two counters, never for the two labelled
 		     blocks. pr-2 on top of the row's own gap because the counts hang outside their icons,
@@ -722,7 +716,8 @@
 						class="whitespace-nowrap"
 						icon={CircleCheck}
 						iconProps={{
-							class: 'group-data-[state=on]:text-green-500 dark:group-data-[state=on]:text-green-300'
+							class:
+								'group-data-[state=on]:text-green-500 dark:group-data-[state=on]:text-green-300'
 						}}
 						{item}
 					/>
@@ -780,7 +775,9 @@
 						bind:checked={
 							() => filters.val.job_trigger_kind !== '!schedule',
 							(v) =>
-								v ? delete filters.val.job_trigger_kind : (filters.val.job_trigger_kind = '!schedule')
+								v
+									? delete filters.val.job_trigger_kind
+									: (filters.val.job_trigger_kind = '!schedule')
 						}
 					/>
 					<Calendar size={14} />
@@ -792,7 +789,8 @@
 					id="show-future-jobs"
 					bind:checked={
 						() => filters.val.show_future_jobs !== false,
-						(v) => (v ? delete filters.val.show_future_jobs : (filters.val.show_future_jobs = false))
+						(v) =>
+							v ? delete filters.val.show_future_jobs : (filters.val.show_future_jobs = false)
 					}
 				/>
 				<Clock size={14} />
@@ -803,11 +801,15 @@
 		     search field takes what is left, down to a width that still shows a filter chip. -->
 		<FilterSearchbar
 			class={twMerge(
-				// One width, held: as `flex-1` the field was whatever the row had left over, so a chip
-				// appearing or a filter committing resized it under the cursor, and the last pixels
-				// came off the breadcrumb. `shrink-0` keeps it at 18rem whatever the content does —
-				// the trail is what yields when the bar runs short, which it already does.
-				'relative w-[18rem] shrink-0 max-w-full',
+				// A width of its own, and only ever less. As `flex-1` the field was whatever the row
+				// had left over, so a chip appearing or a filter committing resized it under the
+				// cursor and the last pixels came off the breadcrumb. 18rem is its width whenever the
+				// row fits, and it still shrinks when the row runs short, which is what keeps the row
+				// inside a box the bar lets shrink (`actionsFlexible`). `min-w-0` is what makes that
+				// shrink unconditional: a flex item's floor is its min-content width, which the chips
+				// inside the field raise, so without it a typed filter would push the field wider
+				// again exactly when the row has no room to give.
+				'relative w-[18rem] min-w-0 max-w-full',
 				// A phone's bar cannot spare that much before the timeframe beside it.
 				phone && 'w-[10rem]'
 			)}

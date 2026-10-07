@@ -1,3 +1,5 @@
+import { BAR_HEIGHT_PX } from '../pageHeaderRegistry.svelte'
+
 // Opening the detached sidebar's card, from the band's own handle or from the corner control that
 // stands in for it on a page which hides the band.
 let opener: (() => void) | undefined
@@ -10,7 +12,7 @@ let hoverClose: { schedule: () => void; cancel: () => void } | undefined
 // time rather than fixed, so the card follows the header's own height. On a page that hides the
 // header, the header is still what the card will sit under — it comes down with it — so its height
 // is read even while it is off-screen. The fallback matches the header's resting height.
-const FALLBACK_CARD_TOP = 44
+const FALLBACK_CARD_TOP = BAR_HEIGHT_PX
 const GAP_UNDER_HANDLE = 6
 let cardTop = $state(FALLBACK_CARD_TOP)
 
