@@ -19,7 +19,9 @@ import {
 // included so an AI decision step's resource validates; `validateAiAgentProviders` keeps each kind
 // to its step type.
 const aiResourceTypes = () =>
-	[...Object.keys(AI_PROVIDERS), ...Object.keys(DECISION_AI_PROVIDERS)] as AIProvider[]
+	[
+		...new Set([...Object.keys(AI_PROVIDERS), ...Object.keys(DECISION_AI_PROVIDERS)])
+	] as AIProvider[]
 
 /** Kinds whose model listing `fetchAvailableModels` narrows before returning it: OpenAI and Azure
  * OpenAI keep only `gpt-`/`o`/`codex` ids (so a fine-tune never appears), Bedrock keeps text

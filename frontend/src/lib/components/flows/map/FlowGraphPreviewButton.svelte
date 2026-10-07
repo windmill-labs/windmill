@@ -74,7 +74,11 @@
 						'text-xs rounded-md rounded-r-none px-1.5 h-[24px] w-full bg-surface flex flex-row items-center gap-2 justify-center transition-all duration-200 ',
 						'hover:bg-surface-hover text-gray-400 hover:text-primary'
 					)}
-					onclick={onOpenPreview}
+					onclick={(e) => {
+						// These buttons sit inside the Input node, whose click handler would select it.
+						e.stopPropagation()
+						onOpenPreview?.()
+					}}
 				>
 					{#if flowPreviewJob && !flowHasChanged}
 						<div
@@ -105,7 +109,10 @@
 			<button
 				class="h-[24px] px-1.5 bg-surface rounded-md rounded-l-none text-gray-400 hover:bg-red-500 hover:text-white"
 				title="Hide jobs status"
-				onclick={onHideJobStatus}
+				onclick={(e) => {
+					e.stopPropagation()
+					onHideJobStatus?.()
+				}}
 			>
 				<X size={14} />
 			</button>

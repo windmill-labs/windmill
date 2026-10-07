@@ -291,7 +291,8 @@ pub async fn cancel_jobs(
     audited.extend(trivial_jobs.iter().copied());
     uuids.extend(trivial_jobs);
 
-    audit_log_many(
+    // The cancels are committed by now: failing here would report them as not done.
+    if let Err(e) = audit_log_many(
         db,
         author,
         if force_cancel {
@@ -303,7 +304,10 @@ pub async fn cancel_jobs(
         w_id,
         &audited.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
     )
-    .await?;
+    .await
+    {
+        tracing::error!("Failed to write audit entries for cancelled jobs in {w_id}: {e:#}");
+    }
 
     Ok(Json(uuids))
 }

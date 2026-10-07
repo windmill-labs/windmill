@@ -29,6 +29,10 @@ export interface EvalCaseRuntimeAppContextSpec {
 
 export interface EvalCaseRuntimeSpec {
   maxTurns?: number;
+  // Global mode: scripted answers to askUserQuestion, one per question in order; a question
+  // past the last one is dismissed, so `[]` dismisses them all. Unset, the question tool
+  // reports that it cannot ask.
+  userAnswers?: string[];
   backendPreview?: EvalCaseRuntimeBackendPreview;
   appContext?: EvalCaseRuntimeAppContextSpec;
   // Global mode: run as a session chat (preview tools + session prompt) vs the standalone chat.
