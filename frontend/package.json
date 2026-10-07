@@ -72,7 +72,9 @@
 		"tar": "$tar",
 		"dompurify": "$dompurify",
 		"cookie": "^0.7.0",
-		"handlebars": "^4.7.9"
+		"handlebars": "^4.7.9",
+		"devalue": "^5.9.4",
+		"source-map-js": "^1.2.2"
 	},
 	"type": "module",
 	"dependencies": {
