@@ -54,6 +54,8 @@
 				return 'Workspace script'
 			case 'aiagent':
 				return 'AI Agent'
+			case 'aidecision':
+				return 'AI decision'
 			default:
 				return stepDetail.id
 		}

@@ -9,7 +9,7 @@
 	import { Alert, DrawerContent, Skeleton } from '$lib/components/common'
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
-	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
+	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 
 	import type { AuditLog } from '$lib/gen'
 	import { AuditService } from '$lib/gen'
@@ -19,7 +19,6 @@
 	import { useAuditLogsLoader } from '$lib/components/auditLogs/useAuditLogsLoader.svelte'
 
 	let username: string = $state(page.url.searchParams.get('username') ?? 'all')
-	let pageIndex: number | undefined = $state(Number(page.url.searchParams.get('page')) || 1)
 	let before: string | undefined = $state(page.url.searchParams.get('before') ?? undefined)
 	let after: string | undefined = $state(page.url.searchParams.get('after') ?? undefined)
 	let perPage: number | undefined = $state(Number(page.url.searchParams.get('perPage')) || 100)
@@ -42,24 +41,34 @@
 		actionKind,
 		before,
 		after,
-		pageIndex: pageIndex ?? 1,
 		perPage: perPage ?? 100
 	}))
 	let logs: AuditLog[] | undefined = $derived(auditLogsLoader.logs)
 	let batchProgress = $derived(auditLogsLoader.batchProgress)
 
 	// Regrouping the timeline can fire extra requests to fill in missing job spans, so it gets the
-	// result of a batched load once it settles rather than every intermediate batch.
+	// result of a batched load or load-more once it settles rather than every intermediate batch.
 	let timelineLogs: AuditLog[] | undefined = $state()
 	$effect(() => {
-		const settledLogs = batchProgress ? undefined : auditLogsLoader.logs
+		const settledLogs =
+			batchProgress || auditLogsLoader.loadingExtra ? undefined : auditLogsLoader.logs
 		if (settledLogs) {
 			timelineLogs = settledLogs
 		}
 	})
 
 	let selectedId: number | undefined = $state(undefined)
+	// A selection the loaded rows no longer contain (a filter change or reload) closes the pane.
+	let detailOpen = $derived(
+		selectedId !== undefined && !!logs?.some((log) => log.id === selectedId)
+	)
 	let auditLogDrawer: Drawer | undefined = $state()
+
+	// The inline filters show only when their one-line width fits in the space the title leaves.
+	// Both are measured, so the sidebar, side panels, zoom and filter values are all accounted for.
+	let filtersSlotWidth = $state(0)
+	let filtersRowWidth = $state(0)
+	let inlineFilters = $derived(filtersRowWidth > 0 && filtersRowWidth <= filtersSlotWidth)
 
 	// Function to fetch missing job execution audit logs
 	async function fetchMissingJobSpan(jobId: string, jobLogs: AuditLog[]): Promise<AuditLog[]> {
@@ -109,16 +118,27 @@
 	</div>
 {:else}
 	<div class="flex flex-col w-full h-screen">
-		<div class="flex items-center space-x-2 flex-row justify-between">
-			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
+		<div class="flex flex-row items-center justify-between gap-4 px-4 py-2 my-4">
+			<div class="flex flex-row shrink-0 gap-1 items-center">
 				<h1 class="text-2xl font-semibold text-emphasis">Audit logs</h1>
 				<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs">
 					You can only see your own audit logs unless you are an admin.
 				</Tooltip>
 			</div>
-			<div class="flex flex-row flex-wrap justify-between py-2 my-2 px-4 gap-1 items-center">
-				<div class="hidden 2xl:block">
+			<!-- flex-1 min-w-0: the slot's width is what the title leaves, whatever its content. -->
+			<div
+				class="relative flex flex-row flex-1 min-w-0 justify-end items-center"
+				bind:clientWidth={filtersSlotWidth}
+			>
+				<!-- Kept laid out (invisible, out of flow) while unused, so its width stays measurable. -->
+				<div
+					class={inlineFilters
+						? 'w-max shrink-0'
+						: 'w-max shrink-0 invisible absolute right-0 pointer-events-none'}
+					bind:clientWidth={filtersRowWidth}
+				>
 					<AuditLogsFilters
+						inline
 						{logs}
 						bind:username
 						bind:before
@@ -126,14 +146,13 @@
 						bind:actionKind
 						bind:operation
 						bind:resource
-						bind:pageIndex
 						bind:perPage
 						bind:scope
 						loading={auditLogsLoader.loading}
 						onRefresh={() => auditLogsLoader.reload()}
 					/>
 				</div>
-				<div class="2xl:hidden">
+				<div class:hidden={inlineFilters}>
 					<AuditLogMobileFilters>
 						{#snippet filters()}
 							<AuditLogsFilters
@@ -153,7 +172,15 @@
 				</div>
 			</div>
 		</div>
-		<div class="h-2/6">
+		{#if !$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
+			<div class="mx-4 mb-2">
+				<Alert title="Redacted audit logs" type="warning">
+					You need an enterprise license to see unredacted audit logs.
+				</Alert>
+			</div>
+		{/if}
+
+		<div class="h-2/6 shrink-0 p-2 px-4 bg-surface-tertiary mx-4 border rounded-md">
 			{#if timelineLogs}
 				<AuditLogsTimeline
 					logs={timelineLogs}
@@ -162,73 +189,82 @@
 					onZoom={({ min, max }) => {
 						before = max.toISOString()
 						after = min.toISOString()
-						console.log('zoom!')
 					}}
 					onMissingJobSpan={fetchMissingJobSpan}
 					onLogSelected={(log) => {
-						console.log('selected log ')
 						selectedId = log.id
 					}}
 				/>
 			{/if}
 		</div>
-		<div class="flex-grow w-full min-h-0">
-			<div class="px-2">
-				{#if !$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
-					<Alert title="Redacted audit logs" type="warning">
-						You need an enterprise license to see unredacted audit logs.
-					</Alert>
-					<div class="py-2"></div>
-				{/if}
-			</div>
-			<SplitPanesWrapper>
-				<Splitpanes>
-					<Pane size={70} minSize={50}>
-						<!-- Also while a batched load has yet to return its first rows: the table footer
-						     carries the progress row and its Stop button. -->
-						{#if logs || batchProgress}
-							<AuditLogsTable
-								loading={auditLogsLoader.loading}
-								{logs}
-								{selectedId}
-								bind:pageIndex
-								bind:perPage
-								bind:actionKind
-								bind:operation
-								bind:usernameFilter={username}
-								bind:resourceFilter={resource}
-								hasMore={auditLogsLoader.hasMore}
-								{batchProgress}
-								batchSize={auditLogsLoader.currentBatchSize}
-								onBatchSizeChange={(size) => auditLogsLoader.restreamWithBatchSize(size)}
-								onStopLoading={() => auditLogsLoader.stopBatchLoading()}
-								showWorkspace={scope === 'instance' || scope === 'all_workspaces'}
-								onselect={(id) => {
-									selectedId = id
-								}}
-							/>
-						{:else}
-							<div class="gap-1 flex flex-col">
-								{#each new Array(8) as _}
-									<Skeleton layout={[[3]]} />
-								{/each}
-							</div>
-						{/if}
-					</Pane>
-					<Pane size={30} minSize={15}>
-						{#if logs}
-							<AuditLogDetails {logs} {selectedId} />
-						{/if}
-					</Pane>
-				</Splitpanes>
-			</SplitPanesWrapper>
 
-			<div class="md:hidden">
+		<div
+			class="hidden md:block grow min-h-0 [&_.splitpanes\_\_splitter]:!bg-transparent [&_.splitpanes\_\_splitter]:!border-none"
+		>
+			<Splitpanes>
+				<Pane minSize={40}>
+					<div class="h-full flex flex-col p-4 pr-2">
+						<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
+							<!-- Also while a batched load has yet to return its first rows: the table footer
+							     carries the progress row and its Stop button. -->
+							{#if logs || batchProgress}
+								<AuditLogsTable
+									loading={auditLogsLoader.loading}
+									{logs}
+									{selectedId}
+									bind:perPage
+									bind:actionKind
+									bind:operation
+									bind:usernameFilter={username}
+									bind:resourceFilter={resource}
+									hasMore={auditLogsLoader.hasMore}
+									loadingExtra={auditLogsLoader.loadingExtra}
+									onLoadMore={() => auditLogsLoader.loadMore()}
+									{batchProgress}
+									batchSize={auditLogsLoader.currentBatchSize}
+									onBatchSizeChange={(size) => auditLogsLoader.restreamWithBatchSize(size)}
+									onStopLoading={() => auditLogsLoader.stopBatchLoading()}
+									showWorkspace={scope === 'instance' || scope === 'all_workspaces'}
+									onselect={(id) => {
+										selectedId = selectedId === id ? undefined : id
+									}}
+								/>
+							{:else}
+								<div class="gap-1 flex flex-col p-2">
+									{#each new Array(8) as _}
+										<Skeleton layout={[[3]]} />
+									{/each}
+								</div>
+							{/if}
+						</div>
+					</div>
+				</Pane>
+				<AnimatedPane size={40} minSize={15} opened={detailOpen}>
+					<div class="h-full flex flex-col p-4 pl-2">
+						<div class="flex-1 min-h-0 mt-8 overflow-y-auto border rounded-md bg-surface-tertiary">
+							{#if logs}
+								<AuditLogDetails
+									{logs}
+									{selectedId}
+									onClose={() => {
+										selectedId = undefined
+									}}
+								/>
+							{/if}
+						</div>
+					</div>
+				</AnimatedPane>
+			</Splitpanes>
+		</div>
+
+		<div class="md:hidden grow min-h-0 flex flex-col p-4">
+			<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
 				<AuditLogsTable
 					{logs}
 					loading={auditLogsLoader.loading}
 					hasMore={auditLogsLoader.hasMore}
-					bind:pageIndex
+					loadingExtra={auditLogsLoader.loadingExtra}
+					onLoadMore={() => auditLogsLoader.loadMore()}
 					bind:perPage
 					bind:actionKind
 					bind:operation

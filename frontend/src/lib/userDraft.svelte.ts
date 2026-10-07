@@ -110,6 +110,8 @@ export type LiveEditorDraft = {
 	itemKind: UserDraftItemKind
 	storagePath: string
 	effectivePath?: string
+	/** An item the user just started from a new-item builder, still on its template. */
+	isNew?: boolean
 }
 
 export type LiveEditorDraftSpec = {
@@ -117,6 +119,7 @@ export type LiveEditorDraftSpec = {
 	storagePath: string
 	effectivePath?: string
 	workspace?: string
+	isNew?: boolean
 }
 
 export type ClearLiveEditorDraftOptions = UserDraftOptions & {
@@ -479,7 +482,8 @@ export const UserDraft = {
 			workspace: ws,
 			itemKind: spec.itemKind,
 			storagePath: spec.storagePath,
-			effectivePath: spec.effectivePath || undefined
+			effectivePath: spec.effectivePath || undefined,
+			isNew: spec.isNew || undefined
 		})
 	},
 

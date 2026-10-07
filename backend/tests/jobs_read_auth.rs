@@ -564,6 +564,56 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         "run-scoped token must not enumerate jobs (got {status}): {body}"
     );
 
+    // ---- PATH-SCOPED READ TOKEN: READ_SCOPED_TOKEN is test-user-2's
+    //      `jobs:read:f/shared/flow1`. It reads that flow's runs and the steps beneath
+    //      them, and nothing else its owner created.
+    for (path, expected) in [
+        (
+            format!("completed/get_result/{FLOW_JOB}"),
+            r#""flow": "done""#,
+        ),
+        (
+            format!("completed/get_result/{STEP_JOB}"),
+            "STEP_RESULT_INHERITED",
+        ),
+    ] {
+        let (status, body) = get(&base, &path, Some("READ_SCOPED_TOKEN")).await;
+        assert!(
+            status.is_success() && body.contains(expected),
+            "read-scoped token must read a run of its flow ({path}, got {status}): {body}"
+        );
+    }
+    for path in [
+        format!("completed/get_result/{VICTIM}"),
+        format!("get/{VICTIM}"),
+        format!("flow/approval_info/{VICTIM}"),
+    ] {
+        let (status, body) = get(&base, &path, Some("READ_SCOPED_TOKEN")).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::NOT_FOUND,
+            "read-scoped token must not read a job outside its paths ({path}, got {status}): {body}"
+        );
+    }
+    // The lists answer with the top-level runs at its paths only, where the same user's
+    // unscoped token sees the other runs too.
+    for list in ["list", "completed/list"] {
+        let (status, body) = get(&authed_base, list, Some("READ_SCOPED_TOKEN")).await;
+        assert!(status.is_success(), "{list} (got {status}): {body}");
+        let jobs: Vec<serde_json::Value> = serde_json::from_str(&body)?;
+        let mut ids: Vec<&str> = jobs.iter().filter_map(|j| j["id"].as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, [WRAPPED_FLOW_JOB, FLOW_JOB], "{list}: {body}");
+    }
+    let (_, body) = get(&authed_base, "list", Some("SECRET_TOKEN_2")).await;
+    assert!(body.contains(VICTIM), "unscoped list: {body}");
+    let (status, body) = get(&authed_base, "completed/count", Some("READ_SCOPED_TOKEN")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "read-scoped token must not count the workspace's jobs (got {status}): {body}"
+    );
+
     // ---- APP EMBED TOKEN: cancellation confined to the app's own jobs. The token
     //      may cancel a job it launched (created_by == viewer), but `cancel_job_api`
     //      denies (NotFound) a job created by someone else, even one the (admin)

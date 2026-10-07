@@ -6261,9 +6261,20 @@ async fn push_inner<'c, 'd>(
                         if team_plan_status.max_tolerated_executions.is_none()
                             || workspace_usage > team_plan_status.max_tolerated_executions.unwrap()
                         {
-                            return Err(error::Error::QuotaExceeded(format!(
-                                "Workspace {workspace_id} team plan is past due and isn't allowed to run any more jobs. Please fix your payment method in the workspace settings."
-                            )));
+                            // A canceled plan reuses the past-due cap for its last month. Only read
+                            // here, on the refusal path, to word it.
+                            let plan_canceled = sqlx::query_scalar::<_, bool>(
+                                "SELECT COALESCE(plan = 'team_canceled', false) FROM workspace_settings WHERE workspace_id = $1",
+                            )
+                            .bind(&billing_w_id)
+                            .fetch_optional(db)
+                            .await?
+                            .unwrap_or(false);
+                            return Err(error::Error::QuotaExceeded(if plan_canceled {
+                                format!("Workspace {workspace_id} team plan was canceled and has used the executions paid for this month. Jobs can run again on the free plan from the 1st, or right away by subscribing again in the workspace settings.")
+                            } else {
+                                format!("Workspace {workspace_id} team plan is past due and isn't allowed to run any more jobs. Please fix your payment method in the workspace settings.")
+                            }));
                         }
                     } else {
                         if workspace_usage > MAX_FREE_EXECS
@@ -7512,6 +7523,18 @@ async fn push_inner<'c, 'd>(
                 concurrency_settings.concurrency_time_window_s,
             )
         };
+    // jsonb rejects the `\u0000` escape (22P05), which would fail the whole push, and args are
+    // not always what a caller typed: a flow step's are evaluated from the previous step's
+    // in-memory result, an agent tool's are written by the model.
+    let serialized_args = serde_json::value::to_raw_value(&args).map_err(|e| {
+        Error::internal_err(format!("Could not serialize args of job {job_id}: {e:#}"))
+    })?;
+    let sanitized_args = match strip_json_nul(serialized_args.get()) {
+        Cow::Owned(stripped) => RawValue::from_string(stripped).map_err(|e| {
+            Error::internal_err(format!("Could not sanitize args of job {job_id}: {e:#}"))
+        })?,
+        Cow::Borrowed(_) => serialized_args,
+    };
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (
@@ -7578,7 +7601,7 @@ async fn push_inner<'c, 'd>(
         permissioned_as,
         runnable_id,
         runnable_path.clone(),
-        Json(args) as Json<PushArgs>,
+        Json(sanitized_args) as Json<Box<RawValue>>,
         job_kind.clone() as JobKind,
         trigger_path.flatten(),
         language as Option<ScriptLang>,

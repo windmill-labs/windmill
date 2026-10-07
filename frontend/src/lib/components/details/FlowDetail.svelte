@@ -139,6 +139,7 @@
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it.
 	const can_write = $derived(!!flow && canWrite(flow.path, flow.extra_perms!, actingUser))
+	const promptForAi = $derived((flow?.schema?.prompt_for_ai as string | undefined) ?? '')
 	let shareModal: ShareModal | undefined = $state()
 
 	let scheduledForStr: string | undefined = $state(undefined)
@@ -852,15 +853,20 @@
 									</div>
 								{/if}
 
-								{#if Object.keys(flow.schema?.properties ?? {}).length > 0}
-									<AIFormAssistant
-										instructions={(flow.schema?.prompt_for_ai as string | undefined) ?? ''}
-										onEditInstructions={can_write && canAuthorFlow
-											? () => onNavigate(`/flows/edit/${flow?.path}`)
-											: undefined}
-										runnableType="flow"
-										path={flow?.path}
-									/>
+								{#snippet aiAssistant()}
+									{#if Object.keys(flow?.schema?.properties ?? {}).length > 0}
+										<AIFormAssistant
+											instructions={promptForAi}
+											onEditInstructions={can_write && canAuthorFlow
+												? () => onNavigate(`/flows/edit/${flow?.path}`)
+												: undefined}
+											runnableType="flow"
+											path={flow?.path}
+										/>
+									{/if}
+								{/snippet}
+								{#if promptForAi}
+									{@render aiAssistant()}
 								{/if}
 
 								<RunForm
@@ -879,6 +885,7 @@
 									bind:args
 									bind:this={runForm}
 									{jsonView}
+									actions={promptForAi ? undefined : aiAssistant}
 								/>
 							</div>
 

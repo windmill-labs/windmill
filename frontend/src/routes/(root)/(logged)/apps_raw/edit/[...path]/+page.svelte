@@ -12,6 +12,7 @@
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { openEditorInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import {
@@ -29,6 +30,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import RawAppTemplatePicker, {
+		type RawAppBuildMode,
 		type RawAppTemplatePickerResult
 	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
 	import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
@@ -82,8 +84,8 @@
 		| undefined = $state(undefined)
 	let redraw = $state(0)
 	let path = page.params.path ?? ''
-	/** Opens the framework picker on a brand-new draft (`new_draft=true`):
-	 * React/Svelte + data config + optional AI prompt before the editor goes live. */
+	/** Opens the new-app picker on a brand-new draft (`new_draft=true`): build with AI, or pick
+	 * React/Svelte + data config before the editor goes live. */
 	let templatePicker = $state(false)
 
 	/** Deployed raw-app bundle this load, the baseline the autosave `discardIf`
@@ -541,7 +543,19 @@
 		return $operatorBuilderApps ? {} : structuredClone(STARTER_RUNNABLES)
 	}
 
-	function onTemplatePickerStart(result: RawAppTemplatePickerResult, withPrompt: boolean) {
+	function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
+		if (mode === 'ai' && prefersSessionHandoff($userStore?.operator) && $workspaceStore) {
+			// Nothing is written here: the session opens this path on the template in memory
+			// (`new_draft`) and saves it only once it changes.
+			const { datatable, roles } = result.data
+			const role = datatable ? roles?.[datatable] : undefined
+			void openEditorInSession({ kind: 'raw_app', path }, $workspaceStore, {
+				new_draft: 'true',
+				...(datatable ? { datatable } : {}),
+				...(role ? { datatable_role: role } : {})
+			})
+			return
+		}
 		files = { ...result.files }
 		runnables = { ...result.runnables, ...starterRunnables() }
 		data = result.data
@@ -556,22 +570,9 @@
 			schema: result.data.schema,
 			roles: result.data.roles
 		}
-		if (withPrompt && result.prompt) {
-			const prompt = result.prompt
-			// The delay lets the remount above settle: the session hand-off persists
-			// the draft the preview loads, and the docked path needs the editor to
-			// have registered its app helpers.
-			setTimeout(async () => {
-				// Falls through when the hand-off has no path to open, so the click
-				// still reaches the legacy path (or its toast) instead of vanishing.
-				if (prefersSessionHandoff($userStore?.operator)) {
-					if (await rawAppEditor?.openInSession(prompt)) return
-				}
-				aiChatManager.changeMode(AIMode.APP)
-				if (!aiChatManager.open) aiChatManager.toggleOpen()
-				aiChatManager.instructions = prompt
-				aiChatManager.sendRequest()
-			}, 500)
+		if (mode === 'ai') {
+			aiChatManager.changeMode(AIMode.APP)
+			if (!aiChatManager.open) aiChatManager.toggleOpen()
 		}
 	}
 </script>

@@ -91,6 +91,12 @@ are for a plain checkout with nothing running.
 - **Login**: `admin@windmill.dev` / `changeme`
 - **Instance settings**: navigate to `/#superadmin-settings`
 - **Migrations**: use `cargo sqlx migrate add -r <name>` from `backend/` to create new migrations (never generate timestamps manually)
+- **Resource types ship through the hub, not migrations.** A new type, a provider's credential
+  included, is a `hub/<app>/<app>.resource_type.json` in `windmill-labs/windmill-integrations`
+  and reaches instances by hub sync; a product name its identifier misses (`typesafe` →
+  "TypeSafe") is that file's `display_name`, not a word in `resourceTypeDisplay.ts`'s map. Only a
+  type Windmill itself defines and reads as a product object (`ai_skill`, `ai_instruction`) is
+  also seeded by a migration, so the feature works before a sync. For local testing, insert the row.
 
 ### Per-worktree ports and database
 
