@@ -1245,7 +1245,16 @@
 									}
 								})
 
-								await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
+								// A saved config without tags inherits them from the worker's environment, and
+								// an explicit empty list would override that: only send one the user asked for.
+								const inheritsTags =
+									config != undefined &&
+									config.worker_tags == undefined &&
+									nconfig.worker_tags?.length === 0
+								await ConfigService.updateConfig({
+									name: 'worker__' + name,
+									requestBody: inheritsTags ? { ...nconfig, worker_tags: undefined } : nconfig
+								})
 								sendUserToast('Configuration set')
 								dispatch('reload')
 							}}
