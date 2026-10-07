@@ -163,7 +163,7 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry_with_workspace_override,
+    is_sandboxing_enabled, read_ee_registry, read_ee_registry_with_workspace_override,
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
     NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
@@ -2609,16 +2609,16 @@ pub async fn handle_python_reqs(
         job_id
     );
 
-    let overrides_index = || {
-        crate::workspace_overrides_registry(w_id, &["pip_index_url", "pip_extra_index_url"])
-    };
-    // Registry settings reload under running jobs. Checked on both sides of reading the
-    // index URLs, so an override dropped in between still scopes the install that uses it.
-    let overrode_index = overrides_index().await;
+    // The index URLs and whether the workspace overrode them come from one snapshot, so an
+    // install from an overridden index can never be filed under a shared cache name.
+    let [ws_extra_index_url, ws_index_url] =
+        crate::workspace_registry_overrides(w_id, ["pip_extra_index_url", "pip_index_url"]).await;
+    let index_scope = (ws_extra_index_url.is_some() || ws_index_url.is_some()).then_some(w_id);
     let pip_indexes = (
-        read_ee_registry_with_workspace_override(
-            PIP_EXTRA_INDEX_URL.read().await.clone(),
-            "pip_extra_index_url",
+        read_ee_registry(
+            ws_extra_index_url
+                .or(PIP_EXTRA_INDEX_URL.read().await.clone())
+                .filter(|s| !s.trim().is_empty()),
             "pip extra index url",
             job_id,
             w_id,
@@ -2626,9 +2626,10 @@ pub async fn handle_python_reqs(
         )
         .await
         .map(handle_ephemeral_token),
-        read_ee_registry_with_workspace_override(
-            PIP_INDEX_URL.read().await.clone(),
-            "pip_index_url",
+        read_ee_registry(
+            ws_index_url
+                .or(PIP_INDEX_URL.read().await.clone())
+                .filter(|s| !s.trim().is_empty()),
             "pip index url",
             job_id,
             w_id,
@@ -2654,7 +2655,6 @@ pub async fn handle_python_reqs(
         }
     }
 
-    let index_scope = (overrode_index || overrides_index().await).then_some(w_id);
 
     // Cached paths
     let mut req_with_penv: Vec<(PyLockEntry, String)> = vec![];

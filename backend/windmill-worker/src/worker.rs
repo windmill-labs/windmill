@@ -949,13 +949,19 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     }
 }
 
-/// Whether the workspace overrides any of `setting_keys` in its registry settings.
-pub async fn workspace_overrides_registry(w_id: &str, setting_keys: &[&str]) -> bool {
+/// The workspace's own values for `setting_keys`, `None` where it does not override the
+/// instance. One snapshot: registry settings reload under running jobs, so a caller that needs
+/// several keys to agree, or the value to agree with whether it was overridden, reads them here.
+pub async fn workspace_registry_overrides<const N: usize>(
+    w_id: &str,
+    setting_keys: [&str; N],
+) -> [Option<String>; N] {
     let registries = WORKSPACE_REGISTRIES.read().await;
-    registries
-        .as_ref()
-        .and_then(|m| m.get(w_id))
-        .is_some_and(|ws| setting_keys.iter().any(|k| ws.contains_key(*k)))
+    let ws = registries.as_ref().and_then(|m| m.get(w_id));
+    setting_keys.map(|key| match ws.and_then(|ws| ws.get(key)) {
+        Some(serde_json::Value::String(s)) => Some(s.clone()),
+        _ => None,
+    })
 }
 
 /// The name a build artifact is cached under, derived from `base` — the runnable's own
