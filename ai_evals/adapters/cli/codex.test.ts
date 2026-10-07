@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { toToolInvocations, unwrapShellCommand } from "./codex";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runCodex, toToolInvocations, unwrapShellCommand } from "./codex";
 
 describe("unwrapShellCommand", () => {
   it("strips the login-shell wrapper Codex reports", () => {
@@ -39,5 +42,30 @@ describe("toToolInvocations", () => {
     expect(
       toToolInvocations({ type: "file_change", changes: [{ path: "a.ts", kind: "add" }] })[0]
     ).toMatchObject({ tool: "Edit", input: { changes: [{ path: "a.ts", kind: "add" }] } });
+  });
+});
+
+describe("runCodex", () => {
+  it("keeps parallel tool calls in the order they started", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fake-codex-"));
+    const events = [
+      { type: "item.started", item: { id: "a", type: "command_execution", command: "mkdir f" } },
+      { type: "item.started", item: { id: "b", type: "command_execution", command: "cat .agents/skills/s/SKILL.md" } },
+      { type: "item.completed", item: { id: "b", type: "command_execution", command: "cat .agents/skills/s/SKILL.md" } },
+      { type: "item.completed", item: { id: "a", type: "command_execution", command: "mkdir f" } },
+      { type: "item.completed", item: { id: "c", type: "agent_message", text: "done" } },
+      { type: "turn.completed", usage: { input_tokens: 10, output_tokens: 2 } },
+    ];
+    const lines = events.map((event) => `printf '%s\\n' '${JSON.stringify(event)}'`).join("\n");
+    await writeFile(join(dir, "codex"), `#!/bin/sh\ncat > /dev/null\n${lines}\n`);
+    await chmod(join(dir, "codex"), 0o755);
+    try {
+      const result = await runCodex("p", dir, 12, "m", { PATH: `${dir}:${process.env.PATH}` });
+      expect(result.toolsUsed.map((tool) => tool.tool)).toEqual(["Bash", "Skill", "Bash"]);
+      expect(result.output).toBe("done");
+      expect(result.tokenUsage).toEqual({ prompt: 10, completion: 2, total: 12 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

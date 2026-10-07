@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   anthropicUsageToBenchmarkTokenUsage,
   extractCliResultTokenUsage,
+  endpointEnv,
   extractProposedWmillCommands,
   getFirstMutationToolIndex,
   parseWmillInvocationLog,
@@ -159,5 +160,21 @@ describe("getFirstMutationToolIndex", () => {
       ])
     ).toBe(1);
     expect(getFirstMutationToolIndex([bash("cd f\nwmill sync push")])).toBe(0);
+  });
+});
+
+describe("endpointEnv", () => {
+  it("passes the endpoint only its own key", () => {
+    const env = endpointEnv(
+      { baseUrl: "https://example.test", apiKeyEnv: "DEEPSEEK_API_KEY" },
+      "m",
+      { PATH: "/bin", DEEPSEEK_API_KEY: "ds", OPENAI_API_KEY: "oa", ANTHROPIC_AUTH_TOKEN: "t" }
+    );
+    expect(env).toEqual({
+      PATH: "/bin",
+      ANTHROPIC_BASE_URL: "https://example.test",
+      ANTHROPIC_API_KEY: "ds",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "m",
+    });
   });
 });

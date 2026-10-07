@@ -7,7 +7,8 @@ import {
   resolveEvalModel,
   type CliEvalModelConfig,
 } from "../../core/models";
-import { isLikelyMutatingBashCommand, runCodex, type AgentRunResult } from "./codex";
+import { runCodex, type AgentRunResult } from "./codex";
+import { isLikelyMutatingBashCommand } from "./mutation";
 export { formatCliRunModelLabel } from "../../core/models";
 import type {
   BenchmarkTokenUsage,
@@ -196,9 +197,10 @@ export async function runPromptAndCapture(
   };
 }
 
-// Only the endpoint's own key may reach it: a missing key or a Claude token in the
-// environment would make Claude Code send the user's Claude credentials there.
-function endpointEnv(
+// Only the endpoint's own key may reach it: a missing key would make Claude Code
+// fall back to the user's Claude login, and the agent's Bash inherits this env,
+// so any other credential could end up in a tool result sent to the endpoint.
+export function endpointEnv(
   endpoint: NonNullable<CliEvalModelConfig["anthropicEndpoint"]>,
   model: string,
   env: Record<string, string>
@@ -207,7 +209,9 @@ function endpointEnv(
   if (!key) {
     throw new Error(`${endpoint.apiKeyEnv} is not set`);
   }
-  const { ANTHROPIC_AUTH_TOKEN: _token, CLAUDE_CODE_OAUTH_TOKEN: _oauth, ...rest } = env;
+  const rest = Object.fromEntries(
+    Object.entries(env).filter(([name]) => !/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(name))
+  );
   return {
     ...rest,
     ANTHROPIC_BASE_URL: endpoint.baseUrl,

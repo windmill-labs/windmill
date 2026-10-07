@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { BenchmarkTokenUsage, CliToolInvocation } from "../../core/types";
+import { isLikelyMutatingBashCommand } from "./mutation";
 
 export interface AgentRunResult {
   output: string;
@@ -106,6 +107,20 @@ export async function runCodex(
     let turns = 0;
     let inFlight = 0;
     let capped = false;
+    // Parallel calls complete out of order; the trace keeps the order they started in.
+    const slots = new Map<string, number>();
+    const ordered: CliToolInvocation[][] = [];
+    const slotFor = (item: CodexItem) => {
+      const id = typeof item.id === "string" ? item.id : undefined;
+      if (id !== undefined && slots.has(id)) {
+        return slots.get(id)!;
+      }
+      ordered.push([]);
+      if (id !== undefined) {
+        slots.set(id, ordered.length - 1);
+      }
+      return ordered.length - 1;
+    };
 
     for await (const line of createInterface({ input: child.stdout })) {
       const event = parseEvent(line);
@@ -119,6 +134,7 @@ export async function runCodex(
           turns += 1;
         }
         inFlight += 1;
+        slotFor(item);
         if (turns >= maxTurns && !capped) {
           capped = true;
           child.kill("SIGTERM");
@@ -131,7 +147,7 @@ export async function runCodex(
           }
         } else if (isToolItem(item)) {
           inFlight = Math.max(0, inFlight - 1);
-          result.toolsUsed.push(...toToolInvocations(item));
+          ordered[slotFor(item)] = toToolInvocations(item);
         }
       } else if (event.type === "turn.completed" && event.usage) {
         const prompt = event.usage.input_tokens ?? 0;
@@ -145,6 +161,7 @@ export async function runCodex(
       }
     }
 
+    result.toolsUsed = ordered.flat();
     const code = await exited;
     if (failure) {
       throw new Error(`codex: ${failure}`);
@@ -208,17 +225,6 @@ export function unwrapShellCommand(command: string): string {
   return match[1] === "'"
     ? body.replaceAll(`'\\''`, "'").replaceAll(`'"'"'`, "'")
     : body.replace(/\\(["\\$`])/g, "$1");
-}
-
-export function isLikelyMutatingBashCommand(command: string): boolean {
-  return (
-    /\b(?:mkdir|touch|rm|mv|cp|install|tee)\b/.test(command) ||
-    /\b(?:cat|echo|printf)\b.*(?:>|>>|\|\s*tee\b)/.test(command) ||
-    /\bsed\s+-i\b/.test(command) ||
-    /\bperl\s+-pi\b/.test(command) ||
-    // In command position only: `cat AGENTS.wmill.md` is a read.
-    /(?:^|[;&|(]|\b(?:then|do|xargs)\s)\s*wmill(?:\s|$)/m.test(command)
-  );
 }
 
 function isToolItem(item: CodexItem): boolean {
