@@ -49,7 +49,7 @@
 		'Branch to one': { icon: GitBranch },
 		'Branch to all': { icon: GitBranch },
 		'AI Agent': { icon: BotIcon, showChevron: true, iconClass: 'text-ai' },
-		'AI decision': { icon: Scale, iconClass: 'text-ai' },
+		'AI Decision': { icon: Scale, iconClass: 'text-ai' },
 		'AI Sandbox': { icon: BotIcon, showChevron: true, iconClass: 'text-ai' },
 		'Claude Code': { icon: BotIcon, iconClass: 'text-ai' },
 		MCP: { icon: Plug },

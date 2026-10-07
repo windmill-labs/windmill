@@ -24,8 +24,8 @@
 		 *  other than the one being navigated. Resources and the models read off them are per
 		 *  workspace, so without it this offers what the wrong one holds. */
 		workspace?: string | undefined
-		/** Offer the decision providers (TypeSafe, Cloudflare) in place of the chat ones, for an AI
-		 *  decision. */
+		/** Offer the decision providers (TypeSafe, Cloudflare, OpenAI) and their decision models in
+		 *  place of the chat ones, for an AI decision. */
 		decision?: boolean
 	}
 
@@ -84,12 +84,26 @@
 		return r
 	})
 
+	// A decision provider's models are the ones Windmill knows: none has a listing of its decision
+	// models, and an OpenAI resource's lists its chat models.
+	function defaultModels(provider: AIProvider): string[] {
+		return decision
+			? ((DECISION_AI_PROVIDERS as Record<string, { defaultModels: string[] }>)[provider]
+					?.defaultModels ?? [])
+			: aiProviderDetails(provider).defaultModels
+	}
+
 	async function loadModels(signal?: AbortSignal) {
 		const provider = value?.kind
 		const resourceValue = value?.resource
 		const resourcePath = resourceValueToPath(resourceValue)
 
 		if (!provider || !resourcePath) {
+			return
+		}
+		if (decision) {
+			availableModels = defaultModels(provider)
+			loading = false
 			return
 		}
 
@@ -113,8 +127,7 @@
 				return
 			}
 			// Fall back to default models for this provider
-			const defaultModels = aiProviderDetails(provider).defaultModels
-			availableModels = defaultModels
+			availableModels = defaultModels(provider)
 		} finally {
 			if (!signal?.aborted) {
 				loading = false
@@ -178,8 +191,7 @@
 		if (provider && resourcePath) {
 			loadModels(abortController.signal)
 		} else {
-			const defaultModels = provider ? aiProviderDetails(provider).defaultModels : []
-			availableModels = defaultModels
+			availableModels = provider ? defaultModels(provider) : []
 			loading = false
 		}
 

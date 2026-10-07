@@ -944,7 +944,7 @@ pub(crate) async fn change_workspace_id(
     // Note: schedules were already moved to new workspace, so this will find 0 schedules
     info!("Archiving old workspace");
     let (_schedules_count, canceled_count, _deleted_tokens_count) =
-        archive_workspace_impl(&db, &old_id, &authed.username, None).await?;
+        archive_workspace_impl(&db, &old_id, &authed, None).await?;
 
     // The old id stays live between the commit above and the archive, and a fork copy created for
     // it in that window registers under it. Creation checks the workspace is live under the fork
