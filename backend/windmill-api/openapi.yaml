@@ -38472,6 +38472,7 @@ components:
         - RestrictAnonymousAppDeployment
         - RestrictPublicRunSharing
         - RestrictGuestAppDeployment
+        - AllowOperatorForking
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset
