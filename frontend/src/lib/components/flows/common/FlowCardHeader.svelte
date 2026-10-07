@@ -252,7 +252,7 @@
 						<Badge color="indigo">AI Agent</Badge>
 						{@render summaryInput()}
 					{:else if flowModuleValue.type === 'aidecision'}
-						<Badge color="indigo">AI decision</Badge>
+						<Badge color="indigo">AI Decision</Badge>
 						{@render summaryInput()}
 					{/if}
 				</div>

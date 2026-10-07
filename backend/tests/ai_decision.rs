@@ -1,5 +1,6 @@
-//! AI decision steps run end to end against a stand-in for System One endpoints: TypeSafe's, and
-//! Cloudflare Workers AI's, which serves each model at its own URL inside an API envelope.
+//! AI decision steps run end to end against a stand-in for the decision endpoints: TypeSafe's
+//! System One, Cloudflare Workers AI's, which serves each model at its own URL inside an API
+//! envelope, and OpenAI's Decisions API.
 
 use axum::{routing::post, Json, Router};
 use serde_json::{json, Value};
@@ -37,6 +38,19 @@ async fn start_decision_stub() -> anyhow::Result<u16> {
             post(|Json(body): Json<Value>| async move {
                 Json(json!({"result": refund_answers(&body), "success": true, "errors": []}))
             }),
+        )
+        // OpenAI's Decisions API takes the questions as a list and answers with one.
+        .route(
+            "/openai/v1/decisions",
+            post(|Json(body): Json<Value>| async move {
+                let answers = body["questions"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|q| json!({"type": "choice", "name": q["name"], "choice": "refund"}))
+                    .collect::<Vec<_>>();
+                Json(json!({"answers": answers}))
+            }),
         );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
@@ -71,6 +85,11 @@ async fn test_ai_decision_answers_route_a_following_branch(
                 "base_url": format!("http://127.0.0.1:{stub_port}/accounts/acc/ai/run/@cf/cloudflare")
             },
             "model": "clef-flash"
+        }),
+        json!({
+            "kind": "openai",
+            "resource": {"api_key": "key", "base_url": format!("http://127.0.0.1:{stub_port}/openai/v1")},
+            "model": "gpt-6-luna"
         }),
     ] {
         let flow: FlowValue = serde_json::from_value(json!({

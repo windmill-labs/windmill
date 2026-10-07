@@ -592,6 +592,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -727,6 +728,7 @@
 											{#key is_static_website}
 												<FileUpload
 													folderOnly={is_static_website}
+													disabled={!can_write}
 													allowMultiple={false}
 													randomFileKey={true}
 													on:addition={(evt) => {

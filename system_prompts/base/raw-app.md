@@ -10,6 +10,46 @@ A raw app has three logical parts:
 - **Backend runnables** — server-side scripts the frontend calls, each addressed by a unique key.
 - **Data** — optional whitelisted datatables (managed PostgreSQL) that the backend runnables can query. The frontend never queries the database directly; backend runnables are the only bridge.
 
+## Starting a new app
+
+A new app gets the setup Windmill's own new-app dialog gives one: a framework, then where its data lives.
+
+### Framework
+
+Use the framework the user named. When they named none, follow what there is to follow: the app being edited, or the apps the request points at. With nothing to follow, use **React 19**, the recommended default, **without asking**. React 18, Svelte 5 and Vue are for when they are asked for.
+
+### Data setup
+
+When a new app has to store data and the user did not say where, **ask before creating anything**: no app, no schema, no table. Where the data lives is the user's decision, and tables created in the wrong place stay there. Look up the workspace's data tables first so every choice you offer exists, then ask, as proposed answers rather than open questions:
+
+1. **Data table**: which one to use, the default first (`main` when it exists, otherwise the first listed). Skip this one when the workspace has a single data table.
+2. **Schema**: where the app's new tables go.
+   - A **new schema**, the usual choice, offered first. Suggest the first unused name among `app1`, `app2`, …
+   - An **existing schema** of that data table, by name.
+   - **None**: the tables go in `public`.
+3. **Tables**: only when that data table already holds tables the app could use, whether to **reuse** them (name them) or **create new ones**.
+
+Do not ask when:
+
+- the user already said where the data goes. A part they left out takes its default above: the default data table, a new `appN` schema, new tables;
+- the app, or its saved draft, already carries a data config (`data.datatable`, `data.schema` or `data.tables`). That config is the answer;
+- the app stores nothing.
+
+With no data table in the workspace there is nothing to choose: say that one has to be configured in the workspace settings before the app can store data.
+
+A question left unanswered or dismissed is not a go-ahead for the defaults: stop there and say what is still needed.
+
+Then build what was chosen: the data table and schema become the app's `data.datatable` and `data.schema`, the tables it uses, reused or new, go in `data.tables`, and a new schema is created (`CREATE SCHEMA IF NOT EXISTS`) before the tables that go in it.
+<!-- cli-only -->
+`wmill app new --datatable <name> --schema <name>` records both and, for a schema that does not exist yet, writes the migration in `sql_to_apply/` that creates it: nothing exists in the database until `wmill app dev` applies that migration, so the app's table migrations come after it.
+<!-- /cli-only -->
+<!-- chat-only -->
+
+### An app that arrives already set up
+
+An app the user just started from the new-app dialog is already set up: its files are the framework template it was started with, and a `data` config it carries (`data.datatable`, `data.schema` or `data.tables`) is the data setup it was started with. Build that app in place, with that data config, and in that framework unless the user now names another. Do not ask for either, and do not create a second app. Only when it carries no data config and has to store data is the data setup still to ask.
+<!-- /chat-only -->
+
 ## Frontend
 
 ### Entrypoint

@@ -184,7 +184,7 @@ names, so neither is name-checked at all — leave those summaries as they are.
 
 ## AI Decision Modules
 
-An `aidecision` module asks a decision model (TypeSafe's Jev or Cloudflare's Clef) typed questions about a `state` and
+An `aidecision` module asks a decision model (TypeSafe's Jev, Cloudflare's Clef or OpenAI's Decisions API) typed questions about a `state` and
 answers each with calibrated probabilities instead of text. Prefer it over an `aiagent` when the step
 is a judgment (classify, route, score or a yes/no check) that needs no tools and no free text: it
 is faster, cheaper, and its answers have a fixed shape.
@@ -222,8 +222,9 @@ is faster, cheaper, and its answers have a fixed shape.
 }
 ```
 
-- `provider.kind` is `typesafe` (`model` `jev-latest` unless a version is pinned) or `cloudflare`
-  (`model` `clef`, or `clef-flash` for faster answers); the resource is of that same type
+- `provider.kind` is `typesafe` (`model` `jev-latest` unless a version is pinned), `cloudflare`
+  (`model` `clef`, or `clef-flash` for faster answers) or `openai` (`model` `gpt-6-luna`, never a
+  chat model); the resource is of that same type
 - `state` is the content to evaluate: usually a text, such as the message to classify. To combine
   several values, pass an object with descriptive keys holding only what the questions need
   (`({ message: flow_input.message, plan: results.get_account.plan })`); an array of strings also works
@@ -237,6 +238,12 @@ is faster, cheaper, and its answers have a fixed shape.
 - The result is `{ output, model, usage }` with `output` keyed by question name, so a later step
   reads `results.triage.output.intent.choice`, `results.triage.output.urgency.score` or
   `results.triage.output.angry.noul > 0.7`
+- On `openai` the same `questions` are translated for its Decisions API and the answers read the
+  same way (`choice`, `score`, `noul`), except that `probabilities` is a list of
+  `{ value, probability }` (plus `label` on a score) and a score has no `legend`. A question OpenAI
+  refuses to answer fails the step. A `state` that is
+  an array of user messages (`[{ role: "user", content: [{ type: "input_text", text }, { type: "input_image", image_url: "data:image/png;base64,..." }] }]`)
+  is sent as is, which is how an image is evaluated; any other object or array is sent as JSON text
 
 ### Branching on the Answers
 
