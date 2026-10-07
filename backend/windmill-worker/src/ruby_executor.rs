@@ -14,7 +14,7 @@ use windmill_common::{
     client::AuthedClient,
     error::Error,
     utils::calculate_hash,
-    worker::{write_file, Connection, RubyAnnotations},
+    worker::{write_file, Connection, RubyAnnotations, WORKER_CONFIG},
 };
 use windmill_parser::Arg;
 use windmill_parser_ruby::parse_ruby_signature;
@@ -641,7 +641,8 @@ async fn install<'a>(
                 })
             };
             // `gem install` runs the package's own build code (extconf.rb), and the result is
-            // cached for every later job: no job env or reserved variable (WM_TOKEN) goes here.
+            // cached for every later job: no job env or reserved variable (WM_TOKEN) goes here,
+            // only what the worker group sets for every job.
             cmd.env_clear()
                 .current_dir(&job_dir)
                 .envs(vec![
@@ -689,6 +690,7 @@ async fn install<'a>(
                 "--source",
                 source.as_str(),
             ])
+            .envs(WORKER_CONFIG.load().env_vars.clone())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 

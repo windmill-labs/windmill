@@ -18,7 +18,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
     utils::calculate_hash,
-    worker::{copy_dir_recursively, write_file, Connection},
+    worker::{copy_dir_recursively, write_file, Connection, WORKER_CONFIG},
 };
 use windmill_parser::Arg;
 use windmill_parser_java::parse_java_sig_meta;
@@ -669,11 +669,13 @@ async fn compile<'a>(
                 JAVAC_PATH.as_str()
             });
             // javac runs annotation processors found in the dependency jars, and the compiled
-            // output is cached across jobs: no job env or reserved variable (WM_TOKEN) goes here.
+            // output is cached across jobs: no job env or reserved variable (WM_TOKEN) goes here,
+            // only what the worker group sets for every job.
             cmd.env_clear()
                 .current_dir(job_dir.to_owned())
                 .env("PATH", PATH_ENV.as_str())
                 .env("HOME", &*JAVA_HOME_DIR)
+                .envs(WORKER_CONFIG.load().env_vars.clone())
                 .envs(PROXY_ENVS.clone())
                 .args(&[
                     "-classpath",
