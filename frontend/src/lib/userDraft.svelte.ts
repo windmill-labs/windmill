@@ -221,7 +221,6 @@ const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'workspace_id',
 	'version_id',
 	'parent_version',
-	'loaded_from',
 	'is_draft',
 	'assets',
 	// Fixed at creation and absent from the resource editor's draft shape, so

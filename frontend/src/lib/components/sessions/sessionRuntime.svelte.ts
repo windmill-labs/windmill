@@ -152,8 +152,6 @@ export interface RawAppRuntimeValue {
 	/** The app_version this cell's content forked from, carried so the editor's deploy
 	 *  guard and diff drawer compare the same pair the full-page editor does. */
 	parent_version?: number
-	/** Whose draft this content was loaded from; see `RawAppDraft.loaded_from`. */
-	loaded_from?: string
 }
 // The deployed baseline a raw-app cell diffs against (topbar Diff drawer).
 export interface RawAppSavedValue {
@@ -939,7 +937,6 @@ function createRuntime(session: Session): SessionRuntime {
 					path: result.path,
 					custom_path: draftValue?.custom_path ?? result.custom_path,
 					draft_path: draftValue?.draft_path,
-					loaded_from: draftValue?.loaded_from,
 					// Only a fresh checkout forks from the head; a draft keeps its own base,
 					// unknown included, or it would read as up to date. See loadScript.
 					parent_version: draftValue

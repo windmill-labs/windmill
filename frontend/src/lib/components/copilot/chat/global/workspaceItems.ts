@@ -85,8 +85,6 @@ export type AppDraftValue = {
 	// storage path (see RawAppDraft in sessions/appDraftCodec.ts). Must
 	// round-trip through chat writes or an edit erases the chosen name.
 	draft_path?: string
-	// See RawAppDraft.loaded_from: a chat edit must not lift the preview pause.
-	loaded_from?: string
 }
 
 export type ResourceDraftState = {

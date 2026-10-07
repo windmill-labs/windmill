@@ -288,7 +288,6 @@
 					? String(cell.store.val.parent_version)
 					: undefined}
 				newApp={!cell.saved.val || cell.saved.val.no_deployed === true}
-				bind:loadedDraftOwner={cell.store.val.loaded_from}
 				{diffDrawer}
 				{onNavigate}
 				condensedHeader={true}
