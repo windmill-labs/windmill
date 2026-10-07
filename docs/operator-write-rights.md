@@ -94,3 +94,15 @@ their behaviour is unchanged.
 
 Do not model a right that an admin *grants* on these. Granted-by-default and granted-on-request
 are opposite polarities, and a gate written for one is wrong for the other.
+
+## Forking is granted, and lives on a ruleset
+
+Operators cannot fork unless some protection ruleset of the workspace carries
+`AllowOperatorForking` (`check_operator_can_fork`, called by both `create_fork` and
+`create_workspace_fork_branch` through `check_can_fork`). It is the one rule kind that grants
+rather than restricts, so it never goes through `check_user_against_rule` and its ruleset's bypass
+lists play no part. `canCreateFork` in `frontend/src/lib/utils/editInFork.ts` mirrors it.
+
+The fork copies the creator's `operator` flag and `role`, so an operator who forks is an operator in
+the fork. Without that, the bare creator row defaults to developer and forking becomes a way to gain
+write access.

@@ -28,9 +28,7 @@ export function editInForkAllowed(
 	allWorkspaces: UserWorkspace[]
 ): boolean {
 	return (
-		!isRuleActive('DisableWorkspaceForking') ||
-		canUserBypassRuleKind('DisableWorkspaceForking', get(userStore)) ||
-		!!findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
+		canCreateFork(get(userStore)) || !!findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
 	)
 }
 
@@ -59,9 +57,13 @@ export function editInForkDescription(
 /**
  * Whether the user may CREATE a new fork of the current workspace: forking not disabled, or the user
  * can bypass the rule (workspace admins). Keeps the "Fork workspace" entry available to admins as the
- * last-resort escape hatch on a locked prod.
+ * last-resort escape hatch on a locked prod. Operators additionally need a ruleset carrying
+ * `AllowOperatorForking`, which grants rather than restricts, so its bypass lists don't apply.
  */
 export function canCreateFork(user: UserExt | undefined): boolean {
+	if (user?.operator && !user.is_admin && !isRuleActive('AllowOperatorForking')) {
+		return false
+	}
 	return (
 		!isRuleActive('DisableWorkspaceForking') ||
 		canUserBypassRuleKind('DisableWorkspaceForking', user)

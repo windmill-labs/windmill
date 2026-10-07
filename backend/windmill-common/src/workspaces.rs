@@ -73,6 +73,7 @@ bitflags::bitflags! {
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
         const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
         const RESTRICT_GUEST_APP_DEPLOYMENT =       1 << 5;
+        const ALLOW_OPERATOR_FORKING =              1 << 6;
     }
 }
 
@@ -86,6 +87,7 @@ pub enum ProtectionRuleKind {
     RestrictAnonymousAppDeployment,
     RestrictPublicRunSharing,
     RestrictGuestAppDeployment,
+    AllowOperatorForking,
 }
 
 impl ProtectionRuleKind {
@@ -109,6 +111,7 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictGuestAppDeployment => {
                 ProtectionRules::RESTRICT_GUEST_APP_DEPLOYMENT
             }
+            ProtectionRuleKind::AllowOperatorForking => ProtectionRules::ALLOW_OPERATOR_FORKING,
         }
     }
 
@@ -129,6 +132,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictGuestAppDeployment => {
                 "Opening an app to guests (anyone who can sign in) is restricted in this workspace"
+            }
+            ProtectionRuleKind::AllowOperatorForking => {
+                "Operators cannot fork this workspace unless a ruleset allows it"
             }
         }
     }
@@ -1439,6 +1445,31 @@ pub async fn check_user_against_rule(
     }
 
     Ok(RuleCheckResult::Allowed)
+}
+
+/// `AllowOperatorForking` grants rather than restricts: operators are refused forking unless some
+/// ruleset of the workspace carries it, and its bypass lists play no part. Never pass it to
+/// [`check_user_against_rule`], which would read it as a restriction on everyone.
+pub async fn check_operator_can_fork(
+    workspace_id: &str,
+    is_operator: bool,
+    is_admin: bool,
+    db: &DB,
+) -> Result<RuleCheckResult> {
+    if !is_operator || is_admin {
+        return Ok(RuleCheckResult::Allowed);
+    }
+    let rulesets = get_protection_rules(workspace_id, db).await?;
+    if rulesets
+        .iter()
+        .any(|r| r.rules.contains(ProtectionRules::ALLOW_OPERATOR_FORKING))
+    {
+        Ok(RuleCheckResult::Allowed)
+    } else {
+        Ok(RuleCheckResult::Blocked(
+            ProtectionRuleKind::AllowOperatorForking.msg().to_string(),
+        ))
+    }
 }
 
 /// Check all deploy-gating protection rules at once.

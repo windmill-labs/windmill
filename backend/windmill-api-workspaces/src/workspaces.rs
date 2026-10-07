@@ -46,12 +46,13 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db,
-    get_datatable_resource_from_db_unchecked, parse_datatable_ref_for, resolve_governing_datatable,
-    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, DatatableAccess, GoverningDatatable,
-    ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
-    WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
+    check_deploy_rules, check_operator_can_fork, check_user_against_rule,
+    get_datatable_resource_from_db, get_datatable_resource_from_db_unchecked,
+    parse_datatable_ref_for, resolve_governing_datatable, validate_dev_workspace_id,
+    validate_fork_workspace_id, validate_workspace_name, DataTable, DataTableCatalogResourceType,
+    DataTableForkBehavior, DatatableAccess, GoverningDatatable, ProtectionRuleKind,
+    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -8565,6 +8566,29 @@ async fn deprecated_create_workspace_fork(_authed: ApiAuthed) -> Result<String> 
     return Err(Error::BadRequest("This API endpoint has been relocated. Your Windmill CLI version is outdated and needs to be updated.".to_string()));
 }
 
+async fn check_can_fork(db: &DB, authed: &ApiAuthed, w_id: &str) -> Result<()> {
+    if *DISABLE_WORKSPACE_FORK {
+        require_super_admin(db, authed).await?;
+    }
+    for res in [
+        check_user_against_rule(
+            w_id,
+            &ProtectionRuleKind::DisableWorkspaceForking,
+            AuditAuthorable::username(authed),
+            &authed.groups,
+            authed.is_admin,
+            db,
+        )
+        .await?,
+        check_operator_can_fork(w_id, authed.is_operator, authed.is_admin, db).await?,
+    ] {
+        if let RuleCheckResult::Blocked(msg) = res {
+            return Err(Error::PermissionDenied(msg));
+        }
+    }
+    Ok(())
+}
+
 /// Return the uuids of the git sync jobs to create the branch before creating the fork
 async fn create_workspace_fork_branch(
     authed: ApiAuthed,
@@ -8580,21 +8604,7 @@ async fn create_workspace_fork_branch(
         enforce_cloud_fork_cap(&db, &w_id).await?;
     }
 
-    if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed).await?;
-    }
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &w_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
+    check_can_fork(&db, &authed, &w_id).await?;
 
     // Two-phase create for git-synced workspaces: this endpoint only creates the git branch(es) and
     // validates up front; it does NOT create the workspace row. The caller follows up with
@@ -9310,21 +9320,7 @@ async fn create_workspace_fork(
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
 
-    if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed).await?;
-    }
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &parent_workspace_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
+    check_can_fork(&db, &authed, &parent_workspace_id).await?;
 
     if nw.is_dev_workspace {
         ensure_dev_parent_can_host_dev(&db, &parent_workspace_id).await?;
@@ -9787,17 +9783,17 @@ async fn write_workspace_fork(
 
     // Ensure the creator is a member of the fork even without copy_members (or if they aren't a parent
     // member). No-op when copy_members already brought their full row.
-    sqlx::query!(
+    sqlx::query(
         "INSERT INTO usr
-           (workspace_id, email, username, is_admin)
-           SELECT $1, email, username, is_admin FROM usr
+           (workspace_id, email, username, is_admin, operator, role)
+           SELECT $1, email, username, is_admin, operator, role FROM usr
          WHERE workspace_id = $3 AND email = $2
          ON CONFLICT DO NOTHING
         ",
-        forked_id,
-        authed.email,
-        parent_workspace_id,
     )
+    .bind(&forked_id)
+    .bind(&authed.email)
+    .bind(&parent_workspace_id)
     .execute(&mut *tx)
     .await?;
 
