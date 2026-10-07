@@ -1,6 +1,15 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Code, Database } from 'lucide-svelte'
+	import {
+		Sparkles,
+		Plus,
+		List,
+		Ban,
+		ExternalLinkIcon,
+		Code,
+		Database,
+		Loader2
+	} from 'lucide-svelte'
 	import { WorkerService, type Policy } from '$lib/gen'
 	import MissingWorkerTagAlert from '$lib/components/jobs/MissingWorkerTagAlert.svelte'
 	import { hasWorkerForTag, queuedWithoutWorkerMessage } from '$lib/components/jobs/missingWorker'
@@ -282,6 +291,9 @@
 			execution_mode: 'publisher'
 		}
 	}
+
+	const startCardClasses =
+		'relative h-full flex-col items-start justify-start gap-1.5 rounded-lg p-3 text-left whitespace-normal'
 
 	async function createSchema(input: {
 		workspace: string
@@ -637,36 +649,75 @@
 				</Alert>
 			{/if}
 
-			<div class="pt-6 flex items-center justify-end gap-3">
-				{#if starting?.schema}
-					<p class="mr-auto text-xs text-secondary">Creating schema {starting.schema}…</p>
-				{:else if aiOffered}
-					<p class="mr-auto text-xs text-hint">You can always switch later.</p>
-				{/if}
-				<!-- One accent per view: the editor button takes it only when AI cannot. -->
-				<Button
-					variant={aiOffered && isAiEnabled ? 'default' : 'accent'}
-					unifiedSize="md"
-					onclick={() => start('code')}
-					startIcon={aiOffered ? { icon: Code } : undefined}
-					loading={starting?.mode === 'code'}
-					disabled={!canStart || starting !== undefined}
-				>
-					{aiOffered ? 'Start with code editor' : 'Create app'}
-				</Button>
-				{#if aiOffered}
+			{#if aiOffered}
+				<div class="pt-6 flex flex-col gap-2">
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+						<Button
+							variant="default"
+							onClick={() => start('ai')}
+							disabled={!canStart || !isAiEnabled || starting !== undefined}
+							btnClasses="{startCardClasses} border-ai/40 bg-ai/5 hover:bg-ai/10 disabled:opacity-50 disabled:cursor-not-allowed"
+						>
+							<span class="flex w-full items-center gap-2">
+								{#if !aiConfigLoaded || starting?.mode === 'ai'}
+									<Loader2 size={18} class="text-ai animate-spin" />
+								{:else}
+									<Sparkles size={18} class="text-ai" />
+								{/if}
+								<span class="text-sm font-semibold text-emphasis whitespace-nowrap"
+									>Start with AI</span
+								>
+							</span>
+							<span class="text-xs font-normal text-secondary">
+								Describe your app and let the AI build it.
+							</span>
+							<span class="absolute -top-3 right-3">
+								<Badge color="blue" small>Recommended</Badge>
+							</span>
+						</Button>
+						<Button
+							variant="default"
+							onClick={() => start('code')}
+							disabled={!canStart || starting !== undefined}
+							btnClasses="{startCardClasses} disabled:opacity-50 disabled:cursor-not-allowed"
+						>
+							<span class="flex w-full items-center gap-2">
+								{#if starting?.mode === 'code'}
+									<Loader2 size={18} class="text-primary animate-spin" />
+								{:else}
+									<Code size={18} class="text-primary" />
+								{/if}
+								<span class="text-sm font-semibold text-emphasis whitespace-nowrap">
+									Start with code editor
+								</span>
+							</span>
+							<span class="text-xs font-normal text-secondary">
+								Write the app yourself in the editor.
+							</span>
+						</Button>
+					</div>
+					<p class="text-xs text-center {starting?.schema ? 'text-secondary' : 'text-hint'}">
+						{starting?.schema
+							? `Creating schema ${starting.schema}…`
+							: 'You can always switch later.'}
+					</p>
+				</div>
+			{:else}
+				<div class="pt-6 flex items-center justify-end gap-3">
+					{#if starting?.schema}
+						<p class="mr-auto text-xs text-secondary">Creating schema {starting.schema}…</p>
+					{/if}
 					<Button
-						variant={isAiEnabled ? 'accent' : 'default'}
+						variant="accent"
 						unifiedSize="md"
-						onclick={() => start('ai')}
-						startIcon={{ icon: Sparkles }}
-						loading={!aiConfigLoaded || starting?.mode === 'ai'}
-						disabled={!canStart || !isAiEnabled || starting !== undefined}
+						onclick={() => start('code')}
+						loading={starting?.mode === 'code'}
+						disabled={!canStart || starting !== undefined}
 					>
-						Start with AI
+						Create app
 					</Button>
-				{/if}
-			</div>
+				</div>
+			{/if}
 		</div>
 	</Modal>
 {/if}
