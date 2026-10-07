@@ -4700,7 +4700,8 @@ async fn test_run_wait_result_early_return_with_failure_module(
 
 /// `recover: true` from the error handler of a step that fails inside a loop must end the
 /// whole flow as a success, as it does for a top-level step: not fail the flow, and not let
-/// the loop run its next iterations or the steps after it.
+/// the loop run its next iterations or the steps after it. A loop that skips failures already
+/// carries on past a failed iteration, and must keep doing so.
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -4708,64 +4709,76 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let flow: FlowValue = serde_json::from_value(json!({
-        "modules": [{
-            "id": "loop",
-            "value": {
-                "type": "forloopflow",
-                "iterator": { "type": "static", "value": [1, 2, 3] },
-                "skip_failures": false,
-                "modules": [{
-                    "id": "a",
-                    "value": {
-                        "input_transforms": {},
-                        "type": "rawscript",
-                        "language": "deno",
-                        "content": "export function main() { throw new Error('boom'); }",
-                    },
-                }],
+    let run = |skip_failures: bool| {
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "loop",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "static", "value": [1, 2, 3] },
+                    "skip_failures": skip_failures,
+                    "modules": [{
+                        "id": "a",
+                        "value": {
+                            "input_transforms": {},
+                            "type": "rawscript",
+                            "language": "deno",
+                            "content": "export function main() { throw new Error('boom'); }",
+                        },
+                    }],
+                },
+            }, {
+                "id": "b",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return { ran_b: true } }",
+                },
+            }],
+            "failure_module": {
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return { handled: true, recover: true } }",
+                },
             },
-        }, {
-            "id": "b",
-            "value": {
-                "input_transforms": {},
-                "type": "rawscript",
-                "language": "deno",
-                "content": "export function main() { return { ran_b: true } }",
-            },
-        }],
-        "failure_module": {
-            "value": {
-                "input_transforms": {},
-                "type": "rawscript",
-                "language": "deno",
-                "content": "export function main() { return { handled: true, recover: true } }",
-            },
-        },
-    }))
-    .unwrap();
-
-    let completed =
+        }))
+        .unwrap();
         RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
             .run_until_complete(&db, false, port)
-            .await;
+    };
+    let handler_runs = || {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM v2_job_completed c JOIN v2_job j USING (id)
+             WHERE j.kind = 'preview' AND c.result @> '{\"handled\": true}'::jsonb",
+        )
+        .fetch_one(&db)
+    };
 
-    let handler_runs: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM v2_job_completed c JOIN v2_job j USING (id)
-         WHERE j.kind = 'preview' AND c.result @> '{\"handled\": true}'::jsonb",
-    )
-    .fetch_one(&db)
-    .await?;
+    let stopped = run(false).await;
+    let stopped_handler_runs = handler_runs().await?;
+    let skipping = run(true).await;
+    let skipping_handler_runs = handler_runs().await? - stopped_handler_runs;
 
     server.close().await.unwrap();
 
-    assert!(completed.success, "a recovered failure inside a loop should end the flow as a success");
+    assert!(stopped.success, "a recovered failure inside a loop should end the flow as a success");
     assert_eq!(
-        completed.json_result().unwrap(),
+        stopped.json_result().unwrap(),
         json!([{ "handled": true, "recover": true }]),
         "the flow ends with the loop's output, which holds the handler's result"
     );
-    assert_eq!(handler_runs, 1, "the loop must stop at the first recovered iteration");
+    assert_eq!(stopped_handler_runs, 1, "the loop must stop at the first recovered iteration");
+
+    assert!(skipping.success);
+    assert_eq!(
+        skipping.json_result().unwrap(),
+        json!({ "ran_b": true }),
+        "a loop that skips failures runs every iteration and the following step"
+    );
+    assert_eq!(skipping_handler_runs, 3);
     Ok(())
 }
 

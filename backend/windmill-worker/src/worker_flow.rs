@@ -457,6 +457,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         nresult,
         is_failure_step,
         failure_step_recovers,
+        recovered_by_child,
         _cleanup_module,
         chat_ai_info,
     ) = {
@@ -676,10 +677,25 @@ pub async fn update_flow_status_after_job_completion_internal(
             false
         };
 
+        let skip_seq_branch_failure = match module_status {
+            FlowStatusModule::InProgress {
+                branchall: Some(BranchAllStatus { branch, .. }),
+                parallel: false,
+                ..
+            } => {
+                compute_skip_branchall_failure(branch.to_owned(), false, current_module, &None)
+                    .await?
+            }
+            _ => false,
+        };
+
+        // A recovered child is a successful one where its parent already skips failed
+        // children: there the recovery must not stop the flow either.
         let honors_child_stop = stop_early_override.is_some()
             && !is_flow_stop_early_override
             && !parallel_loop
-            && !parallel_branchall;
+            && !parallel_branchall
+            && !(recovered_by_child && (skip_loop_failures || skip_seq_branch_failure));
         // Where the child's stop is ignored, a stop this module raises on its own (its
         // stop_after_if) must keep the ordinary loop-break behaviour.
         let recovered_by_child = recovered_by_child && honors_child_stop;
@@ -762,18 +778,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             )
         } else {
             (false, None, false, false, false)
-        };
-
-        let skip_seq_branch_failure = match module_status {
-            FlowStatusModule::InProgress {
-                branchall: Some(BranchAllStatus { branch, .. }),
-                parallel: false,
-                ..
-            } => {
-                compute_skip_branchall_failure(branch.to_owned(), false, current_module, &None)
-                    .await?
-            }
-            _ => false,
         };
 
         let mut tx = db.begin().await?;
@@ -1852,6 +1856,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             nresult,
             is_failure_step,
             failure_step_recovers,
+            recovered_by_child,
             old_status.cleanup_module,
             chat_ai_info,
         )

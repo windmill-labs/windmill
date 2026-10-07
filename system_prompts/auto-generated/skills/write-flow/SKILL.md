@@ -112,7 +112,7 @@ These are strict Windmill schema rules. Follow them exactly.
 - A flow whose `failure_module` runs still ends as failed, unless the handler returns an object with `recover: true`, which makes it a success:
   - failing step at the top level: the flow ends, with the handler's result
   - inside a sequential loop or a branch: the flow stops there, with the enclosing step's output so far
-  - inside a parallel loop, a parallel branchall or a `flow` step: only that iteration, branch or subflow counts as a success, and the flow continues
+  - inside a parallel loop, a parallel branchall, a `flow` step, a loop with `skip_failures: true` or a branchall branch with `skip_failure: true`: only that iteration, branch or subflow counts as a success, and the flow continues
 
 Correct shape:
 
