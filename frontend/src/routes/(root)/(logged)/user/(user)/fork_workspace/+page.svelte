@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CreateWorkspace from '$lib/components/workspaceSettings/CreateWorkspace.svelte'
+	import { Alert } from '$lib/components/common'
 	import { userStore } from '$lib/stores'
 </script>
 
@@ -8,9 +9,8 @@
      `operator`). The server still accepts the call — this refuses the page, it does not enforce
      the rule; see docs/operator-write-rights.md. -->
 {#if $userStore?.operator}
-	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
-		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+	<div class="p-4 mt-12">
+		<Alert type="error" title="Unauthorized">Page not available for operators</Alert>
 	</div>
 {:else}
 	<CreateWorkspace isFork={true} />
