@@ -83,14 +83,13 @@ async function listWorkspaceUsers(opts: GlobalOptions & { json?: boolean }) {
     console.log(JSON.stringify(users));
   } else {
     new Table()
-      .header(["username", "email", "name", "role"])
+      .header(["username", "email", "role"])
       .padding(2)
       .border(true)
       .body(
         users.map((u) => [
           u.username,
           u.email,
-          u.name ?? "-",
           u.is_admin ? "admin" : u.operator ? "operator" : "developer",
         ])
       )
