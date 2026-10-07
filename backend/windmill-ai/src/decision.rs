@@ -195,16 +195,17 @@ struct OpenAIDecisionsResponse {
     usage: Option<SystemOneUsage>,
 }
 
-/// The state as a Decisions `input`. OpenAI reads a text or a list of messages, so a list of
-/// messages (the only way to pass an image) goes as it is and any other object or array as its
-/// JSON text.
+/// The state as a Decisions `input`. OpenAI reads a text or a list of user messages, so a list of
+/// user messages (the only way to pass an image) goes as it is and any other object or array,
+/// a chat history included, as its JSON text.
 fn openai_input(state: &Value) -> Value {
     match state {
         Value::String(_) => state.clone(),
         Value::Array(items)
             if !items.is_empty()
                 && items.iter().all(|m| {
-                    m.get("role").is_some_and(Value::is_string) && m.get("content").is_some()
+                    m.get("role").and_then(Value::as_str) == Some("user")
+                        && m.get("content").is_some()
                 }) =>
         {
             state.clone()
@@ -494,6 +495,10 @@ mod tests {
             openai_input(&json!([{"role": "admin"}])),
             json!("[{\"role\":\"admin\"}]")
         );
+        // A chat history is evaluated as text: OpenAI takes user messages only.
+        let history =
+            json!([{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Yo"}]);
+        assert_eq!(openai_input(&history), json!(history.to_string()));
         let refused =
             serde_json::from_value(json!([{"type": "refusal", "name": "angry"}])).unwrap();
         assert!(openai_answers(refused).is_err());
