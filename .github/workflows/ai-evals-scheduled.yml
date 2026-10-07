@@ -1,25 +1,22 @@
 name: AI Evals (scheduled)
 
-# Full ai_evals suites on current models, posted to the AI evals dashboard in
-# the windmill-prod workspace (f/ai/ai_evals_dashboard) so quality is tracked
-# over time. Weekly, since one pass of every suite at --runs 3 costs about 50M
-# tokens per model: every suite runs on MODELS, and global (the mode users get)
-# also runs on GLOBAL_EXTRA_MODELS, one flagship per other provider. Run it by
-# hand to measure a branch against main.
+# The global (AI chat) and cli suites on current models, posted to the AI evals
+# dashboard in the windmill-prod workspace (f/ai/ai_evals_dashboard) so quality is
+# tracked over time. Weekly: one global pass at --runs 3 is about 45M tokens per
+# model. Each mode and model is its own job, so a slow model neither delays nor
+# shares a timeout with the others. Run it by hand to measure a branch against
+# main, or to include the flow, app and script suites.
 on:
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
     inputs:
       modes:
-        description: "Space-separated modes"
-        default: "global flow app script cli"
+        description: "Space-separated modes (global, cli, flow, app, script)"
+        default: "global cli"
       models:
-        description: "Space-separated model aliases (bun run cli -- models)"
-        default: "sonnet-5.5"
-      global_extra_models:
-        description: "Extra model aliases for global mode only"
-        default: "gpt-6-astra gemini-3.8-flash"
+        description: "Space-separated model aliases (bun run cli -- models); cli skips those it has no agent for"
+        default: "sonnet-5.5 opus-5.5 gpt-6-sol gpt-6-astra deepseek-v4-pro"
       runs:
         description: "Runs per case"
         default: "3"
@@ -31,8 +28,7 @@ concurrency:
   group: ai-evals-scheduled-${{ github.ref }}
 
 env:
-  MODELS: ${{ inputs.models || 'sonnet-5.5' }}
-  GLOBAL_EXTRA_MODELS: ${{ inputs.global_extra_models || 'gpt-6-astra gemini-3.8-flash' }}
+  MODELS: ${{ inputs.models || 'sonnet-5.5 opus-5.5 gpt-6-sol gpt-6-astra deepseek-v4-pro' }}
   RUNS: ${{ inputs.runs || '3' }}
   REASONING: ${{ inputs.reasoning }}
   # Routes on the cloud instance are prefixed with their workspace.
@@ -42,14 +38,31 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     outputs:
-      modes: ${{ steps.modes.outputs.modes }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - id: modes
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ai_evals/core
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - id: matrix
         env:
-          MODES: ${{ inputs.modes || 'global flow app script cli' }}
+          MODES: ${{ inputs.modes || 'global cli' }}
+        # cli takes only the aliases with a `cli` entry in ai_evals/core/models.ts.
         run: |
-          echo "modes=$(jq -cn --arg m "$MODES" '$m | split(" ")
-            | map(select(IN("global", "flow", "app", "script", "cli")))')" >> "$GITHUB_OUTPUT"
+          cli_models=$(bun -e '
+            import { EVAL_MODELS } from "./ai_evals/core/models.ts";
+            console.log(JSON.stringify(EVAL_MODELS.filter((m) => m.cli)
+              .flatMap((m) => [m.id, ...m.aliases]).map((a) => a.toLowerCase())));')
+          echo "matrix=$(jq -cn --arg modes "$MODES" --arg models "$MODELS" --argjson cli "$cli_models" '
+            def words: split(" ") | map(select(. != ""));
+            [ $modes | words[] | select(IN("global", "flow", "app", "script", "cli")) as $mode
+              | $models | words[]
+              | select($mode != "cli" or (ascii_downcase | IN($cli[])))
+              | {mode: $mode, model: .} ]')" >> "$GITHUB_OUTPUT"
 
   evals:
     needs: setup
@@ -58,7 +71,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: ${{ fromJSON(needs.setup.outputs.modes) }}
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
     services:
       postgres:
         image: postgres:16
@@ -118,10 +131,15 @@ jobs:
         working-directory: ./cli
         run: bun install && ./gen_wm_client.sh && ./windmill-utils-internal/gen_wm_client.sh
 
-      - name: Run ${{ matrix.mode }} evals
+      - name: Install Codex CLI
+        if: matrix.mode == 'cli'
+        run: npm install --global @openai/codex@0.159.3
+
+      - name: Run ${{ matrix.mode }} evals on ${{ matrix.model }}
         working-directory: ./ai_evals
         env:
           MODE: ${{ matrix.mode }}
+          MODEL: ${{ matrix.model }}
           WMILL_AI_EVAL_BACKEND_URL: http://localhost:8000
           WMILL_AI_EVAL_BACKEND_WORKSPACE: integration-tests
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -131,14 +149,10 @@ jobs:
         run: |
           bun install
           mkdir -p results
-          models="$MODELS"
-          [ "$MODE" = global ] && models="$models $GLOBAL_EXTRA_MODELS"
           reasoning=()
           [ -n "$REASONING" ] && [ "$MODE" != cli ] && reasoning=(--reasoning "$REASONING")
-          for m in $models; do
-            bun run cli -- run "$MODE" --model "$m" --runs "$RUNS" "${reasoning[@]}" \
-              --output "$PWD/results/$MODE-$m.json" || echo "::warning::$MODE on $m errored"
-          done
+          bun run cli -- run "$MODE" --model "$MODEL" --runs "$RUNS" "${reasoning[@]}" \
+            --output "$PWD/results/$MODE-$MODEL.json" || echo "::warning::$MODE on $MODEL errored"
 
       - name: Post results to the dashboard
         if: always()
@@ -166,7 +180,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ai-evals-${{ matrix.mode }}
+          name: ai-evals-${{ matrix.mode }}-${{ matrix.model }}
           path: |
             ai_evals/logs
             ai_evals/results

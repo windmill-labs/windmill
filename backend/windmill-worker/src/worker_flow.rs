@@ -192,6 +192,7 @@ pub async fn update_flow_status_after_job_completion(
         flow_job_duration,
         stop_early_override,
         has_triggered_error_handler: false,
+        recovered_by_child: false,
     };
     let mut step_failure = step_failure;
     loop {
@@ -211,6 +212,7 @@ pub async fn update_flow_status_after_job_completion(
             worker_dir,
             rec.stop_early_override,
             rec.has_triggered_error_handler,
+            rec.recovered_by_child,
             worker_name,
             job_completed_tx.clone(),
             flow_runners.clone(),
@@ -240,6 +242,7 @@ pub async fn update_flow_status_after_job_completion(
                     worker_dir,
                     rec.stop_early_override,
                     rec.has_triggered_error_handler,
+                    false,
                     worker_name,
                     job_completed_tx.clone(),
                     flow_runners.clone(),
@@ -293,6 +296,10 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     flow_job_duration: Option<FlowJobDuration>,
     stop_early_override: Option<bool>,
     has_triggered_error_handler: bool,
+    /// The failed child's error handler returned `recover: true`. The parent still handles the
+    /// failure as it would any other, so the same steps run; only a root flow that this failure
+    /// ends turns green.
+    recovered_by_child: bool,
 }
 
 #[derive(Deserialize)]
@@ -427,6 +434,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     worker_dir: &str,
     stop_early_override: Option<bool>,
     has_triggered_error_handler: bool,
+    mut recovered_by_child: bool,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
     flow_runners: Option<Arc<FlowRunners>>,
@@ -449,6 +457,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         skip_if_stop_early,
         nresult,
         is_failure_step,
+        failure_step_recovers,
         _cleanup_module,
         chat_ai_info,
     ) = {
@@ -1096,6 +1105,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         has_triggered_error_handler = false;
                     }
+                    // Recovered iterations are stored as successes, so a failed parallel
+                    // node failed on an iteration that did not recover.
+                    recovered_by_child = false;
                     (success, Some(new_status))
                 } else {
                     add_time!(bench, "handle parallel flow start");
@@ -1823,6 +1835,13 @@ pub async fn update_flow_status_after_job_completion_internal(
             _ => false,
         };
 
+        let failure_step_recovers = is_failure_step && result_has_recover_true(nresult.clone());
+        // An error this flow raises on its own (a stop predicate's error message) is a new
+        // failure that no error handler recovered.
+        if stop_early_err_msg.is_some() {
+            recovered_by_child = false;
+        }
+
         let chat_ai_info = ChatAiInfo {
             chat_input_enabled: old_status.chat_input_enabled.unwrap_or(false),
             conversation_id: old_status.memory_id,
@@ -1837,6 +1856,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             skip_if_stop_early,
             nresult,
             is_failure_step,
+            failure_step_recovers,
             old_status.cleanup_module,
             chat_ai_info,
         )
@@ -1844,6 +1864,10 @@ pub async fn update_flow_status_after_job_completion_internal(
 
     let flow_job = Arc::new(flow_job);
 
+    // An inner flow that ends on a recovered failure stays failed, as parents read their
+    // children's stored status (a parallel node counts its iterations' statuses), so only the
+    // root flow turns green.
+    let ends_root = !(flow_job.is_flow_step() && flow_job.parent_job.is_some());
     let done = if !should_continue_flow {
         {
             let logs = if flow_job.is_canceled() {
@@ -1851,7 +1875,9 @@ pub async fn update_flow_status_after_job_completion_internal(
             } else if stop_early {
                 format!("Flow job stopped early because of a stop early predicate returning true\n")
             } else if is_failure_step {
-                format!("Flow job completed with error, and error handler was triggered.\nIt completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, result_has_recover_true(nresult.clone()))
+                format!("Flow job completed with error, and error handler was triggered.\nIt completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, failure_step_recovers)
+            } else if !success && recovered_by_child && ends_root {
+                format!("Flow job completed with success: the step that failed had its error recovered by the error handler (recover: true)\n")
             } else {
                 format!(
                     "Flow job completed with {}\n",
@@ -2048,7 +2074,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .await;
             }
 
-            let success = success && (!is_failure_step || result_has_recover_true(nresult.clone()));
+            let success = if is_failure_step {
+                success && failure_step_recovers
+            } else {
+                success || (recovered_by_child && ends_root)
+            };
 
             add_time!(bench, "flow status update 1");
 
@@ -2149,6 +2179,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .await;
                 // override prior child's success so the parent learns this flow failed
                 success = false;
+                // a new failure, which no error handler recovered
+                recovered_by_child = false;
                 true
             }
             Ok(_) => false,
@@ -2178,6 +2210,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             None
                         },
                         has_triggered_error_handler: has_triggered_error_handler || is_failure_step,
+                        recovered_by_child: failure_step_recovers || (recovered_by_child && !success),
                     },
                 ));
             }
@@ -4184,7 +4217,8 @@ async fn push_next_flow_job(
                 | FlowModuleValue::RawScript { input_transforms, .. }
                 | FlowModuleValue::FlowScript { input_transforms, .. }
                 | FlowModuleValue::Flow { input_transforms, .. }
-                | FlowModuleValue::AIAgent { input_transforms, .. },
+                | FlowModuleValue::AIAgent { input_transforms, .. }
+                | FlowModuleValue::AIDecision { input_transforms, .. },
             ) => {
                 let ctx = get_transform_context(&flow_job, &previous_id, &status);
                 transform_context = Some(ctx);
@@ -5488,7 +5522,8 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::AIAgent { tag, .. } => {
+        // A decision runs as an AI agent job, whose handler answers it as a decision.
+        FlowModuleValue::AIAgent { tag, .. } | FlowModuleValue::AIDecision { tag, .. } => {
             let path = get_path(flow_job, status, module);
             let payload = JobPayload::AIAgent { path };
             Ok(NextFlowTransform::Continue(

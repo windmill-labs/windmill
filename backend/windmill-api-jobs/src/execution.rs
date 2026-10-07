@@ -23,6 +23,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use windmill_api_auth::{check_scopes, get_scope_tags, ApiAuthed};
+use windmill_audit::{
+    audit_oss::{audit_log_many, AuditAuthorable},
+    ActionKind,
+};
 use windmill_common::{
     db::{UserDB, UserDbWithAuthed},
     error::{self, Error},
@@ -196,11 +200,15 @@ pub async fn check_license_key_valid() -> error::Result<()> {
 pub async fn cancel_jobs(
     jobs: Vec<Uuid>,
     db: &DB,
-    username: &str,
+    author: &(impl AuditAuthorable + Sync),
     w_id: &str,
     force_cancel: bool,
 ) -> error::JsonResult<Vec<Uuid>> {
+    let username = author.username();
     let mut uuids = vec![];
+    // A job that completed before its turn is reported back like the others but was not
+    // cancelled, so it gets no audit entry.
+    let mut audited = vec![];
     tracing::info!("Cancelling jobs: {:?}", jobs);
     let mut tx = db.begin().await?;
     let trivial_jobs =  sqlx::query!("INSERT INTO v2_job_completed AS cj
@@ -246,7 +254,7 @@ pub async fn cancel_jobs(
         }
         match tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
             let tx = db.begin().await?;
-            let (tx, _) = cancel_job(
+            let (tx, cancelled) = cancel_job(
                 username,
                 None,
                 job_id.clone(),
@@ -258,13 +266,14 @@ pub async fn cancel_jobs(
             )
             .await?;
             tx.commit().await?;
-            Ok::<_, anyhow::Error>(())
+            Ok::<_, anyhow::Error>(cancelled)
         })
         .await
         {
             Ok(result) => match result {
-                Ok(_) => {
+                Ok(cancelled) => {
                     uuids.push(job_id);
+                    audited.extend(cancelled);
                 }
                 Err(e) => {
                     tracing::error!("Failed to cancel job {:?}: {:?}", job_id, e);
@@ -279,7 +288,26 @@ pub async fn cancel_jobs(
         }
     }
 
+    audited.extend(trivial_jobs.iter().copied());
     uuids.extend(trivial_jobs);
+
+    // The cancels are committed by now: failing here would report them as not done.
+    if let Err(e) = audit_log_many(
+        db,
+        author,
+        if force_cancel {
+            "jobs.force_cancel"
+        } else {
+            "jobs.cancel"
+        },
+        ActionKind::Delete,
+        w_id,
+        &audited.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+    )
+    .await
+    {
+        tracing::error!("Failed to write audit entries for cancelled jobs in {w_id}: {e:#}");
+    }
 
     Ok(Json(uuids))
 }

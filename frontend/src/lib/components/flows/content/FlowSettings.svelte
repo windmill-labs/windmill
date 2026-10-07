@@ -93,7 +93,7 @@
 
 	let activeAdvancedOptions = $derived([
 		{
-			name: 'Additional prompt for AI',
+			name: 'AI prompt',
 			active: !!flowStore.val.schema?.prompt_for_ai
 		},
 		{

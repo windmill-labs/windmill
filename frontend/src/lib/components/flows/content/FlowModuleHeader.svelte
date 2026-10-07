@@ -62,7 +62,7 @@
 		/>
 	{/if}
 
-	{#if module.value.type === 'aiagent' && customUi?.tagEdit != false}
+	{#if (module.value.type === 'aiagent' || module.value.type === 'aidecision') && customUi?.tagEdit != false}
 		<FlowModuleWorkerTagSelect
 			isPreprocessor={false}
 			placeholder={customUi?.tagSelectPlaceholder}
@@ -82,13 +82,15 @@
 			tag={module.value.tag}
 			on:change={(e) => dispatch('tagChange', e.detail)}
 		/>
-		<Button
-			unifiedSize="sm"
-			variant="subtle"
-			startIcon={{ icon: Save }}
-			on:click={() => dispatch('createScriptFromInlineScript')}
-			iconOnly={true}
-			title="Save to workspace"
-		/>
+		{#if customUi?.saveToWorkspace != false && customUi?.editorBar?.saveToWorkspace != false}
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				startIcon={{ icon: Save }}
+				on:click={() => dispatch('createScriptFromInlineScript')}
+				iconOnly={true}
+				title="Save to workspace"
+			/>
+		{/if}
 	{/if}
 </div>

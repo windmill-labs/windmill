@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.823.1
+  version: 1.826.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -479,6 +479,8 @@ components:
         - togetherai
         - customai
         - aws_bedrock
+        - typesafe
+        - cloudflare
 
     ProviderConfig:
       type: object
@@ -685,6 +687,7 @@ components:
         - $ref: '#/components/schemas/BranchAll'
         - $ref: '#/components/schemas/Identity'
         - $ref: '#/components/schemas/AiAgent'
+        - $ref: '#/components/schemas/AiDecision'
       discriminator:
         propertyName: type
         mapping:
@@ -697,6 +700,7 @@ components:
           branchall: '#/components/schemas/BranchAll'
           identity: '#/components/schemas/Identity'
           aiagent: '#/components/schemas/AiAgent'
+          aidecision: '#/components/schemas/AiDecision'
 
     RawScript:
       type: object
@@ -1220,6 +1224,62 @@ components:
         parallel:
           type: boolean
           description: If true, the agent can execute multiple tool calls in parallel
+      required:
+        - type
+        - input_transforms
+
+    AiDecision:
+      type: object
+      description: |
+        AI decision step: one call to a decision model (TypeSafe's Jev, Cloudflare's
+        Jev-compatible Clef, or OpenAI's Decisions API) that answers typed questions about a
+        state with calibrated probabilities, instead of generating text.
+        Prefer it over an AI agent to classify, route, score or check something: it is fast,
+        cheap and its answers are structured. Its result is { output: { <question name>: answer },
+        model, usage }, so a later step reads e.g. results.<id>.output.intent.choice. To route on
+        the answers, follow it with a branchone whose branch exprs read
+        results.<id>.output.<question>.choice. Usable as an AI agent tool, where the calling agent
+        supplies the state.
+      properties:
+        input_transforms:
+          type: object
+          description: Input parameters for the decision mapped to their values
+          properties:
+            # A provider config whose kind is 'typesafe' (model 'jev-latest' unless pinned),
+            # 'cloudflare' (model 'clef' or 'clef-flash') or 'openai' (model 'gpt-6-luna').
+            provider:
+              $ref: '#/components/schemas/ProviderTransform'
+            state:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                What the questions are asked about: a string, an object or an array of strings.
+                An object with descriptive keys holding only what the questions need works best.
+                Example: { message: flow_input.message, plan: results.a.plan }
+            questions:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Object mapping each question name to { type, instructions, criteria }, where type is:
+                - 'choice': criteria maps each option to its description (up to 255); the answer
+                  has choice, probabilities and confidence
+                - 'score': criteria is an ordered array of 2 to 10 level descriptions; the answer
+                  has score, legend, probabilities and confidence
+                - 'noul': yes/no, criteria optionally { true, false } descriptions; the answer has
+                  noul, the probability of yes (0 to 1)
+                Example: { intent: { type: 'choice', instructions: 'What does the customer want?',
+                criteria: { refund: 'Money back', bug: 'Something is broken' } } }
+          required:
+            - provider
+            - state
+            - questions
+        type:
+          type: string
+          enum:
+            - aidecision
+        tag:
+          type: string
+          description: Worker group tag for execution routing. If not set, the step runs on the flow's tag (default `flow`)
       required:
         - type
         - input_transforms

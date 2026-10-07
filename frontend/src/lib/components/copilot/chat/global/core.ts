@@ -51,6 +51,7 @@ import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
 import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
 import { evalValue } from '$lib/components/flows/utils.svelte'
+import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
 	FRAMEWORK_TEMPLATES,
@@ -67,7 +68,10 @@ import {
 } from '$lib/components/job_args'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
-import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+import {
+	DEFAULT_DATA as DEFAULT_RAW_APP_DATA,
+	formatDataTableRef
+} from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
@@ -148,6 +152,7 @@ import {
 	type ToolDisplayAction
 } from '../shared'
 import { scriptLangToEditorLang } from '$lib/scripts'
+import { appFileEditorLang } from '../appFileEditorLang'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
@@ -315,6 +320,7 @@ export type GlobalActiveEditorContext = {
 	/** The key the draft is stored under, which `path` leaves behind on a rename. */
 	storagePath: string
 	isLiveDraft: true
+	isNew?: boolean
 }
 
 /** The page the session's side panel is showing, when it isn't one of the live
@@ -1002,7 +1008,7 @@ const testRunStepSchema = z.object({
 const testRunStepToolDef = createToolDef(
 	testRunStepSchema,
 	'test_run_step',
-	"Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. An AI agent step takes the inputs a run supplies rather than code arguments, `user_message` above all; its form opens on the step's own configuration, so send only what this run should change. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
+	"Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. An AI agent step takes the inputs a run supplies rather than code arguments, `user_message` above all; its form opens on the step's own configuration, so send only what this run should change. An AI decision step takes `state`, what its questions are asked about; its provider and questions are the step's own. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
 	{ strict: false }
 )
 
@@ -1291,7 +1297,22 @@ const initAppSchema = z.object({
 	framework: z
 		.enum(FRAMEWORK_KEYS)
 		.describe(
-			'Frontend framework template. Confirm with the user before calling — never default silently. react19 is recommended for new apps.'
+			'Frontend framework template: the one the user named or an app they point at uses, otherwise react19. Do not ask.'
+		),
+	data: z
+		.object({
+			datatable: z.string().describe('Data table the app stores its data in.'),
+			schema: z.string().optional().describe("Schema the app's new tables go in. Omit for public."),
+			tables: z
+				.array(z.string())
+				.optional()
+				.describe(
+					'Tables the app queries, reused or about to be created, each as `<datatable>/<table>` (public) or `<datatable>/<schema>:<table>`.'
+				)
+		})
+		.optional()
+		.describe(
+			'Data setup of an app that stores data, as the user gave or chose it. Omit for an app that stores nothing.'
 		)
 })
 
@@ -1543,7 +1564,7 @@ Raw apps:
 - A draft app is reachable by nobody; deploying is what exposes its backend runnables. deploy_workspace_item says so when the deploy widens who may open the app: anonymous means anyone with the URL, without logging in; guest means anyone the instance's identity provider authenticates, member of this workspace or not. Relay that in plain words and carry on. This is disclosure, not a gate: do not stop and ask for permission, and do not refuse the deploy. You cannot change who may open an app from chat; it is set on the app's deploy settings.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
-- Use init_app only after confirming framework, path, and summary with the user.
+- Use init_app for a new app, with framework react19 unless the user named one or points at an app to follow: do not ask about the framework, and write the summary and pick the path (path conventions above) yourself. When the app has to store data and the user did not say where, settle the data setup with askUserQuestion BEFORE init_app or any SQL (get_instructions subject "app" lists the questions, one askUserQuestion each), then pass the outcome as init_app's data.
 - Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.`
 	)}
 
@@ -2413,7 +2434,7 @@ function getAppInstructions(language?: ScriptLang): string {
 
 - Global mode edits raw app drafts only; it does not save or deploy unless the user explicitly asks to deploy.
 - App drafts are addressed by workspace path. Follow the path conventions in the system prompt: default to \`u/<current-user>/<name>\` for bare names; only use \`f/<folder>/<name>\` when the folder is known to exist. The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
-- To create a new app, use \`init_app\` with a path, optional summary, and a framework (\`react19\` / \`react18\` / \`svelte5\` / \`vue\`). Confirm framework + path + summary with the user before calling — do not silently default to \`react19\` even though it is the recommended choice. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
+- To create a new app, use \`init_app\` with a path, optional summary, a framework (\`react19\` / \`react18\` / \`svelte5\` / \`vue\`) and, for an app that stores data, its \`data\` setup. "Starting a new app" below decides the framework and when the data setup is asked. Ask each of its questions with \`askUserQuestion\`, one question per call with the suggested answer first, before \`init_app\` and before any SQL. \`init_app\` only records \`data\`: a new schema is yours to create with the datatable SQL tool. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
 - \`init_app\` seeds a starter inline runnable named \`a\` (bun, \`main(x: string) => string\`) so the React/Svelte demo button works on first render. Replace or remove it once you start building real backend runnables.
 - Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
 - Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).
@@ -4497,7 +4518,6 @@ export const globalTools: SessionTool<{}>[] = [
 		),
 		planModeSafe: true,
 		showDetails: true,
-		autoCollapseDetails: false,
 		fn: async (ctx) => {
 			const parsed = getRuntimeLogsSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app runtime logs...' })
@@ -5035,6 +5055,9 @@ function getSessionScreenshot(sessionId: string | undefined): Promise<SessionScr
 export type DeployedInSessionHandler = (req: {
 	sessionId: string | undefined
 	kind: 'script' | 'flow' | 'raw_app'
+	/** The path the item's draft, and so its open editor, is keyed on. */
+	storagePath: string
+	/** Where the deploy landed. */
 	path: string
 }) => void
 
@@ -5299,10 +5322,12 @@ function maybeAttachPreviewCard(
 function finishAppDraftWrite(
 	result: DraftPersistResult,
 	ctx: WriteDraftCtx,
-	onSaved: () => { content: string; message: string; warning?: string }
+	onSaved: () => { content: string; message: string; warning?: string },
+	codeDiff?: ToolCodeDiff
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	if (codeDiff) ctx.toolCallbacks.setToolStatus(ctx.toolId, { codeDiff })
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const { content, message, warning } = onSaved()
@@ -5951,6 +5976,7 @@ async function agentStepRunForm(
 		.sort((a, b) => (position.get(a) ?? Infinity) - (position.get(b) ?? Infinity))
 
 	const evaluated: Record<string, any> = {}
+	await quickjsReady()
 	for (const key of keys) {
 		const value = evalValue(key, module, undefined, false)
 		if (value !== undefined) evaluated[key] = value
@@ -6503,16 +6529,31 @@ async function testRunFlowStepByPath(
 	)
 }
 
+/** The `data.tables` entry for a table named without its data table (`schema:table`,
+ * `schema.table` or `table`), which models write for a table of the app's own data table.
+ * A bare name is a table of the app's own schema. */
+function appTableRef(datatable: string, schema: string | undefined, ref: string): string {
+	if (ref.includes('/')) return ref
+	const sep = ref.includes(':') ? ':' : '.'
+	const at = ref.indexOf(sep)
+	return formatDataTableRef(
+		at === -1
+			? { datatable, schema, table: ref }
+			: { datatable, schema: ref.slice(0, at), table: ref.slice(at + 1) }
+	)
+}
+
 async function initApp(
 	args: {
 		path: string
 		summary?: string
 		framework: FrameworkKey
+		data?: { datatable: string; schema?: string; tables?: string[] }
 	},
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, summary, framework } = args
+	const { path, summary, framework, data } = args
 
 	if (await getGlobalDraft(workspace, 'app', path)) {
 		throw new Error(
@@ -6533,13 +6574,20 @@ async function initApp(
 	const value: AppDraftValue = {
 		summary,
 		files: { ...template },
-		runnables: structuredClone(STARTER_RUNNABLES)
+		runnables: structuredClone(STARTER_RUNNABLES),
+		...(data && {
+			data: {
+				tables: (data.tables ?? []).map((ref) => appTableRef(data.datatable, data.schema, ref)),
+				datatable: data.datatable,
+				schema: data.schema
+			}
+		})
 	}
 	await recomputeAppPolicy(value)
 	const result = await saveAppDraft(workspace, path, value)
 	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Saved app "${path}" draft (${framework})`,
-		message: `Initialized a per-user draft app "${path}" from the ${framework} template (saved server-side, not a deployed workspace item). The template is a demo tour with starter runnables ${Object.keys(STARTER_RUNNABLES).join(', ')}: replace its UI and delete the runnables the app does not need (delete_app_runnable). Use write_app_file / write_app_runnable to evolve it.`
+		message: `Initialized a per-user draft app "${path}" from the ${framework} template (saved server-side, not a deployed workspace item). The template is a demo tour with starter runnables ${Object.keys(STARTER_RUNNABLES).join(', ')}: replace its UI and delete the runnables the app does not need (delete_app_runnable). Use write_app_file / write_app_runnable to evolve it.${data?.schema ? ` Its data config names schema "${data.schema}" of data table "${data.datatable}" without creating it: if it does not exist yet, create it before the tables that go in it.` : ''}`
 	}))
 }
 
@@ -6840,12 +6888,18 @@ async function writeAppFile(
 	})
 
 	const { value } = await loadAppDraftValue(args.path, workspace)
+	const before = value.files[target.filePath] ?? ''
 	value.files = { ...value.files, [target.filePath]: args.content }
 	const result = await saveAppDraft(workspace, args.path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Updated ${target.filePath} in app "${args.path}"`,
-		message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Updated ${target.filePath} in app "${args.path}"`,
+			message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`
+		}),
+		{ before, after: args.content, lang: appFileEditorLang(target.filePath) }
+	)
 }
 
 async function deleteAppFile(
@@ -6869,13 +6923,18 @@ async function deleteAppFile(
 	if (!(target.filePath in value.files)) {
 		throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
 	}
-	const { [target.filePath]: _removed, ...remaining } = value.files
+	const { [target.filePath]: removed, ...remaining } = value.files
 	value.files = remaining
 	const result = await saveAppDraft(workspace, args.path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Removed ${target.filePath} from app "${args.path}"`,
-		message: `Removed "${target.filePath}" from draft app "${args.path}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Removed ${target.filePath} from app "${args.path}"`,
+			message: `Removed "${target.filePath}" from draft app "${args.path}".`
+		}),
+		{ before: removed, after: '', lang: appFileEditorLang(target.filePath) }
+	)
 }
 
 async function patchAppFile(
@@ -6946,10 +7005,15 @@ async function patchAppFile(
 	}
 
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Patched ${target.filePath} in app "${path}"`,
-		message: `Patched "${target.filePath}" in draft app "${path}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Patched ${target.filePath} in app "${path}"`,
+			message: `Patched "${target.filePath}" in draft app "${path}".`
+		}),
+		{ before: currentContent, after: updated, lang: appFileEditorLang(target.filePath) }
+	)
 }
 
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
@@ -6980,15 +7044,48 @@ async function writeAppRunnable(
 	await recomputeAppPolicy(value)
 	const undeployed = await undeployedRunnableTargets(workspace, { [key]: persisted })
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Updated runnable "${key}" in app "${path}"`,
-		message: `Updated draft app "${path}" with runnable "${key}".`,
-		warning: undeployed.length
-			? `This runnable points at an item that is NOT deployed (${undeployed[0]}), so it fails at runtime — ` +
-				`a path runnable runs the deployed item, never a draft. Offer to deploy just that item with ` +
-				`deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.`
-			: undefined
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Updated runnable "${key}" in app "${path}"`,
+			message: `Updated draft app "${path}" with runnable "${key}".`,
+			warning: undeployed.length
+				? `This runnable points at an item that is NOT deployed (${undeployed[0]}), so it fails at runtime — ` +
+					`a path runnable runs the deployed item, never a draft. Offer to deploy just that item with ` +
+					`deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.`
+				: undefined
+		}),
+		inlineRunnableDiff(key, existing, persisted)
+	)
+}
+
+function inlineRunnableCode(runnable: PersistedRunnable | undefined): string | undefined {
+	return runnable?.type === 'inline' || runnable?.type === 'runnableByName'
+		? (runnable.inlineScript?.content ?? '')
+		: undefined
+}
+
+// A runnable that references a workspace or hub item has no code of its own to diff.
+function inlineRunnableDiff(
+	key: string,
+	before: PersistedRunnable | undefined,
+	after: PersistedRunnable | undefined
+): ToolCodeDiff | undefined {
+	const beforeCode = inlineRunnableCode(before)
+	const afterCode = inlineRunnableCode(after)
+	if (beforeCode === undefined && afterCode === undefined) return undefined
+	if (after !== undefined && afterCode === undefined) return undefined
+	const lang = (runnable: PersistedRunnable | undefined) =>
+		appFileEditorLang(`backend/${key}/main.${getInlineScriptExtension(runnable)}`)
+	const afterLang = lang(after ?? before)
+	const beforeLang = beforeCode === undefined ? afterLang : lang(before)
+	return {
+		before: beforeCode ?? '',
+		after: afterCode ?? '',
+		lang: afterLang,
+		...(beforeLang !== afterLang ? { beforeLang } : {})
+	}
 }
 
 /**
@@ -7088,14 +7185,19 @@ async function deleteAppRunnable(
 	if (!(key in value.runnables)) {
 		throw new Error(`Backend runnable "${key}" not found in app "${path}".`)
 	}
-	const { [key]: _removed, ...remaining } = value.runnables
+	const { [key]: removed, ...remaining } = value.runnables
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Removed runnable "${key}" from app "${path}"`,
-		message: `Removed runnable "${key}" from draft app "${path}".`
-	}))
+	return finishAppDraftWrite(
+		result,
+		ctx,
+		() => ({
+			content: `Removed runnable "${key}" from app "${path}"`,
+			message: `Removed runnable "${key}" from draft app "${path}".`
+		}),
+		inlineRunnableDiff(key, removed as PersistedRunnable, undefined)
+	)
 }
 
 const triggerLabels: Record<TriggerKind, string> = {
@@ -8591,24 +8693,29 @@ async function deployDraft(
 	// synthetic storage key never exists deployed, so the entry would otherwise
 	// stop matching anything after the draft is gone.
 	const deployedKind = itemKindFor(type, triggerKind)
+	const draftStoragePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
 	if (deployedKind) {
-		toolCallbacks.onItemDeployed?.(
-			deployedKind,
-			getGlobalDraftStoragePath(workspace, type, path, triggerKind),
-			deployedPath
-		)
+		toolCallbacks.onItemDeployed?.(deployedKind, draftStoragePath, deployedPath)
 	}
 
-	// Reload the session preview if it's open on the deployed item. Map the
-	// deploy type to the preview kind — a raw app deploys under 'app' but the
-	// preview addresses it as 'raw_app'; non-previewable types map to undefined.
+	// Reload the session preview if it's open on the deployed item, which its editor
+	// knows by the draft's storage path. Map the deploy type to the preview kind — a
+	// raw app deploys under 'app' but the preview addresses it as 'raw_app';
+	// non-previewable types map to undefined.
 	const previewKindByType: Partial<Record<WorkspaceItemType, 'script' | 'flow' | 'raw_app'>> = {
 		script: 'script',
 		flow: 'flow',
 		app: 'raw_app'
 	}
 	const kind = previewKindByType[type]
-	if (kind) deployedInSessionHandler?.({ sessionId, kind, path })
+	if (kind) {
+		deployedInSessionHandler?.({
+			sessionId,
+			kind,
+			storagePath: draftStoragePath,
+			path: deployedPath
+		})
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
@@ -8850,7 +8957,13 @@ export function getActiveGlobalEditorContext(
 		if (!liveDraft) continue
 		const path = liveDraft.effectivePath || liveDraft.storagePath
 		if (!path) continue
-		return { type, path, storagePath: liveDraft.storagePath, isLiveDraft: true }
+		return {
+			type,
+			path,
+			storagePath: liveDraft.storagePath,
+			isLiveDraft: true,
+			isNew: liveDraft.isNew
+		}
 	}
 }
 
@@ -8874,7 +8987,12 @@ export function prepareGlobalUserMessage(
 		content += '## ACTIVE EDITOR\n'
 		content += `type: ${activeEditor.type}\n`
 		content += `path: ${activeEditor.path}\n`
-		content += `isLiveDraft: true\n\n`
+		content += `isLiveDraft: true\n`
+		if (activeEditor.isNew) {
+			content +=
+				'isNew: true — the user just started this item from the new-item builder; it holds the starter template and is the item to build. Edit it in place; do not create another one. For an app, its files are the framework it was started with and the `data` config read_workspace_item shows is the data setup it was started with: ask about neither.\n'
+		}
+		content += '\n'
 	}
 
 	if (options.activePreview) {

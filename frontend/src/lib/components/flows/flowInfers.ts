@@ -212,6 +212,36 @@ export const AI_AGENT_SCHEMA: Schema = {
 	]
 }
 
+/** The inputs of an AI decision step: one call to a decision model (TypeSafe's Jev, Cloudflare's
+ *  Clef, or OpenAI's Decisions API). */
+export const AI_DECISION_SCHEMA: Schema = {
+	$schema: 'https://json-schema.org/draft/2020-12/schema',
+	properties: {
+		provider: {
+			type: 'object',
+			format: 'ai-decision-provider',
+			description:
+				'The decision model to ask: TypeSafe (Jev), Cloudflare (Clef) or OpenAI (Decisions API).'
+		},
+		// Untyped, so the static editor takes any JSON: TypeSafe reads a string, an object or an
+		// array of strings.
+		state: {
+			type: undefined,
+			description:
+				'The content to evaluate: a text, or an object with named parts. Extra detail makes the answers less accurate.',
+			placeholder: 'e.g. "My order is late" or { "message": "..." }'
+		},
+		questions: {
+			type: 'object',
+			format: 'ai-decision-questions',
+			description: 'What to ask about the state'
+		}
+	},
+	required: ['provider', 'state', 'questions'],
+	type: 'object',
+	order: ['provider', 'state', 'questions']
+}
+
 /** Memory shapes the editor no longer offers for new steps. The step form offers one only to a step that still holds it,
  *  since the one-of field rewrites a value that matches none of its options. No field carries a
  *  default: the form writes one into a missing field on open, and a missing count runs as off. */
@@ -381,6 +411,15 @@ export async function loadSchemaFromModule(
 			// renders (`InputTransformForm` binds `schema.properties[argName]`), and the tool names
 			// one step offers would otherwise become every step's.
 			schema: structuredClone(AI_AGENT_SCHEMA)
+		}
+	} else if (mod.type === 'aidecision') {
+		const input_transforms = mod.input_transforms ?? {}
+		return {
+			input_transforms: Object.keys(AI_DECISION_SCHEMA.properties ?? {}).reduce((accu, key) => {
+				accu[key] = input_transforms[key] ?? { type: 'static', value: undefined }
+				return accu
+			}, {}),
+			schema: structuredClone(AI_DECISION_SCHEMA)
 		}
 	}
 

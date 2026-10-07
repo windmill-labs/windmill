@@ -1,7 +1,18 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Loader2 } from 'lucide-svelte'
-	import type { Policy } from '$lib/gen'
+	import {
+		Sparkles,
+		Plus,
+		List,
+		Ban,
+		ExternalLinkIcon,
+		Code,
+		Database,
+		Loader2
+	} from 'lucide-svelte'
+	import { WorkerService, type Policy } from '$lib/gen'
+	import MissingWorkerTagAlert from '$lib/components/jobs/MissingWorkerTagAlert.svelte'
+	import { hasWorkerForTag, queuedWithoutWorkerMessage } from '$lib/components/jobs/missingWorker'
 	import { superadmin, userStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
@@ -9,12 +20,9 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Select from '$lib/components/select/Select.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { Alert } from '$lib/components/common'
-	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
-	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { Alert, Badge } from '$lib/components/common'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { react18Template, react19Template, svelte5Template } from './templates'
@@ -43,33 +51,31 @@
 		files: Record<string, string>
 		runnables: Record<string, Runnable>
 		data: RawAppData
-		summary: string
 		policy: Policy
-		prompt?: string
 	}
+
+	/** Where the set-up app opens: `ai` hands it to the AI, `code` opens it in the editor. */
+	export type RawAppBuildMode = 'ai' | 'code'
 
 	let {
 		open = $bindable(),
 		onStart
 	}: {
 		open: boolean
-		onStart: (result: RawAppTemplatePickerResult, withPrompt: boolean) => void
+		onStart: (result: RawAppTemplatePickerResult, mode: RawAppBuildMode) => void
 	} = $props()
 
 	const templates = [
-		{ name: 'React 19', icon: 'tsx', files: react19Template },
+		{ name: 'React 19', icon: 'tsx', files: react19Template, recommended: true },
 		{ name: 'React 18', icon: 'tsx', files: react18Template },
 		{ name: 'Svelte 5', icon: 'svelte', files: svelte5Template }
 	]
 
 	let selectedTemplateIndex = $state(0)
-	let tableCreationEnabled = $state(true)
 	let selectedDatatable = $state<string | undefined>(undefined)
 	let schemaMode = $state<'none' | 'new' | 'existing'>('new')
 	let selectedSchema = $state<string | undefined>(undefined)
 	let newSchemaName = $state('')
-	let appSummary = $state('')
-	let initialPrompt = $state('')
 	let preWhitelistedTables = $state<DataTableRef[]>([])
 	/** The role each pre-whitelisted table's data table was browsed as. */
 	let preWhitelistedRoles = $state<Record<string, string>>({})
@@ -92,9 +98,7 @@
 		roles.current.workspace === opWs && roles.current.datatable === selectedDatatable
 	)
 	const loadedRoles = $derived(
-		rolesAnswered &&
-			selectedDatatable !== undefined &&
-			datatableNameTakesRole(selectedDatatable)
+		rolesAnswered && selectedDatatable !== undefined && datatableNameTakesRole(selectedDatatable)
 			? roles.current.roles
 			: []
 	)
@@ -183,11 +187,10 @@
 	const availableSchemas = $derived(accessSettled ? access.current.schemas : [])
 	const canCreateSchema = $derived(accessSettled && access.current.canCreateSchema)
 
-	// Only an app that keeps the data table is held back by it: with table creation off nothing
-	// saves it.
-	const blockedByRole = $derived(
-		(noUsableRole || rolesUnknown || accessUnknown) && tableCreationEnabled
-	)
+	const blockedByRole = $derived(noUsableRole || rolesUnknown || accessUnknown)
+	// A data table the caller cannot use is left out rather than blocking the app: it would be
+	// saved with queries the server refuses, and the app may need no data table at all.
+	const usableDatatable = $derived(blockedByRole ? undefined : selectedDatatable)
 
 	// A role that cannot create schemas has nothing to name, so the mode goes back to the one
 	// every role has, once that is an answer.
@@ -264,9 +267,6 @@
 	// would announce AI as unconfigured while it is merely unknown. Gate on the
 	// config describing opWs, and load it here so the claim owns its own evidence.
 	const aiConfigLoaded = $derived(!!opWs && $copilotWorkspace === opWs)
-	// Say where the button leads: the route hands this prompt to a fresh AI
-	// session for everyone who has one, and drives the docked chat for the rest.
-	const handsOffToSession = $derived(prefersSessionHandoff($userStore?.operator))
 	const isAiEnabled = $derived(aiConfigLoaded && $copilotInfo.enabled)
 
 	$effect(() => {
@@ -275,62 +275,131 @@
 		}
 	})
 
-	async function start(withPrompt: boolean) {
-		const template = templates[selectedTemplateIndex]
+	// With AI turned off for the workspace there is nothing to choose between.
+	const aiOffered = $derived(!$copilotInfo.workspaceDisabled)
 
-		if (
-			tableCreationEnabled &&
-			schemaMode === 'new' &&
-			newSchemaName &&
-			selectedDatatable &&
-			opWs
-		) {
-			try {
-				const { dbSchemaOpsWithPreviewScripts } = await import('$lib/components/dbOps')
-				const dbOps = dbSchemaOpsWithPreviewScripts({
-					workspace: opWs,
-					input: {
-						type: 'database',
-						resourceType: 'postgresql',
-						resourcePath: `datatable://${selectedDatatable}`,
-						role: effectiveRole,
-						migrationRole: defaultMigrationRole(
-							selectedDatatable,
-							roles.current.permissioned,
-							roles.current.defaultRole
-						)
-					}
-				})
-				await dbOps.onCreateSchema({ schema: newSchemaName })
-			} catch (e) {
-				console.error('Failed to create schema:', e)
-				sendUserToast(`Failed to create schema: ${e}`, true)
-			}
-		}
+	const canStart = $derived(
+		!!templates[selectedTemplateIndex] && !newSchemaAlreadyExists && rolesSettled && accessSettled
+	)
 
-		const formattedTables = preWhitelistedTables.map(formatDataTableRef)
-		const keepsDatatable = tableCreationEnabled && selectedDatatable !== undefined
-		// The roles shown, for the data tables the app ends up using.
-		const usedDatatables = new Set(preWhitelistedTables.map((t) => t.datatable))
-		if (keepsDatatable) usedDatatables.add(selectedDatatable!)
-		const shownRoles = Object.entries(pickerRoles ?? {}).filter(([dt]) => usedDatatables.has(dt))
-		const appRoles = shownRoles.length > 0 ? Object.fromEntries(shownRoles) : undefined
-		const data: RawAppData = keepsDatatable
-			? {
-					tables: formattedTables,
-					datatable: selectedDatatable,
-					schema: effectiveSchema,
-					roles: appRoles
-				}
-			: { tables: formattedTables, datatable: undefined, schema: undefined, roles: appRoles }
-
-		const policy: Policy = {
+	function appPolicy(): Policy {
+		return {
 			on_behalf_of: $userStore?.username.includes('@')
 				? $userStore?.username
 				: `u/${$userStore?.username}`,
 			on_behalf_of_email: $userStore?.email,
 			execution_mode: 'publisher'
 		}
+	}
+
+	const startCardClasses =
+		'relative h-full flex-col items-start justify-start gap-1.5 rounded-lg p-3 text-left whitespace-normal'
+
+	async function createSchema(input: {
+		workspace: string
+		datatable: string
+		schema: string
+		role: string | undefined
+		migrationRole: string | undefined
+	}) {
+		try {
+			const { dbSchemaOpsWithPreviewScripts } = await import('$lib/components/dbOps')
+			const dbOps = dbSchemaOpsWithPreviewScripts({
+				workspace: input.workspace,
+				input: {
+					type: 'database',
+					resourceType: 'postgresql',
+					resourcePath: `datatable://${input.datatable}`,
+					role: input.role,
+					migrationRole: input.migrationRole
+				}
+			})
+			await dbOps.onCreateSchema({ schema: input.schema })
+		} catch (e) {
+			console.error('Failed to create schema:', e)
+			sendUserToast(`Failed to create schema ${input.schema}: ${e}`, true)
+		}
+	}
+
+	// The start that is in flight, and the schema it is waiting on: creating one is a job,
+	// which can sit in the queue long enough for a silent modal to look dead.
+	let starting = $state<{ mode: RawAppBuildMode; schema?: string } | undefined>(undefined)
+
+	const SCHEMA_JOB_TAG = 'postgresql'
+
+	/** Whether a worker can pick up the job that creates a schema. Only a definite "no"
+	 * counts: with per-workspace default tags the job runs on a variant of the tag, and a
+	 * failed lookup establishes nothing. */
+	async function schemaJobsServed(workspace: string): Promise<boolean> {
+		try {
+			if (await WorkerService.isDefaultTagsPerWorkspace()) return true
+			return await hasWorkerForTag(workspace, SCHEMA_JOB_TAG)
+		} catch {
+			return true
+		}
+	}
+
+	// Existing tables go with an existing schema: under the other modes the list is not shown,
+	// and what is not shown is not saved.
+	const tablesToUse = $derived(schemaMode === 'existing' ? preWhitelistedTables : [])
+
+	function exploreDatatable() {
+		dataTableDrawer?.openDrawer(
+			selectedDatatable
+				? {
+						datatable: selectedDatatable,
+						schema: schemaMode === 'existing' ? selectedSchema : undefined
+					}
+				: undefined
+		)
+	}
+
+	async function start(mode: RawAppBuildMode) {
+		if (starting) return
+		const template = templates[selectedTemplateIndex]
+
+		if (schemaMode === 'new' && newSchemaName && usableDatatable && opWs) {
+			starting = { mode, schema: newSchemaName }
+			const creation = createSchema({
+				workspace: opWs,
+				datatable: usableDatatable,
+				schema: newSchemaName,
+				role: effectiveRole,
+				migrationRole: defaultMigrationRole(
+					usableDatatable,
+					roles.current.permissioned,
+					roles.current.defaultRole
+				)
+			})
+			if (await schemaJobsServed(opWs)) {
+				await creation
+			} else {
+				// The job stays queued for as long as no worker serves its tag: waiting on it
+				// would hold the app back for nothing, so say why the schema is missing instead.
+				sendUserToast(
+					`Schema "${newSchemaName}" is not created yet. ${queuedWithoutWorkerMessage(SCHEMA_JOB_TAG)}`,
+					true
+				)
+			}
+		}
+
+		starting = undefined
+
+		const formattedTables = tablesToUse.map(formatDataTableRef)
+		const keepsDatatable = usableDatatable !== undefined
+		// The roles shown, for the data tables the app ends up using.
+		const usedDatatables = new Set(tablesToUse.map((t) => t.datatable))
+		if (keepsDatatable) usedDatatables.add(usableDatatable!)
+		const shownRoles = Object.entries(pickerRoles ?? {}).filter(([dt]) => usedDatatables.has(dt))
+		const appRoles = shownRoles.length > 0 ? Object.fromEntries(shownRoles) : undefined
+		const data: RawAppData = keepsDatatable
+			? {
+					tables: formattedTables,
+					datatable: usableDatatable,
+					schema: effectiveSchema,
+					roles: appRoles
+				}
+			: { tables: formattedTables, datatable: undefined, schema: undefined, roles: appRoles }
 
 		open = false
 		onStart(
@@ -338,11 +407,9 @@
 				files: template.files,
 				runnables: {},
 				data,
-				summary: appSummary.trim(),
-				policy,
-				prompt: withPrompt ? initialPrompt.trim() : undefined
+				policy: appPolicy()
 			},
-			withPrompt
+			mode
 		)
 	}
 </script>
@@ -353,32 +420,28 @@
 	     Modal closes its own UI but the picker's `open` prop stays true,
 	     so the route's `templatePicker → false` watcher never fires and
 	     autosave stays suspended after the dismissal. -->
-	<Modal kind="X" bind:open title="New App setup">
+	<Modal kind="X" bind:open title="New app">
 		<div class="flex flex-col gap-6 min-w-sm">
 			<div>
-				<h2 class="text-xs font-semibold text-emphasis mb-1">Summary</h2>
-				<TextInput
-					bind:value={appSummary}
-					inputProps={{
-						placeholder: "Brief description of the app (e.g., 'Todo list with authentication')"
-					}}
-				/>
-			</div>
-
-			<div class="pt-6">
-				<h2 class="text-xs font-semibold text-emphasis mb-1">Framework</h2>
+				<h2 class="text-xs font-semibold text-emphasis mb-3">Framework</h2>
 				<div class="flex flex-wrap gap-3">
 					{#each templates as t, i}
 						<button
 							onclick={() => (selectedTemplateIndex = i)}
-							class="w-24 h-24 flex justify-between py-5 flex-col {selectedTemplateIndex === i
+							class="relative w-20 h-[4.5rem] flex justify-between py-3 flex-col {selectedTemplateIndex ===
+							i
 								? 'bg-surface-accent-selected border border-accent'
 								: ''} hover:bg-surface-hover border rounded-lg transition-all"
 						>
 							<div class="w-full flex items-center justify-center">
-								<FileEditorIcon file={'.' + t.icon} size={32} />
+								<FileEditorIcon file={'.' + t.icon} size={22} />
 							</div>
-							<div class="center-center w-full text-sm text-secondary">{t.name}</div>
+							<div class="center-center w-full text-xs text-secondary">{t.name}</div>
+							{#if t.recommended}
+								<div class="absolute -top-3 left-1/2 -translate-x-1/2">
+									<Badge color="blue" small>Recommended</Badge>
+								</div>
+							{/if}
 						</button>
 					{/each}
 				</div>
@@ -407,6 +470,10 @@
 					</Alert>
 				{:else}
 					<div class="flex flex-col gap-4">
+						<MissingWorkerTagAlert
+							tag={SCHEMA_JOB_TAG}
+							subject="Data table queries and schema changes"
+						/>
 						<div class="flex flex-col gap-1">
 							<span class="text-xs text-secondary mb-1 block">Default settings for new tables</span>
 							<div class="flex flex-col gap-4 rounded-md p-4 border">
@@ -448,7 +515,8 @@
 														? 'could not read its roles'
 														: noUsableRole
 															? 'no role you can use'
-															: 'could not reach it'}
+															: 'could not reach it'}; the app is created without a default data
+													table
 												</span>
 											{/if}
 										</div>
@@ -485,6 +553,14 @@
 													{/snippet}
 												</ToggleButtonGroup>
 											</div>
+											<Button
+												variant="default"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: Database }}
+												title="Explore {selectedDatatable ?? 'the data table'}"
+												onclick={exploreDatatable}
+											/>
 											{#if schemaMode === 'new'}
 												<TextInput
 													bind:value={newSchemaName}
@@ -518,130 +594,130 @@
 							</div>
 						</div>
 
-						<div class="flex items-center">
-							<Toggle
-								size="sm"
-								bind:checked={tableCreationEnabled}
-								options={{ right: 'Allow AI to create new tables' }}
-							/>
-						</div>
-
-						<div class="pt-6">
-							<RawAppDataTableList
-								dataTableRefs={preWhitelistedTables}
-								defaultDatatable={selectedDatatable}
-								defaultSchema={effectiveSchema}
-								roles={pickerRoles}
-								standalone
-								hideDefaultSelector
-								onAdd={() => dataTableDrawer?.openDrawer()}
-								onRemove={(index) => {
-									preWhitelistedTables = preWhitelistedTables.filter((_, i) => i !== index)
-								}}
-							/>
-						</div>
+						{#if schemaMode === 'existing'}
+							<div class="pt-6">
+								<RawAppDataTableList
+									dataTableRefs={preWhitelistedTables}
+									defaultDatatable={selectedDatatable}
+									defaultSchema={effectiveSchema}
+									roles={pickerRoles}
+									standalone
+									hideDefaultSelector
+									onAdd={exploreDatatable}
+									onRemove={(index) => {
+										preWhitelistedTables = preWhitelistedTables.filter((_, i) => i !== index)
+									}}
+								/>
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</div>
 
-			{#if !$copilotInfo.workspaceDisabled}
-				<div class="pt-6">
-					<h2 class="text-xs font-semibold text-emphasis mb-1 flex items-center gap-2">
-						<Sparkles size={16} class="text-ai" />
-						Start with AI
-						<span class="text-xs font-normal text-tertiary">(optional)</span>
-					</h2>
-
-					{#if !aiConfigLoaded}
-						<div class="flex items-center gap-2 text-xs text-tertiary">
-							<Loader2 size={14} class="animate-spin" />
-							Loading AI settings...
-						</div>
-					{:else if !isAiEnabled}
-						<Alert type="info" title="AI is not configured.">
-							You can still create an app manually but using AI is highly recommended.
-							<br />
-							{#if $userStore?.is_admin}
-								Configure AI in
-								<a
-									href="{base}/workspace_settings?tab=ai"
-									target="_blank"
-									class="inline-flex items-center gap-1 font-semibold"
-									>workspace settings <ExternalLinkIcon size={16} />
-								</a>
-								{#if $superadmin}
-									or
-									<a
-										href="{base}/?workspace=admins#superadmin-settings"
-										target="_blank"
-										class="inline-flex items-center gap-1 font-semibold"
-										>instance settings <ExternalLinkIcon size={16} />
-									</a>
-								{/if} to enable this feature.
-							{:else if $superadmin}
-								Configure AI in
-								<a
-									href="{base}/?workspace=admins#superadmin-settings"
-									target="_blank"
-									class="inline-flex items-center gap-1 font-semibold"
-									>instance settings <ExternalLinkIcon size={16} />
-								</a> to enable this feature.
-							{:else}
-								Ask your workspace admin to configure AI in workspace settings to enable this
-								feature.
-							{/if}
-						</Alert>
+			{#if aiOffered && aiConfigLoaded && !isAiEnabled}
+				<Alert type="info" title="AI is not configured.">
+					You can still create an app manually but using AI is highly recommended.
+					<br />
+					{#if $userStore?.is_admin}
+						Configure AI in
+						<a
+							href="{base}/workspace_settings?tab=ai"
+							target="_blank"
+							class="inline-flex items-center gap-1 font-semibold"
+							>workspace settings <ExternalLinkIcon size={16} />
+						</a>
+						{#if $superadmin}
+							or
+							<a
+								href="{base}/?workspace=admins#superadmin-settings"
+								target="_blank"
+								class="inline-flex items-center gap-1 font-semibold"
+								>instance settings <ExternalLinkIcon size={16} />
+							</a>
+						{/if} to enable this feature.
+					{:else if $superadmin}
+						Configure AI in
+						<a
+							href="{base}/?workspace=admins#superadmin-settings"
+							target="_blank"
+							class="inline-flex items-center gap-1 font-semibold"
+							>instance settings <ExternalLinkIcon size={16} />
+						</a> to enable this feature.
 					{:else}
-						<div class="flex flex-col gap-2">
-							<TextInput
-								underlyingInputEl="textarea"
-								bind:value={initialPrompt}
-								inputProps={{
-									rows: 3,
-									placeholder:
-										"Describe what you want to build... (e.g., 'Create a todo list app with user authentication')"
-								}}
-							/>
-							<p class="text-xs text-tertiary">
-								{handsOffToSession
-									? 'Leave empty to start with a blank template, or describe your app to open an AI session that builds it.'
-									: 'Leave empty to start with a blank template, or describe your app to get AI assistance right away.'}
-							</p>
-						</div>
+						Ask your workspace admin to configure AI in workspace settings to enable this feature.
 					{/if}
-				</div>
+				</Alert>
 			{/if}
 
-			<div class="pt-6 flex justify-end gap-3">
-				<Button
-					variant="default"
-					size="sm"
-					on:click={() => start(false)}
-					disabled={!templates[selectedTemplateIndex] ||
-						newSchemaAlreadyExists ||
-						!rolesSettled ||
-						!accessSettled ||
-						blockedByRole}
-				>
-					{$copilotInfo.workspaceDisabled ? 'Start' : 'Start without AI'}
-				</Button>
-				{#if isAiEnabled}
+			{#if aiOffered}
+				<div class="pt-6 flex flex-col gap-2">
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+						<Button
+							variant="default"
+							onClick={() => start('ai')}
+							disabled={!canStart || !isAiEnabled || starting !== undefined}
+							btnClasses="{startCardClasses} border-ai/40 bg-ai/5 hover:bg-ai/10 disabled:opacity-50 disabled:cursor-not-allowed"
+						>
+							<span class="flex w-full items-center gap-2">
+								{#if !aiConfigLoaded || starting?.mode === 'ai'}
+									<Loader2 size={18} class="text-ai animate-spin" />
+								{:else}
+									<Sparkles size={18} class="text-ai" />
+								{/if}
+								<span class="text-sm font-semibold text-emphasis whitespace-nowrap"
+									>Start with AI</span
+								>
+							</span>
+							<span class="text-xs font-normal text-secondary">
+								Describe your app and let the AI build it.
+							</span>
+							<span class="absolute -top-3 right-3">
+								<Badge color="blue" small>Recommended</Badge>
+							</span>
+						</Button>
+						<Button
+							variant="default"
+							onClick={() => start('code')}
+							disabled={!canStart || starting !== undefined}
+							btnClasses="{startCardClasses} disabled:opacity-50 disabled:cursor-not-allowed"
+						>
+							<span class="flex w-full items-center gap-2">
+								{#if starting?.mode === 'code'}
+									<Loader2 size={18} class="text-primary animate-spin" />
+								{:else}
+									<Code size={18} class="text-primary" />
+								{/if}
+								<span class="text-sm font-semibold text-emphasis whitespace-nowrap">
+									Start with code editor
+								</span>
+							</span>
+							<span class="text-xs font-normal text-secondary">
+								Write the app yourself in the editor.
+							</span>
+						</Button>
+					</div>
+					<p class="text-xs text-center {starting?.schema ? 'text-secondary' : 'text-hint'}">
+						{starting?.schema
+							? `Creating schema ${starting.schema}…`
+							: 'You can always switch later.'}
+					</p>
+				</div>
+			{:else}
+				<div class="pt-6 flex items-center justify-end gap-3">
+					{#if starting?.schema}
+						<p class="mr-auto text-xs text-secondary">Creating schema {starting.schema}…</p>
+					{/if}
 					<Button
 						variant="accent"
-						on:click={() => start(true)}
-						disabled={!rolesSettled ||
-							!accessSettled ||
-							blockedByRole ||
-							!templates[selectedTemplateIndex] ||
-							!initialPrompt.trim() ||
-							newSchemaAlreadyExists}
-						startIcon={{ icon: Sparkles }}
-						btnClasses={AIBtnClasses('accent')}
+						unifiedSize="md"
+						onclick={() => start('code')}
+						loading={starting?.mode === 'code'}
+						disabled={!canStart || starting !== undefined}
 					>
-						{handsOffToSession ? 'Start in AI session' : 'Start with AI'}
+						Create app
 					</Button>
-				{/if}
-			</div>
+				</div>
+			{/if}
 		</div>
 	</Modal>
 {/if}
@@ -657,6 +733,8 @@
 			...refs
 		]
 		preWhitelistedRoles = { ...preWhitelistedRoles, ...browsedRoles }
+		// Tables picked while exploring are existing ones to use: show them.
+		if (refs.length > 0) schemaMode = 'existing'
 		if (selectedDatatable !== undefined && browsedRoles[selectedDatatable] !== undefined) {
 			selectedRole = browsedRoles[selectedDatatable]
 		}

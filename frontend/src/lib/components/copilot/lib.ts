@@ -85,7 +85,11 @@ const OPENAI_MODELS = [
 	'o3'
 ]
 
-export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
+/** The providers that chat. Every surface picking a model to talk to (the copilot, flow chat, an
+ *  agent's text or image output, eval judges) offers exactly these. */
+export type ChatAIProvider = Exclude<AIProvider, 'typesafe' | 'cloudflare'>
+
+export const AI_PROVIDERS: Record<ChatAIProvider, AIProviderDetails> = {
 	openai: {
 		label: 'OpenAI',
 		defaultModels: OPENAI_MODELS
@@ -163,6 +167,40 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	}
 }
 
+/** Decision models answer typed questions instead of messages, so only an AI decision offers
+ *  them: TypeSafe's Jev, Cloudflare's Jev-compatible Clef, and the model of OpenAI's Decisions
+ *  API, which an OpenAI resource serves next to its chat models. The pinned Jev version is there
+ *  for flows tuned against its probabilities. */
+export const DECISION_AI_PROVIDERS: Record<
+	Exclude<AIProvider, ChatAIProvider> | 'openai',
+	AIProviderDetails
+> = {
+	openai: {
+		label: 'OpenAI',
+		defaultModels: ['gpt-6-luna']
+	},
+	typesafe: {
+		label: 'TypeSafe',
+		defaultModels: ['jev-latest', 'jev-1.13.0']
+	},
+	cloudflare: {
+		label: 'Cloudflare',
+		defaultModels: ['clef', 'clef-flash']
+	}
+}
+
+/** Label and default models of any provider kind, chat or decision. A kind in neither list (a flow
+ *  written by hand or by a newer version) is named as it is and offers no models. */
+export function aiProviderDetails(provider: AIProvider): AIProviderDetails {
+	return (
+		(AI_PROVIDERS as Record<string, AIProviderDetails>)[provider] ??
+		(DECISION_AI_PROVIDERS as Record<string, AIProviderDetails>)[provider] ?? {
+			label: provider,
+			defaultModels: []
+		}
+	)
+}
+
 export interface ModelResponse {
 	id: string
 	object: string
@@ -193,6 +231,12 @@ export async function fetchAvailableModels(
 	/** Cap on the listing response, for callers that fetch without a user asking. */
 	maxBytes?: number
 ): Promise<string[]> {
+	// Neither decision provider has an OpenAI-shaped listing: TypeSafe's names models with `name`
+	// and serves one under aliases, and Workers AI's catalog spans every model it hosts.
+	if (provider === 'typesafe' || provider === 'cloudflare') {
+		return DECISION_AI_PROVIDERS[provider].defaultModels
+	}
+
 	// Handle AWS Bedrock separately (needs both foundation-models and inference-profiles)
 	if (provider === 'aws_bedrock') {
 		const headers = {
@@ -506,7 +550,7 @@ const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 	messages: []
 }
 
-export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCreateParams> = {
+export const PROVIDER_COMPLETION_CONFIG_MAP: Record<ChatAIProvider, ChatCompletionCreateParams> = {
 	openai: DEFAULT_COMPLETION_CONFIG,
 	azure_openai: DEFAULT_COMPLETION_CONFIG,
 	azure_foundry: DEFAULT_COMPLETION_CONFIG,
