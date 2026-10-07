@@ -838,6 +838,9 @@ pub async fn set_global_setting(
 /// A setting is recorded by name, with its value only when that is a boolean or a number.
 /// Any other shape can carry a credential (a registry URL, a webhook, a header map), and no
 /// list of secret-bearing settings stays complete as settings are added.
+///
+/// AUTHORIZATION: records a write, checks nothing. The caller must have established that
+/// `authed` may change instance settings before performing the write this records.
 pub async fn audit_setting_write(
     db: &DB,
     authed: &ApiAuthed,
@@ -1367,25 +1370,60 @@ async fn set_instance_config(
                 run_setting_pre_write_hook(&db, key, value).await?;
             }
         }
-        // Taken here because the external-instance write removes its own key from the diff.
-        let written: Vec<(String, Option<serde_json::Value>)> = settings_diff
+        // The external-instance write removes its own key from the diff.
+        let external = settings_diff
             .upserts
-            .iter()
-            .map(|(k, v)| (k.clone(), Some(v.clone())))
-            .chain(settings_diff.deletes.iter().map(|k| (k.clone(), None)))
-            .collect();
+            .get(EXTERNAL_INSTANCE_PG_SETTING)
+            .cloned()
+            .map(Some)
+            .or_else(|| {
+                settings_diff
+                    .deletes
+                    .iter()
+                    .any(|k| k == EXTERNAL_INSTANCE_PG_SETTING)
+                    .then_some(None)
+            });
         windmill_common::external_instance_pg::write_external_instance_pg_from_diff(
             &db,
             &mut settings_diff,
         )
         .await?;
+        if let Some(value) = external {
+            audit_setting_write(&db, &authed, EXTERNAL_INSTANCE_PG_SETTING, value.as_ref()).await?;
+        }
 
-        instance_config::apply_settings_diff(&db, &settings_diff)
-            .await
-            .map_err(|e| error::Error::internal_err(e.to_string()))?;
-
-        for (key, value) in &written {
-            audit_setting_write(&db, &authed, key, value.as_ref()).await?;
+        // Applied and audited one setting at a time: the writes are not transactional, so a
+        // batch that fails midway must not leave the settings it did write unrecorded.
+        let instance_config::SettingsDiff { upserts, deletes, mut previous_values, unchanged_count } =
+            settings_diff;
+        let steps = upserts
+            .into_iter()
+            .map(|(k, v)| (k, Some(v)))
+            .chain(deletes.into_iter().map(|k| (k, None)))
+            .map(Some)
+            .chain(std::iter::once(None));
+        for step in steps {
+            let mut diff = instance_config::SettingsDiff::default();
+            match &step {
+                Some((key, value)) => {
+                    if let Some(previous) = previous_values.remove(key) {
+                        diff.previous_values.insert(key.clone(), previous);
+                    }
+                    match value {
+                        Some(value) => {
+                            diff.upserts.insert(key.clone(), value.clone());
+                        }
+                        None => diff.deletes.push(key.clone()),
+                    }
+                }
+                None => diff.unchanged_count = unchanged_count,
+            }
+            instance_config::apply_settings_diff(&db, &diff)
+                .await
+                .map_err(|e| error::Error::internal_err(e.to_string()))?;
+            if let Some((key, value)) = &step {
+                audit_setting_write(&db, &authed, key, value.as_ref()).await?;
+            }
         }
 
         if ai_config_changed {
@@ -1416,20 +1454,26 @@ async fn set_instance_config(
             .collect();
         let configs_diff =
             instance_config::diff_worker_configs(&current_wc, &desired_wc, ApplyMode::Merge);
-        instance_config::apply_configs_diff(&db, &configs_diff)
-            .await
-            .map_err(|e| error::Error::internal_err(e.to_string()))?;
-        let written = configs_diff
+        let steps = configs_diff
             .upserts
-            .keys()
-            .map(|g| (g, "worker_config.update", ActionKind::Update))
-            .chain(
-                configs_diff
-                    .deletes
-                    .iter()
-                    .map(|g| (g, "worker_config.delete", ActionKind::Delete)),
-            );
-        for (group, operation, action_kind) in written {
+            .into_iter()
+            .map(|(g, c)| (g, Some(c)))
+            .chain(configs_diff.deletes.into_iter().map(|g| (g, None)));
+        for (group, config) in steps {
+            let mut diff = instance_config::ConfigsDiff::default();
+            let (operation, action_kind) = match config {
+                Some(config) => {
+                    diff.upserts.insert(group.clone(), config);
+                    ("worker_config.update", ActionKind::Update)
+                }
+                None => {
+                    diff.deletes.push(group.clone());
+                    ("worker_config.delete", ActionKind::Delete)
+                }
+            };
+            instance_config::apply_configs_diff(&db, &diff)
+                .await
+                .map_err(|e| error::Error::internal_err(e.to_string()))?;
             audit_log(
                 &db,
                 &authed,

@@ -88,6 +88,8 @@ pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     Ok(())
 }
 
+/// AUTHORIZATION: records entries, checks nothing. The caller must have authorized `author`
+/// for the operation on every resource in `w_id` before calling.
 #[cfg(not(feature = "private"))]
 pub async fn audit_log_many<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     _db: E,
