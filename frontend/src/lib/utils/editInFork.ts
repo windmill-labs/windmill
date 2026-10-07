@@ -61,7 +61,12 @@ export function editInForkDescription(
  * `AllowOperatorForking`, which grants rather than restricts, so its bypass lists don't apply.
  */
 export function canCreateFork(user: UserExt | undefined): boolean {
-	if (user?.operator && !user.is_admin && !isRuleActive('AllowOperatorForking')) {
+	if (
+		user?.operator &&
+		!user.is_admin &&
+		!user.is_super_admin &&
+		!isRuleActive('AllowOperatorForking')
+	) {
 		return false
 	}
 	return (

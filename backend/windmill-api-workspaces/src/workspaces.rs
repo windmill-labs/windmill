@@ -9570,6 +9570,7 @@ async fn make_workspace_fork(
         .filter(|c| c.replayed)
         .map(|c| c.behavior)
         .collect();
+    let operator_fork = authed.is_operator && !authed.is_admin;
     match write_workspace_fork(
         db.clone(),
         authed,
@@ -9591,6 +9592,9 @@ async fn make_workspace_fork(
                         _ => "schema_and_data",
                     },
                 );
+            }
+            if operator_fork {
+                windmill_common::feature_usage::log_feature_usage("operator_fork", "forked", "");
             }
             Ok(message)
         }
@@ -9783,17 +9787,17 @@ async fn write_workspace_fork(
 
     // Ensure the creator is a member of the fork even without copy_members (or if they aren't a parent
     // member). No-op when copy_members already brought their full row.
-    sqlx::query(
+    sqlx::query!(
         "INSERT INTO usr
            (workspace_id, email, username, is_admin, operator, role)
            SELECT $1, email, username, is_admin, operator, role FROM usr
          WHERE workspace_id = $3 AND email = $2
          ON CONFLICT DO NOTHING
         ",
+        forked_id,
+        authed.email,
+        parent_workspace_id,
     )
-    .bind(&forked_id)
-    .bind(&authed.email)
-    .bind(&parent_workspace_id)
     .execute(&mut *tx)
     .await?;
 
@@ -12130,6 +12134,8 @@ async fn create_protection_rule(
         )));
     }
 
+    let rules = ProtectionRules::from(&req.rules);
+
     // Insert the new rule
     sqlx::query!(
         r#"
@@ -12138,7 +12144,7 @@ async fn create_protection_rule(
         "#,
         &w_id,
         &req.name,
-        ProtectionRules::from(&req.rules).bits(),
+        rules.bits(),
         &req.bypass_groups,
         &req.bypass_users,
     )
@@ -12160,6 +12166,14 @@ async fn create_protection_rule(
 
     // Invalidate cache
     windmill_common::workspaces::invalidate_protection_rules_cache(&w_id);
+
+    if rules.contains(ProtectionRules::ALLOW_OPERATOR_FORKING) {
+        windmill_common::feature_usage::log_feature_usage(
+            "operator_fork",
+            "rule_enabled",
+            "create",
+        );
+    }
 
     handle_deployment_metadata(
         &authed.email,
@@ -12209,22 +12223,19 @@ async fn update_protection_rule(
 
     let mut tx = db.begin().await?;
 
-    // Check if rule exists
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2)",
+    let Some(previous_rules) = sqlx::query_scalar!(
+        "SELECT rules FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2",
         &w_id,
         &rule_name
     )
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?
-    .unwrap_or(false);
-
-    if !exists {
+    else {
         return Err(Error::NotFound(format!(
             "Protection rule '{}' not found",
             rule_name
         )));
-    }
+    };
 
     if let Some(new_name) = new_name {
         let taken = sqlx::query_scalar!(
@@ -12244,6 +12255,7 @@ async fn update_protection_rule(
     }
 
     let final_name = new_name.unwrap_or(&rule_name);
+    let rules = ProtectionRules::from(&req.rules);
 
     // Update the rule
     sqlx::query!(
@@ -12253,7 +12265,7 @@ async fn update_protection_rule(
             WHERE workspace_id = $5 AND name = $6
         "#,
         final_name,
-        ProtectionRules::from(&req.rules).bits(),
+        rules.bits(),
         &req.bypass_groups,
         &req.bypass_users,
         &w_id,
@@ -12281,6 +12293,17 @@ async fn update_protection_rule(
 
     // Invalidate cache
     windmill_common::workspaces::invalidate_protection_rules_cache(&w_id);
+
+    if rules.contains(ProtectionRules::ALLOW_OPERATOR_FORKING)
+        && !ProtectionRules::from_bits_truncate(previous_rules)
+            .contains(ProtectionRules::ALLOW_OPERATOR_FORKING)
+    {
+        windmill_common::feature_usage::log_feature_usage(
+            "operator_fork",
+            "rule_enabled",
+            "update",
+        );
+    }
 
     handle_deployment_metadata(
         &authed.email,
