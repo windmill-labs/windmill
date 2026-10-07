@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.825.0](https://github.com/windmill-labs/windmill/compare/v1.824.1...v1.825.0) (2026-10-06)
+
+
+### Features
+
+* choose build with AI or code when creating a raw app ([#11560](https://github.com/windmill-labs/windmill/issues/11560)) ([431f861](https://github.com/windmill-labs/windmill/commit/431f86138815fce432e282e8ac495953c5ecf98a))
+* confine jobs:read to the runnable paths it names ([#11550](https://github.com/windmill-labs/windmill/issues/11550)) ([b371af3](https://github.com/windmill-labs/windmill/commit/b371af31c96e6890fe9223233d2c6e53ddea67d4))
+* open a run as a pushed page on the narrow runs page ([#11541](https://github.com/windmill-labs/windmill/issues/11541)) ([fd8de45](https://github.com/windmill-labs/windmill/commit/fd8de45cc7cfcba2c374dd86f87f4d3e8aec6ded))
+* say a canceled team plan is canceled, not past due ([#11539](https://github.com/windmill-labs/windmill/issues/11539)) ([18e44d3](https://github.com/windmill-labs/windmill/commit/18e44d31742b8d16852b8c6ae663979666e064d7))
+
+
+### Bug Fixes
+
+* group raw app edits that carry a file diff in the ai chat ([#11558](https://github.com/windmill-labs/windmill/issues/11558)) ([5912d30](https://github.com/windmill-labs/windmill/commit/5912d300a550a33674fd73740d613d1b434fbba1))
+* honor custom timeout in setup phases and name the limit hit ([#11557](https://github.com/windmill-labs/windmill/issues/11557)) ([4fd4f76](https://github.com/windmill-labs/windmill/commit/4fd4f76d0df740cb3eebed1a0625b970484807fc))
+* search slow runs filters by time windows instead of timing out ([#11549](https://github.com/windmill-labs/windmill/issues/11549)) ([2bf9cfc](https://github.com/windmill-labs/windmill/commit/2bf9cfcd59e1101695160524c31a4da1a41699dc))
+* serve the raw-app preview shell sandboxed, load a blob copy in the editor ([#11554](https://github.com/windmill-labs/windmill/issues/11554)) ([5f92daa](https://github.com/windmill-labs/windmill/commit/5f92daab6d0ecac30dd384e1b0f302af13fdd9ab))
+* simplify the run page AI card to a prompt and a chat button ([#11561](https://github.com/windmill-labs/windmill/issues/11561)) ([8c74f75](https://github.com/windmill-labs/windmill/commit/8c74f75de3fa62b07186ca4f56dae4a7e4758034))
+
 ## [1.824.1](https://github.com/windmill-labs/windmill/compare/v1.824.0...v1.824.1) (2026-10-05)
 
 

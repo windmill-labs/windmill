@@ -197,7 +197,7 @@
 {:else if isRunCard}
 	<RunScriptCard {message} />
 {:else if isDiffCard}
-	<ToolDiffCard {message} />
+	<ToolDiffCard {message} {hidePreviewChip} />
 {:else if planState}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->
