@@ -50,7 +50,14 @@
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
-	import { dbSchemas } from '$lib/stores'
+	import { dbSchemas, userStore } from '$lib/stores'
+	import RawAppSdkConsent from './RawAppSdkConsent.svelte'
+	import {
+		hasStoredSdkConsent,
+		movePreviewSdkConsent,
+		sdkConsentCovers,
+		storeSdkConsent
+	} from './sdkScopes'
 	import {
 		MousePointerSquareDashed,
 		RefreshCw,
@@ -414,6 +421,9 @@
 	// carry our origin, so they travel wrapped: listeners that trust a same-origin
 	// message must not see the isolated app's as their own.
 	let previewControllerUrl: string | undefined = undefined
+	// Editor-to-controller only, never relayed to the app: the consent prompt lives in
+	// the editor, so the pop-out says why it is blank.
+	const PREVIEW_NOTICE = 'wm:previewNotice'
 	onDestroy(() => {
 		if (previewControllerUrl) URL.revokeObjectURL(previewControllerUrl)
 	})
@@ -423,14 +433,19 @@
 				[
 					`<!DOCTYPE html><html><head><meta charset="utf-8"><title>App preview</title>
 <link rel="icon" href="${window.location.origin}/logo.svg">
-<style>html,body{margin:0;height:100%}iframe{display:block;border:0;width:100%;height:100%}</style>
+<style>html,body{margin:0;height:100%}iframe{display:block;border:0;width:100%;height:100%}
+#n{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;text-align:center;font:14px system-ui,sans-serif;color-scheme:light dark;background:Canvas;color:CanvasText}#n[hidden]{display:none}</style>
 <script>
 addEventListener('message', function (e) {
   var frame = document.querySelector('iframe').contentWindow
   if (e.source === frame && opener) opener.postMessage({ type: '${RAW_APP_PREVIEW_RELAY}', data: e.data }, location.origin, e.ports)
-  else if (e.source === opener) frame.postMessage(e.data, '*')
+  else if (e.source === opener && e.data && e.data.type === '${PREVIEW_NOTICE}') {
+    var n = document.getElementById('n')
+    n.textContent = e.data.text || ''
+    n.hidden = !e.data.text
+  } else if (e.source === opener) frame.postMessage(e.data, '*')
 })
-<\/script></head><body><iframe src="${window.location.origin}${sandboxedShellUrl}" sandbox="${RAW_APP_SANDBOX_FLAGS}" referrerpolicy="no-referrer"></iframe></body></html>`
+<\/script></head><body><div id="n" hidden></div><iframe src="${window.location.origin}${sandboxedShellUrl}" sandbox="${RAW_APP_SANDBOX_FLAGS}" referrerpolicy="no-referrer"></iframe></body></html>`
 				],
 				{ type: 'text/html' }
 			)
@@ -1645,6 +1660,13 @@ addEventListener('message', function (e) {
 	// replacement, so the app mounts once — with the final credential — instead of
 	// once tokenless and again tokenful, running mount-time side effects twice.
 	let previewSdkPending = $state(false)
+	// Holds the app back (with `previewSdkPending`) until the viewer answers.
+	let sdkPrompt = $state<
+		{ scopes: string[]; ws: string; key: string; declined: boolean } | undefined
+	>(undefined)
+	// What Continue granted in this editor session, kept the way a loaded deployed
+	// app keeps its token: only a scope beyond it asks again.
+	let sessionSdkConsent: { ws: string; scopes: string[] } | undefined = undefined
 
 	/** Discard the running app. The shell resets the DOM but keeps the JavaScript
 	 * realm, so only a reload drops the old bundle's timers, listeners and the
@@ -1697,9 +1719,48 @@ addEventListener('message', function (e) {
 		const willMint = scopes.length > 0 && !!ws
 		previewSdkPending = willMint
 		previewSdk = undefined
+		sdkPrompt = undefined
 		restartPreviewRealm()
-		if (willMint) mintPreviewSdkToken(scopes, ws, key)
+		if (!willMint) return
+		// Ask before the app's code runs, as the deployed app does: the token acts
+		// as whoever has the editor open.
+		const granted =
+			(sessionSdkConsent?.ws === ws && sdkConsentCovers(sessionSdkConsent.scopes, scopes)) ||
+			untrack(() => hasStoredSdkConsent($userStore?.email ?? '', ws, path, scopes, true))
+		if (granted) {
+			mintPreviewSdkToken(scopes, ws, key)
+		} else {
+			sdkPrompt = { scopes, ws, key, declined: false }
+			if (externalPreviewWindow && !externalPreviewWindow.closed) {
+				untrack(() => select({ kind: 'preview' }))
+			}
+		}
 	})
+
+	$effect(() => {
+		sdkPrompt?.declined
+		untrack(syncExternalPreviewNotice)
+	})
+
+	function syncExternalPreviewNotice() {
+		if (!sandboxed || !externalPreviewWindow || externalPreviewWindow.closed) return
+		const text = !sdkPrompt
+			? ''
+			: sdkPrompt.declined
+				? 'The preview is blocked until you grant the permissions this app declares. You can review them in the editor window.'
+				: 'This app is waiting for you to approve its permissions in the editor window.'
+		externalPreviewWindow.postMessage({ type: PREVIEW_NOTICE, text }, window.location.origin)
+	}
+
+	async function onSdkConsentContinue(dontAskAgain: boolean) {
+		if (!sdkPrompt) return
+		const { scopes, ws, key } = sdkPrompt
+		sdkPrompt = undefined
+		if (!(await mintPreviewSdkToken(scopes, ws, key))) return
+		sessionSdkConsent = { ws, scopes }
+		const viewer = $userStore?.email
+		if (dontAskAgain && viewer) storeSdkConsent(viewer, ws, path, scopes, true)
+	}
 
 	async function mintPreviewSdkToken(scopes: string[], ws: string, key: string) {
 		try {
@@ -1707,14 +1768,16 @@ addEventListener('message', function (e) {
 				workspace: ws,
 				requestBody: { path, scopes }
 			})
-			if (key !== previewSdkKey) return
+			if (key !== previewSdkKey) return false
 			applyPreviewSdk({ token, baseUrl: window.location.origin, workspace: ws })
+			return true
 		} catch (e) {
 			// Already tokenless — the effect cleared the env before calling us — so
 			// this only releases the build. The key stays set, so a failed mint is not
 			// retried until the scopes or workspace actually change.
 			console.warn('Could not mint a preview SDK token', e)
 			if (key === previewSdkKey) applyPreviewSdk(undefined)
+			return false
 		}
 	}
 
@@ -1762,6 +1825,7 @@ addEventListener('message', function (e) {
 	// `syncExternalPreview` alone (the theme hasn't changed).
 	function feedExternalPreview() {
 		postToExternalPreview({ type: 'setDarkMode', dark: darkMode, variant: darkVariant })
+		syncExternalPreviewNotice()
 		syncExternalPreview()
 	}
 
@@ -1863,13 +1927,20 @@ addEventListener('message', function (e) {
 	const requestRuntimeLogs: RawAppRuntimeLogRequester = async (limit) => {
 		await buildTracker.wait()
 		if (editorDestroyed) {
-			return { entries: undefined, buildError: undefined, buildPending: false, buildLogs: '' }
+			return {
+				entries: undefined,
+				buildError: undefined,
+				buildPending: false,
+				buildLogs: '',
+				sdkConsentPending: false
+			}
 		}
 		return {
 			entries: await requestPreviewConsoleLogs(limit),
 			buildError,
 			buildPending: buildTracker.pending,
-			buildLogs: logs
+			buildLogs: logs,
+			sdkConsentPending: sdkPrompt !== undefined
 		}
 	}
 
@@ -2467,7 +2538,12 @@ addEventListener('message', function (e) {
 		{onTakeLatest}
 		{draftBaseVersion}
 		{onRestore}
-		{onSavedNewAppPath}
+		onSavedNewAppPath={(newAppPath) => {
+			if (opWorkspace && $userStore?.email) {
+				movePreviewSdkConsent($userStore.email, opWorkspace, path, newAppPath)
+			}
+			onSavedNewAppPath?.(newAppPath)
+		}}
 		{policy}
 		{diffDrawer}
 		{newApp}
@@ -2777,7 +2853,32 @@ addEventListener('message', function (e) {
 										></iframe>
 									{/key}
 								{/if}
-								{#if buildError}
+								{#if sdkPrompt}
+									<!-- top-10 leaves the tab bar usable. -->
+									<div class="absolute top-10 inset-x-0 bottom-0 z-30 bg-surface overflow-auto">
+										{#if sdkPrompt.declined}
+											<div class="px-4 mt-20 max-w-xl mx-auto flex flex-col items-start gap-4">
+												<p class="text-sm text-secondary">
+													The preview is blocked until you grant the permissions this app declares.
+												</p>
+												<Button
+													variant="default"
+													unifiedSize="md"
+													onclick={() => sdkPrompt && (sdkPrompt.declined = false)}
+												>
+													Review permissions
+												</Button>
+											</div>
+										{:else}
+											<RawAppSdkConsent
+												scopes={sdkPrompt.scopes}
+												declineLabel="Decline"
+												onContinue={onSdkConsentContinue}
+												onDecline={() => sdkPrompt && (sdkPrompt.declined = true)}
+											/>
+										{/if}
+									</div>
+								{:else if buildError}
 									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
 									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->
 									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
