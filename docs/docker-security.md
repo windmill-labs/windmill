@@ -101,7 +101,9 @@ the ref it was dispatched on: `refs/heads/main` for a build from `main`,
 `refs/heads/<branch>` for a build from a branch, `refs/tags/v<version>` for a
 build from a release tag. The workflow file that runs is the one at that ref,
 so an identity ending in a branch other than `main` says the image was built
-by that branch's copy of the workflow. Accept only the refs you trust.
+by that branch's copy of the workflow. Accept only the refs you trust, and
+end the expression with `$`: an open-ended `refs/heads/main` also matches a
+branch named `main-anything`.
 
 The three release workflows sign on `v*` tag pushes only. Their `:latest`
 and `:main` tags are repointed on every `main` push as well as on releases,
@@ -123,13 +125,13 @@ of the image's family:
 # windmill-cli: build_cli_image.yml
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/windmill-labs/windmill/\.github/workflows/docker-image\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github\.com/windmill-labs/windmill/\.github/workflows/docker-image\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
   ghcr.io/windmill-labs/windmill:<version>
 
 # dispatch-built families, here RHEL9 built from main
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/windmill-labs/windmill/\.github/workflows/build-publish-rh-image\.yml@refs/(heads/main|tags/v)' \
+  --certificate-identity-regexp '^https://github\.com/windmill-labs/windmill/\.github/workflows/build-publish-rh-image\.yml@refs/(heads/main|tags/v[0-9]+\.[0-9]+\.[0-9]+)$' \
   ghcr.io/windmill-labs/windmill-ee-rhel9:<tag>
 ```
 
