@@ -756,6 +756,13 @@ async fn test_compare_workspaces_trigger_and_schedule(db: Pool<Postgres>) -> any
     )
     .execute(&db)
     .await?;
+    // The scheduler's missed-occurrence counters only ever move on the enabled side.
+    sqlx::query(
+        "UPDATE schedule SET late_run_streak = 1, missed_occurrences = 2, last_missed_at = NOW()
+         WHERE workspace_id = 'test-workspace' AND path = 'f/sch/runtime_only'",
+    )
+    .execute(&db)
+    .await?;
 
     // ------ Schedule: config change (script_path) in fork. Should diff.
     sqlx::query!(
@@ -2537,7 +2544,10 @@ async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Res
             .await?;
         let status = resp.status();
         let hash = resp.text().await?;
-        assert!(status.is_success(), "script deploy failed: {status} — {hash}");
+        assert!(
+            status.is_success(),
+            "script deploy failed: {status} — {hash}"
+        );
         parent_hash = Some(hash.trim().trim_matches('"').to_string());
     }
     let mut vacated = None;

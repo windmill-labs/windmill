@@ -184,7 +184,7 @@
 		...(customUi?.aiAgent != false
 			? ([
 					['AI Agent', 'aiagent'],
-					['AI decision', 'aidecision']
+					['AI Decision', 'aidecision']
 				] as [string, string][])
 			: [])
 	]

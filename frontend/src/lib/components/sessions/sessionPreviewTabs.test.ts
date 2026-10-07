@@ -241,6 +241,21 @@ describe('page item tabs', () => {
 		])
 	})
 
+	it('follows an editor deployed under a new path in place', () => {
+		const o = owner()
+		o.open({
+			type: 'item',
+			item: { kind: 'app', raw_app: true, path: 'u/me/draft_1', summary: '' }
+		})
+		const id = o.tabs[0].id
+		o.retargetEditor(
+			{ kind: 'raw_app', path: 'u/me/draft_1' },
+			{ kind: 'raw_app', path: 'u/me/app' }
+		)
+		const url = `${base}/apps_raw/edit/u/me/app`
+		expect(o.tabs).toEqual([{ id, url, loc: url }])
+	})
+
 	it('restores a tab saved on a row’s drawer as the row it was last on', () => {
 		const snap = hydratePreviewTabs({
 			previewTabs: [

@@ -28,7 +28,7 @@ use windmill_mcp::McpClient;
 use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
-    decision::{decision_inputs, run_systemone, AIDecisionArgs},
+    decision::{decision_inputs, run_decision, AIDecisionArgs},
     image_handler::upload_image_to_s3,
     model_context::model_context_window,
     providers::{
@@ -1915,7 +1915,7 @@ pub async fn run_agent(
                         query_builder.parse_image_response(resp).await?
                     }
                 };
-                Ok(parsed)
+                Ok(parsed.without_nul())
             }.await;
 
             match attempt {
@@ -2449,9 +2449,9 @@ async fn handle_ai_decision(
     worker_name: &str,
 ) -> error::Result<Box<RawValue>> {
     let args = serde_json::from_str::<AIDecisionArgs>(&serde_json::to_string(local_args)?)?;
-    if !args.provider.kind.is_decision_provider() {
+    if !args.provider.kind.runs_decisions() {
         return Err(Error::BadRequest(format!(
-            "An AI decision runs on a TypeSafe or Cloudflare resource, not {:?}",
+            "An AI decision runs on a TypeSafe, Cloudflare or OpenAI resource, not {:?}",
             args.provider.kind
         )));
     }
@@ -2467,7 +2467,7 @@ async fn handle_ai_decision(
         conn,
         mem_peak,
         canceled_by,
-        run_systemone(
+        run_decision(
             &credentials,
             args.provider.get_model(),
             state,

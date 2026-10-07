@@ -164,6 +164,12 @@ the decrypted value, exactly as against a real backend. The chat's read path pas
 Seed a recognizable secret (the existing fixture uses `sk_live_do_not_leak_me`) and
 assert it via `valueExcludes` to catch a leak.
 
+`runtime.userAnswers` scripts the user's side of `askUserQuestion` in a global case: one
+answer per question, in the order they are asked, and a question past the last answer is
+dismissed, so `userAnswers: []` dismisses every question. Without it the tool reports that
+it cannot ask, and the model usually carries on with its own guess, which makes "asks
+before creating anything" impossible to assert.
+
 `toolExpect.toolCallArgs` entries support `sharedByAtLeast: <n>`: at least `n` recorded
 calls to that tool must carry the same non-blank string in the field. Use it for calls that
 have to share an identifier, like two test runs of one chat conversation.

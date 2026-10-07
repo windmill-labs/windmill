@@ -117,13 +117,19 @@
 	// Queued and running calls stay closed: their label already says what they are doing, and
 	// opening them would only show empty logs and result. A call opens while its arguments
 	// stream, while it waits on the user, and once it has an error or details to keep in view.
-	let isExpanded = $derived(
-		Boolean(
-			(detailsAvailable &&
-				(message.error !== undefined || (isSuccessful && !autoCollapseDetails))) ||
-				(message.isStreamingArguments && hasParameters) ||
-				(message.isLoading && message.needsConfirmation)
-		)
+	// The user's toggle lives in state keyed by call id: the `message` prop is replaced on every
+	// chat update, so an override written onto a derived would be recomputed away. A pending
+	// confirmation wins over it, since the Run/Reject footer renders inside the card.
+	let toggled = $state<{ id: string | undefined; open: boolean } | undefined>(undefined)
+	const isExpanded = $derived(
+		Boolean(message.isLoading && message.needsConfirmation) ||
+			(toggled?.id === message.tool_call_id
+				? toggled.open
+				: Boolean(
+						(detailsAvailable &&
+							(message.error !== undefined || (isSuccessful && !autoCollapseDetails))) ||
+							(message.isStreamingArguments && hasParameters)
+					))
 	)
 
 	const visibleActions = $derived(
@@ -197,7 +203,7 @@
 {:else if isRunCard}
 	<RunScriptCard {message} />
 {:else if isDiffCard}
-	<ToolDiffCard {message} />
+	<ToolDiffCard {message} {hidePreviewChip} />
 {:else if planState}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->
@@ -323,7 +329,7 @@
 	<ChatCollapsibleCard
 		{label}
 		expanded={isExpanded}
-		onToggle={() => (isExpanded = !isExpanded)}
+		onToggle={() => (toggled = { id: message.tool_call_id, open: !isExpanded })}
 		toggleable={detailsAvailable || message.isStreamingArguments === true}
 		shimmer={isRunning}
 		settleLabel

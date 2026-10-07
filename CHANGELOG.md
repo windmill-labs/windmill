@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.826.0](https://github.com/windmill-labs/windmill/compare/v1.825.0...v1.826.0) (2026-10-07)
+
+
+### Features
+
+* count OIDC signatures and reuse server-side tokens ([#11556](https://github.com/windmill-labs/windmill/issues/11556)) ([e277735](https://github.com/windmill-labs/windmill/commit/e277735788c260239a063063459776ec01f7d907))
+* isolate the raw-app editor preview when the app opts into sandboxing ([#11572](https://github.com/windmill-labs/windmill/issues/11572)) ([fa25397](https://github.com/windmill-labs/windmill/commit/fa253976e213c1053d1832c1d1fb7bedf7ce8c45))
+* job_token_scopes OIDC claim ([#11551](https://github.com/windmill-labs/windmill/issues/11551)) ([d493eff](https://github.com/windmill-labs/windmill/commit/d493eff237f96a353fb6f5715a15bcad61d24433))
+* set up a new app in one modal over its AI session, fix its deploy ([#11582](https://github.com/windmill-labs/windmill/issues/11582)) ([7190185](https://github.com/windmill-labs/windmill/commit/71901852fb3cc40515d6675a0a88cd158e942d56))
+
+
+### Bug Fixes
+
+* export getWorkspace and other client helpers as named exports ([#11581](https://github.com/windmill-labs/windmill/issues/11581)) ([bf201be](https://github.com/windmill-labs/windmill/commit/bf201be11e95f0fc3e12353531f25bb3ceb0f8f3))
+* give the dbt workspace settings page a header like its siblings ([#11576](https://github.com/windmill-labs/windmill/issues/11576)) ([38aa4ea](https://github.com/windmill-labs/windmill/commit/38aa4eaa1200db52e67a18ef9a7c5dc4d60a4948))
+* ignore schedule missed-run counters in workspace compare ([#11570](https://github.com/windmill-labs/windmill/issues/11570)) ([eab3dd5](https://github.com/windmill-labs/windmill/commit/eab3dd5a52bc8faf57bb84c85bd74eb20ebd8ec7))
+* keep chat tool cards collapsed the way the user left them ([#11575](https://github.com/windmill-labs/windmill/issues/11575)) ([c71ecad](https://github.com/windmill-labs/windmill/commit/c71ecad6f9cf3727a305b5f9038dcbe6a54398b8))
+* keep run status buttons from selecting the flow input node ([#11579](https://github.com/windmill-labs/windmill/issues/11579)) ([8661797](https://github.com/windmill-labs/windmill/commit/866179730a9798346d3950f27dd625c3358e690a))
+* make every trigger and schedule editor control respect read-only mode ([#11569](https://github.com/windmill-labs/windmill/issues/11569)) ([52a99c3](https://github.com/windmill-labs/windmill/commit/52a99c3047e1add477e36919b15a745f7d2604a0))
+* strip NUL from ai agent output and job args before jsonb writes ([#11568](https://github.com/windmill-labs/windmill/issues/11568)) ([cf4bec6](https://github.com/windmill-labs/windmill/commit/cf4bec611f6df8a45b238afe5b8da3e3a5748bf9))
+
+## [1.825.0](https://github.com/windmill-labs/windmill/compare/v1.824.1...v1.825.0) (2026-10-06)
+
+
+### Features
+
+* choose build with AI or code when creating a raw app ([#11560](https://github.com/windmill-labs/windmill/issues/11560)) ([431f861](https://github.com/windmill-labs/windmill/commit/431f86138815fce432e282e8ac495953c5ecf98a))
+* confine jobs:read to the runnable paths it names ([#11550](https://github.com/windmill-labs/windmill/issues/11550)) ([b371af3](https://github.com/windmill-labs/windmill/commit/b371af31c96e6890fe9223233d2c6e53ddea67d4))
+* open a run as a pushed page on the narrow runs page ([#11541](https://github.com/windmill-labs/windmill/issues/11541)) ([fd8de45](https://github.com/windmill-labs/windmill/commit/fd8de45cc7cfcba2c374dd86f87f4d3e8aec6ded))
+* say a canceled team plan is canceled, not past due ([#11539](https://github.com/windmill-labs/windmill/issues/11539)) ([18e44d3](https://github.com/windmill-labs/windmill/commit/18e44d31742b8d16852b8c6ae663979666e064d7))
+
+
+### Bug Fixes
+
+* group raw app edits that carry a file diff in the ai chat ([#11558](https://github.com/windmill-labs/windmill/issues/11558)) ([5912d30](https://github.com/windmill-labs/windmill/commit/5912d300a550a33674fd73740d613d1b434fbba1))
+* honor custom timeout in setup phases and name the limit hit ([#11557](https://github.com/windmill-labs/windmill/issues/11557)) ([4fd4f76](https://github.com/windmill-labs/windmill/commit/4fd4f76d0df740cb3eebed1a0625b970484807fc))
+* search slow runs filters by time windows instead of timing out ([#11549](https://github.com/windmill-labs/windmill/issues/11549)) ([2bf9cfc](https://github.com/windmill-labs/windmill/commit/2bf9cfcd59e1101695160524c31a4da1a41699dc))
+* serve the raw-app preview shell sandboxed, load a blob copy in the editor ([#11554](https://github.com/windmill-labs/windmill/issues/11554)) ([5f92daa](https://github.com/windmill-labs/windmill/commit/5f92daab6d0ecac30dd384e1b0f302af13fdd9ab))
+* simplify the run page AI card to a prompt and a chat button ([#11561](https://github.com/windmill-labs/windmill/issues/11561)) ([8c74f75](https://github.com/windmill-labs/windmill/commit/8c74f75de3fa62b07186ca4f56dae4a7e4758034))
+
 ## [1.824.1](https://github.com/windmill-labs/windmill/compare/v1.824.0...v1.824.1) (2026-10-05)
 
 
