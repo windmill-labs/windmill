@@ -1,9 +1,9 @@
 <script lang="ts">
 	import {
 		AlertTriangle,
-		ArrowDownRight,
+		ArrowDown,
 		ArrowRight,
-		ArrowUpRight,
+		ArrowUp,
 		Building,
 		CircleCheck,
 		CircleX,
@@ -1650,13 +1650,13 @@
 							{#if isConflict || existsInBothWorkspaces}
 								{#if diff.ahead > 0}
 									<Badge color="green" size="xs">
-										<ArrowUpRight class="w-3 h-3 inline" />
+										<ArrowUp class="w-3 h-3 inline" />
 										{diff.ahead} ahead
 									</Badge>
 								{/if}
 								{#if diff.behind > 0}
 									<Badge color="blue" size="xs">
-										<ArrowDownRight class="w-3 h-3 inline" />
+										<ArrowDown class="w-3 h-3 inline" />
 										{diff.behind} behind
 									</Badge>
 								{/if}
