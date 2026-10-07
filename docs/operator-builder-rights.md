@@ -102,14 +102,11 @@ ignored into `inlineScript`.
 app's access and frontend scopes through it with no value. It reaches the same check, so a builder
 can no more switch the sandbox off there than on deploy.
 
-The sandbox does not cover the raw-app editor: its preview runs the bundle same-origin with the
-session of whoever opens it, so an operator's app opened by an admin acts as that admin. Until
-sandboxed apps also preview isolated, `RawAppEditor` holds the preview until the viewer runs it
-unless the code's author is a known developer: the last deployer, or for a draft loaded from
-another user's, its owner. The draft records that owner (`loaded_from`) until its preview is run or
-it is deployed, since loading it saves it as the viewer's own. An author no longer in the workspace
-counts as unknown, and so does a loaded draft that already carries a `loaded_from`: its owner wrote
-that name, so it is never trusted. That is a speed bump, not a boundary.
+The raw-app editor previews an app isolated only when its policy has `sandbox`, and otherwise runs
+the bundle same-origin with the session of whoever opens it. A builder's **draft** is therefore
+held to the same rule as its deploy: `update_draft` refuses one whose `policy.sandbox` is not
+`true`, so whatever an admin opens of an operator's, deployed or drafted, previews isolated.
+Turning the sandbox off in their own editor stays that admin's explicit choice.
 
 ## Billing
 

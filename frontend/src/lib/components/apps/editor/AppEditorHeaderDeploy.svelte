@@ -94,15 +94,6 @@
 
 	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
 
-	// The backend refuses an unsandboxed app from an operator with builder rights, since the
-	// bundle would otherwise run with the viewer's own Windmill session. Pin it here too, so the
-	// editor preview behaves like the deployed app rather than diverging until the first deploy.
-	$effect(() => {
-		if ($operatorBuilderApps && policy.sandbox !== true) {
-			policy.sandbox = true
-		}
-	})
-
 	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	// Admins always pass the backend check. For everyone else, fail closed
 	// while the workspace protection rules are still loading so the toggle

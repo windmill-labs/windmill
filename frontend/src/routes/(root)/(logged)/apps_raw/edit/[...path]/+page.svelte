@@ -529,6 +529,14 @@
 		return $operatorBuilderApps ? {} : structuredClone(STARTER_RUNNABLES)
 	}
 
+	// The backend refuses an unsandboxed draft or deploy from an operator with builder rights:
+	// whoever opens their app, here or deployed, would otherwise run its code with their session.
+	$effect(() => {
+		if ($operatorBuilderApps && policy && policy.sandbox !== true) {
+			policy.sandbox = true
+		}
+	})
+
 	function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
 		if (mode === 'ai' && prefersSessionHandoff($userStore?.operator) && $workspaceStore) {
 			// Nothing is written here: the session opens this path on the template in memory
