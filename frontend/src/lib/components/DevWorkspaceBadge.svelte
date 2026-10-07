@@ -17,7 +17,7 @@ before a colour could be picked.
 
 	interface Props {
 		/** The workspace's `dev_workspace_label`; spelled the way `devBadgeText` spells it. */
-		label?: string | undefined
+		label?: string | null | undefined
 		/** The fork's own colour. Without one — or with an unparsable one — the badge falls back. */
 		color?: string | undefined
 		/** The badge's colour when the fork has none of its own. */
