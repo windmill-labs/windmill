@@ -278,14 +278,17 @@
 		{/if}
 
 		{#if $workspaceStore == 'admins'}
-			<Alert title="Admins workspace">
-				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
-				Windmill instance, such as keeping resource types up to date.
-			</Alert>
-			<div class="my-4"></div>
+			<div class="max-w-[40rem] mx-auto mb-4">
+				<Alert title="Admins workspace">
+					The Admins workspace is for admins only and contains scripts whose purpose is to manage
+					your Windmill instance, such as keeping resource types up to date.
+				</Alert>
+			</div>
 		{/if}
 
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
+		<div class="max-w-[40rem] mx-auto">
+			<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
+		</div>
 
 		{#if tab == 'hub'}
 			<div class="flex flex-col gap-y-16">

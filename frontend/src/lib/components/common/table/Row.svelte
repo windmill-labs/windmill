@@ -201,7 +201,7 @@
 		data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 		class={twMerge(
 			HOME_TABLE_GRID,
-			'group/row relative w-full px-3 py-2.5 rounded-md',
+			'group/row relative w-full pl-5 pr-3 py-2.5 rounded-md',
 			disabled ? 'opacity-25' : 'hover:bg-surface-hover',
 			inSelectionMode ? 'cursor-pointer select-none' : '',
 			rowSelection?.selected

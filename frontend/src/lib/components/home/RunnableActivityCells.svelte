@@ -72,7 +72,7 @@
 
 {#if homeActivity}
 	<div class="relative z-[1] hidden lg:flex w-5 shrink-0 justify-center">
-		{#if kind}
+		{#if kind && !(activity && runs.length === 0)}
 			<Tooltip>
 				<a
 					href="{base}/runs/{path}"
@@ -106,6 +106,8 @@
 					{/if}
 				{/snippet}
 			</Tooltip>
+		{:else}
+			<span class="text-hint text-2xs opacity-40">–</span>
 		{/if}
 	</div>
 

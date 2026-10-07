@@ -2185,7 +2185,7 @@
 					{#each [...visiblePipelineFolders].sort() as folder (folder)}
 						<a
 							href="{base}/pipeline/{encodeURIComponent(folder)}"
-							class="w-full inline-flex items-center gap-4 px-3 py-2 rounded-md hover:bg-surface-hover transition-colors text-sm"
+							class="w-full inline-flex items-center gap-4 pl-5 pr-3 py-2 rounded-md hover:bg-surface-hover transition-colors text-sm"
 						>
 							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
 							<span class="text-xs font-medium text-emphasis truncate">Pipeline · f/{folder}</span>
@@ -2245,7 +2245,7 @@
 </CenteredPage>
 
 {#snippet tableHeader()}
-	<div class="{HOME_TABLE_GRID} px-3 py-1.5 border-b text-2xs font-medium text-secondary">
+	<div class="{HOME_TABLE_GRID} pl-5 pr-3 py-1.5 border-b text-2xs font-medium text-secondary">
 		<div class="flex items-center">
 			{#if homeSelection.available}
 				{@const state = homeSelection.renderedSelection}

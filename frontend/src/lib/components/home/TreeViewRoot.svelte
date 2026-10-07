@@ -287,7 +287,7 @@
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						onclick={toggleOtherUsers}
-						class="px-3 py-2 rounded-md hover:bg-surface-hover w-full flex flex-row items-center justify-between cursor-pointer"
+						class="pl-5 pr-3 py-2 rounded-md hover:bg-surface-hover w-full flex flex-row items-center justify-between cursor-pointer"
 					>
 						<div class="flex flex-row items-center gap-4">
 							<Users size={16} class="text-secondary" />

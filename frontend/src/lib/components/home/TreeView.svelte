@@ -74,7 +74,7 @@
 	}: Props = $props()
 
 	// The home table draws no separators between its rows.
-	const separator = isHomeTable() ? 'rounded-md hover:bg-surface-hover' : 'border-b'
+	const separator = isHomeTable() ? 'pl-5 rounded-md hover:bg-surface-hover' : 'border-b'
 
 	let visualDepth = $derived(depth + indent)
 
