@@ -1651,19 +1651,19 @@ addEventListener('message', function (e) {
 	// omitting it would leave an old token in place.
 	type PreviewSdk = { token: string; baseUrl: string; workspace: string }
 	let previewSdk: PreviewSdk | undefined = undefined
-	// Identifies the request whose answer is still wanted. Toggling scopes starts a
-	// new mint while an older one is in flight, and an out-of-order answer would
-	// otherwise hand the preview the wrong scope set — or restore a token after all
-	// scopes were removed.
+	// The setup the preview last started from; an unchanged one is not redone.
 	let previewSdkKey: string | undefined = undefined
+	// Bumped on every new setup: only the newest mint's answer is used. Toggling scopes
+	// starts a new mint while an older one is in flight, and toggling back recreates the
+	// same key, so a key check alone would let an out-of-order answer hand the preview
+	// the wrong scope set, restore a removed token, or start a preview since declined.
+	let previewSdkGeneration = 0
 	// Holds the build back between dropping a credential and settling its
 	// replacement, so the app mounts once — with the final credential — instead of
 	// once tokenless and again tokenful, running mount-time side effects twice.
 	let previewSdkPending = $state(false)
 	// Holds the app back (with `previewSdkPending`) until the viewer answers.
-	let sdkPrompt = $state<
-		{ scopes: string[]; ws: string; key: string; declined: boolean } | undefined
-	>(undefined)
+	let sdkPrompt = $state<{ scopes: string[]; ws: string; declined: boolean } | undefined>(undefined)
 	// What Continue granted in this editor session, kept the way a loaded deployed
 	// app keeps its token: only a scope beyond it asks again.
 	let sessionSdkConsent: { ws: string; scopes: string[] } | undefined = undefined
@@ -1712,6 +1712,7 @@ addEventListener('message', function (e) {
 		const key = `${sandboxed}|${ws ?? ''}|${scopes.join(',')}`
 		if (key === previewSdkKey) return
 		previewSdkKey = key
+		previewSdkGeneration++
 		// Drop the old credential before asking for its replacement, never after:
 		// a mint is asynchronous, and until it answers the running preview — and
 		// any build fed meanwhile — would keep scopes the policy just removed, or
@@ -1728,9 +1729,9 @@ addEventListener('message', function (e) {
 			(sessionSdkConsent?.ws === ws && sdkConsentCovers(sessionSdkConsent.scopes, scopes)) ||
 			untrack(() => hasStoredSdkConsent($userStore?.email ?? '', ws, path, scopes, true))
 		if (granted) {
-			mintPreviewSdkToken(scopes, ws, key)
+			mintPreviewSdkToken(scopes, ws)
 		} else {
-			sdkPrompt = { scopes, ws, key, declined: false }
+			sdkPrompt = { scopes, ws, declined: false }
 			if (externalPreviewWindow && !externalPreviewWindow.closed) {
 				untrack(() => select({ kind: 'preview' }))
 			}
@@ -1754,24 +1755,24 @@ addEventListener('message', function (e) {
 
 	async function onSdkConsentContinue(dontAskAgain: boolean) {
 		if (!sdkPrompt) return
-		const { scopes, ws, key } = sdkPrompt
+		const { scopes, ws } = sdkPrompt
 		sdkPrompt = undefined
-		// Recorded before the mint answers, as the deployed app does: a scope edit
-		// reverted while it is in flight must not ask again, or a Decline there would
-		// be overridden by this request's late token.
+		// Recorded on the click, as the deployed app does, so a scope edit reverted while
+		// this mint is in flight is still approved and does not ask again.
 		sessionSdkConsent = { ws, scopes }
-		if (!(await mintPreviewSdkToken(scopes, ws, key))) return
+		if (!(await mintPreviewSdkToken(scopes, ws))) return
 		const viewer = $userStore?.email
 		if (dontAskAgain && viewer) storeSdkConsent(viewer, ws, path, scopes, true)
 	}
 
-	async function mintPreviewSdkToken(scopes: string[], ws: string, key: string) {
+	async function mintPreviewSdkToken(scopes: string[], ws: string) {
+		const generation = previewSdkGeneration
 		try {
 			const token = await AppService.mintPreviewSdkToken({
 				workspace: ws,
 				requestBody: { path, scopes }
 			})
-			if (key !== previewSdkKey) return false
+			if (generation !== previewSdkGeneration) return false
 			applyPreviewSdk({ token, baseUrl: window.location.origin, workspace: ws })
 			return true
 		} catch (e) {
@@ -1779,7 +1780,7 @@ addEventListener('message', function (e) {
 			// this only releases the build. The key stays set, so a failed mint is not
 			// retried until the scopes or workspace actually change.
 			console.warn('Could not mint a preview SDK token', e)
-			if (key === previewSdkKey) applyPreviewSdk(undefined)
+			if (generation === previewSdkGeneration) applyPreviewSdk(undefined)
 			return false
 		}
 	}
