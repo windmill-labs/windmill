@@ -15,6 +15,7 @@
 	import { page } from '$app/state'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { onDestroy, untrack } from 'svelte'
+	import { replaceState } from '$app/navigation'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -37,6 +38,23 @@
 	let currentWorkspaceId: string | undefined = $state(
 		page.url.searchParams.get('workspace_id') ?? $workspaceStore ?? undefined
 	)
+
+	// The breadcrumb's picker switches the workspace without touching `?workspace_id`, which this
+	// page seeded itself from once and then never read again — so switching a fork up there left
+	// the page comparing the one it opened on. Follow the store: picking a fork in the trail means
+	// comparing that fork. The param is rewritten so a reload keeps the pair now on screen, and an
+	// arbitrary `?target=` is dropped, since it named a destination for the workspace just left.
+	$effect(() => {
+		const switched = $workspaceStore
+		untrack(() => {
+			if (!switched || switched === currentWorkspaceId) return
+			currentWorkspaceId = switched
+			const url = new URL(window.location.href)
+			if (url.searchParams.has('workspace_id')) url.searchParams.set('workspace_id', switched)
+			url.searchParams.delete('target')
+			replaceState(url, page.state)
+		})
+	})
 
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === currentWorkspaceId))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
