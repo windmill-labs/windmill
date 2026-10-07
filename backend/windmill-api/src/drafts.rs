@@ -34,6 +34,7 @@ pub fn workspaced_service() -> Router {
         .route("/update/{kind}/{*path}", post(update_draft))
         .route("/move/{kind}/{*path}", post(move_draft))
         .route("/migrate_legacy/{kind}/{*path}", post(migrate_legacy_draft))
+        .route("/transfer", post(transfer_drafts))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -923,6 +924,150 @@ async fn move_draft(
         return Ok(format!("updated draft {path}"));
     }
     Ok(format!("moved draft {path} to {new_path}"))
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct DraftItemRef {
+    pub kind: UserDraftItemKind,
+    pub path: String,
+}
+
+#[derive(Deserialize)]
+pub struct TransferDraftsRequest {
+    /// A direct fork of this workspace to copy the drafts into. Omitted, the call only removes
+    /// them here (`remove_from_source`).
+    #[serde(default)]
+    pub target_workspace: Option<String>,
+    pub items: Vec<DraftItemRef>,
+    #[serde(default)]
+    pub remove_from_source: bool,
+}
+
+#[derive(Serialize)]
+pub struct TransferDraftsResponse {
+    pub copied: Vec<DraftItemRef>,
+    pub removed: Vec<DraftItemRef>,
+    /// Items the caller already has a draft of in the target. When non-empty nothing was
+    /// written: the caller resolves them first rather than have one side silently win.
+    pub conflicts: Vec<DraftItemRef>,
+}
+
+/// Copy the caller's own drafts of `items` into a fork of this workspace and/or remove them
+/// here, in one transaction, so a session moving to a fork never leaves its work in both
+/// places or in neither.
+///
+/// Only the caller's rows are touched (never a teammate's or the legacy NULL-email one), so
+/// removing needs no write right here, as with discarding one's own draft. Copying needs it
+/// in the target.
+async fn transfer_drafts(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<TransferDraftsRequest>,
+) -> Result<Json<TransferDraftsResponse>> {
+    let items: Vec<(UserDraftItemKind, String)> =
+        req.items.iter().map(|i| (i.kind, i.path.clone())).collect();
+    let kinds: Vec<&str> = items.iter().map(|(k, _)| k.as_str()).collect();
+    let paths: Vec<&str> = items.iter().map(|(_, p)| p.as_str()).collect();
+    let to_refs = |rows: Vec<(UserDraftItemKind, String)>| -> Vec<DraftItemRef> {
+        rows.into_iter()
+            .map(|(kind, path)| DraftItemRef { kind, path })
+            .collect()
+    };
+
+    if let Some(target) = req.target_workspace.as_deref() {
+        let is_fork = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1 AND parent_workspace_id = $2 AND deleted = false)",
+            target,
+            &w_id,
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+        if !is_fork {
+            return Err(Error::BadRequest(format!(
+                "{target} is not a fork of {w_id}"
+            )));
+        }
+        // `authed` speaks for this workspace only; the copy writes into the fork, so its
+        // rights there are loaded separately. A non-member gets an empty authed, not an error.
+        let target_authed =
+            windmill_api_workspaces::workspaces::load_workspace_authed(&db, &authed, target)
+                .await?;
+        let is_member = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND disabled = false)",
+            target,
+            &authed.email,
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+        if !is_member && !target_authed.is_admin {
+            return Err(Error::PermissionDenied(format!("not a member of {target}")));
+        }
+        for (kind, path) in &items {
+            require_can_write_path(&target_authed, &db, &user_db, target, *kind, path).await?;
+        }
+    }
+
+    let mut tx = db.begin().await?;
+    let mut copied = vec![];
+    if let Some(target) = req.target_workspace.as_deref() {
+        let conflicts = sqlx::query!(
+            r#"SELECT typ AS "typ: UserDraftItemKind", path FROM draft
+               WHERE workspace_id = $1 AND email = $2
+                 AND (typ::text, path) IN (SELECT * FROM unnest($3::text[], $4::text[]))
+               FOR UPDATE"#,
+            target,
+            &authed.email,
+            &kinds as &[&str],
+            &paths as &[&str],
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if !conflicts.is_empty() {
+            return Ok(Json(TransferDraftsResponse {
+                copied: vec![],
+                removed: vec![],
+                conflicts: to_refs(conflicts.into_iter().map(|r| (r.typ, r.path)).collect()),
+            }));
+        }
+        copied = windmill_common::user_drafts::copy_drafts_to_workspace(
+            &mut *tx,
+            &w_id,
+            target,
+            &authed.email,
+            Some(&items),
+        )
+        .await?;
+    }
+
+    let mut removed = vec![];
+    if req.remove_from_source {
+        removed = sqlx::query!(
+            r#"DELETE FROM draft
+               WHERE workspace_id = $1 AND email = $2
+                 AND (typ::text, path) IN (SELECT * FROM unnest($3::text[], $4::text[]))
+               RETURNING typ AS "typ: UserDraftItemKind", path"#,
+            &w_id,
+            &authed.email,
+            &kinds as &[&str],
+            &paths as &[&str],
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .map(|r| (r.typ, r.path))
+        .collect();
+    }
+    tx.commit().await?;
+
+    Ok(Json(TransferDraftsResponse {
+        copied: to_refs(copied),
+        removed: to_refs(removed),
+        conflicts: vec![],
+    }))
 }
 
 #[derive(Deserialize, Debug)]

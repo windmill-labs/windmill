@@ -10945,6 +10945,53 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/drafts/transfer:
+    post:
+      summary: copy the current user's drafts into a fork and/or remove them here
+      description: In one transaction, copies the authed user's own drafts of `items` into `target_workspace` (a direct fork of this workspace) and, with `remove_from_source`, deletes them here. Without `target_workspace` it only removes. If the user already has a draft of any item in the target, nothing is written and the items are returned in `conflicts`.
+      operationId: transferDrafts
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target_workspace:
+                  type: string
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/DraftItemRef"
+                remove_from_source:
+                  type: boolean
+              required: [items]
+      responses:
+        "200":
+          description: transfer result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  copied:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DraftItemRef"
+                  removed:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DraftItemRef"
+                  conflicts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DraftItemRef"
+                required: [copied, removed, conflicts]
+
   /w/{workspace}/drafts/migrate_legacy/{kind}/{path}:
     post:
       summary: resolve a legacy (workspace-level) draft (admin only)
@@ -28424,6 +28471,15 @@ components:
                   surfaced in the fork modal as "Last updated".
             required: [draft_saved_at]
       required: [is_draft]
+    DraftItemRef:
+      type: object
+      properties:
+        kind:
+          $ref: "#/components/schemas/UserDraftItemKind"
+        path:
+          type: string
+      required: [kind, path]
+
     UserDraftItemKind:
       type: string
       description: |

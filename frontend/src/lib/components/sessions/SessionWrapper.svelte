@@ -9,7 +9,11 @@
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
-	import { WorkspaceService } from '$lib/gen'
+	import { DraftService, WorkspaceService, type DraftItemRef } from '$lib/gen'
+	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
+	import SessionMoveModal from './SessionMoveModal.svelte'
+	import { moveSessionToFork, type MoveTarget } from './moveSessionToFork'
+	import { maskHasDraftRow } from './modifiedItemsMask'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { copilotInfo } from '$lib/aiStore'
@@ -327,6 +331,121 @@
 		await moveSessionToNewFork(session.id, fork)
 	}
 
+	// Moving mid-turn would let a tool still running write its draft into the workspace
+	// being left, after the move copied or removed the others.
+	const canMoveToFork = $derived(
+		!!runtime &&
+			!isUnavailable &&
+			!session?.archived &&
+			!runtime.manager.loading &&
+			!runtime.manager.sendInFlight &&
+			!runtime.manager.sendPending &&
+			!runtime.manager.runHeldElsewhere
+	)
+
+	type MoveRequest = {
+		open: boolean
+		parent: string
+		parentName: string
+		target: MoveTarget
+		targetName: string
+		items: (DraftItemRef & { label: string })[]
+		conflicts: DraftItemRef[]
+		error?: string
+	}
+	let moveRequest = $state<MoveRequest | undefined>(undefined)
+	let moveRemoveFromParent = $state(false)
+	let moving = $state(false)
+
+	// Every chat of the session counts, not only the one on screen: a user who opened a new
+	// chat inside the session still expects the earlier edits to come along.
+	function sessionMask(): Set<string> {
+		const m = runtime?.manager
+		if (!m) return new Set()
+		return new Set([
+			...m.historyManager.getAllSavedChats().flatMap((c) => c.modifiedItems ?? []),
+			...(m.modifiedItems ?? [])
+		])
+	}
+
+	async function startMove(target: MoveTarget) {
+		if (!session || !acting || !canMoveToFork) return
+		const parent = acting.targetId
+		if (target.kind === 'existing' && target.id === parent) return
+		const mask = sessionMask()
+		let items: MoveRequest['items']
+		let conflicts: DraftItemRef[] = []
+		try {
+			// Only the user's own rows move; a legacy workspace-level draft is nobody's.
+			items = (await DraftService.listDrafts({ workspace: parent }))
+				.filter((r) => r.mine && !r.legacy_draft && maskHasDraftRow(mask, r))
+				.map((r) => ({ kind: r.kind, path: r.path, label: r.draft_path ?? r.path }))
+			if (target.kind === 'existing' && items.length > 0) {
+				const inFork = new Set(
+					(await DraftService.listDrafts({ workspace: target.id }))
+						.filter((r) => r.mine && !r.legacy_draft)
+						.map((r) => `${r.kind}:${r.path}`)
+				)
+				conflicts = items
+					.filter((i) => inFork.has(`${i.kind}:${i.path}`))
+					.map(({ kind, path }) => ({ kind, path }))
+			}
+		} catch (e: any) {
+			sendUserToast(`Could not list the session's drafts: ${e?.body ?? e?.message ?? e}`, true)
+			return
+		}
+		moveRemoveFromParent = false
+		moveRequest = {
+			open: items.length > 0,
+			parent,
+			parentName: acting.name,
+			target,
+			targetName:
+				target.kind === 'new'
+					? target.fork.name
+					: ($userWorkspaces.find((w) => w.id === target.id)?.name ?? target.id),
+			items,
+			conflicts
+		}
+		if (items.length === 0) await confirmMove()
+	}
+
+	async function confirmMove() {
+		const req = moveRequest
+		if (!session || !req || moving) return
+		moving = true
+		try {
+			const res = await moveSessionToFork(session.id, req.parent, req.target, {
+				items: req.items.map(({ kind, path }) => ({ kind, path })),
+				removeFromParent: moveRemoveFromParent
+			})
+			if (!res.ok) {
+				if (!req.open) {
+					sendUserToast(res.error, true)
+					moveRequest = undefined
+				} else {
+					moveRequest = { ...req, error: res.error, conflicts: res.conflicts ?? [] }
+				}
+				return
+			}
+			moveRequest = undefined
+			void runtime?.manager
+				.queueModelNote(
+					`This session moved from workspace "${req.parent}" to its fork "${res.forkId}": every further tool call acts on "${res.forkId}". ` +
+						(res.copied > 0
+							? `${res.copied} draft(s) of this session were copied there` +
+								(res.removed > 0 ? ` and removed from "${req.parent}". ` : '. ')
+							: '') +
+						`Jobs from earlier turns ran in "${req.parent}".`
+				)
+				.catch((e) => console.error('Failed to persist the move note', e))
+			runtime?.manager.rebuildGlobalSystemMessage()
+			sendUserToast(`Session moved to ${req.targetName}`)
+		} finally {
+			moving = false
+		}
+	}
+
 	// Chrome shared by the banners stacked above the composer, so restyling one
 	// can't leave the others behind. Each supplies its own background: two bg-*
 	// utilities on one element resolve by stylesheet order, not attribute order.
@@ -484,19 +603,50 @@
 					     the "Run in" picker (SessionWorkspaceBar) instead. -->
 						<div class="flex items-center gap-1 min-w-0 text-2xs text-tertiary">
 							<span class="shrink-0">Acting on</span>
-							<!-- Hover reveals the workspace name + id + copy button (shared
-							     NameIdTooltip, same as the sidebar family picker), so the chip
-							     carries the copy affordance without an inline button. -->
-							<NameIdTooltip name={acting.name} id={acting.targetId}>
-								<WorkspaceScopeTrigger
-									workspaceId={acting.targetId}
-									showChevron={false}
-									interactive={false}
-									disableTitle
-									class="max-w-[16rem]"
-									menuItems={actingMenu}
-								/>
-							</NameIdTooltip>
+							{#if canMoveToFork}
+								<!-- Picking a fork moves the session there (see startMove). -->
+								<WorkspaceFamilyPicker
+									selectedId={acting.targetId}
+									forksOf={acting.targetId}
+									onPick={(id) => startMove({ kind: 'existing', id })}
+									onCreateFork={(fork) => startMove({ kind: 'new', fork })}
+									createForkCaption="Created now, and the session moves into it."
+									confirmForkLabel="Move here"
+									class="min-w-0"
+								>
+									{#snippet trigger()}
+										<WorkspaceScopeTrigger
+											workspaceId={acting.targetId}
+											disableTitle
+											class="max-w-[16rem]"
+										/>
+									{/snippet}
+								</WorkspaceFamilyPicker>
+								<DropdownV2 items={actingMenu} placement="bottom-end" fixedHeight={false}>
+									{#snippet buttonReplacement()}
+										<span
+											class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+											title="Workspace actions"
+										>
+											<EllipsisVertical size={14} />
+										</span>
+									{/snippet}
+								</DropdownV2>
+							{:else}
+								<!-- Hover reveals the workspace name + id + copy button (shared
+								     NameIdTooltip, same as the sidebar family picker), so the chip
+								     carries the copy affordance without an inline button. -->
+								<NameIdTooltip name={acting.name} id={acting.targetId}>
+									<WorkspaceScopeTrigger
+										workspaceId={acting.targetId}
+										showChevron={false}
+										interactive={false}
+										disableTitle
+										class="max-w-[16rem]"
+										menuItems={actingMenu}
+									/>
+								</NameIdTooltip>
+							{/if}
 						</div>
 					{/if}
 				</header>
@@ -553,6 +703,21 @@
 			{/if}
 		</div>
 	</ConfirmationModal>
+
+	{#if moveRequest}
+		<SessionMoveModal
+			open={moveRequest.open}
+			parentName={moveRequest.parentName}
+			targetName={moveRequest.targetName}
+			items={moveRequest.items}
+			conflicts={moveRequest.conflicts}
+			error={moveRequest.error}
+			loading={moving}
+			bind:removeFromParent={moveRemoveFromParent}
+			onConfirmed={() => void confirmMove()}
+			onCanceled={() => (moveRequest = undefined)}
+		/>
+	{/if}
 
 	<ConfirmationModal
 		open={archiveConfirmOpen}

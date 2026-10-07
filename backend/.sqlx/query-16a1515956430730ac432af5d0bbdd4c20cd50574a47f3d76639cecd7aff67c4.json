@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)\n         SELECT $2, path, typ,\n                to_json(\n                    CASE WHEN typ IN ('script', 'flow') THEN clean - 'on_behalf_of' ELSE clean END\n                    - CASE WHEN typ = 'flow' THEN 'version_id'\n                           WHEN typ IN ('app', 'raw_app') THEN 'parent_version'\n                           ELSE '' END\n                ),\n                created_at, email,\n                CASE WHEN typ = 'script' THEN base END\n         FROM (\n             SELECT d.path, d.typ, d.created_at, d.email, d.base,\n                    replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)), chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean\n             FROM draft d\n             WHERE d.workspace_id = $1\n               AND CASE WHEN $4::text[] IS NULL THEN d.email = $3 OR d.email IS NULL\n                        ELSE d.email = $3\n                             AND (d.typ::text, d.path) IN (SELECT * FROM unnest($4::text[], $5::text[]))\n                   END\n         ) s\n         RETURNING typ AS \"typ: UserDraftItemKind\", path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "typ: UserDraftItemKind",
+        "type_info": {
+          "Custom": {
+            "name": "draft_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app",
+                "raw_app",
+                "resource",
+                "variable",
+                "trigger_schedule",
+                "trigger_webhook",
+                "trigger_default_email",
+                "trigger_email",
+                "trigger_http",
+                "trigger_websocket",
+                "trigger_postgres",
+                "trigger_kafka",
+                "trigger_nats",
+                "trigger_mqtt",
+                "trigger_sqs",
+                "trigger_gcp",
+                "trigger_azure",
+                "trigger_poll",
+                "trigger_cli",
+                "trigger_nextcloud",
+                "trigger_google",
+                "trigger_github",
+                "data_pipeline",
+                "trigger_amqp"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar",
+        "Text",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "16a1515956430730ac432af5d0bbdd4c20cd50574a47f3d76639cecd7aff67c4"
+}
