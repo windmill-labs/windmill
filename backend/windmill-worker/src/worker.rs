@@ -3406,6 +3406,10 @@ pub async fn run_worker(
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
                 }
+            } else if WORKER_CONFIG.load().paused {
+                // Checked after the same-worker channel: a flow this worker already runs
+                // still needs it for its remaining same-worker steps.
+                Ok(None)
             } else {
                 match &conn {
                     Connection::Sql(db) => {

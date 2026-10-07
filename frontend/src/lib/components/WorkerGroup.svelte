@@ -104,6 +104,7 @@
 		autoscaling?: AutoscalingConfig
 		native_mode?: boolean
 		object_store_cache_config?: ObjectStoreConfig
+		paused?: boolean
 	} = $state({})
 
 	function loadNConfig() {
@@ -212,6 +213,7 @@
 					periodic_script_interval_seconds?: number
 					native_mode?: boolean
 					object_store_cache_config?: ObjectStoreConfig
+					paused?: boolean
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -731,6 +733,32 @@
 					/>
 				{/if}
 			</div>
+		{/if}
+
+		{#if nconfig !== undefined}
+			<div class="mt-8"></div>
+			<Label label="Pause">
+				{#snippet header()}
+					<Tooltip>
+						{#snippet text()}
+							A paused worker group stops pulling jobs, including suspended jobs that are resumed.
+							Jobs already running finish, queued jobs stay in the queue until the group is resumed.
+							Workers pick the change up within about 10 seconds, without restarting.
+						{/snippet}
+					</Tooltip>
+				{/snippet}
+				<Toggle
+					size="sm"
+					options={{ right: 'Pause this worker group' }}
+					checked={nconfig?.paused === true}
+					on:change={(ev) => {
+						if (nconfig !== undefined) {
+							nconfig.paused = ev.detail ? true : undefined
+						}
+					}}
+					disabled={!canEditConfig}
+				/>
+			</Label>
 		{/if}
 
 		<div class="mt-8"></div>
@@ -1257,6 +1285,16 @@
 				>
 				{#if isNativeMode}
 					<Badge color="blue" small>Native</Badge>
+				{/if}
+				{#if config?.paused === true}
+					<Badge color="yellow" small>
+						Paused
+						<Tooltip>
+							{#snippet text()}
+								Workers of this group pull no new jobs. Queued jobs wait until the group is resumed.
+							{/snippet}
+						</Tooltip>
+					</Badge>
 				{/if}
 			</div>
 

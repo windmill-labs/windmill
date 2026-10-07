@@ -421,6 +421,8 @@ pub async fn initial_load(
                     native_mode,
                     // an agent worker never reads its group's config, only its token
                     object_store_cache_config: None,
+                    // nor whether it is paused: the server refuses it jobs instead
+                    paused: false,
                 }));
             }
         }
