@@ -32,7 +32,7 @@
 	import { WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils/queryParams'
 	import { EMBED_NAV_CONTEXT_KEY, type EmbedNav } from '../types'
 	import { loadAppPreview } from './loadAppPreview'
-	import { loadAppCss } from './publicAppApi'
+	import { dropPrefetched, loadAppCss } from './publicAppApi'
 	import { hasStoredSdkConsent, storeSdkConsent } from '$lib/components/raw_apps/sdkScopes'
 
 	// Everything but a rendered app (sign-in, errors, the SDK consent prompt) loads on
@@ -268,7 +268,10 @@
 		if (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared) {
 			import('$lib/gen')
 				.then(({ UserService }) => UserService.logout())
-				.then(() => (staleGuestCleared = true))
+				.then(() => {
+					dropPrefetched()
+					staleGuestCleared = true
+				})
 				.catch(() => (staleGuestLogoutFailed = true))
 		}
 	})
@@ -693,6 +696,7 @@
 				<div class="px-2 mx-auto mt-20 max-w-xl w-full">
 					<Login
 						onLoginSuccess={() => {
+							dropPrefetched()
 							signInError = undefined
 							accountSession = 'unknown'
 							initEmbedder()

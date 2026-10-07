@@ -4,7 +4,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import type { AppWithLastVersion } from '$lib/gen'
-	import { userStore, type UserExt } from '$lib/stores'
+	import { enterpriseLicense, userStore, type UserExt } from '$lib/stores'
 	import { urlParamsToObject } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import { writable } from 'svelte/store'
@@ -16,20 +16,24 @@
 		app,
 		workspace,
 		user,
+		license,
 		inWorkspace,
 		hideRefreshBar
 	}: {
 		app: AppWithLastVersion & { value: any }
 		workspace: string | undefined
 		user: UserExt | undefined
+		license: string | undefined
 		inWorkspace: boolean
 		hideRefreshBar: boolean
 	} = $props()
 
-	// The public routes no longer set `userStore` themselves, and low-code
-	// components read it directly.
+	// The public routes hold the viewer and license as props, while low-code components
+	// read them from the stores (the license gates the app's custom CSS, for one).
 	$effect(() => {
-		if (!inWorkspace) userStore.set(user)
+		if (inWorkspace) return
+		userStore.set(user)
+		if (license) enterpriseLicense.set(license)
 	})
 
 	// WIN-2006: inside the opaque viewer iframe, navigations to other routes

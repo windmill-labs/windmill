@@ -24,6 +24,12 @@ export class PublicApiError extends Error {
 	}
 }
 
+/** Prefetched responses answer for the credential the page loaded with; call this when it
+ * changes (a sign-in or logout on the page) so later reads go to the network. */
+export function dropPrefetched(): void {
+	delete window.__wmPublicAppPrefetch
+}
+
 function takePrefetched(url: string): Promise<Response> | undefined {
 	const prefetched = window.__wmPublicAppPrefetch
 	const res = prefetched?.[url]

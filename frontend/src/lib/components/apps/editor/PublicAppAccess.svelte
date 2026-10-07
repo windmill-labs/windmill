@@ -5,6 +5,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { UserService, type GlobalWhoamiResponse } from '$lib/gen'
 	import type { UserExt } from '$lib/stores'
+	import { dropPrefetched } from './publicAppApi'
 
 	let {
 		notExists,
@@ -67,7 +68,10 @@
 	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
 		{#if !jwtError}
 			<Login
-				{onLoginSuccess}
+				onLoginSuccess={() => {
+					dropPrefetched()
+					onLoginSuccess()
+				}}
 				popup
 				guestApp={guestAppPath}
 				rd={page.url.pathname + page.url.search + page.url.hash}

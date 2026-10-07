@@ -38,7 +38,8 @@
 		 * explicitly — `$userStore` describes the workspace the page is navigated to, which
 		 * is not the app's inside an AI session's preview tab. */
 		user?: UserExt | undefined
-		/** The instance license, which only fades the "Powered by" badge. */
+		/** The instance license, which fades the "Powered by" badge and lets a low-code app's
+		 * custom CSS apply. */
 		license?: string | undefined
 		/**
 		 * In-workspace rendering (`/apps/get`, `/app_embed`): keep exact parity
@@ -124,6 +125,7 @@
 					{app}
 					workspace={effectiveWorkspace}
 					{user}
+					{license}
 					{inWorkspace}
 					{hideRefreshBar}
 				/>
