@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
 	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Code } from 'lucide-svelte'
-	import type { Policy } from '$lib/gen'
+	import { WorkerService, type Policy } from '$lib/gen'
+	import MissingWorkerTagAlert from '$lib/components/jobs/MissingWorkerTagAlert.svelte'
+	import { hasWorkerForTag, queuedWithoutWorkerMessage } from '$lib/components/jobs/missingWorker'
 	import { superadmin, userStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
@@ -313,13 +315,27 @@
 	// which can sit in the queue long enough for a silent modal to look dead.
 	let starting = $state<{ mode: RawAppBuildMode; schema?: string } | undefined>(undefined)
 
+	const SCHEMA_JOB_TAG = 'postgresql'
+
+	/** Whether a worker can pick up the job that creates a schema. Only a definite "no"
+	 * counts: with per-workspace default tags the job runs on a variant of the tag, and a
+	 * failed lookup establishes nothing. */
+	async function schemaJobsServed(workspace: string): Promise<boolean> {
+		try {
+			if (await WorkerService.isDefaultTagsPerWorkspace()) return true
+			return await hasWorkerForTag(workspace, SCHEMA_JOB_TAG)
+		} catch {
+			return true
+		}
+	}
+
 	async function start(mode: RawAppBuildMode) {
 		if (starting) return
 		const template = templates[selectedTemplateIndex]
 
 		if (schemaMode === 'new' && newSchemaName && usableDatatable && opWs) {
 			starting = { mode, schema: newSchemaName }
-			await createSchema({
+			const creation = createSchema({
 				workspace: opWs,
 				datatable: usableDatatable,
 				schema: newSchemaName,
@@ -330,6 +346,16 @@
 					roles.current.defaultRole
 				)
 			})
+			if (await schemaJobsServed(opWs)) {
+				await creation
+			} else {
+				// The job stays queued for as long as no worker serves its tag: waiting on it
+				// would hold the app back for nothing, so say why the schema is missing instead.
+				sendUserToast(
+					`Schema "${newSchemaName}" is not created yet. ${queuedWithoutWorkerMessage(SCHEMA_JOB_TAG)}`,
+					true
+				)
+			}
 		}
 
 		starting = undefined
@@ -430,6 +456,10 @@
 					</Alert>
 				{:else}
 					<div class="flex flex-col gap-4">
+						<MissingWorkerTagAlert
+							tag={SCHEMA_JOB_TAG}
+							subject="Data table queries and schema changes"
+						/>
 						<div class="flex flex-col gap-1">
 							<span class="text-xs text-secondary mb-1 block">Default settings for new tables</span>
 							<div class="flex flex-col gap-4 rounded-md p-4 border">
