@@ -2118,36 +2118,37 @@ async fn get_venv_install_lock(venv_p: &str) -> Arc<tokio::sync::Mutex<()>> {
 ///
 /// The directory is shared by every workspace on the worker, and by every worker through
 /// the object store, so its location has to determine its content. A hash-pinned entry is
-/// named after its hashes, and only an install verified against them writes there. An
-/// unpinned entry is only as trustworthy as the index it came from: `unpinned_scope` keeps a
-/// workspace that overrides the instance index out of the name the others share.
+/// named after its hashes, and only an install verified against them writes there. Pinned
+/// entries get a group of their own because an unpinned requirement can spell any directory
+/// name, including a pinned one.
 ///
-/// Pinned entries get a group of their own because an unpinned requirement can spell any
-/// directory name, including a pinned one.
+/// `index_scope` is the workspace when it overrides the instance index, and keeps it out of
+/// the names the others share. That covers pinned entries too: the hashes vouch for the
+/// downloaded artifact, not for the build backend an sdist pulls from that index.
 fn py_cache_location(
     py_version: &PyV,
     entry: &PyLockEntry,
-    unpinned_scope: Option<&str>,
+    index_scope: Option<&str>,
 ) -> (String, String) {
     let group = py_version.to_cache_dir_top_level(false);
     let req = entry.requirement.as_str();
     let name = req.replace(' ', "").replace('/', "").replace(':', "");
-    if !entry.hashes.is_empty() {
+    let (group, name) = if !entry.hashes.is_empty() {
         let hashes = entry.hashes.iter().sorted().dedup().join(" ");
-        return (
+        (
             format!("{group}_pinned"),
             format!("{name}-h{}", &calculate_hash(&hashes)[..32]),
-        );
-    }
+        )
     // Dropping `/` and `:` maps distinct URLs to one name (`h.com/ab.whl`, `h.co/mab.whl`),
     // and a bare `..` would name the cache root itself.
-    let name = if req.contains(['/', ':']) || name.trim_matches('.').is_empty() {
-        format!("{name}-r{}", &calculate_hash(req)[..16])
+    } else if req.contains(['/', ':']) || name.trim_matches('.').is_empty() {
+        (group, format!("{name}-r{}", &calculate_hash(req)[..16]))
     } else {
-        name
+        (group, name)
     };
-    match unpinned_scope {
-        Some(w_id) => (group, format!("{name}-ws-{w_id}")),
+    match index_scope {
+        // Hashed: a workspace id is not restricted to characters safe in a file name.
+        Some(w_id) => (group, format!("{name}-ws-{}", &calculate_hash(w_id)[..16])),
         None => (group, name),
     }
 }
@@ -2640,12 +2641,14 @@ pub async fn handle_python_reqs(
         if !unpinned.is_empty() {
             return Err(Error::ExecutionErr(format!(
                 "PY_REQUIRE_LOCK_HASHES is set and the lockfile pins no hash for: {unpinned}. \
-                 Redeploy to regenerate the lockfile; git and local requirements cannot be pinned."
+                 Redeploying regenerates the lockfile with hashes once every worker runs {} or \
+                 newer; git and local requirements cannot be pinned.",
+                MIN_VERSION_SUPPORTS_PY_LOCK_HASHES.version()
             )));
         }
     }
 
-    let unpinned_scope =
+    let index_scope =
         crate::workspace_overrides_registry(w_id, &["pip_index_url", "pip_extra_index_url"])
             .await
             .then_some(w_id);
@@ -2659,7 +2662,7 @@ pub async fn handle_python_reqs(
     let mut in_cache = vec![];
     for entry in &requirements {
         let req = entry.requirement.as_str();
-        let (group, name) = py_cache_location(&py_version, entry, unpinned_scope);
+        let (group, name) = py_cache_location(&py_version, entry, index_scope);
         let venv_p = format!(
             "{}{group}/{name}",
             *windmill_common::worker::ROOT_CACHE_DIR
@@ -3765,18 +3768,23 @@ mod tests {
         let py = PyV::from(PyVAlias::Py312);
         let loc = |e: &PyLockEntry, scope| py_cache_location(&py, e, scope);
 
-        // A pinned entry is named after its set of hashes, whatever the workspace.
+        // A pinned entry is named after its set of hashes.
         let pinned = entry("tiny==0.1.3", &["sha256:aa", "sha256:bb"]);
         assert_eq!(
             loc(&pinned, None),
-            loc(&entry("tiny==0.1.3", &["sha256:bb", "sha256:aa"]), Some("ws"))
+            loc(&entry("tiny==0.1.3", &["sha256:bb", "sha256:aa"]), None)
         );
         assert_ne!(loc(&pinned, None), loc(&entry("tiny==0.1.3", &["sha256:aa"]), None));
 
-        // An unpinned one keeps the shared name only on the instance index.
+        // A workspace overriding the index shares no name with the others, and its id
+        // cannot steer the path.
         let unpinned = entry("tiny==0.1.3", &[]);
         assert_eq!(loc(&unpinned, None).1, "tiny==0.1.3");
-        assert_eq!(loc(&unpinned, Some("ws")).1, "tiny==0.1.3-ws-ws");
+        for e in [&pinned, &unpinned] {
+            assert_ne!(loc(e, Some("ws")), loc(e, None));
+            assert_ne!(loc(e, Some("ws")), loc(e, Some("ws2")));
+            assert!(!loc(e, Some("../../tiny==0.1.3")).1.contains('/'));
+        }
 
         // An unpinned requirement spelling a pinned entry's name lands elsewhere.
         let (pinned_group, pinned_name) = loc(&pinned, None);
