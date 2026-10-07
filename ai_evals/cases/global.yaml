@@ -198,22 +198,125 @@
     - uses the requested placeholder value and description
     - does not create a resource or deploy anything
 
+# A new app that has to store data, with nothing said about where: the data setup is the
+# user's call, so it is asked before anything is created. The question is dismissed here,
+# which leaves nothing the model may build on.
 - id: global-test7-ambiguous-app-asks-question
   prompt: |-
     Create a new raw app for triaging support tickets.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
   runtime:
-    maxTurns: 4
+    maxTurns: 6
+    userAnswers: []
   validate:
     draftCountExactly: 0
   toolExpect:
     requiredToolsUsed:
+      - list_datatables
       - askUserQuestion
     forbiddenToolsUsed:
       - init_app
+      - exec_datatable_sql
       - write_app_file
       - write_app_runnable
       - deploy_workspace_item
       - delete_workspace_item
+    toolCallArgs:
+      - tool: askUserQuestion
+        field: question
+        stringIncludesAnyOf:
+          - data table
+          - datatable
+          - schema
+  skipJudge: true
+
+# The same request with the question answered: the app is built on what the user chose.
+- id: global-new-app-data-setup-answer-applied
+  prompt: |-
+    Create a new raw app for triaging support tickets.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 24
+    userAnswers:
+      - A new schema named helpdesk
+      - Create new tables
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        valueIncludes:
+          - helpdesk
+          - react-dom/client
+  toolExpect:
+    requiredToolsUsed:
+      - askUserQuestion
+      - init_app
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: init_app
+        field: framework
+        stringEqualsAnyOf:
+          - react19
+      - tool: exec_datatable_sql
+        field: sql
+        stringIncludesAnyOf:
+          - helpdesk
+  skipJudge: true
+
+# No framework named, no app to follow, nothing to store: the modal's recommended
+# framework is used without a question.
+- id: global-new-app-defaults-to-react19
+  prompt: |-
+    Build me a little app that converts temperatures between Celsius and Fahrenheit.
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        valueIncludes:
+          - react-dom/client
+  toolExpect:
+    requiredToolsUsed:
+      - init_app
+    forbiddenToolsUsed:
+      - askUserQuestion
+      - exec_datatable_sql
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: init_app
+        field: framework
+        stringEqualsAnyOf:
+          - react19
+  skipJudge: true
+
+# The user said where the data goes, so there is nothing left to ask.
+- id: global-new-app-storage-specified-no-question
+  prompt: |-
+    Build a todo list app in React. Keep the todos in the main data table, in a new
+    schema called todo_app.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 20
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        valueIncludes:
+          - todo_app
+  toolExpect:
+    requiredToolsUsed:
+      - init_app
+      - write_app_runnable
+    forbiddenToolsUsed:
+      - askUserQuestion
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: exec_datatable_sql
+        field: sql
+        stringIncludesAnyOf:
+          - todo_app
   skipJudge: true
 
 - id: global-test8-human-script-infer-path-language
