@@ -343,7 +343,15 @@
 		return run
 	}
 
-	let args: Record<string, any> | undefined = $state(undefined)
+	// While a chat call is carried here, the form edits that call's own draft — the one the
+	// card edits — rather than a copy of it. There is then nothing to keep in step and nothing
+	// to carry back: whatever is typed on either surface is what the call runs with.
+	let ownArgs: Record<string, any> | undefined = $state(undefined)
+	const args = $derived(pendingRun ? pendingRun.draftArgs : ownArgs)
+	function setArgs(next: Record<string, any> | undefined) {
+		if (pendingRun) pendingRun.setDraftArgs(next ?? {})
+		else ownArgs = next
+	}
 
 	// Read once on purpose: these args seed the form, so tracking the fragment would
 	// overwrite what the user has typed whenever it changes.
@@ -357,7 +365,7 @@
 				k,
 				JSON.parse(v)
 			])
-			args = Object.fromEntries(params)
+			setArgs(Object.fromEntries(params))
 		} catch (e) {
 			console.error('Was not able to transform hash as args', e)
 		}
@@ -386,21 +394,6 @@
 				sendUserToast('That request is no longer waiting on this form', true)
 			}
 		}
-	})
-
-	// The form here is a copy, so what the reader typed into it would be lost when the call
-	// goes back to the card — the card would then offer, and run, the arguments this page
-	// opened with. Written on the way out rather than per keystroke.
-	//
-	// Destroy covers the ways out that carry edits: the tab closes, or its url changes and
-	// `loadKey` remounts. Not the next call re-pointing this same tab, which swaps the form
-	// under a page that stays mounted; that page's edits are its own and go no further.
-	//
-	// Only once a form has held them. `args` is undefined until `RunForm` initialises, so a
-	// tab closed while the item is still being fetched would otherwise hand the card an empty
-	// object and wipe the proposal it is still parked on.
-	onDestroy(() => {
-		if (args !== undefined) pendingRun?.handBack(runForm?.heldArgs() ?? args)
 	})
 
 	// The dev workspace's editor is not one the session panel can host, so from a preview tab
@@ -931,7 +924,6 @@
 								     that is already on screen would have to wait for it to exist. -->
 								{#key pendingRun?.toolCallId}
 									<RunForm
-										initialArgs={pendingRun?.args}
 										bind:scheduledForStr
 										bind:invisible_to_owner
 										bind:overrideTag
@@ -946,8 +938,9 @@
 										{runAction}
 										claimRun={pendingRun}
 										argsReadonly={pendingRun?.planModeActive}
-										bind:args
+										bind:args={() => args, setArgs}
 										schedulable={!pendingRun}
+										commonParams={!pendingRun}
 										bind:this={runForm}
 										{jsonView}
 										actions={promptForAi ? undefined : aiAssistant}
@@ -1001,7 +994,7 @@
 			bind:inputSelected
 			on:selected_args={(e) => {
 				const nargs = JSON.parse(JSON.stringify(e.detail))
-				args = nargs
+				setArgs(nargs)
 				if (jsonView) {
 					runForm?.syncJsonEditor()
 				}

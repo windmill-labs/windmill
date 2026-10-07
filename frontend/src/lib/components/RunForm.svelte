@@ -65,15 +65,13 @@
 		return { scriptArgs, commonParams }
 	}
 
-	/** Everything the form is holding, as a run would send it: the schema's arguments and the
-	 * PowerShell common parameters, which are kept apart from them in here and only put back
-	 * on the way out. For a caller handing the form's contents somewhere else. */
-	export function heldArgs(): Record<string, any> {
-		return { ...args, ...psCommonParams }
-	}
-
 	export async function setArgs(nargs: Record<string, any>) {
-		const { scriptArgs, commonParams } = extractPsCommonParams(nargs)
+		// Only when this form is the one offering them. Unoffered, they stay in the arguments
+		// and travel with them: `enforceDisabledDefaults` copies every key, so the job still
+		// receives them, and taking them out here would drop them from whoever owns `args`.
+		const { scriptArgs, commonParams } = showPsCommonParams
+			? extractPsCommonParams(nargs)
+			: { scriptArgs: nargs, commonParams: {} }
 		args = scriptArgs
 		psCommonParams = commonParams
 		reloadArgs++
@@ -153,12 +151,9 @@
 		 * if the press then ends before `runAction`, so a guard that counts presses can stop
 		 * counting this one. */
 		claimRun?: { claim: () => boolean; release: () => void }
-		/** What the form opens holding, applied as it is created rather than pushed in after.
-		 * For a caller whose arguments arrive with the form itself — render it under `{#key}`
-		 * and a new set makes a new form, already filled, with no mounted instance to reach
-		 * for. Ignored on later renders of the same instance: from then on the arguments are
-		 * the reader's. */
-		initialArgs?: Record<string, any>
+		/** Whether the PowerShell common-parameter section is offered. Off for a form standing
+		 * in for a chat card, which carries arguments and nothing else. */
+		commonParams?: boolean
 		/** Take no writes from the reader: no edits, and no dynamic-select helper. Both write
 		 * before Run is ever pressed — a `password` field mints an ephemeral variable as it is
 		 * typed, and the helper runs the `dynselect-` entrypoint when the field mounts — so
@@ -192,8 +187,8 @@
 	let {
 		runnable,
 		runAction,
-		initialArgs = undefined,
 		claimRun = undefined,
+		commonParams = true,
 		argsReadonly = false,
 		buttonText = 'Run',
 		schedulable = true,
@@ -213,25 +208,22 @@
 		actions = undefined
 	}: Props = $props()
 
-	// Once, as this instance is created, so the form renders already holding them — the
-	// `reloadArgs`/`syncJsonEditor` that `setArgs` needs are for re-seeding a form that is
-	// already on screen, which a fresh instance is not.
-	if (initialArgs !== undefined) {
-		const { scriptArgs, commonParams } = extractPsCommonParams(initialArgs)
-		args = scriptArgs
-		psCommonParams = commonParams
-	}
-
+	// Kept out while the form stands in for a chat card: a call carries arguments and nothing
+	// else, so these would be chosen here and then dropped when the run is confirmed anywhere
+	// else — the same reason scheduling and the tag override are hidden.
 	let showPsCommonParams = $derived(
-		runnable?.language === 'powershell' && runnable?.schema?.['x-windmill-ps-cmd-binding'] === true
+		commonParams &&
+			runnable?.language === 'powershell' &&
+			runnable?.schema?.['x-windmill-ps-cmd-binding'] === true
 	)
 
 	$effect.pre(() => {
 		if (args == undefined) {
 			args = {}
 		}
-		// Extract _wm_ps_* keys from args on initial load (e.g. "Run again" via URL hash)
-		if (args && Object.keys(args).some((k) => k.startsWith('_wm_ps_'))) {
+		// Extract _wm_ps_* keys from args on initial load (e.g. "Run again" via URL hash),
+		// and only when this form offers the section — see `setArgs`.
+		if (showPsCommonParams && args && Object.keys(args).some((k) => k.startsWith('_wm_ps_'))) {
 			const { scriptArgs, commonParams } = extractPsCommonParams(args)
 			args = scriptArgs
 			psCommonParams = commonParams
