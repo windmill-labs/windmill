@@ -179,14 +179,19 @@ export const BIGQUERY_TYPES = [
 ]
 
 export const SNOWFLAKE_TYPES = [
-	'varchar',
-	'binary',
-	'date',
-	'time',
-	'timestamp',
-	'int',
-	'float',
-	'boolean'
+	'VARCHAR',
+	'TEXT',
+	'BINARY',
+	'DATE',
+	'TIME',
+	'TIMESTAMP',
+	'TIMESTAMP_NTZ',
+	'TIMESTAMP_LTZ',
+	'TIMESTAMP_TZ',
+	'INT',
+	'NUMBER',
+	'FLOAT',
+	'BOOLEAN'
 ]
 
 export const MSSQL_TYPES = [

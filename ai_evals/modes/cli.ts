@@ -39,17 +39,36 @@ interface CliRunActual {
   trace: CliTrace;
 }
 
-const CLAUDE_PROJECT_PREAMBLE = [
-  "Follow the project instructions from AGENTS.md exactly.",
-  "Before creating or modifying any Windmill entity, you MUST invoke the relevant Skill tool and follow it.",
-  "Use the skill guidance for file layout, implementation details, and the exact next commands to tell the user.",
-  "Do not skip the Skill step.",
+// Only the skill wording differs per agent: Claude Code has a Skill tool, Codex
+// loads a skill by reading its SKILL.md.
+const SKILL_STEP: Record<CliEvalModelConfig["runtime"], string[]> = {
+  "claude-code": [
+    "Before creating or modifying any Windmill entity, you MUST invoke the relevant Skill tool and follow it.",
+    "Use the skill guidance for file layout, implementation details, and the exact next commands to tell the user.",
+    "Do not skip the Skill step.",
+  ],
+  codex: [
+    "Before creating or modifying any Windmill entity, you MUST read the relevant skill's SKILL.md under .agents/skills and follow it.",
+    "Use the skill guidance for file layout, implementation details, and the exact next commands to tell the user.",
+    "Do not skip the skill step.",
+  ],
+};
+
+const HARNESS_PREAMBLE = [
   "You are running inside an automated benchmark harness, not an interactive user session.",
   "Act autonomously and complete the requested file changes directly in the workspace.",
   "Do not ask for confirmation, do not ask the user to save or create files manually, and do not wait for approval.",
   "Do not respond with a plan when you can make the change directly.",
   "Only describe what was done after you have written the files.",
-].join(" ");
+];
+
+function projectPreamble(runtime: CliEvalModelConfig["runtime"]): string {
+  return [
+    "Follow the project instructions from AGENTS.md exactly.",
+    ...SKILL_STEP[runtime],
+    ...HARNESS_PREAMBLE,
+  ].join(" ");
+}
 
 export function createCliModeRunner(
   modelConfig: CliEvalModelConfig = DEFAULT_CLI_EVAL_MODEL
@@ -89,7 +108,7 @@ export function createCliModeRunner(
         });
         await writeFile(join(workspaceDir, "rt.d.ts"), "export namespace RT {}\n", "utf8");
 
-        const renderedPrompt = await renderPrompt(prompt, workspaceDir);
+        const renderedPrompt = await renderPrompt(prompt, workspaceDir, modelConfig.runtime);
         const run = await runPromptAndCapture(
           renderedPrompt,
           workspaceDir,
@@ -193,7 +212,11 @@ export function getCliRunModelLabel(
   return formatCliRunModelLabel(modelConfig);
 }
 
-async function renderPrompt(prompt: string, workspaceDir: string): Promise<string> {
+async function renderPrompt(
+  prompt: string,
+  workspaceDir: string,
+  runtime: CliEvalModelConfig["runtime"]
+): Promise<string> {
   const renderedUserPrompt = prompt.replaceAll("{{workspace_root}}", workspaceDir);
   const agentsInstructions = await readFile(path.join(workspaceDir, "AGENTS.md"), "utf8");
 
@@ -202,7 +225,7 @@ async function renderPrompt(prompt: string, workspaceDir: string): Promise<strin
     agentsInstructions.trim(),
     "",
     "# Benchmark Harness",
-    CLAUDE_PROJECT_PREAMBLE,
+    projectPreamble(runtime),
     "",
     "# User Request",
     renderedUserPrompt,

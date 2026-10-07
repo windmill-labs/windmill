@@ -156,7 +156,7 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry_with_workspace_override,
+    is_sandboxing_enabled, read_ee_registry,
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
     NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
@@ -279,7 +279,12 @@ pub async fn uv_pip_compile(
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(conn, w_id, &requirements, worker_name, job_id).await?;
 
-    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    let pip_indexes = PipIndexes::snapshot(w_id).await;
+    let ws_suffix = if pip_indexes.ws_scoped {
+        format!(":ws:{w_id}")
+    } else {
+        String::new()
+    };
     let exclude_newer_suffix = uv_exclude_newer
         .as_deref()
         .map(|v| format!("-en{}", v))
@@ -343,31 +348,12 @@ pub async fn uv_pip_compile(
         if no_cache {
             args.extend(["--no-cache"]);
         }
-        let pip_extra_index_url = read_ee_registry_with_workspace_override(
-            PIP_EXTRA_INDEX_URL.read().await.clone(),
-            "pip_extra_index_url",
-            "pip extra index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token);
+        let (pip_extra_index_url, pip_index_url) = pip_indexes.urls(job_id, w_id, conn).await;
         if let Some(url) = pip_extra_index_url.as_ref() {
             url.split(",").for_each(|url| {
                 args.extend(["--extra-index-url", url]);
             });
         }
-        let pip_index_url = read_ee_registry_with_workspace_override(
-            PIP_INDEX_URL.read().await.clone(),
-            "pip_index_url",
-            "pip index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token);
         if let Some(url) = pip_index_url.as_ref() {
             args.extend(["--index-url", url]);
         }
@@ -2068,6 +2054,62 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
     Ok((pyv, additional_python_paths))
 }
 
+/// The pip index settings a job resolves and installs from, and whether its workspace
+/// overrides any registry.
+///
+/// Both come from one snapshot of the workspace's overrides: read separately, a settings
+/// reload in between could file an install from an overridden index under a shared cache name.
+struct PipIndexes {
+    extra_index_url: Option<String>,
+    index_url: Option<String>,
+    /// Caches filled through these URLs must not be shared with other workspaces.
+    ws_scoped: bool,
+}
+
+impl PipIndexes {
+    async fn snapshot(w_id: &str) -> Self {
+        let overrides = crate::workspace_registry_overrides(w_id).await;
+        let ws_value = |key: &str| match overrides.get(key) {
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            _ => None,
+        };
+        // An empty value means unset, and an empty workspace override unsets the global one.
+        Self {
+            extra_index_url: ws_value("pip_extra_index_url")
+                .or(PIP_EXTRA_INDEX_URL.read().await.clone())
+                .filter(|s| !s.trim().is_empty()),
+            index_url: ws_value("pip_index_url")
+                .or(PIP_INDEX_URL.read().await.clone())
+                .filter(|s| !s.trim().is_empty()),
+            ws_scoped: !overrides.is_empty(),
+        }
+    }
+
+    /// The `(extra index, index)` URLs to hand uv. Kept apart from [`Self::snapshot`]: it runs
+    /// `EPHEMERAL_TOKEN_CMD`, which a caller served from a cache has no reason to pay for.
+    async fn urls(
+        self,
+        job_id: &Uuid,
+        w_id: &str,
+        conn: &Connection,
+    ) -> (Option<String>, Option<String>) {
+        (
+            read_ee_registry(
+                self.extra_index_url,
+                "pip extra index url",
+                job_id,
+                w_id,
+                conn,
+            )
+            .await
+            .map(handle_ephemeral_token),
+            read_ee_registry(self.index_url, "pip index url", job_id, w_id, conn)
+                .await
+                .map(handle_ephemeral_token),
+        )
+    }
+}
+
 lazy_static::lazy_static! {
     static ref PIP_SECRET_VARIABLE: Regex = Regex::new(r"\$\{PIP_SECRET:([^\s\}]+)\}").unwrap();
 
@@ -2527,28 +2569,18 @@ pub async fn handle_python_reqs(
         job_id
     );
 
-    let pip_indexes = (
-        read_ee_registry_with_workspace_override(
-            PIP_EXTRA_INDEX_URL.read().await.clone(),
-            "pip_extra_index_url",
-            "pip extra index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token),
-        read_ee_registry_with_workspace_override(
-            PIP_INDEX_URL.read().await.clone(),
-            "pip_index_url",
-            "pip index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token),
-    );
+    let pip_indexes = PipIndexes::snapshot(w_id).await;
+    let ws_scoped = pip_indexes.ws_scoped;
+    let pip_indexes = pip_indexes.urls(job_id, w_id, conn).await;
+    // The wheel dir is shared by every workspace on the worker, and by every worker through
+    // the object store, under a name that says nothing of the index it was filled from. A
+    // workspace with its own registries gets its own, as its resolution cache does. The id
+    // is hashed: it is not restricted to characters safe in a file name.
+    let ws_dir_suffix = if ws_scoped {
+        format!("-ws-{}", &calculate_hash(w_id)[..16])
+    } else {
+        String::new()
+    };
 
     // Cached paths
     let mut req_with_penv: Vec<(String, String)> = vec![];
@@ -2577,7 +2609,7 @@ pub async fn handle_python_reqs(
         let py_prefix = &py_version.to_cache_dir(false);
 
         let venv_p = format!(
-            "{py_prefix}/{}",
+            "{py_prefix}/{}{ws_dir_suffix}",
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
         if metadata(venv_p.clone() + "/.valid.windmill").await.is_ok() {
