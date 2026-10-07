@@ -67,7 +67,6 @@
 	}
 
 	function parseSQLArgs(field: string, dbType: DbType): string {
-		field = field.toLowerCase()
 		let rawType = ''
 		switch (dbType) {
 			case 'mysql':
@@ -80,7 +79,7 @@
 				rawType = parse_bigquery(field)
 				break
 			case 'snowflake':
-				rawType = parse_snowflake(snowflakeParserAlias(field))
+				rawType = parse_snowflake(snowflakeParserAlias(field.toLowerCase()))
 				break
 			case 'ms_sql_server':
 				rawType = parse_mssql(field)
@@ -134,7 +133,7 @@
 					schemaProperty.default = field.defaultValue
 				}
 			}
-			const fieldType = field.type.toLowerCase()
+			const fieldType = dbType === 'snowflake' ? field.type.toLowerCase() : field.type
 			if (
 				fieldType === 'timestamp without time zone' ||
 				fieldType === 'timestamp' ||
@@ -150,7 +149,7 @@
 			) {
 				schemaProperty.format = 'date-time'
 			}
-			if (fieldType === 'date') {
+			if (dbType === 'snowflake' && fieldType === 'date') {
 				schemaProperty.format = 'date'
 			}
 
