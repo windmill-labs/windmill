@@ -65,6 +65,13 @@
 		return { scriptArgs, commonParams }
 	}
 
+	/** Everything the form is holding, as a run would send it: the schema's arguments and the
+	 * PowerShell common parameters, which are kept apart from them in here and only put back
+	 * on the way out. For a caller handing the form's contents somewhere else. */
+	export function heldArgs(): Record<string, any> {
+		return { ...args, ...psCommonParams }
+	}
+
 	export async function setArgs(nargs: Record<string, any>) {
 		const { scriptArgs, commonParams } = extractPsCommonParams(nargs)
 		args = scriptArgs

@@ -400,7 +400,7 @@
 	// tab closed while the item is still being fetched would otherwise hand the card an empty
 	// object and wipe the proposal it is still parked on.
 	onDestroy(() => {
-		if (args !== undefined) pendingRun?.handBack(args)
+		if (args !== undefined) pendingRun?.handBack(runForm?.heldArgs() ?? args)
 	})
 
 	// The dev workspace's editor is not one the session panel can host, so from a preview tab
