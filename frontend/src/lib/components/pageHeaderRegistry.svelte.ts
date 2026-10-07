@@ -6,8 +6,15 @@ export type PageHeaderItem = {
 	/** Absent for an item the picker does not file under a kind — an agent's detail page. The
 	 *  breadcrumb then names the item without claiming it is one of the three. */
 	kind?: WorkspaceItemKind
-	/** Shown whole, and copied on click. */
+	/** Shown whole. Clicking it opens whatever the page hangs off it with `pathTrigger`, and copies
+	 *  the path where there is none. */
 	path: string | undefined
+	/** Wraps the band's own path segment in whatever the page wants behind it — its rename
+	 *  popover, anchored there rather than beside the summary, so the editor opens under the half
+	 *  of the name that was clicked. The band passes the path as it renders it and the classes its
+	 *  own segment wears, so the page's control keeps the breadcrumb's look rather than inventing
+	 *  one. Without this the segment copies the path on click. */
+	pathTrigger?: Snippet<[Snippet, string]>
 	summary?: string
 	/** Rendered in place of the plain summary, for a page whose summary is itself a control —
 	 *  a detail page's rename-and-labels popover, an editor's editable title. */
@@ -93,6 +100,24 @@ export const PHONE_BAR = 800
 // which the sidebar and a page's side panel both take from.
 let barWidth = $state(0)
 
+/**
+ * One registration's content, or undefined while it cannot answer.
+ *
+ * An entry is a getter closing over another component's props, evaluated here, in a tree of its
+ * own. Nothing orders a parent clearing those props against the child's teardown: a route that
+ * drops the `{#if}` around an editor and the value it binds into it does both in one flush, and
+ * this derived re-runs on the same flush, before the editor's own cleanup releases its entry. The
+ * entry has nothing to say in that window, which is not the same as the page having no header —
+ * so it is skipped, and whatever registered before it still stands.
+ */
+function read(e: { get: () => PageHeaderContent }): PageHeaderContent | undefined {
+	try {
+		return e.get()
+	} catch {
+		return undefined
+	}
+}
+
 export const pageHeader = {
 	/**
 	 * The registrations merged, later ones winning field by field: a route sets the frame (where
@@ -103,7 +128,8 @@ export const pageHeader = {
 		if (entries.length === 0) return undefined
 		const merged: PageHeaderContent = {}
 		for (const e of entries) {
-			const c = e.get()
+			const c = read(e)
+			if (!c) continue
 			if (c.item !== undefined) merged.item = c.item
 			if (c.section !== undefined) merged.section = c.section
 			if (c.afterName !== undefined) merged.afterName = c.afterName
@@ -123,8 +149,8 @@ export const pageHeader = {
 	get actions(): { render: Snippet; contexts?: Map<any, any> }[] {
 		return entries
 			.flatMap((e, i) => {
-				const c = e.get()
-				return c.actions
+				const c = read(e)
+				return c?.actions
 					? [{ render: c.actions, contexts: c.contexts, order: c.actionsOrder ?? 0, i }]
 					: []
 			})

@@ -3,8 +3,13 @@
 The page header's breadcrumb: workspace / fork / kind / path, in one flat line.
 
 Every segment is a trigger for the picker that changes it — the workspace menu, the fork family
-picker, and the item drill picker for the kind and each path level — and every segment wears the
-same weight, size and icon size, so the line reads as one control rather than four.
+picker, and the item drill picker for the kind and each path level — and all of them share one
+size and one icon size, so the line reads as one control rather than four.
+
+Two weights, not one: the segment that ends the trail is what the page is about and carries the
+weight, and everything leading to it is a step quieter. Which segment that is depends on the
+route — the workspace on home, a list page's own name, an item's summary (which the band draws,
+not this component) — so the lead can run the whole line.
 -->
 <script lang="ts">
 	import { Building, ChevronDown, Folder, GitFork, User } from 'lucide-svelte'
@@ -21,7 +26,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	import { twMerge } from 'tailwind-merge'
 	import { Badge } from '$lib/components/common'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
-	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceBadge from './DevWorkspaceBadge.svelte'
 	import { page } from '$app/state'
 	import { navPageFor } from './sidebar/navPages'
 	import { copyToClipboard, getContrastTextColor } from '$lib/utils'
@@ -44,7 +49,8 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		afterName?: Snippet
 		/** The workspace the page acts on, when it differs from the one the app is pointed at. */
 		actingWorkspaceId?: string
-		/** The bar is short of room: the workspace part drops its names and keeps its marks. */
+		/** The bar is short of room: the path holds a tighter cap, so it cannot claim a third of the
+		 *  line before anything else has given way. The names truncate at every width either way. */
 		narrow?: boolean
 		/** Only the page's own name, with no workspace part and no picker — the band inside a
 		 *  session's preview frame, where the workspace is the host's and leading the reader out of
@@ -69,6 +75,10 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	/** One look for every segment, whichever picker it opens. */
 	const SEGMENT =
 		'flex items-center gap-1 min-w-0 px-1 py-0.5 rounded text-xs font-normal text-primary hover:bg-surface-hover hover:text-emphasis transition-colors'
+	/** The trail up to the last segment: where the thing lives, which the reader scans past. */
+	const LEAD = 'font-normal text-secondary'
+	/** The last segment: what the page is about, and the only part of the line with weight. */
+	const LAST = 'font-medium text-emphasis'
 	const ICON = 14
 	/** The workspace disc: the same glyph as the rest, with a ring of its own around it. */
 	const DISC = 20
@@ -110,22 +120,70 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	const forkAccent = $derived(inFork ? forkAccentStyle(currentWs?.color) : undefined)
 	// A dev workspace wears its environment; the root wears "prod", so which environment the user
 	// is standing in is answered the same way whichever one it is.
+	/** Whether this family has a dev workspace anywhere under it. */
+	const familyHasDev = $derived.by(() => {
+		const all = $userWorkspaces ?? []
+		const root = family?.id
+		return (
+			!!root && all.some((w) => w.is_dev_workspace && findWorkspaceRoot(w.id, all)?.id === root)
+		)
+	})
 	const envBadge = $derived.by(() => {
-		if (!inFork) return { text: 'prod', dev: false }
-		if (currentWs?.is_dev_workspace)
-			return { text: devBadgeText(currentWs.dev_workspace_label), dev: true }
+		// "prod" only where a dev workspace exists to be the other half of the pair: a family with
+		// one environment gains nothing from naming it.
+		if (!inFork) return familyHasDev ? 'prod' : undefined
+		if (currentWs?.is_dev_workspace) return 'dev'
 		return undefined
 	})
 
+	// Which segment ends the trail, and so carries the weight. Everything before it is `LEAD`: on
+	// home that is nothing and the workspace itself is the subject, on a list page the page's name
+	// takes over, and on an item page the summary does — so the workspace, the fork and the path
+	// all step back to make room for it.
+	const namedAfterWorkspace = $derived(!!item || !!section || !!routePage)
+	const workspaceIsLast = $derived(!nameOnly && !namedAfterWorkspace)
+	// The summary is the band's, not the breadcrumb's (see PageHeaderBar), so the path reads as the
+	// last segment only for an item that has no summary to follow it.
+	const itemIsLast = $derived(!!item && !item.summaryContent && !item.summary)
+
 	// No hover fill: the chevron beside it is what reacts to the pointer. The accent stays on the
 	// fork's own name inside, so the family's name is not painted as if it were the fork.
-	const scopeChipClass = twMerge(SEGMENT, 'hover:bg-transparent')
+	//
+	// Inside a fork the family's name is the lead even where the workspace part ends the trail: the
+	// workspace the user stands in is the fork, and the family before it says which product that
+	// fork belongs to. Weighting both would name two workspaces as the subject.
+	const scopeChipClass = $derived(
+		twMerge(SEGMENT, 'hover:bg-transparent', workspaceIsLast && !showFork ? LAST : LEAD)
+	)
 
+	// Capped: a draft's path is a 40-character uuid slug, and the trail yields so grudgingly that
+	// one would push a page's buttons off the end of the bar.
+	const pathSegment = $derived(
+		twMerge(
+			SEGMENT,
+			'gap-1.5 overflow-hidden',
+			itemIsLast ? LAST : LEAD,
+			narrow ? 'max-w-[11rem]' : 'max-w-[16rem]'
+		)
+	)
+	// Copying is the one thing a segment does that leaves no mark on the page, so it is the one
+	// without a hover fill: the pointer and the confirmation under it are the affordance. A segment
+	// that opens the rename editor keeps the fill, which is what tells the two apart on sight.
+	const copyPathSegment = $derived(twMerge(pathSegment, 'hover:bg-transparent'))
+
+	// The chip keeps its colour wherever it is on the line — that colour is how a fork is told apart
+	// from its family. Only its weight follows the trail, dropping back once a page's name ends it.
 	const forkChipClass = $derived(
 		twMerge(
 			'flex items-center gap-1 min-w-0 px-1 rounded',
+			// A filled chip needs room around what it holds; an uncolored one is just the name and
+			// would only be pushed away from the slash before it.
 			forkAccent &&
-				'bg-[color:var(--fork-accent-bg)] dark:bg-[color:var(--fork-accent-bg-dark)] text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)] font-semibold'
+				'px-1.5 py-0.5 bg-[color:var(--fork-accent-bg)] dark:bg-[color:var(--fork-accent-bg-dark)] text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)]',
+			// Where the workspace part ends the trail, the fork is the segment that ends it, so it
+			// takes the weight on its own. Without a colour of its own it also has to take the text
+			// colour, since it would otherwise inherit the lead's from the link around it.
+			workspaceIsLast ? twMerge('font-semibold', !forkAccent && 'text-emphasis') : 'font-normal'
 		)
 	)
 
@@ -165,14 +223,15 @@ same weight, size and icon size, so the line reads as one control rather than fo
 {/snippet}
 
 {#snippet envBadgeMark()}
-	{#if envBadge}
-		<Badge
-			color={envBadge.dev ? 'dark-blue' : 'gray'}
-			small
-			class={envBadge.dev
-				? 'text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white'
-				: 'text-3xs px-1 py-0'}>{envBadge.text}</Badge
-		>
+	{#if envBadge === 'dev'}
+		<DevWorkspaceBadge
+			label={currentWs?.dev_workspace_label}
+			color={currentWs?.color}
+			fallbackClass="dark:bg-surface-accent-primary text-white dark:text-white"
+			class="text-3xs px-1 py-0"
+		/>
+	{:else if envBadge === 'prod'}
+		<Badge color="gray" small class="text-3xs px-1 py-0">prod</Badge>
 	{/if}
 {/snippet}
 
@@ -191,7 +250,11 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	     included, in its own colour — leading home, and one chevron whose picker changes it. The
 	     picker lists the families and expands one to reach its forks, so a fork needs no part of
 	     its own here. -->
-		<div class={narrow ? 'flex items-center shrink-0' : 'flex items-center min-w-0'}>
+		<!-- `shrink-[999]`: the whole trail can give width back, and this part gives it first. Flex
+		     takes it from the parts in proportion to what they ask for, so a factor this far above
+		     the rest means the names here are eaten down to their icons before the page's own name
+		     loses a character. -->
+		<div class="flex items-center min-w-0 shrink-[999]">
 			<!-- No hover fill on the name: the chevron beside it is the thing that lights up, and two
 		     boxes reacting to one pass of the pointer read as two controls fighting. -->
 			<!-- bind:clientWidth: the menu hangs from the chevron, so it is shifted back by the width of
@@ -202,33 +265,24 @@ same weight, size and icon size, so the line reads as one control rather than fo
 					class={scopeChipClass}
 					title={showFork ? `${familyName} / ${scopeName}` : familyName}
 				>
-					{#if narrow}
-						<!-- Short of room, the part keeps what it cannot be read without: the disc in the
-					     workspace's own colour, the fork mark, and the environment. The names go — the
-					     hover title still carries them, and the picker beside it names them all. -->
-						{@render workspaceDisc()}
-						{#if showFork}
-							<span class={forkChipClass} style={forkAccent}>
-								<GitFork size={ICON} class="flex-shrink-0" />
-								{@render envBadgeMark()}
-							</span>
-						{:else}
-							{@render envBadgeMark()}
-						{/if}
-					{:else}
+					<!-- The family's name goes before the fork's: the fork is where the work happens, the
+					     family is which product it is part of, and of the two that is the one a reader can
+					     do without. Both truncate to nothing rather than disappearing at a breakpoint —
+					     what is left then is what the part cannot be read without, the disc in the
+					     workspace's own colour, the fork mark and the environment. The hover title
+					     carries the names whole, and the picker beside it names them all. -->
+					<span class="flex items-center gap-1 min-w-0 shrink-[999]">
 						<BreadcrumbItemContent label={familyName} icon={workspaceDisc} />
-						{#if showFork}
-							<!-- Both names: the fork is where the work happens, the family is which product it
-					     is part of, and either alone leaves the other to be guessed. -->
-							{@render slash('mx-0.5')}
-							<span class={forkChipClass} style={forkAccent}>
-								<GitFork size={ICON} class="flex-shrink-0" />
-								<span class="truncate">{scopeName}</span>
-								{@render envBadgeMark()}
-							</span>
-						{:else}
+					</span>
+					{#if showFork}
+						{@render slash('mx-0.5')}
+						<span class={forkChipClass} style={forkAccent}>
+							<GitFork size={ICON} class="flex-shrink-0" />
+							<span class="truncate">{scopeName}</span>
 							{@render envBadgeMark()}
-						{/if}
+						</span>
+					{:else}
+						{@render envBadgeMark()}
 					{/if}
 				</a>
 			</div>
@@ -251,7 +305,11 @@ same weight, size and icon size, so the line reads as one control rather than fo
 							</MeltButton>
 						{/snippet}
 						{#snippet children({ item: menuItem })}
-							<WorkspacePickerBody item={menuItem} closeMenu={() => workspaceMenu?.close()} />
+							<WorkspacePickerBody
+									item={menuItem}
+									collapseFamilies={actingWorkspaceId != undefined}
+									closeMenu={() => workspaceMenu?.close()}
+								/>
 						{/snippet}
 					</Menu>
 				{/snippet}
@@ -268,21 +326,8 @@ same weight, size and icon size, so the line reads as one control rather than fo
 			<!-- The path whole, as one label rather than a row of pickers: it is what a person reads
 			     to know which item this is, and what they reach for to paste somewhere else. -->
 			<div class="relative flex items-center min-w-0">
-				<!-- No hover fill: a fill offers to take you somewhere, and this only copies. The
-				     pointer and the popup after the click are affordance enough. -->
-				<!-- Capped: a draft's path is a 40-character uuid slug, and the trail yields so
-				     grudgingly that one would push a page's buttons off the end of the bar. Past the
-				     cap it truncates; the click still copies the path whole. -->
-				<button
-					class={twMerge(
-						SEGMENT,
-						'gap-1.5 hover:bg-transparent overflow-hidden',
-						narrow ? 'max-w-[11rem]' : 'max-w-[16rem]'
-					)}
-					title="Copy path"
-					onclick={copyPath}
-					aria-label="Copy path {item.path}"
-				>
+				<!-- Past the cap the trail truncates; whatever the click does still has the path whole. -->
+				{#snippet pathLabel()}
 					{#if scopeKind === 'u'}
 						{@render userIcon()}
 					{:else}
@@ -290,14 +335,31 @@ same weight, size and icon size, so the line reads as one control rather than fo
 					{/if}
 					{#each pathLevels as level, i (i)}
 						{#if i > 0}{@render slash()}{/if}
-						<!-- The last level absorbs the squeeze: the scopes above it are a couple of
-						     characters each, and cutting them first leaves "m… / draft_a5b1…". -->
+						<!-- The scopes above the name absorb the squeeze, the name itself last: a path is
+						     read from its end, and which folder a thing is in is answerable from the
+						     picker while the thing's own name is not. -->
 						<span
-							class={i === pathLevels.length - 1 ? 'truncate' : 'truncate shrink-0 max-w-[8rem]'}
-							>{level}</span
+							class={i === pathLevels.length - 1
+								? 'truncate'
+								: 'truncate min-w-0 shrink-[999] max-w-[8rem]'}>{level}</span
 						>
 					{/each}
-				</button>
+				{/snippet}
+				{#if item.pathTrigger}
+					<!-- The page hangs its own rename off this segment, anchored here so the editor
+					     opens under the path rather than beside the summary. It wears the segment's
+					     own classes, so a clickable path reads the same as one that only copies. -->
+					{@render item.pathTrigger(pathLabel, pathSegment)}
+				{:else}
+					<button
+						class={copyPathSegment}
+						title="Copy path"
+						onclick={copyPath}
+						aria-label="Copy path {item.path}"
+					>
+						{@render pathLabel()}
+					</button>
+				{/if}
 				{#if afterName}{@render afterName()}{/if}
 				{#if pathCopied}
 					<span
@@ -309,7 +371,10 @@ same weight, size and icon size, so the line reads as one control rather than fo
 				{/if}
 			</div>
 		{:else if item.kind}
-			<span class="{SEGMENT} hover:bg-transparent" aria-current="page">
+			<span
+				class={twMerge(SEGMENT, 'hover:bg-transparent', itemIsLast ? LAST : LEAD)}
+				aria-current="page"
+			>
 				{@render itemKindIcon()}
 				<span class="truncate">{KIND_LABEL_LOWER[item.kind]}</span>
 			</span>
@@ -318,7 +383,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		<BreadcrumbSegment
 			label={KIND_LABEL_LOWER[section.kind]}
 			icon={sectionKindIcon}
-			extraClass={SEGMENT}
+			extraClass={twMerge(SEGMENT, LAST)}
 			isCurrent
 			initialHighlight={kindKey(section.kind)}
 			initialScope={{ kind: section.kind }}
@@ -327,7 +392,12 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	{:else if section}
 		<!-- A section's own widget lays out as a row: its title, and whatever belongs with it. -->
 		<span
-			class="{SEGMENT} hover:bg-transparent hover:text-primary {section.content ? '' : 'truncate'}"
+			class={twMerge(
+				SEGMENT,
+				LAST,
+				'hover:bg-transparent hover:text-emphasis',
+				section.content ? '' : 'truncate'
+			)}
 			aria-current="page"
 		>
 			{#if section.content}{@render section.content()}{:else}{section.label}{/if}
@@ -337,7 +407,10 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		{@const RouteIcon = routePage.icon}
 		<!-- shrink-0: a page's own name is short and is the one part of the trail worth keeping
 		     whole, so the workspace and fork names give way first when the bar is full. -->
-		<span class="{SEGMENT} shrink-0 hover:bg-transparent hover:text-primary" aria-current="page">
+		<span
+			class={twMerge(SEGMENT, LAST, 'shrink-0 hover:bg-transparent hover:text-emphasis')}
+			aria-current="page"
+		>
 			{#if RouteIcon}<RouteIcon size={ICON} class="flex-shrink-0 text-tertiary" />{/if}
 			<span class="truncate">{routePage.label}</span>
 		</span>

@@ -210,7 +210,7 @@
 				preprocessorModule={selectedId === 'preprocessor'}
 			/>
 		{/if}
-	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow' || flowModule.value.type === 'aiagent'}
+	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow' || flowModule.value.type === 'aiagent' || flowModule.value.type === 'aidecision'}
 		<FlowModuleComponent
 			{noEditor}
 			bind:flowModule

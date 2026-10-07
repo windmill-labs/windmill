@@ -32,7 +32,7 @@
 		Zap,
 		Globe
 	} from 'lucide-svelte'
-	import { getContext, onDestroy, untrack } from 'svelte'
+	import { getContext, onDestroy, untrack, type Snippet } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../../utils'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { toStatic } from '../utils'
@@ -151,7 +151,7 @@
 		ownsPageHeader = false
 	}: Props = $props()
 
-	/** Mirror of the path the user is editing in the pen popover. Initialized
+	/** Mirror of the path the user is editing in the rename popover. Initialized
 	 * once from `newPath` (or a synthesized path for new apps) and only
 	 * updated by user input from then on — we deliberately do NOT sync from
 	 * `newPath` afterwards so the user's in-flight rename isn't clobbered by
@@ -232,7 +232,7 @@
 	// The header's buttons render under the page header, not under this component, so the contexts
 	// they look up have to travel with them. The app's own two carry everything the canvas toggles,
 	// the panel buttons, Debug runs and the preview switch read.
-	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	/** Held by the rename popover while it is open; the band's trail reads it so the path does not
 	 *  reflow under the pointer as the user types. */
 	let pathSnapshot = $state<string | undefined>(undefined)
 
@@ -998,10 +998,11 @@
 			// The path being edited, not the stored one: a brand-new app is parked at a
 			// `draft_<uuid>` placeholder, and the trail would name that instead of the path Deploy
 			// will create. Same fallback chain the rename sites read.
-			// Frozen while the pen's popover is open so the trail holds still as the user types.
+			// Frozen while the rename popover is open so the trail holds still as the user types.
 			kind: 'app',
 			path: pathSnapshot ?? (newEditedPath || $appPath || newPath || undefined),
-			summaryContent: appSummary
+			summaryContent: appSummary,
+			pathTrigger: appPathTrigger
 		}}
 		actions={appHeaderActions}
 		contexts={headerContexts}
@@ -1037,18 +1038,36 @@
 	</div>
 {/if}
 
+<!-- The summary's editor again, hung off the band's path segment so it opens under the path, with
+     the cursor in the path field. `bind:` cannot be spread, so the slots are written out twice;
+     both instances bind the same ones and only one is ever open. -->
+{#snippet appPathTrigger(pathLabel: Snippet, triggerClass: string)}
+	<PathEditPopover
+		label={pathLabel}
+		{triggerClass}
+		focusField="path"
+		bind:summary={$summary}
+		bind:path={newEditedPath}
+		bind:snapshotPath={pathSnapshot}
+		savedPath={$appPath || newPath || undefined}
+		kind="app"
+	/>
+{/snippet}
+
 {#snippet appSummary()}
-	<!-- Not edited in place: the pen beside it opens the summary and the path together,
-		     so the band reads as a name rather than a form. `title` for one it truncates. -->
-	<div class="group flex items-center gap-1 min-w-0">
-		<span
-			class="min-w-0 truncate text-xs {emptyString($summary)
-				? 'text-tertiary italic font-normal'
-				: 'font-medium text-emphasis'}"
-			title={$summary}>{emptyString($summary) ? 'Add a summary...' : $summary}</span
-		>
+	<!-- Not edited in place: clicking the name opens the summary and the path together, so the band
+	     reads as a name rather than a form. `title` for one it truncates. -->
+	<div class="flex items-center gap-1 min-w-0">
+		{#snippet summaryText()}
+			<span
+				class="min-w-0 truncate text-xs {emptyString($summary)
+					? 'text-tertiary italic font-normal'
+					: 'font-medium text-emphasis'}"
+				title={$summary}>{emptyString($summary) ? 'Add a summary...' : $summary}</span
+			>
+		{/snippet}
 		<PathEditPopover
-			penVisibility={emptyString($summary) ? 'always' : 'hover'}
+			label={summaryText}
 			bind:summary={$summary}
 			bind:path={newEditedPath}
 			bind:snapshotPath={pathSnapshot}

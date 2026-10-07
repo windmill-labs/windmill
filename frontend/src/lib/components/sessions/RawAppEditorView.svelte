@@ -3,7 +3,8 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
-	import type { SessionRuntime } from './sessionRuntime.svelte'
+	import type { NewRawAppSeed, SessionRuntime } from './sessionRuntime.svelte'
+	import { react19Template } from '$lib/components/raw_apps/templates'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -22,7 +23,8 @@
 		onNavigate,
 		onSeeDetails,
 		isActiveSession = true,
-		active = true
+		active = true,
+		newRawApp = undefined
 	}: {
 		runtime: SessionRuntime
 		path: string
@@ -36,10 +38,24 @@
 		isActiveSession?: boolean
 		/** Whether this is the visible preview tab (forwarded as isActiveTab). */
 		active?: boolean
+		/** Forwarded to SessionEditorTarget: the tab was opened on a brand-new app. */
+		newRawApp?: NewRawAppSeed
 	} = $props()
 
 	// This tab's own raw-app cell; each open app editor binds its own store.
 	const cell = $derived(runtime.rawAppCell(path))
+
+	// New only while it is still the untouched template: once built on, telling the chat it
+	// is a fresh app would steer it away from the work already there.
+	const untouchedTemplate = $derived.by(() => {
+		const files = cell.store.val?.files
+		if (!newRawApp || cell.saved.val || !files) return false
+		const keys = Object.keys(react19Template)
+		return (
+			Object.keys(files).length === keys.length &&
+			keys.every((k) => files[k] === react19Template[k as keyof typeof react19Template])
+		)
+	})
 	let diffDrawer: DiffDrawer | undefined = $state()
 
 	// Path typed in the editor header, surfaced when it differs from the stored
@@ -237,6 +253,8 @@
 	{onNavigate}
 	{isActiveSession}
 	isActiveTab={active}
+	{newRawApp}
+	isNew={() => untouchedTemplate}
 	effectivePath={() =>
 		// A raw app's typed rename lives in `draft_path` (`val.path` is the storage
 		// key), unlike scripts where `val.path` is the typed name — without it the

@@ -1,3 +1,4 @@
+import { AI_DECISION_SCHEMA } from '../../flows/flowInfers'
 import type {
 	ChatCompletionFunctionTool,
 	ChatCompletionMessageFunctionToolCall,
@@ -622,6 +623,9 @@ export type ToolCodeDiff = {
 	after: string
 	/** Monaco language id. */
 	lang: string
+	/** Language of the before side, when the edit changed it (an inline runnable rewritten from
+	 * TypeScript to Python). */
+	beforeLang?: string
 }
 
 export type ToolDisplayMessage = {
@@ -2652,12 +2656,57 @@ export async function resolveFlowStepRun({
 		}
 	}
 
+	if (moduleValue.type === 'aidecision') {
+		return {
+			module: targetModule,
+			// Run alone as a one-step flow preview, as the editor's step test does: the inputs given here
+			// override the step's own, so a state that reads an earlier step can be passed directly.
+			runnableKind: 'flow',
+			// What a run supplies: the state. The provider and questions are the step's own.
+			schema: {
+				$schema: 'https://json-schema.org/draft/2020-12/schema',
+				type: 'object',
+				properties: { state: AI_DECISION_SCHEMA.properties.state },
+				required: ['state'],
+				order: ['state']
+			},
+			startMessage: `Starting test run of AI decision step "${stepId}"...`,
+			startJob: async (args) =>
+				JobService.runFlowPreview({
+					workspace,
+					requestBody: {
+						value: {
+							modules: [
+								{
+									id: targetModule.id,
+									value: {
+										...moduleValue,
+										input_transforms: {
+											...moduleValue.input_transforms,
+											...Object.fromEntries(
+												Object.keys(args).map((key) => [
+													key,
+													{ type: 'javascript' as const, expr: `flow_input.${key}` }
+												])
+											)
+										}
+									}
+								}
+							]
+						},
+						args,
+						path: flowPath
+					}
+				})
+		}
+	}
+
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Step type "${moduleValue.type}" not supported for testing`,
 		error: `Cannot test step of type "${moduleValue.type}"`
 	})
 	throw new Error(
-		`Cannot test step of type "${moduleValue.type}". Supported types: rawscript, script, flow, aiagent`
+		`Cannot test step of type "${moduleValue.type}". Supported types: rawscript, script, flow, aiagent, aidecision`
 	)
 }
 

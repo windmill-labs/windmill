@@ -37,7 +37,7 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { getContext, onDestroy, setContext, untrack } from 'svelte'
+	import { getContext, onDestroy, setContext, untrack, type Snippet } from 'svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
@@ -224,7 +224,7 @@
 	// Top-bar responsive collapse. Measured via bind:clientWidth — we can't
 	// rely on viewport `md:` because the editor lives inside other panes
 	// (session pane, drawer, etc.) where the viewport stays wide.
-	/** Held by the pen's popover while it is open; the band's trail reads it so the path does not
+	/** Held by the rename popover while it is open; the band's trail reads it so the path does not
 	 *  reflow under the pointer as the user types. */
 	let pathSnapshot = $state<string | undefined>(undefined)
 
@@ -360,7 +360,7 @@
 			savedValue: savedFlow,
 			modifiedValue: {
 				...flowStore.val,
-				// `$pathStore` is the live-edited path (the pen popover binds it).
+				// `$pathStore` is the live-edited path (the rename popover binds it).
 				// `flowStore.val.path` doesn't track those edits, so without this the
 				// rename wouldn't show up in the diff and the unsaved-changes warning
 				// wouldn't fire when leaving with a pending rename.
@@ -1578,10 +1578,17 @@
 				     bar's edge would be a second one on top of it. -->
 				<PageHeaderContent
 					item={{
-						// Frozen while the pen's popover is open so the trail holds still as the user types.
+						// Frozen while the rename popover is open so the trail holds still as the user types.
 						kind: 'flow',
 						path: pathSnapshot ?? $pathStore,
-						summaryContent: flowSummary
+						summaryContent: flowSummary,
+						// Gated like the summary's own editor: a host that allows neither field keeps the
+						// band's segment, which copies the path.
+						pathTrigger:
+							customUi?.topBar?.editablePath != false ||
+							customUi?.topBar?.editableSummary != false
+								? flowPathTrigger
+								: undefined
 					}}
 					actions={flowHeaderActions}
 					contexts={headerContexts}
@@ -1662,20 +1669,51 @@
 				</div>
 			{/if}
 
+			<!-- The summary's editor again, hung off the band's path segment so it opens under the
+			     path, with the cursor in the path field. `bind:` cannot be spread, so the slots are
+			     written out twice; both instances bind the same ones and only one is ever open. -->
+			{#snippet flowPathTrigger(pathLabel: Snippet, triggerClass: string)}
+				<!-- Gated the way the script editor gates its own, `{:else}` included: this renders from
+				     the band's tree, which outlives what it reads here by a flush, and the band has
+				     already given up its own segment by the time this decides. -->
+				{#if flowStore?.val}
+					<PathEditPopover
+						label={pathLabel}
+						{triggerClass}
+						focusField="path"
+						bind:summary={flowStore.val.summary}
+						summaryEditable={customUi?.topBar?.editableSummary != false}
+						pathEditable={customUi?.topBar?.editablePath != false}
+						bind:path={$pathStore}
+						bind:snapshotPath={pathSnapshot}
+						savedPath={initialPath}
+						kind="flow"
+						onBehalfOfEmail={$savedOnBehalfOfEmail}
+						workspaceId={autosaveWorkspace}
+					/>
+				{:else}
+					<span class={triggerClass}>{@render pathLabel()}</span>
+				{/if}
+			{/snippet}
+
 			{#snippet flowSummary()}
-				<!-- Not edited in place: the pen beside it opens the summary and the path together,
-		     so the band reads as a name rather than a form. `title` for one it truncates. -->
-				<div class="group flex items-center gap-1 min-w-0">
-					<span
-						class="min-w-0 truncate text-xs {emptyString(flowStore.val.summary)
-							? 'text-tertiary italic font-normal'
-							: 'font-medium text-emphasis'}"
-						title={flowStore.val.summary}
-						>{emptyString(flowStore.val.summary) ? 'Add a summary...' : flowStore.val.summary}</span
-					>
+				<!-- Not edited in place: clicking the name opens the summary and the path together, so
+				     the band reads as a name rather than a form. `title` for one it truncates. -->
+				<div class="flex items-center gap-1 min-w-0">
+					{#snippet summaryText()}
+						<span
+							class="min-w-0 truncate text-xs {emptyString(flowStore.val.summary)
+								? 'text-tertiary italic font-normal'
+								: 'font-medium text-emphasis'}"
+							title={flowStore.val.summary}
+							>{emptyString(flowStore.val.summary)
+								? 'Add a summary...'
+								: flowStore.val.summary}</span
+						>
+					{/snippet}
 					{#if customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false}
 						<PathEditPopover
-							penVisibility={emptyString(flowStore.val.summary) ? 'always' : 'hover'}
+							label={summaryText}
 							bind:summary={flowStore.val.summary}
 							summaryEditable={customUi?.topBar?.editableSummary != false}
 							pathEditable={customUi?.topBar?.editablePath != false}
@@ -1686,6 +1724,8 @@
 							onBehalfOfEmail={$savedOnBehalfOfEmail}
 							workspaceId={autosaveWorkspace}
 						/>
+					{:else}
+						{@render summaryText()}
 					{/if}
 				</div>
 			{/snippet}

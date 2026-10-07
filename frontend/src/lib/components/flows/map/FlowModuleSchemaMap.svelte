@@ -771,7 +771,8 @@
 							if (
 								mod.value.type == 'rawscript' ||
 								mod.value.type == 'script' ||
-								mod.value.type == 'flow'
+								mod.value.type == 'flow' ||
+								mod.value.type == 'aidecision'
 							) {
 								mod.value.input_transforms = Object.fromEntries(
 									Object.entries(mod.value.input_transforms).map(([k, v]) => {

@@ -13,7 +13,7 @@
 
 {#if !$copilotInfo.workspaceDisabled}
 	<Label
-		label="Additional prompt for AI"
+		label="AI prompt"
 		tooltip="An AI choosing this {type}'s inputs already reads its description and each field's description. Anything written here is given to it as extra guidance: mention specific fields and how they interact."
 	>
 		<TextInput

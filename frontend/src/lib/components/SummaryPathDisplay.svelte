@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte'
 	import { emptyString, isOwner } from '$lib/utils'
 	import { Alert, Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -10,7 +11,6 @@
 	import Label from './Label.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 	import InheritedLabels from './InheritedLabels.svelte'
-	import PathEditPen from './PathEditPen.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import {
 		useOperatingUser,
@@ -40,6 +40,14 @@
 		}) => string | undefined
 		/** Header variant: no path line (the host shows it) and a lighter summary. */
 		compact?: boolean
+		/** Rendered inside the trigger in place of the summary, for a host that hangs a second copy
+		 *  of this editor off something else it draws — the band's path segment. */
+		label?: Snippet
+		/** The trigger's own classes, for a host whose row has a look of its own. */
+		triggerClass?: string
+		/** Which field takes the cursor on open: the click says which half of the name the user came
+		 *  to change. `Path` is only reachable for an owner, so 'path' falls back to the summary. */
+		focusField?: 'summary' | 'path'
 	}
 
 	let {
@@ -51,7 +59,10 @@
 		onSaved,
 		kind = 'flow',
 		saveOverride = undefined,
-		compact = false
+		compact = false,
+		label,
+		triggerClass = 'block min-w-0 max-w-full px-1 py-0.5 rounded text-left cursor-pointer hover:bg-surface-hover transition-colors',
+		focusField = 'summary'
 	}: Props = $props()
 
 	// An agent lives at a resource path, so that is what the picker validates against; the
@@ -62,11 +73,10 @@
 	let editPath = $state('')
 	let dirtyPath = $state(false)
 	let popoverOpen = $state(false)
-	let ownPath = $state<string | undefined>(undefined)
-	// Derived: ownership answers about the operating workspace, whose user resolves asynchronously.
+	// Resolved before the popover opens, not on opening it: the path field only exists for an owner,
+	// and `openFocus` looks for it in the same flush the popover renders in.
 	const own = $derived(
-		saveOverride !== undefined ||
-			(ownPath === undefined ? false : isOwner(ownPath, actingUser, $operatingWorkspace))
+		saveOverride !== undefined || isOwner(path ?? '', actingUser, $operatingWorkspace)
 	)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let summaryInput: ReturnType<typeof TextInput> | undefined = $state()
@@ -78,7 +88,6 @@
 			editSummary = summary ?? ''
 			editPath = path ?? ''
 			labelsDirty = false
-			ownPath = path ?? ''
 			onBehalfOfEmail = undefined
 			if (kind === 'flow' && $operatingWorkspace && path) {
 				checkFlowOnBehalfOf($operatingWorkspace, path).then((email) => {
@@ -87,6 +96,12 @@
 			}
 		}
 	})
+
+	/** The path's name field inside this popover. `Path` hardcodes `id="path"`, and melt resolves a
+	 *  string `openFocus` with a document-wide `querySelector`, so a popover portalled to the body
+	 *  would hand the keystrokes to whichever other `Path` the page happens to have mounted. */
+	const pathField = () =>
+		document.querySelector<HTMLInputElement>('[data-path-edit-path] #path') ?? null
 
 	async function save(close: () => void) {
 		const initialPath = path ?? ''
@@ -122,11 +137,155 @@
 	}
 </script>
 
-{#if editable || onSaved}
-	<!-- The name reads as text and the pen beside it opens the popover, the same way the editors
-	     carry theirs. The whole block used to be the trigger, so a name you only wanted to read
-	     answered a click — and the pen has to sit outside the popover to be the only thing that
-	     does. -->
+{#snippet editor()}
+	<!-- Without naming the path's own field melt lands on the row's first button, so a popover
+	     opened from the path would not be typing into the path. -->
+	<Popover
+		class={triggerClass}
+		placement="bottom-start"
+		contentClasses="p-4"
+		triggerAttrs={{ title: 'Edit summary and path', 'aria-label': 'Edit summary and path' }}
+		usePointerDownOutside
+		excludeSelectors=".drawer"
+		disableFocusTrap
+		openFocus={focusField === 'path' && own
+			? pathField
+			: () => {
+					summaryInput?.focus()
+					return null
+				}}
+		bind:isOpen={popoverOpen}
+	>
+		{#snippet trigger()}
+			<!-- Both of the popover's arms show the summary and the path, and ownership decides
+					     whether the path can be changed, not whether it is there. -->
+			{#if label}
+				{@render label()}
+			{:else}
+				<span
+					class="{compact
+						? 'text-xs font-medium'
+						: 'text-sm font-semibold'} block truncate {emptyString(summary)
+						? 'text-tertiary italic font-normal'
+						: 'text-emphasis'}"
+				>
+					{emptyString(summary) ? 'Add a summary...' : summary}
+				</span>
+			{/if}
+		{/snippet}
+		{#snippet content({ close })}
+			<div class="flex flex-col gap-6 w-[480px]">
+				{#if onSaved}
+					<Label label="Summary">
+						<TextInput
+							bind:this={summaryInput}
+							inputProps={{
+								type: 'text',
+								placeholder: 'Short summary',
+								onkeydown: (e) => {
+									if (e.key === 'Enter') {
+										save(close)
+									}
+								}
+							}}
+							bind:value={editSummary}
+						/>
+					</Label>
+					<div class="-mt-4 flex items-center gap-2">
+						<LabelsInput
+							bind:labels
+							onchange={() => {
+								labelsDirty = true
+							}}
+						/>
+						{#if inheritedLabels?.length}
+							<InheritedLabels labels={inheritedLabels} />
+						{/if}
+					</div>
+					{#if inheritedLabels?.length}
+						<p class="-mt-5 text-2xs text-tertiary">
+							Gray labels are inherited from the folder and can only be edited there.
+						</p>
+					{/if}
+					<Label label="Path">
+						{#if own}
+							<div data-path-edit-path>
+								<Path
+									autofocus={false}
+									bind:path={editPath}
+									bind:dirty={dirtyPath}
+									initialPath={path ?? ''}
+									namePlaceholder={kind}
+									kind={pathKind}
+									size="sm"
+									drawerOffset={4000}
+								/>
+							</div>
+						{:else}
+							<span class="text-xs font-mono text-secondary">{path}</span>
+							<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
+						{/if}
+					</Label>
+					{#if onBehalfOfEmail}
+						<Alert type="info" title="Run on behalf of" size="xs">
+							This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
+						</Alert>
+					{/if}
+					<Button
+						size="xs"
+						variant="accent"
+						disabled={!hasChanges}
+						title="Save summary and path"
+						onclick={() => save(close)}
+					>
+						Save
+					</Button>
+				{:else}
+					<label class="block text-primary">
+						<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
+						<TextInput
+							bind:this={summaryInput}
+							inputProps={{
+								type: 'text',
+								placeholder: 'Short summary',
+								onkeydown: (e) => {
+									if (e.key === 'Enter') {
+										close()
+									}
+								}
+							}}
+							bind:value={summary}
+						/>
+					</label>
+					<div class="block text-primary">
+						<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
+						<div data-path-edit-path>
+							<Path
+								autofocus={false}
+								bind:path
+								bind:dirty={dirtyPath}
+								initialPath={path ?? ''}
+								namePlaceholder={kind}
+								kind={pathKind}
+								size="sm"
+								drawerOffset={4000}
+							/>
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/snippet}
+	</Popover>
+{/snippet}
+
+{#if label && (editable || onSaved)}
+	<!-- The host draws the row this hangs in — the band's path segment — so only the trigger comes
+	     from here: no path line above it, and no second copy of the labels. -->
+	{@render editor()}
+{:else if editable || onSaved}
+	<!-- The name itself opens the popover, the same way the editors do it. Only the name: the whole
+	     block was the trigger once, which meant a path or a label you only wanted to read answered
+	     a click. -->
 	<div
 		class="min-w-0 truncate flex {compact
 			? 'items-center px-1 py-0.5'
@@ -137,148 +296,24 @@
 				>{path}</span
 			>
 		{/if}
-		<div class="group flex items-center gap-3 max-w-full min-w-0">
-			<span
-				class="{compact ? 'text-xs font-medium' : 'text-sm font-semibold'} truncate {emptyString(
-					summary
-				)
-					? 'text-tertiary italic font-normal'
-					: 'text-emphasis'}"
-			>
-				{emptyString(summary) ? 'Add a summary...' : summary}
-			</span>
+		<div class="flex items-center gap-3 max-w-full min-w-0">
+			{@render editor()}
+			<!-- Outside the trigger: a label is read, not clicked through to a rename. -->
 			{#if labels?.length}
 				<div class="flex items-center gap-0.5">
-					{#each labels as label}
-						<Badge color="blue" verySmall class="px-1" title="Label: {label}">{label}</Badge>
+					{#each labels as labelText}
+						<Badge color="blue" verySmall class="px-1" title="Label: {labelText}">{labelText}</Badge
+						>
 					{/each}
 				</div>
 			{/if}
 			<InheritedLabels labels={inheritedLabels} />
-			<Popover
-				class="shrink-0"
-				placement="bottom-start"
-				contentClasses="p-4"
-				usePointerDownOutside
-				excludeSelectors=".drawer"
-				disableFocusTrap
-				openFocus={() => {
-					summaryInput?.focus()
-					return null
-				}}
-				bind:isOpen={popoverOpen}
-			>
-				{#snippet trigger()}
-					<!-- Both of the popover's arms show the summary and the path, and ownership — which
-					     is only resolved once it opens — decides whether the path can be changed, not
-					     whether it is there. -->
-					<PathEditPen
-						label="Edit summary and path"
-						visibility={emptyString(summary) ? 'always' : 'hover'}
-						open={popoverOpen}
-					/>
-				{/snippet}
-				{#snippet content({ close })}
-					<div class="flex flex-col gap-6 w-[480px]">
-						{#if onSaved}
-							<Label label="Summary">
-								<TextInput
-									bind:this={summaryInput}
-									inputProps={{
-										type: 'text',
-										placeholder: 'Short summary',
-										onkeydown: (e) => {
-											if (e.key === 'Enter') {
-												save(close)
-											}
-										}
-									}}
-									bind:value={editSummary}
-								/>
-							</Label>
-							<div class="-mt-4 flex items-center gap-2">
-								<LabelsInput
-									bind:labels
-									onchange={() => {
-										labelsDirty = true
-									}}
-								/>
-								{#if inheritedLabels?.length}
-									<InheritedLabels labels={inheritedLabels} />
-								{/if}
-							</div>
-							{#if inheritedLabels?.length}
-								<p class="-mt-5 text-2xs text-tertiary">
-									Gray labels are inherited from the folder and can only be edited there.
-								</p>
-							{/if}
-							<Label label="Path">
-								{#if own}
-									<Path
-										autofocus={false}
-										bind:path={editPath}
-										bind:dirty={dirtyPath}
-										initialPath={path ?? ''}
-										namePlaceholder={kind}
-										kind={pathKind}
-										size="sm"
-										drawerOffset={4000}
-									/>
-								{:else}
-									<span class="text-xs font-mono text-secondary">{path}</span>
-									<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
-								{/if}
-							</Label>
-							{#if onBehalfOfEmail}
-								<Alert type="info" title="Run on behalf of" size="xs">
-									This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
-								</Alert>
-							{/if}
-							<Button
-								size="xs"
-								variant="accent"
-								disabled={!hasChanges}
-								title="Save summary and path"
-								onclick={() => save(close)}
-							>
-								Save
-							</Button>
-						{:else}
-							<label class="block text-primary">
-								<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
-								<TextInput
-									bind:this={summaryInput}
-									inputProps={{
-										type: 'text',
-										placeholder: 'Short summary',
-										onkeydown: (e) => {
-											if (e.key === 'Enter') {
-												close()
-											}
-										}
-									}}
-									bind:value={summary}
-								/>
-							</label>
-							<div class="block text-primary">
-								<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
-								<Path
-									autofocus={false}
-									bind:path
-									bind:dirty={dirtyPath}
-									initialPath={path ?? ''}
-									namePlaceholder={kind}
-									kind={pathKind}
-									size="sm"
-									drawerOffset={4000}
-								/>
-							</div>
-						{/if}
-					</div>
-				{/snippet}
-			</Popover>
 		</div>
 	</div>
+{:else if label}
+	<!-- Nothing to open, but the host still drew this into a slot of its own: give back what it
+	     handed over rather than this component's own block, which belongs in a row it owns. -->
+	{@render label()}
 {:else}
 	<div class="min-w-0 truncate flex items-center {compact ? '' : 'flex-col px-2'}">
 		{#if !emptyString(summary) && !compact}
