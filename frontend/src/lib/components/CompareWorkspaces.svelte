@@ -97,6 +97,8 @@
 		onRetry?: () => void
 		onSelectTarget?: (target: string) => void
 		comparison: WorkspaceComparison | undefined
+		/** The comparison is still in flight, so an empty list says nothing yet. */
+		comparisonLoading?: boolean
 		/** Set when the comparison request failed (e.g. not an admin of the target). */
 		comparisonError?: string
 		/** Initial merge direction; lets the page restore the chosen direction when
@@ -144,6 +146,7 @@
 		onRetry,
 		onSelectTarget,
 		comparison,
+		comparisonLoading = false,
 		comparisonError,
 		initialMergeIntoParent = true,
 		deployCount = 0,
@@ -486,6 +489,12 @@
 	// Summary cache: stores summaries from both workspaces
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
 	let summaryCache = $state<SummaryCache>({})
+	// What has already been asked for. Deliberately not `$state`: the fetchers below run inside an
+	// effect, and a guard that reads reactive state makes that effect depend on what it writes —
+	// which is a loop. A plain Set is also what tells "asked, and the answer was nothing" from
+	// "never asked", which a value map cannot when the value for both is `undefined`.
+	const summariesRequested = new Set<string>()
+	const onBehalfOfRequested = new Set<string>()
 
 	// On-behalf-of tracking for flows and scripts
 	// Source workspace on_behalf_of emails (keyed by workspace/kind:path)
@@ -533,10 +542,10 @@
 		for (const diff of itemsToFetch) {
 			const key = getItemKey(diff)
 
-			// Skip if already cached or loading
-			if (summaryCache[key]) continue
+			// Asked for already — including one still in flight, and one whose answer was nothing.
+			if (summariesRequested.has(key)) continue
+			summariesRequested.add(key)
 
-			// Mark as loading
 			summaryCache[key] = { loading: true }
 
 			// Fetch from both workspaces in parallel
@@ -564,7 +573,11 @@
 		for (const diff of itemsWithOnBehalfOf) {
 			for (const workspace of [currentWorkspaceId, parentWorkspaceId]) {
 				const workspacedKey = getWorkspacedKey(workspace, getItemKey(diff))
-				if (onBehalfOfInfo[workspacedKey] !== undefined) continue
+				// Marked before the request, not after it answers: an item that is only ahead does not
+				// exist in the parent, so that side always fails, and a guard keyed on the value it
+				// stores (`undefined` either way) would ask again on every pass, forever.
+				if (onBehalfOfRequested.has(workspacedKey)) continue
+				onBehalfOfRequested.add(workspacedKey)
 
 				try {
 					onBehalfOfInfo[workspacedKey] = await getOnBehalfOf(
@@ -1004,11 +1017,29 @@
 		)
 	)
 
-	// Fetch summaries and on_behalf_of_email when comparison data loads
+	// A different pair is a different question, and what was asked answered the old one. The summary
+	// key carries only kind and path, so without this a switched target keeps the previous parent's
+	// summaries — and the two Sets would keep it from ever asking again.
 	$effect(() => {
-		if (comparison?.diffs) {
-			fetchSummaries(comparison.diffs)
-			fetchOnBehalfOfInfo(comparison.diffs)
+		;[currentWorkspaceId, parentWorkspaceId]
+		untrack(() => {
+			summaryCache = {}
+			onBehalfOfInfo = {}
+			summariesRequested.clear()
+			onBehalfOfRequested.clear()
+		})
+	})
+
+	// Fetch summaries and on_behalf_of_email when comparison data loads. `untrack`: both fetchers
+	// write the state they also read, and without this the effect depends on their writes and
+	// re-runs on each one.
+	$effect(() => {
+		const diffs = comparison?.diffs
+		if (diffs) {
+			untrack(() => {
+				fetchSummaries(diffs)
+				fetchOnBehalfOfInfo(diffs)
+			})
 		}
 	})
 
@@ -1229,6 +1260,7 @@
 				onSelectAll={selectAll}
 				onDeselectAll={deselectAll}
 				emptyMessage={emptyDeployMessage}
+				loading={comparisonLoading}
 			>
 				{#snippet header()}
 					<div class="flex items-center justify-between bg-surface-tertiary">

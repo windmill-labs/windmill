@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import CompareWorkspaces from '$lib/components/CompareWorkspaces.svelte'
 	import CompareDrafts from '$lib/components/CompareDrafts.svelte'
 	import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
@@ -229,6 +230,7 @@
 			return
 		}
 		const seq = ++comparisonReq
+		comparisonLoading = true
 
 		try {
 			const result = await fetchWorkspaceComparison(compareTargetId, currentWorkspaceId)
@@ -239,10 +241,17 @@
 			if (seq !== comparisonReq) return
 			comparisonError = e?.body ?? e?.message ?? String(e)
 			console.error('Failed to compare workspaces:', e)
+		} finally {
+			// Only the request still being waited on clears the flag: an older one landing late
+			// would otherwise report the newer pair as answered.
+			if (seq === comparisonReq) comparisonLoading = false
 		}
 	}
 
 	let comparisonError = $state<string | undefined>(undefined)
+	/** Tracked rather than inferred from an absent comparison: a failed one is also absent, and a
+	 *  spinner that never stops is worse than a message. */
+	let comparisonLoading = $state(false)
 
 	$effect(() => {
 		;[currentWorkspaceId, compareTargetId]
@@ -250,6 +259,7 @@
 		untrack(() => {
 			comparison = undefined
 			comparisonError = undefined
+			comparisonLoading = true
 			checkForChanges()
 		})
 	})
@@ -390,6 +400,10 @@
 	}
 </script>
 
+<!-- Named here rather than left to the route: the breadcrumb's fallback reads the first segment,
+     which would call this page "Forks" — the thing it compares, not what it is. -->
+<PageHeaderContent section={{ label: 'Compare' }} />
+
 <CenteredPage>
 	<PageHeader title="Compare & Deploy">
 		<div class="flex flex-row gap-2 items-center">
@@ -456,6 +470,7 @@
 				onSelectTarget={selectTarget}
 				{comparison}
 				{comparisonError}
+				{comparisonLoading}
 				initialMergeIntoParent={forkDirection === 'deploy_to'}
 				{deployCount}
 				{updateCount}

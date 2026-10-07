@@ -38,6 +38,9 @@
 		deploymentStatus: Record<string, { status: 'loading' | 'deployed' | 'failed'; error?: string }>
 		allSelected?: boolean
 		emptyMessage?: string
+		/** The list is empty because it has not arrived yet. An empty list and an unanswered one
+		 *  look alike from here, and "no changes" is a claim that needs an answer behind it. */
+		loading?: boolean
 		hideSelection?: boolean
 		children?: Snippet
 
@@ -70,6 +73,7 @@
 		deploymentStatus,
 		allSelected = false,
 		emptyMessage = 'No items to deploy',
+		loading = false,
 		hideSelection = false,
 		header,
 		alerts,
@@ -307,6 +311,11 @@
 					{/each}
 				{/each}
 			</div>
+		</div>
+	{:else if loading}
+		<div class="flex items-center justify-center h-full gap-2 text-hint text-xs">
+			<Loader2 class="animate-spin w-4 h-4" />
+			Comparing…
 		</div>
 	{:else}
 		<div class="flex items-center justify-center h-full">
