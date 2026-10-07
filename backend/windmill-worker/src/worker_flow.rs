@@ -296,8 +296,9 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     flow_job_duration: Option<FlowJobDuration>,
     stop_early_override: Option<bool>,
     has_triggered_error_handler: bool,
-    /// The child's error handler returned `recover: true`: the stop it sends ends every
-    /// enclosing flow as a success instead of only breaking an enclosing loop.
+    /// The failed child's error handler returned `recover: true`. The parent still handles the
+    /// failure as it would any other, so the same steps run; only if that failure ends the
+    /// parent does the parent end as a success.
     recovered_by_child: bool,
 }
 
@@ -433,7 +434,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     worker_dir: &str,
     stop_early_override: Option<bool>,
     has_triggered_error_handler: bool,
-    recovered_by_child: bool,
+    mut recovered_by_child: bool,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
     flow_runners: Option<Arc<FlowRunners>>,
@@ -457,7 +458,6 @@ pub async fn update_flow_status_after_job_completion_internal(
         nresult,
         is_failure_step,
         failure_step_recovers,
-        recovered_by_child,
         _cleanup_module,
         chat_ai_info,
     ) = {
@@ -677,36 +677,17 @@ pub async fn update_flow_status_after_job_completion_internal(
             false
         };
 
-        let skip_seq_branch_failure = match module_status {
-            FlowStatusModule::InProgress {
-                branchall: Some(BranchAllStatus { branch, .. }),
-                parallel: false,
-                ..
-            } => {
-                compute_skip_branchall_failure(branch.to_owned(), false, current_module, &None)
-                    .await?
-            }
-            _ => false,
-        };
-
-        // A recovered child is a successful one where its parent already skips failed
-        // children: there the recovery must not stop the flow either.
-        let honors_child_stop = stop_early_override.is_some()
-            && !is_flow_stop_early_override
-            && !parallel_loop
-            && !parallel_branchall
-            && !(recovered_by_child && (skip_loop_failures || skip_seq_branch_failure));
-        // Where the child's stop is ignored, a stop this module raises on its own (its
-        // stop_after_if) must keep the ordinary loop-break behaviour.
-        let recovered_by_child = recovered_by_child && honors_child_stop;
-
         let (
             mut stop_early,
             mut stop_early_err_msg,
             mut skip_if_stop_early,
             mut stop_early_include_result,
             continue_on_error,
-        ) = if honors_child_stop {
+        ) = if stop_early_override.is_some()
+            && !is_flow_stop_early_override
+            && !parallel_loop
+            && !parallel_branchall
+        {
             // we ignore stop_early_override (stop_early in children) if module is parallel or is a flow step
             let se = stop_early_override.as_ref().unwrap();
             (true, None, *se, false, false)
@@ -778,6 +759,18 @@ pub async fn update_flow_status_after_job_completion_internal(
             )
         } else {
             (false, None, false, false, false)
+        };
+
+        let skip_seq_branch_failure = match module_status {
+            FlowStatusModule::InProgress {
+                branchall: Some(BranchAllStatus { branch, .. }),
+                parallel: false,
+                ..
+            } => {
+                compute_skip_branchall_failure(branch.to_owned(), false, current_module, &None)
+                    .await?
+            }
+            _ => false,
         };
 
         let mut tx = db.begin().await?;
@@ -1112,6 +1105,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         has_triggered_error_handler = false;
                     }
+                    // Recovered iterations are stored as successes, so a failed parallel
+                    // node failed on an iteration that did not recover.
+                    recovered_by_child = false;
                     (success, Some(new_status))
                 } else {
                     add_time!(bench, "handle parallel flow start");
@@ -1215,7 +1211,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             _ => {
                 // this case is when when not a parallel loops/branchall and not an in progress loop/branchall
 
-                if stop_early && is_loop && !recovered_by_child {
+                if stop_early && is_loop {
                     // if we're stopping early inside a (non-parallel) loop, we don't want to bubble up the stop_early to the parent => we only want to break the loop (see conditions in match above)
                     stop_early = false;
                     stop_early_err_msg = None;
@@ -1223,7 +1219,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     stop_early_include_result = false;
                 }
 
-                if (is_loop && !recovered_by_child) || (is_branch_all && !stop_early) {
+                if is_loop || (is_branch_all && !stop_early) {
                     // when we finish a loop or branchall, we only want to evaluate stop_after_all_iters_if if:
                     //  -  we're in a loop (non-parallel)
                     //  -  we're in a branchall and it wasn't stopped early from inside (non-parallel branchall stopped inside => stop flow => no need to evaluate stop_after_all_iters_if)
@@ -1856,7 +1852,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             nresult,
             is_failure_step,
             failure_step_recovers,
-            recovered_by_child,
             old_status.cleanup_module,
             chat_ai_info,
         )
@@ -1868,12 +1863,12 @@ pub async fn update_flow_status_after_job_completion_internal(
         {
             let logs = if flow_job.is_canceled() {
                 "Flow job canceled\n".to_string()
-            } else if stop_early && recovered_by_child {
-                format!("Flow job completed with success because an inner step's error handler returned recover: true\n")
             } else if stop_early {
                 format!("Flow job stopped early because of a stop early predicate returning true\n")
             } else if is_failure_step {
                 format!("Flow job completed with error, and error handler was triggered.\nIt completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, failure_step_recovers)
+            } else if !success && recovered_by_child {
+                format!("Flow job completed with success: the step that failed had its error recovered by the error handler (recover: true)\n")
             } else {
                 format!(
                     "Flow job completed with {}\n",
@@ -2070,7 +2065,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .await;
             }
 
-            let success = success && (!is_failure_step || failure_step_recovers);
+            let success = if is_failure_step {
+                success && failure_step_recovers
+            } else {
+                success || recovered_by_child
+            };
 
             add_time!(bench, "flow status update 1");
 
@@ -2190,23 +2189,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                     RecUpdateFlowStatusAfterJobCompletion {
                         flow: parent_job,
                         job_id_for_status: flow,
-                        success: success && (!is_failure_step || failure_step_recovers),
+                        success: success && !is_failure_step,
                         canceled_by: if !success { canceled_by.clone() } else { None },
                         flow_job_duration: flow_job_duration.clone(),
                         result: nresult.clone(),
-                        // A recovered inner flow ends the root flow as a success, as the error
-                        // handler does at the top level, rather than letting the loop or branch
-                        // carry on to its next iteration and steps.
                         stop_early_override: if stop_early {
                             Some(skip_if_stop_early)
-                        } else if failure_step_recovers {
-                            Some(false)
                         } else {
                             None
                         },
                         has_triggered_error_handler: has_triggered_error_handler || is_failure_step,
-                        recovered_by_child: failure_step_recovers
-                            || (recovered_by_child && stop_early),
+                        recovered_by_child: failure_step_recovers || (recovered_by_child && !success),
                     },
                 ));
             }

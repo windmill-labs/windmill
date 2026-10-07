@@ -4698,10 +4698,9 @@ async fn test_run_wait_result_early_return_with_failure_module(
     Ok(())
 }
 
-/// `recover: true` from the error handler of a step that fails inside a loop must end the
-/// whole flow as a success, as it does for a top-level step: not fail the flow, and not let
-/// the loop run its next iterations or the steps after it. A loop that skips failures already
-/// carries on past a failed iteration, and must keep doing so.
+/// `recover: true` from the error handler of a step that fails inside a loop turns the flow
+/// green, as it does for a top-level step, without changing which steps run: a loop that
+/// stops at a failed iteration still stops there, one that skips failures still carries on.
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -4765,12 +4764,11 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
     server.close().await.unwrap();
 
     assert!(stopped.success, "a recovered failure inside a loop should end the flow as a success");
-    assert_eq!(
-        stopped.json_result().unwrap(),
-        json!([{ "handled": true, "recover": true }]),
-        "the flow ends with the loop's output, which holds the handler's result"
+    assert!(
+        stopped.json_result().unwrap().get("ran_b").is_none(),
+        "the step after the loop must not run, as without recovery"
     );
-    assert_eq!(stopped_handler_runs, 1, "the loop must stop at the first recovered iteration");
+    assert_eq!(stopped_handler_runs, 1, "the loop must stop at the first failed iteration");
 
     assert!(skipping.success);
     assert_eq!(
