@@ -7523,6 +7523,18 @@ async fn push_inner<'c, 'd>(
                 concurrency_settings.concurrency_time_window_s,
             )
         };
+    // jsonb rejects the `\u0000` escape (22P05), which would fail the whole push, and args are
+    // not always what a caller typed: a flow step's are evaluated from the previous step's
+    // in-memory result, an agent tool's are written by the model.
+    let serialized_args = serde_json::value::to_raw_value(&args).map_err(|e| {
+        Error::internal_err(format!("Could not serialize args of job {job_id}: {e:#}"))
+    })?;
+    let sanitized_args = match strip_json_nul(serialized_args.get()) {
+        Cow::Owned(stripped) => RawValue::from_string(stripped).map_err(|e| {
+            Error::internal_err(format!("Could not sanitize args of job {job_id}: {e:#}"))
+        })?,
+        Cow::Borrowed(_) => serialized_args,
+    };
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (
@@ -7589,7 +7601,7 @@ async fn push_inner<'c, 'd>(
         permissioned_as,
         runnable_id,
         runnable_path.clone(),
-        Json(args) as Json<PushArgs>,
+        Json(sanitized_args) as Json<Box<RawValue>>,
         job_kind.clone() as JobKind,
         trigger_path.flatten(),
         language as Option<ScriptLang>,

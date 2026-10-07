@@ -107,7 +107,7 @@ pub struct ExpiringAuthCache {
 /// Whether `target` belongs to the flow run of the job `job_id`: the job itself, one of its
 /// ancestors, or a job whose parent or root is one of them (a sibling step, a loop or branch
 /// iteration, any job pushed as a child of one of them). A lookup that fails reads as no.
-async fn job_in_same_flow_run(db: &DB, job_id: uuid::Uuid, target: uuid::Uuid) -> bool {
+pub async fn job_in_same_flow_run(db: &DB, job_id: uuid::Uuid, target: uuid::Uuid) -> bool {
     if job_id == target {
         return true;
     }

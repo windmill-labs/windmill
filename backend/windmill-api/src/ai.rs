@@ -503,9 +503,10 @@ async fn assume_bedrock_role(
 ) -> Result<windmill_ai::ai_bedrock::AssumedRoleCredentials> {
     #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
     {
-        use windmill_common::oidc_oss::{generate_id_token, WorkspaceClaim};
+        use windmill_common::oidc_oss::{generate_id_token, OidcCaller, WorkspaceClaim};
 
         let id_token = generate_id_token(
+            OidcCaller::Bedrock,
             Some(db),
             WorkspaceClaim { workspace: w_id.to_string() },
             windmill_ai::ai_bedrock::AWS_OIDC_AUDIENCE,
@@ -1255,8 +1256,8 @@ async fn proxy(
         .get("X-Resource-Value")
         .map(|v| {
             let invalid = |e: String| Error::BadRequest(format!("Invalid X-Resource-Value: {e}"));
-            let decoded =
-                urlencoding::decode(v.to_str().unwrap_or("")).map_err(|e| invalid(e.to_string()))?;
+            let decoded = urlencoding::decode(v.to_str().unwrap_or(""))
+                .map_err(|e| invalid(e.to_string()))?;
             let value = serde_json::from_str::<serde_json::Value>(&decoded)
                 .map_err(|e| invalid(e.to_string()))?;
             check_scopes(&authed, || "resources:write".to_string())?;

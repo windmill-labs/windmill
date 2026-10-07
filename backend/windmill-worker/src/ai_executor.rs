@@ -1915,7 +1915,7 @@ pub async fn run_agent(
                         query_builder.parse_image_response(resp).await?
                     }
                 };
-                Ok(parsed)
+                Ok(parsed.without_nul())
             }.await;
 
             match attempt {

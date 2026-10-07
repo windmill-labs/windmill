@@ -498,6 +498,28 @@ async fn get_result_by_id(
         view_token.as_deref(),
     )
     .await?;
+    // The node is resolved up through the enclosing flows, so a read path that admitted
+    // `flow_id` as a step must also admit the run it is a step of. A path-scoped
+    // `jobs:read` does not reach this route; a `jobs:run` scope beside it does.
+    if windmill_api_auth::scopes::job_read_confinement(authed.scopes.as_deref())
+        .is_some_and(|c| c.has_read_paths())
+    {
+        let top = sqlx::query_scalar::<_, Uuid>(
+            "WITH RECURSIVE chain(id, parent_job) AS (
+                SELECT id, parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2
+                UNION ALL
+                SELECT j.id, j.parent_job FROM v2_job j
+                    JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
+            )
+            SELECT id FROM chain WHERE parent_job IS NULL",
+        )
+        .bind(flow_id)
+        .bind(&w_id)
+        .fetch_optional(&db)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Job {flow_id} not found")))?;
+        require_job_within_read_scope(&db, &authed, &w_id, &top).await?;
+    }
 
     let res =
         windmill_queue::get_result_by_id(db.clone(), w_id.clone(), flow_id, node_id, json_path)
@@ -1729,7 +1751,7 @@ async fn require_job_access(
     job_id: &Uuid,
     created_by: &str,
     view_token: Option<&str>,
-    run_confined: bool,
+    read_confined: bool,
 ) -> error::Result<()> {
     // Tag scope (`if_jobs:filter_tags:`) is an orthogonal hard restriction on a
     // scoped token: it must never read a job outside its allowed tags, regardless of
@@ -1754,11 +1776,11 @@ async fn require_job_access(
         }
     }
 
-    // A path-scoped `jobs:run` token is likewise hard-restricted to the runnables it
-    // may start, ahead of every grant below — the token is handed out to run one thing,
-    // so it must not read jobs of anything else merely because its owner could.
-    if run_confined {
-        require_job_within_run_scope(db, authed, w_id, job_id).await?;
+    // A path-scoped `jobs:run` or `jobs:read` token is likewise hard-restricted to the
+    // runnables it names, ahead of every grant below — the token is handed out for one
+    // thing, so it must not read jobs of anything else merely because its owner could.
+    if read_confined {
+        require_job_within_read_scope(db, authed, w_id, job_id).await?;
     }
 
     // Fast path: you can always read a job you launched. This is also load-bearing
@@ -1907,20 +1929,35 @@ async fn require_job_access(
 /// could start an app's inline-script component but not read the run back — those jobs
 /// are `AppScript`/`Preview` kinds that no `jobs:run` scope can name.
 ///
-/// No-op — and no query — for every caller whose job reads are not run-confined (see
-/// `job_read_run_confinement`), which is all sessions, unscoped tokens and `jobs:read`
-/// tokens.
-async fn require_job_within_run_scope(
+/// A `jobs:read:<paths>` scope confines the same way, by path alone: the job, or one of
+/// its ancestors, must be a run of a deployed script, flow or agent at a named path.
+/// Only those kinds count, because a preview's `runnable_path` is whatever its caller
+/// sent and would otherwise let any preview pass for a named runnable.
+///
+/// No-op — and no query — for every caller whose job reads are not confined (see
+/// `job_read_confinement`), which is all sessions, unscoped tokens and tokens whose
+/// `jobs:read` names no path.
+async fn require_job_within_read_scope(
     db: &DB,
     authed: &ApiAuthed,
     w_id: &str,
     job_id: &Uuid,
 ) -> error::Result<()> {
     let Some(confinement) =
-        windmill_api_auth::scopes::job_read_run_confinement(authed.scopes.as_deref())
+        windmill_api_auth::scopes::job_read_confinement(authed.scopes.as_deref())
     else {
         return Ok(());
     };
+    // A job whose token is restricted by `job_token_scopes` still reads its own flow run
+    // (step results, user state), which the route check lets through whatever the
+    // scopes. A read path names what else it may read, not a fence around its own run.
+    if let Some(own_job) = authed.job_id {
+        if confinement.has_read_paths()
+            && windmill_api_auth::auth::job_in_same_flow_run(db, own_job, *job_id).await
+        {
+            return Ok(());
+        }
+    }
     // `scope_kind` is the runnable kind a `jobs:run:<kind>:<path>` scope can name, or
     // NULL for a job no such scope reaches directly (previews, dependency jobs,
     // flow-inlined scripts) — those are still readable as a step of a matching flow,
@@ -1968,13 +2005,7 @@ async fn require_job_within_run_scope(
     let in_scope =
         chain.iter().any(
             |job| match (job.runnable_path.as_deref(), job.scope_kind.as_deref()) {
-                (Some(runnable_path), Some(kind))
-                    if windmill_api_auth::scopes::run_confinement_admits(
-                        &confinement,
-                        kind,
-                        runnable_path,
-                    ) =>
-                {
+                (Some(runnable_path), Some(kind)) if confinement.admits(kind, runnable_path) => {
                     true
                 }
                 _ => job.launched_by_app.as_deref().is_some_and(&runs_app),
@@ -1996,7 +2027,7 @@ async fn require_job_within_run_scope(
 /// is within a scope on the flow. Only those kinds count, because a preview's
 /// `runnable_path` is whatever its caller sent and would otherwise let any preview
 /// impersonate an in-scope runnable. Agent runs are previews filed under the agent's
-/// path, recognized the same way `require_job_within_run_scope` does.
+/// path, recognized the same way `require_job_within_read_scope` does.
 async fn filter_jobs_within_cancel_scope(
     db: &DB,
     authed: &ApiAuthed,
@@ -2270,7 +2301,7 @@ async fn require_job_cancel_access(
     .fetch_optional(db)
     .await?
     .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
-    let run_confined = !windmill_api_auth::scopes::has_job_cancel_grant(authed.scopes.as_deref());
+    let read_confined = !windmill_api_auth::scopes::has_job_cancel_grant(authed.scopes.as_deref());
     require_job_access(
         db,
         user_db,
@@ -2279,7 +2310,7 @@ async fn require_job_cancel_access(
         job_id,
         &created_by,
         None,
-        run_confined,
+        read_confined,
     )
     .await?;
     require_job_within_cancel_scope(db, authed, w_id, *job_id).await
@@ -2415,7 +2446,7 @@ async fn get_job(
         // an approval link for a job must not let a scoped token read one outside the
         // runnables it may start.
         if let Some(authed) = opt_authed.as_ref() {
-            require_job_within_run_scope(&db, authed, &w_id, &id).await?;
+            require_job_within_read_scope(&db, authed, &w_id, &id).await?;
         }
     } else {
         require_opt_authed_job_read_access(
@@ -4390,6 +4421,17 @@ struct ListableQueuedJob {
     pub workspace_id: String,
 }
 
+/// Narrows a job list to what a path-scoped `jobs:read:<paths>` token may read: the
+/// top-level runs of the runnables it names. A step is read by id, under its flow. No-op
+/// for every caller whose lists are not path-filtered (see `job_list_path_filter`).
+fn confine_list_to_read_scope(sqlb: &mut SqlBuilder, authed: &ApiAuthed) {
+    if let windmill_api_auth::ScopePathFilter::Restricted { exact, prefix } =
+        windmill_api_auth::scopes::job_list_path_filter(authed.scopes.as_deref())
+    {
+        and_where_root_run_at_paths(sqlb, &exact, &prefix);
+    }
+}
+
 async fn list_queue_jobs(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -4411,7 +4453,7 @@ async fn list_queue_jobs(
         "null as args"
     };
 
-    let sql = list_queue_jobs_query(
+    let mut sqlb = list_queue_jobs_query(
         &w_id,
         &lq,
         &[
@@ -4441,8 +4483,9 @@ async fn list_queue_jobs(
         pagination,
         false,
         get_scope_tags(&authed),
-    )
-    .sql()?;
+    );
+    confine_list_to_read_scope(&mut sqlb, &authed);
+    let sql = sqlb.sql()?;
     let mut tx = user_db.begin(&authed).await?;
     let jobs = sqlx::query_as::<_, ListableQueuedJob>(&sql)
         .fetch_all(&mut *tx)
@@ -4863,7 +4906,7 @@ async fn list_jobs(
     }
 
     let sqlc = if lq.running.is_none() {
-        Some(list_completed_jobs_query(
+        let mut sqlc = list_completed_jobs_query(
             &w_id,
             Some(per_page),
             0,
@@ -4871,7 +4914,9 @@ async fn list_jobs(
             cj_fields_ref,
             true,
             get_scope_tags(&authed),
-        ))
+        );
+        confine_list_to_read_scope(&mut sqlc, &authed);
+        Some(sqlc)
     } else {
         None
     };
@@ -4898,6 +4943,7 @@ async fn list_jobs(
             true,
             get_scope_tags(&authed),
         );
+        confine_list_to_read_scope(&mut sqlq, &authed);
 
         if let Some(sqlc) = sqlc {
             format!("{} UNION ALL {}", &sqlq.subquery()?, &sqlc.subquery()?,)
@@ -5321,6 +5367,11 @@ async fn get_approval_info(
             "Must be logged in or provide a valid approval token".to_string(),
         ));
     }
+    // Nothing below goes through `require_job_read_access`, and an approval token is no
+    // way around a scoped token's confinement.
+    if let Some(authed) = opt_authed.as_ref() {
+        require_job_within_read_scope(&db, authed, &w_id, &job_id).await?;
+    }
 
     // Fetch job info
     #[derive(sqlx::FromRow)]
@@ -5553,8 +5604,17 @@ async fn get_approval_info(
     // Possession of view rights over this approval is sufficient to mint a
     // share-read-link token for the flow: it only grants read (no resume), and only to
     // an authenticated workspace member, so it never widens what the approver can do.
-    let hmac = generate_view_token(&w_id, row.id, VIEW_TOKEN_DOMAIN, &db).await?;
-    let view_token = Some(format!("{}.{hmac}", row.id));
+    // Not for a token whose reads are confined: the link would outlive it and serve any
+    // member, which is why `job_view_token` is refused to it too.
+    let confined = opt_authed.as_ref().is_some_and(|authed| {
+        windmill_api_auth::scopes::job_read_confinement(authed.scopes.as_deref()).is_some()
+    });
+    let view_token = if confined {
+        None
+    } else {
+        let hmac = generate_view_token(&w_id, row.id, VIEW_TOKEN_DOMAIN, &db).await?;
+        Some(format!("{}.{hmac}", row.id))
+    };
 
     Ok(Json(ApprovalInfo {
         flow_id: row.id,
@@ -6016,7 +6076,7 @@ pub async fn get_suspended_job_flow(
     // resume secret must not let a scoped token read a flow it may not run. Anonymous
     // approvers are unaffected.
     if let Some(authed) = authed.as_ref() {
-        require_job_within_run_scope(&db, authed, &w_id, &flow_id).await?;
+        require_job_within_read_scope(&db, authed, &w_id, &flow_id).await?;
     }
 
     let flow = GetQuery::new()
@@ -6200,7 +6260,7 @@ pub async fn get_flow_user_state(
     // Reachable by a `jobs:run` token (it is one of the by-id routes a run needs), so
     // apply the same run-scope confinement as the other single-job reads. RLS below
     // still governs which jobs the owner's identity can see at all.
-    require_job_within_run_scope(&db, &authed, &w_id, &job_id).await?;
+    require_job_within_read_scope(&db, &authed, &w_id, &job_id).await?;
     let mut tx = user_db.begin(&authed).await?;
     let r = sqlx::query_scalar!(
         r#"
@@ -11429,7 +11489,7 @@ async fn list_completed_jobs(
         "null as args"
     };
 
-    let sql = list_completed_jobs_query(
+    let mut sqlb = list_completed_jobs_query(
         &w_id,
         Some(per_page),
         offset,
@@ -11469,8 +11529,9 @@ async fn list_completed_jobs(
         ],
         false,
         get_scope_tags(&authed),
-    )
-    .sql()?;
+    );
+    confine_list_to_read_scope(&mut sqlb, &authed);
+    let sql = sqlb.sql()?;
     let mut tx = user_db.begin(&authed).await?;
     let jobs = sqlx::query_as::<_, ListableCompletedJob>(&sql)
         .fetch_all(&mut *tx)
@@ -11649,7 +11710,7 @@ async fn get_completed_job_result(
         // confinement that gate carries — re-apply it, as `get_job` does for the
         // approval token. Anonymous approval access is untouched.
         if let Some(authed) = opt_authed.as_ref() {
-            require_job_within_run_scope(&db, authed, &w_id, &id).await?;
+            require_job_within_read_scope(&db, authed, &w_id, &id).await?;
         }
     } else {
         require_opt_authed_job_read_access(

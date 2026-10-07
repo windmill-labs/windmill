@@ -29,6 +29,13 @@ INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, sc
     ARRAY['jobs:run:flows:f/shared/flow1']
 );
 
+-- A path-scoped read token for test-user-2: it reads the runs of `f/shared/flow1` only.
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
+    encode(sha256('READ_SCOPED_TOKEN'::bytea), 'hex'), 'READ_SCOP', 'READ_SCOPED_TOKEN',
+    'test2@windmill.dev', 'flow history token', false,
+    ARRAY['jobs:read:f/shared/flow1']
+);
+
 -- Same, scoped to a script. The two jobs below both run through a `singlestepflow`
 -- wrapper (native retry / scheduled runs produce these) — one wrapping a script, one
 -- wrapping a flow — so the confinement has to project each onto the runnable it wraps
