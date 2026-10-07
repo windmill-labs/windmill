@@ -211,11 +211,10 @@ fn openai_input(state: &Value) -> Value {
 /// Exactly a message the Decisions API reads: `role: "user"` with a text, or with parts that are
 /// each an `input_text` or an `input_image`.
 fn is_openai_user_message(message: &Value) -> bool {
-    let is_part = |part: &Value| {
-        matches!(
-            part.get("type").and_then(Value::as_str),
-            Some("input_text" | "input_image")
-        )
+    let is_part = |part: &Value| match part.get("type").and_then(Value::as_str) {
+        Some("input_text") => part.get("text").is_some_and(Value::is_string),
+        Some("input_image") => part.get("image_url").is_some_and(Value::is_string),
+        _ => false,
     };
     message.get("role").and_then(Value::as_str) == Some("user")
         && match message.get("content") {
@@ -504,6 +503,8 @@ mod tests {
             json!([{"role": "user", "content": {"ticket": "charged twice"}}]),
             json!([{"role": "user", "content": null}]),
             json!([{"role": "user", "content": ["a"]}]),
+            json!([{"role": "user", "content": [{"type": "input_text", "text": {"t": 1}}]}]),
+            json!([{"role": "user", "content": [{"type": "input_image"}]}]),
         ] {
             assert_eq!(openai_input(&records), json!(records.to_string()));
         }
