@@ -10,6 +10,7 @@ describe("unwrapShellCommand", () => {
       `printf 'hi' > "a b"`
     );
     expect(unwrapShellCommand(`/bin/bash -lc 'echo '\\''x'\\'''`)).toBe(`echo 'x'`);
+    expect(unwrapShellCommand(`/bin/bash -lc 'rg -g '"'"'!x'"'"' f'`)).toBe(`rg -g '!x' f`);
   });
 });
 

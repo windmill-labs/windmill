@@ -75,7 +75,7 @@ export async function runCodex(
         env: {
           ...env,
           HOME: home,
-          CODEX_HOME: join(home, ".codex"),
+          CODEX_HOME: home,
           CODEX_API_KEY: env.OPENAI_API_KEY ?? "",
         },
         stdio: ["pipe", "pipe", "pipe"],
@@ -120,9 +120,7 @@ export async function runCodex(
           }
         } else if (isToolItem(item)) {
           inFlight = Math.max(0, inFlight - 1);
-          if (!capped) {
-            result.toolsUsed.push(...toToolInvocations(item));
-          }
+          result.toolsUsed.push(...toToolInvocations(item));
         }
       } else if (event.type === "turn.completed" && event.usage) {
         const prompt = event.usage.input_tokens ?? 0;
@@ -137,7 +135,11 @@ export async function runCodex(
     if (failure) {
       throw new Error(`codex: ${failure}`);
     }
-    if (code !== 0 && !capped) {
+    // Fail the attempt, as Claude Code does at its cap.
+    if (capped) {
+      throw new Error(`codex: reached maximum number of turns (${maxTurns})`);
+    }
+    if (code !== 0) {
       throw new Error(`codex exited with ${code}: ${stderr.trim()}`);
     }
   } finally {
@@ -176,7 +178,9 @@ export function unwrapShellCommand(command: string): string {
     return command;
   }
   const body = match[2]!;
-  return match[1] === "'" ? body.replaceAll(`'\\''`, "'") : body.replace(/\\(["\\$`])/g, "$1");
+  return match[1] === "'"
+    ? body.replaceAll(`'\\''`, "'").replaceAll(`'"'"'`, "'")
+    : body.replace(/\\(["\\$`])/g, "$1");
 }
 
 function isToolItem(item: CodexItem): boolean {

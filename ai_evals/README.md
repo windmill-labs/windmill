@@ -89,7 +89,21 @@ Notes:
 
 - the command also prints accepted alias spellings such as `gpt-4o`, `gpt-55`, `claude-opus-4.6`, and `claude-haiku-4.5`
 - frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, Gemini, and DeepSeek-backed aliases
-- `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
+- `cli` mode runs a coding agent over the workspace, chosen by the alias's `cli` entry; aliases without one are rejected there:
+
+  | Agent | Models | Label | Needs |
+  | --- | --- | --- | --- |
+  | Claude Code (`@anthropic-ai/claude-agent-sdk`) | Claude aliases | `anthropic:<model>` | `ANTHROPIC_API_KEY` |
+  | Claude Code on DeepSeek's Anthropic-compatible endpoint | `deepseek-v4-pro` | `claude-code:<model>` | `DEEPSEEK_API_KEY` |
+  | Codex (`codex exec --json`) | `gpt-6.1-sol`, `gpt-6-astra` | `codex:<model>` | `codex` on `PATH` (CI pins 0.159.3), `OPENAI_API_KEY` |
+
+  Codex runs with a throwaway `HOME`, so your own `~/.codex` config and skills stay out of the run. It has no
+  Skill tool: it finds `.agents/skills` on its own and loads a skill by reading its `SKILL.md`, so the trace
+  records any command that touches `.agents/skills/<name>/SKILL.md` as a `Skill` call to `<name>`, just
+  before that command. Its shell commands are recorded as `Bash` and its patches as `Edit`, so the
+  `invokes skill … before first mutation` checks compare the same things for both agents. Codex has no
+  turn cap; a run stops at `maxTurns` rounds of tool calls (parallel calls count once) and fails, as a
+  Claude Code run does at its cap.
 - the judge model is separate and currently defaults to `claude-sonnet-5-5`; use `--skip-judge` for deterministic-only runs
 
 ## Case Format
