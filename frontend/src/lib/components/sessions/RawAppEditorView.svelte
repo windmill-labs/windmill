@@ -89,7 +89,6 @@
 			files: { ...result.files },
 			runnables: { ...result.runnables, ...structuredClone(STARTER_RUNNABLES) },
 			data: result.data,
-			summary: result.summary,
 			policy: result.policy
 		}
 		cell.store.val = setUp

@@ -525,7 +525,7 @@
 			files: { ...result.files },
 			runnables: { ...result.runnables, ...structuredClone(STARTER_RUNNABLES) },
 			data: result.data,
-			summary: result.summary,
+			summary: '',
 			policy: result.policy
 		}
 		const workspace = $workspaceStore

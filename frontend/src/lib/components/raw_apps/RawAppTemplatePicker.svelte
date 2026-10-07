@@ -42,7 +42,6 @@
 		files: Record<string, string>
 		runnables: Record<string, Runnable>
 		data: RawAppData
-		summary: string
 		policy: Policy
 	}
 
@@ -68,7 +67,6 @@
 	let schemaMode = $state<'none' | 'new' | 'existing'>('new')
 	let selectedSchema = $state<string | undefined>(undefined)
 	let newSchemaName = $state('')
-	let appSummary = $state('')
 	let preWhitelistedTables = $state<DataTableRef[]>([])
 	/** The role each pre-whitelisted table's data table was browsed as. */
 	let preWhitelistedRoles = $state<Record<string, string>>({})
@@ -382,7 +380,6 @@
 				files: template.files,
 				runnables: {},
 				data,
-				summary: appSummary.trim(),
 				policy: appPolicy()
 			},
 			mode
@@ -399,16 +396,6 @@
 	<Modal kind="X" bind:open title="New app">
 		<div class="flex flex-col gap-6 min-w-sm">
 			<div>
-				<h2 class="text-xs font-semibold text-emphasis mb-1">Summary</h2>
-				<TextInput
-					bind:value={appSummary}
-					inputProps={{
-						placeholder: "Brief description of the app (e.g., 'Todo list with authentication')"
-					}}
-				/>
-			</div>
-
-			<div class="pt-6">
 				<h2 class="text-xs font-semibold text-emphasis mb-3">Framework</h2>
 				<div class="flex flex-wrap gap-3">
 					{#each templates as t, i}
