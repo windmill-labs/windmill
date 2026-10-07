@@ -114,9 +114,7 @@
 				config.dedicated_workers != undefined
 				? // a copy: editing the draft must not touch the saved config it is compared against
 					$state.snapshot(config)
-				: {
-						worker_tags: []
-					}
+				: { ...$state.snapshot(config), worker_tags: [] }
 			: {
 					worker_tags: []
 				}
@@ -271,8 +269,10 @@
 		if (!config && !nconfig) return false
 		if (!config || !nconfig) return true
 
-		const cleaned1 = cleanValueProperties(config)
-		const cleaned2 = cleanValueProperties(nconfig)
+		// Compared without empty values: the draft is filled with empty defaults a saved
+		// config may lack, which are not an edit.
+		const cleaned1 = cleanWorkerGroupConfig(cleanValueProperties(config))
+		const cleaned2 = cleanWorkerGroupConfig(cleanValueProperties(nconfig))
 
 		return (
 			orderedJsonStringify(replaceFalseWithUndefined(cleaned1)) !==
