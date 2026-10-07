@@ -658,9 +658,9 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     write_file(job_dir, "main.ps1", content.as_str())?;
 
-    // The worker reads job output as UTF-8, but pwsh writes it in the console code
-    // page, which on Windows is not UTF-8 (e.g. CP850): umlauts came out as invalid
-    // bytes in the logs. main.ps1 runs in this process, so this covers it too.
+    // The worker reads job output as UTF-8, while pwsh writes it in the console code
+    // page, which on Windows is not UTF-8 (e.g. CP850). main.ps1 runs in this
+    // process, so this covers its output too.
     let utf8_output = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n\
     $OutputEncoding = [Console]::OutputEncoding\n";
 
