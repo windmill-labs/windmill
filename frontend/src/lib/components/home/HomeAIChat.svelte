@@ -84,21 +84,13 @@
 	}
 
 	// Removing puts the composer away rather than throwing it out, and the way back is one item in
-	// the band's menu — easy to miss on a page the composer has just vacated. A mark flies from the
-	// control that removed it to that menu. The ellipsis is the only thing the removal leaves
-	// behind — the way back to the hero lives in it — so it is marked as it appears, in a corner
-	// nobody is looking at while the hero collapses in the middle of the page.
+	// the band's menu — so the ellipsis flashes as it appears, in a corner nobody is watching while
+	// the hero collapses in the middle of the page.
 	//
-	// A blue flash behind the ellipsis as it appears: the collapse takes the hero out of the middle
-	// of the page, and this is the only thing left that says where the way back went.
-	//
-	// An animation rather than a transition. A transition needs the element painted at its start
-	// value before the end value is set, and this mounts in the same flush that collapses the hero
-	// — so the frame that would have shown it at rest is the frame it is already told to leave.
-	// One `requestAnimationFrame` is not reliably past that paint, and the flash goes straight to
-	// invisible without ever being drawn. A keyframe animation starts when it mounts, with nothing
-	// to sequence. Mounted only while pulsing, so each removal gets a fresh run and none of the
-	// replay juggling a permanent element needs (see AssetsDropdownButton).
+	// A keyframe animation, not a transition: this mounts in the same flush that collapses the
+	// hero, so the frame that would paint it at rest is the frame it is already told to leave, and
+	// one `requestAnimationFrame` is not reliably past that paint. The flash then goes straight to
+	// invisible without ever being drawn. Mounted only while pulsing, so each removal replays it.
 	const PULSE_MS = 1000
 	let pulsing = $state(false)
 	let pulseEndTimer: ReturnType<typeof setTimeout> | undefined
@@ -385,13 +377,16 @@
 		     cross removes it, so an ellipsis holding a second way to do that is a button whose only
 		     item is a duplicate. -->
 		{#if !sideTripsInBar || (showComposer && collapsed)}
-			<!-- The ring rides the ellipsis itself, not the row: with the side trips beside it the
-			     row is three controls wide, and a ring around all three names none of them. -->
+			<!-- The flash rides the ellipsis itself, not the row: with the side trips beside it the
+			     row is three controls wide, and marking all three names none of them. -->
 			<span class="relative inline-flex">
 				{#if pulsing}
+					<!-- `opacity-0` at rest: the keyframes carry no fill mode, so at the end of the
+					     animation the element returns to its own opacity. At 1 that is the flash coming
+					     back at full strength until the unmount timer catches up. -->
 					<span
 						aria-hidden="true"
-						class="pointer-events-none absolute -inset-1 rounded-lg bg-blue-500/30 animate-fade-out"
+						class="pointer-events-none absolute -inset-1 rounded-lg bg-blue-500/30 opacity-0 animate-fade-out"
 					></span>
 				{/if}
 				<DropdownV2
