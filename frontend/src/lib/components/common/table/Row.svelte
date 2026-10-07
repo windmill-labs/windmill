@@ -9,6 +9,7 @@
 	import Tooltip from '../../meltComponents/Tooltip.svelte'
 	import Checkbox from '../checkbox/Checkbox.svelte'
 	import type { RowSelection } from './rowSelection'
+	import RunnableActivityCells from '$lib/components/home/RunnableActivityCells.svelte'
 
 	interface Props {
 		marked: string | undefined
@@ -255,21 +256,30 @@
 	{/if}
 
 	{#if badges}
-		<div class="hidden lg:flex flex-row gap-4 items-center">
+		<div class="hidden lg:flex flex-row gap-1.5 items-center">
 			{@render badges?.()}
 		</div>
 	{/if}
 
-	{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow')}
-		<div class="center-center h-full text-xs font-semibold text-secondary w-9">
-			<Star {kind} {path} {workspaceId} {summary} />
-		</div>
-	{:else}
-		<div class="w-9"></div>
-	{/if}
+	<div class="flex items-center gap-1.5 shrink-0">
+		{#if kind == 'script' || kind == 'flow' || kind == 'app' || kind == 'raw_app' || kind == 'agent'}
+			<RunnableActivityCells
+				kind={kind == 'script' || kind == 'flow' ? kind : undefined}
+				{path}
+			/>
+		{/if}
 
-	<div data-row-actions class="flex gap-1 items-center justify-end pr-2">
-		{@render actions?.()}
+		{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow')}
+			<div class="center-center h-full text-xs font-semibold text-secondary w-7">
+				<Star {kind} {path} {workspaceId} {summary} />
+			</div>
+		{:else}
+			<div class="w-7"></div>
+		{/if}
+
+		<div data-row-actions class="flex gap-1 items-center justify-end pr-2">
+			{@render actions?.()}
+		</div>
 	</div>
 </div>
 

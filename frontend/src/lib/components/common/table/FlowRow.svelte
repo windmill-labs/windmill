@@ -189,17 +189,17 @@
 			</div>
 		{/if}
 		<InheritedLabels labels={flow.inherited_labels} />
-		<div class="w-8 center-center"></div>
+		<div class="w-5 center-center"></div>
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !hideForOperator && showEditButton && flow.canWrite && !flow.archived}
 				<div>
 					<Button
-						variant="subtle"
-						wrapperClasses="w-20"
-						unifiedSize="md"
+						variant="default"
+						wrapperClasses="w-16"
 						startIcon={{ icon: Pen }}
+						unifiedSize="md"
 						href="{base}/flows/edit/{flow.path}"
 						aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 						aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}

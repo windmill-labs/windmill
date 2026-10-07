@@ -64,6 +64,7 @@
 	import { base } from '$lib/base'
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
+	import { HomeActivity, setHomeActivity } from './homeActivity.svelte'
 
 	const operatorBuilderFlows = useOperatorBuilderFlows()
 
@@ -1866,6 +1867,13 @@
 	$effect(() => {
 		$workspaceStore
 		untrack(() => homeSelection.exit())
+	})
+	// Latest runs and attached triggers, fetched in batches for the rows on screen.
+	const homeActivity = new HomeActivity(() => $workspaceStore)
+	setHomeActivity(homeActivity)
+	$effect(() => {
+		$workspaceStore
+		untrack(() => homeActivity.reset())
 	})
 	// Only folders/user spaces the user owns: a move into any other lands as a
 	// per-item permission error the user could have been spared.

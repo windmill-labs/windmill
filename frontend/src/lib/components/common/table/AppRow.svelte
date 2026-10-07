@@ -122,8 +122,8 @@
 		{#if app.execution_mode == 'anonymous'}
 			<Badge small icon={{ icon: Eye }}>Public</Badge>
 		{/if}
-		{#if app.raw_app}
-			<Badge small icon={{ icon: FileJson }}>Raw</Badge>
+		{#if !app.raw_app}
+			<Badge small title="Low-code app">Legacy</Badge>
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 		<DraftBadge
@@ -155,7 +155,7 @@
 			</div>
 		{/if}
 		<InheritedLabels labels={app.inherited_labels} />
-		<div class="w-8 center-center"></div>
+		<div class="w-5 center-center"></div>
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
@@ -165,8 +165,8 @@
 						<Button
 							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
 							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							variant="subtle"
-							wrapperClasses="w-20"
+							variant="default"
+							wrapperClasses="w-16"
 							startIcon={{ icon: Pen }}
 							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
 						>

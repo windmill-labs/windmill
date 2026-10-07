@@ -25,7 +25,7 @@ use crate::db::{ApiAuthed, DB};
 use crate::utils::{build_scope_path_filter, ScopePathFilter};
 use axum::{
     extract::{Extension, Path, Query},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -43,6 +43,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_runnables))
         .route("/counts", get(count_runnables_by_owner))
+        .route("/activity", post(get_runnables_activity))
 }
 
 #[derive(Deserialize)]
@@ -1085,4 +1086,180 @@ async fn add_draft_counts(
         *counts.entry(r.owner).or_insert(0) += r.count;
     }
     Ok(())
+}
+
+/// How many of a runnable's latest runs `/activity` returns.
+const ACTIVITY_RECENT_RUNS: i64 = 9;
+/// Upper bound on the paths one `/activity` call may ask about.
+const ACTIVITY_MAX_PATHS: usize = 500;
+
+#[derive(Deserialize)]
+struct RunnablesActivityRequest {
+    #[serde(default)]
+    scripts: Vec<String>,
+    #[serde(default)]
+    flows: Vec<String>,
+}
+
+#[derive(Serialize, Default)]
+struct RunnableActivity {
+    recent_runs: Vec<RecentRun>,
+    triggers: Vec<AttachedTrigger>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct RecentRun {
+    #[serde(skip)]
+    runnable_path: String,
+    #[serde(skip)]
+    is_flow: bool,
+    id: uuid::Uuid,
+    created_at: chrono::DateTime<chrono::Utc>,
+    /// `success` | `failure` | `canceled` | `skipped` | `running`
+    status: String,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct AttachedTrigger {
+    #[serde(skip)]
+    script_path: String,
+    #[serde(skip)]
+    is_flow: bool,
+    /// `schedule`, a trigger kind (`http`, `kafka`, …) or a native service name.
+    kind: String,
+    path: String,
+    /// `enabled` | `disabled` | `suspended`
+    mode: String,
+}
+
+#[derive(Serialize, Default)]
+struct RunnablesActivityResponse {
+    scripts: HashMap<String, RunnableActivity>,
+    flows: HashMap<String, RunnableActivity>,
+}
+
+/// The latest runs and the attached triggers of a batch of scripts and flows, for
+/// the homepage rows. Only paths the caller can see as a deployed script or flow
+/// are answered: the `visible` CTE runs under RLS, and `native_trigger`, which has
+/// no RLS, is only reached through it.
+async fn get_runnables_activity(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunnablesActivityRequest>,
+) -> JsonResult<RunnablesActivityResponse> {
+    let mut paths: Vec<String> = vec![];
+    let mut is_flows: Vec<bool> = vec![];
+    for (list, is_flow) in [(req.scripts, false), (req.flows, true)] {
+        for p in list {
+            paths.push(p);
+            is_flows.push(is_flow);
+        }
+    }
+    if paths.len() > ACTIVITY_MAX_PATHS {
+        return Err(Error::BadRequest(format!(
+            "at most {ACTIVITY_MAX_PATHS} paths per request"
+        )));
+    }
+    let mut res = RunnablesActivityResponse::default();
+    if paths.is_empty() {
+        return Ok(Json(res));
+    }
+
+    const VISIBLE: &str = "WITH visible AS ( \
+        SELECT p.path, p.is_flow FROM unnest($2::text[], $3::bool[]) AS p(path, is_flow) \
+        WHERE (p.is_flow AND EXISTS (SELECT 1 FROM flow f WHERE f.workspace_id = $1 AND f.path = p.path)) \
+           OR (NOT p.is_flow AND EXISTS (SELECT 1 FROM script s WHERE s.workspace_id = $1 AND s.path = p.path)))";
+
+    // A run not yet started is left out, so a schedule's next pending job does not
+    // show up as activity. The LATERAL walks `ix_job_root_job_index_by_path_2`.
+    let runs_sql = format!(
+        "{VISIBLE} \
+         SELECT v.path AS runnable_path, v.is_flow, j.id, j.created_at, j.status \
+         FROM visible v CROSS JOIN LATERAL ( \
+           SELECT job.id, job.created_at, COALESCE(c.status::text, 'running') AS status \
+           FROM v2_job job \
+           LEFT JOIN v2_job_completed c ON c.id = job.id \
+           LEFT JOIN v2_job_queue q ON q.id = job.id \
+           WHERE job.workspace_id = $1 AND job.runnable_path = v.path AND job.parent_job IS NULL \
+             AND job.kind = (CASE WHEN v.is_flow THEN 'flow' ELSE 'script' END)::job_kind \
+             AND (c.id IS NOT NULL OR q.running) \
+           ORDER BY job.created_at DESC LIMIT $4 \
+         ) j \
+         ORDER BY j.created_at DESC"
+    );
+
+    let branch = |table: &str, kind: &str, mode: &str| {
+        format!(
+            "SELECT '{kind}' AS kind, path, script_path, is_flow, {mode} AS mode FROM {table} \
+             WHERE workspace_id = $1 AND script_path = ANY($2)"
+        )
+    };
+    let trigger_mode = "mode::text";
+    let bool_mode = "CASE WHEN enabled THEN 'enabled' ELSE 'disabled' END";
+    let branches = [
+        branch("schedule", "schedule", bool_mode),
+        branch("http_trigger", "http", trigger_mode),
+        branch("websocket_trigger", "websocket", trigger_mode),
+        branch("kafka_trigger", "kafka", trigger_mode),
+        branch("nats_trigger", "nats", trigger_mode),
+        branch("postgres_trigger", "postgres", trigger_mode),
+        branch("mqtt_trigger", "mqtt", trigger_mode),
+        branch("amqp_trigger", "amqp", trigger_mode),
+        branch("sqs_trigger", "sqs", trigger_mode),
+        branch("gcp_trigger", "gcp", trigger_mode),
+        branch("azure_trigger", "azure", trigger_mode),
+        branch("email_trigger", "email", trigger_mode),
+        format!(
+            "SELECT service_name::text AS kind, COALESCE(NULLIF(summary, ''), external_id) AS path, \
+                    script_path, is_flow, {bool_mode} AS mode FROM native_trigger \
+             WHERE workspace_id = $1 AND script_path = ANY($2)"
+        ),
+    ];
+    let triggers_sql = format!(
+        "{VISIBLE} \
+         SELECT t.* FROM ({}) t JOIN visible v ON v.path = t.script_path AND v.is_flow = t.is_flow \
+         ORDER BY t.kind, t.path",
+        branches.join(" UNION ALL ")
+    );
+
+    let mut tx = user_db.begin(&authed).await?;
+    let runs = sqlx::query_as::<_, RecentRun>(&runs_sql)
+        .bind(&w_id)
+        .bind(&paths)
+        .bind(&is_flows)
+        .bind(ACTIVITY_RECENT_RUNS)
+        .fetch_all(&mut *tx)
+        .await?;
+    let triggers = sqlx::query_as::<_, AttachedTrigger>(&triggers_sql)
+        .bind(&w_id)
+        .bind(&paths)
+        .bind(&is_flows)
+        .fetch_all(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    for r in runs {
+        let map = if r.is_flow {
+            &mut res.flows
+        } else {
+            &mut res.scripts
+        };
+        map.entry(r.runnable_path.clone())
+            .or_default()
+            .recent_runs
+            .push(r);
+    }
+    for t in triggers {
+        let map = if t.is_flow {
+            &mut res.flows
+        } else {
+            &mut res.scripts
+        };
+        map.entry(t.script_path.clone())
+            .or_default()
+            .triggers
+            .push(t);
+    }
+    Ok(Json(res))
 }

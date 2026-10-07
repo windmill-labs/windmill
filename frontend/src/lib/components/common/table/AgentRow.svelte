@@ -88,10 +88,10 @@
 		{#if agent.canWrite}
 			<span class="hidden md:inline-flex">
 				<Button
-					variant="subtle"
-					wrapperClasses="w-20"
-					unifiedSize="md"
+					variant="default"
+					wrapperClasses="w-16"
 					startIcon={{ icon: Pen }}
+					unifiedSize="md"
 					href={editHref}
 				>
 					Edit

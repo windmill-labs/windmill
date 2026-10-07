@@ -237,7 +237,7 @@
 			</div>
 		{/if}
 		<InheritedLabels labels={script.inherited_labels} />
-		<div class="w-8 center-center">
+		<div class="w-5 center-center">
 			<LanguageIcon lang={script.language} width={16} height={16} />
 		</div>
 	{/snippet}
@@ -257,10 +257,10 @@
 							<Button
 								aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
 								aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
-								variant="subtle"
-								wrapperClasses="w-20"
-								unifiedSize="md"
+								variant="default"
+								wrapperClasses="w-16"
 								startIcon={{ icon: Pen }}
+								unifiedSize="md"
 								href="{base}/scripts/edit/{script.path}"
 							>
 								Edit
