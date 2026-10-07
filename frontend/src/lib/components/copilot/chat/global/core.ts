@@ -6528,14 +6528,15 @@ async function testRunFlowStepByPath(
 }
 
 /** The `data.tables` entry for a table named without its data table (`schema:table`,
- * `schema.table` or `table`), which models write for a table of the app's own data table. */
-function appTableRef(datatable: string, ref: string): string {
+ * `schema.table` or `table`), which models write for a table of the app's own data table.
+ * A bare name is a table of the app's own schema. */
+function appTableRef(datatable: string, schema: string | undefined, ref: string): string {
 	if (ref.includes('/')) return ref
 	const sep = ref.includes(':') ? ':' : '.'
 	const at = ref.indexOf(sep)
 	return formatDataTableRef(
 		at === -1
-			? { datatable, table: ref }
+			? { datatable, schema, table: ref }
 			: { datatable, schema: ref.slice(0, at), table: ref.slice(at + 1) }
 	)
 }
@@ -6574,7 +6575,7 @@ async function initApp(
 		runnables: structuredClone(STARTER_RUNNABLES),
 		...(data && {
 			data: {
-				tables: (data.tables ?? []).map((ref) => appTableRef(data.datatable, ref)),
+				tables: (data.tables ?? []).map((ref) => appTableRef(data.datatable, data.schema, ref)),
 				datatable: data.datatable,
 				schema: data.schema
 			}

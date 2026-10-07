@@ -228,6 +228,8 @@
           - data table
           - datatable
           - schema
+          - tables
+          - store
   skipJudge: true
 
 # The same request with the question answered: the app is built on what the user chose.
@@ -236,7 +238,7 @@
     Create a new raw app for triaging support tickets.
   initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
   runtime:
-    maxTurns: 24
+    maxTurns: 32
     userAnswers:
       - A new schema named helpdesk
       - Create new tables

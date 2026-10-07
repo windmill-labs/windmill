@@ -2614,7 +2614,7 @@ describe('global AI tools', () => {
 			data: {
 				datatable: 'main',
 				schema: 'helpdesk',
-				tables: ['helpdesk:tickets', 'main/customers']
+				tables: ['helpdesk:tickets', 'notes', 'main/customers']
 			}
 		})
 
@@ -2622,7 +2622,7 @@ describe('global AI tools', () => {
 		expect(draft?.data).toEqual({
 			datatable: 'main',
 			schema: 'helpdesk',
-			tables: ['main/helpdesk:tickets', 'main/customers']
+			tables: ['main/helpdesk:tickets', 'main/helpdesk:notes', 'main/customers']
 		})
 	})
 
