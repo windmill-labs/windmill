@@ -318,11 +318,14 @@
 			// Only worth re-asking while the page is still on the pair that was scanned; it asks
 			// for the pair it moved to on its own.
 			if (pairKey === pair) await checkForChanges()
-			// The seed succeeded but the comparison that reads it may not have. Saying
-			// "compared" then would be a lie, and the seeded candidates are still there
-			// for the retry the card offers. The error counts only while the page is still on the
-			// pair that was scanned: another pair's failure says nothing about this one.
-			if (pairKey === pair && comparisonError) {
+			// Each outcome says what actually happened. Off the scanned pair nothing was compared —
+			// the re-ask above is skipped — so only the seed can be reported; `comparisonError`
+			// there belongs to another pair and says nothing about this one. On it, the seed can
+			// still have succeeded while the comparison reading it failed, and claiming "compared"
+			// would be a lie with the seeded candidates sitting there for the retry the card offers.
+			if (pairKey !== pair) {
+				sendUserToast(`Seeded ${res.candidates} items for ${scanTarget}`)
+			} else if (comparisonError) {
 				sendUserToast(
 					`Seeded ${res.candidates} items but the comparison failed: ${comparisonError}`,
 					true
