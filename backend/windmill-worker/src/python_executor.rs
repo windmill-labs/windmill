@@ -116,6 +116,7 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
+const NSJAIL_CONFIG_LOCK_PY_CONTENT: &str = include_str!("../nsjail/lock.py.config.proto");
 pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
 /// Every file exchanged with a job is UTF-8 by construction, so the interpreter
@@ -393,18 +394,76 @@ pub async fn uv_pip_compile(
         #[cfg(unix)]
         let uv_cmd = UV_PATH.as_str();
 
-        let mut child_cmd = Command::new(uv_cmd);
-        child_cmd
-            .current_dir(job_dir)
-            .env_clear()
-            .env("HOME", HOME_ENV.to_string())
-            .env("PATH", PATH_ENV.to_string())
-            .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
-            .env("UV_INDEX_STRATEGY", uv_index_strategy)
-            .envs(PROXY_ENVS.clone())
-            .args(&args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        // Resolving an sdist whose metadata is not static makes uv invoke its
+        // PEP 517 build backend, which runs arbitrary package code (e.g.
+        // setup.py). When sandboxing is on, confine that under nsjail exactly
+        // like the install and run steps already are — otherwise it runs as the
+        // worker, in the worker's namespaces, with the worker's env and tokens
+        // readable. The jail gets network to the index, the job dir and the
+        // shared uv cache writable, and the managed interpreter read-only.
+        let mut child_cmd = if is_sandboxing_enabled() {
+            let index_cert_mount = INDEX_CERT
+                .as_ref()
+                .map(|p| {
+                    format!(
+                        "mount {{\n    src: \"{p}\"\n    dst: \"{p}\"\n    is_bind: true\n    mandatory: false\n}}\n"
+                    )
+                })
+                .unwrap_or_default();
+            // The cache dir is bind-mounted into the jail, so it must exist before
+            // nsjail builds the mount tree (uv would otherwise create it itself).
+            std::fs::create_dir_all(&*UV_CACHE_DIR)?;
+            let nsjail_timeout = resolve_nsjail_timeout(conn, w_id, *job_id, None).await;
+            write_file(
+                job_dir,
+                "lock.config.proto",
+                NSJAIL_CONFIG_LOCK_PY_CONTENT
+                    .replace("{TIMEOUT}", &nsjail_timeout)
+                    .replace("{JOB_DIR}", job_dir)
+                    .replace("{UV_CACHE_DIR}", &*UV_CACHE_DIR)
+                    .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
+                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                    .replace("{INDEX_CERT_MOUNT}", &index_cert_mount)
+                    .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                    .replace("#{DEV}", DEV_CONF_NSJAIL)
+                    .replace(
+                        "{TMP_MOUNT_BLOCK}",
+                        &resolve_nsjail_tmp_mount_block(job_dir).await,
+                    )
+                    .as_str(),
+            )?;
+
+            let mut nsjail_args = vec!["--config", "lock.config.proto", "--", uv_cmd];
+            nsjail_args.extend(args.iter().copied());
+
+            let mut child_cmd = Command::new(NSJAIL_PATH.as_str());
+            child_cmd
+                .current_dir(job_dir)
+                .env_clear()
+                // HOME is set to /tmp by the nsjail config; keep_env passes the rest.
+                .env("PATH", PATH_ENV.to_string())
+                .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
+                .env("UV_INDEX_STRATEGY", uv_index_strategy)
+                .envs(PROXY_ENVS.clone())
+                .args(nsjail_args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            child_cmd
+        } else {
+            let mut child_cmd = Command::new(uv_cmd);
+            child_cmd
+                .current_dir(job_dir)
+                .env_clear()
+                .env("HOME", HOME_ENV.to_string())
+                .env("PATH", PATH_ENV.to_string())
+                .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
+                .env("UV_INDEX_STRATEGY", uv_index_strategy)
+                .envs(PROXY_ENVS.clone())
+                .args(&args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            child_cmd
+        };
 
         if let Some(mirror) = UV_PYTHON_INSTALL_MIRROR.read().await.as_ref() {
             child_cmd.env("UV_PYTHON_INSTALL_MIRROR", mirror);
@@ -454,7 +513,12 @@ pub async fn uv_pip_compile(
                 );
         }
 
-        let child_process = start_child_process(child_cmd, uv_cmd, false).await?;
+        let child_executable = if is_sandboxing_enabled() {
+            NSJAIL_PATH.as_str()
+        } else {
+            uv_cmd
+        };
+        let child_process = start_child_process(child_cmd, child_executable, false).await?;
         append_logs(&job_id, &w_id, logs, conn).await;
         handle_child(
             job_id,
@@ -462,7 +526,8 @@ pub async fn uv_pip_compile(
             mem_peak,
             canceled_by,
             child_process,
-            false,
+            // jailed when sandboxing is on, so mem sampling finds the real process
+            is_sandboxing_enabled(),
             worker_name,
             &w_id,
             // TODO: Rename to uv-pip-compile?
