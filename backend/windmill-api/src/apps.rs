@@ -2375,14 +2375,19 @@ fn check_operator_composed_app(
     );
     referenced.sort();
     referenced.dedup();
-    for (_, path) in &referenced {
+    refuse_hub_runnables(&referenced)?;
+    Ok(referenced)
+}
+
+pub(crate) fn refuse_hub_runnables(referenced: &[(bool, String)]) -> Result<()> {
+    for (_, path) in referenced {
         if path.starts_with("hub/") {
             return Err(Error::PermissionDenied(format!(
                 "Operators with builder rights cannot reference the hub runnable {path}. Deploy it to the workspace first."
             )));
         }
     }
-    Ok(referenced)
+    Ok(())
 }
 
 /// Runs on every app write by an operator with builder rights, from inside the create/update
@@ -2400,6 +2405,15 @@ async fn validate_operator_composed_app(
     policy: Option<&mut Policy>,
 ) -> Result<()> {
     let referenced = check_operator_composed_app(raw_app, value, policy)?;
+    require_runnables_readable(authed, user_db, w_id, referenced).await
+}
+
+pub(crate) async fn require_runnables_readable(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    w_id: &str,
+    referenced: Vec<(bool, String)>,
+) -> Result<()> {
     if referenced.is_empty() {
         return Ok(());
     }

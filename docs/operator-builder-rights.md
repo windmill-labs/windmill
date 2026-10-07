@@ -106,7 +106,9 @@ The raw-app editor previews an app isolated only when its policy has `sandbox`, 
 the bundle same-origin with the session of whoever opens it. A builder's **draft** is therefore
 held to the same rule as its deploy: `update_draft` refuses one whose `policy.sandbox` is not
 `true`, so whatever an admin opens of an operator's, deployed or drafted, previews isolated.
-Turning the sandbox off in their own editor stays that admin's explicit choice.
+Turning the sandbox off in their own editor stays that admin's explicit choice. It also refuses
+a draft naming a runnable the builder cannot read, or a hub one, like the deploy: the editor
+preview runs them as whoever opens it, and admits any path for an admin.
 
 ## Billing
 
@@ -134,6 +136,10 @@ that already have one on, is a zero delta and never blocks.
   curated scope list. The viewer consent prompt is the gate. The lever, if this is ever revisited,
   is dropping `variables:read` / `resources:read` / `jobs:run` from `FRONTEND_SDK_ALLOWED_SCOPES`
   for builder apps.
+- The raw-app editor preview runs an app's runnables as whoever has the editor open, where the
+  deployed app runs them as its publisher. An admin opening a builder's app in the editor lets its
+  frontend code run, with the admin's rights, any runnable the builder can read. Running as the
+  draft's author instead would need a preview that ignores unsaved edits to the runnable list.
 - A builder may make an app public (`ExecutionMode::Anonymous`): anyone with the URL runs the
   runnables its policy names, as the builder. Refusing it is the workspace's call, through the
   `RestrictAnonymousAppDeployment` protection rule. A `Guest` app is the same with a login in

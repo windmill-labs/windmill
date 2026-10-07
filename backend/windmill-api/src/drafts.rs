@@ -496,7 +496,7 @@ async fn update_draft(
         }
     }
 
-    // The raw-app editor runs a draft as whoever opens it: its inline runnables, and its frontend
+    // The raw-app editor runs a draft as whoever opens it: the runnables it names, and its frontend
     // code with their session unless the policy sandboxes the preview. So a builder's draft is
     // held to what its deploy would be.
     if authed.is_operator && kind == UserDraftItemKind::RawApp {
@@ -514,6 +514,11 @@ async fn update_draft(
                     "Operators with builder rights must keep an app draft sandboxed".to_string(),
                 ));
             }
+            let mut referenced = windmill_common::apps::app_value_runnable_paths(&draft);
+            referenced.sort();
+            referenced.dedup();
+            crate::apps::refuse_hub_runnables(&referenced)?;
+            crate::apps::require_runnables_readable(&authed, &user_db, &w_id, referenced).await?;
         }
     }
 

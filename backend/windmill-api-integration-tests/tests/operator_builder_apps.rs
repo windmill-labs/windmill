@@ -324,7 +324,7 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
         "a settings update must not turn a builder app's sandbox off"
     );
 
-    // The editor runs a draft's inline runnables as whoever opens it, and its frontend code
+    // The editor runs the runnables a draft names as whoever opens it, and its frontend code
     // with their session unless the preview is sandboxed.
     for (runnables, policy, expected) in [
         (json!({}), json!({"sandbox": true}), 200),
@@ -335,6 +335,21 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
         ),
         (json!({}), json!({"sandbox": false}), 403),
         (json!({}), json!(null), 403),
+        (
+            json!({"r": {"type": "runnableByPath", "runType": "script", "path": "u/operator/some_script"}}),
+            json!({"sandbox": true}),
+            200,
+        ),
+        (
+            json!({"r": {"type": "runnableByPath", "runType": "script", "path": "u/alice/private"}}),
+            json!({"sandbox": true}),
+            403,
+        ),
+        (
+            json!({"r": {"type": "path", "runType": "hubscript", "path": "hub/1/x/y"}}),
+            json!({"sandbox": true}),
+            403,
+        ),
     ] {
         let resp = c
             .post(format!("{api}/drafts/update/raw_app/u/operator/d1"))
