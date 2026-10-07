@@ -240,7 +240,8 @@ is faster, cheaper, and its answers have a fixed shape.
   `results.triage.output.angry.noul > 0.7`
 - On `openai` the same `questions` are translated for its Decisions API and the answers read the
   same way (`choice`, `score`, `noul`), except that `probabilities` is a list of
-  `{ value, probability }` (plus `label` on a score) and a score has no `legend`. A `state` that is
+  `{ value, probability }` (plus `label` on a score) and a score has no `legend`. A question OpenAI
+  refuses to answer fails the step. A `state` that is
   an array of messages (`[{ role: "user", content: [{ type: "input_text", text }, { type: "input_image", image_url: "data:image/png;base64,..." }] }]`)
   is sent as is, which is how an image is evaluated; any other object or array is sent as JSON text
 

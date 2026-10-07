@@ -203,9 +203,9 @@ fn openai_input(state: &Value) -> Value {
         Value::String(_) => state.clone(),
         Value::Array(items)
             if !items.is_empty()
-                && items
-                    .iter()
-                    .all(|m| m.get("role").is_some_and(Value::is_string)) =>
+                && items.iter().all(|m| {
+                    m.get("role").is_some_and(Value::is_string) && m.get("content").is_some()
+                }) =>
         {
             state.clone()
         }
@@ -221,9 +221,14 @@ fn openai_questions(questions: &Map<String, Value>) -> Result<Vec<Value>> {
         Value::String(s) => s.clone(),
         v => v.to_string(),
     };
-    let described = |name: &str, description: &Value| match description {
-        Value::String(d) if !d.trim().is_empty() => d.clone(),
-        _ => name.to_string(),
+    // A structured description goes as its JSON text, as structured instructions do.
+    let stated = |description: Option<&Value>| match description {
+        None | Some(Value::Null) => None,
+        Some(Value::String(d)) if d.trim().is_empty() => None,
+        Some(d) => Some(text(d)),
+    };
+    let described = |name: &str, description: &Value| {
+        stated(Some(description)).unwrap_or_else(|| name.to_string())
     };
     questions
         .iter()
@@ -269,10 +274,8 @@ fn openai_questions(questions: &Map<String, Value>) -> Result<Vec<Value>> {
                 }
                 Some("noul") => {
                     for (key, meaning) in [("true", "Yes"), ("false", "No")] {
-                        if let Some(Value::String(d)) = criteria.and_then(|c| c.get(key)) {
-                            if !d.trim().is_empty() {
-                                instructions.push_str(&format!("\n{meaning}: {d}"));
-                            }
+                        if let Some(d) = stated(criteria.and_then(|c| c.get(key))) {
+                            instructions.push_str(&format!("\n{meaning}: {d}"));
                         }
                     }
                     "predicate"
@@ -294,21 +297,31 @@ fn openai_questions(questions: &Map<String, Value>) -> Result<Vec<Value>> {
 
 /// OpenAI's answers keyed by question name, as every decision's are. A predicate's probability is
 /// also given as `noul`, so a flow reads a yes/no answer the same way whichever provider gave it.
-fn openai_answers(answers: Vec<Map<String, Value>>) -> Map<String, Value> {
-    answers
-        .into_iter()
-        .filter_map(|mut answer| {
-            let Some(Value::String(name)) = answer.remove("name") else {
-                return None;
-            };
-            if answer.get("type").and_then(Value::as_str) == Some("predicate") {
+/// A refused question fails the decision: left in the output it has no `choice` or `noul`, so a
+/// branch on it would quietly take its "no" or default arm.
+fn openai_answers(answers: Vec<Map<String, Value>>) -> Result<Map<String, Value>> {
+    let mut by_name = Map::new();
+    for mut answer in answers {
+        let Some(Value::String(name)) = answer.remove("name") else {
+            continue;
+        };
+        match answer.get("type").and_then(Value::as_str) {
+            Some("refusal") => {
+                return Err(Error::ExecutionErr(format!(
+                    "OpenAI refused to answer the question '{name}': {}",
+                    Value::Object(answer)
+                )))
+            }
+            Some("predicate") => {
                 if let Some(probability) = answer.get("probability").cloned() {
                     answer.insert("noul".to_string(), probability);
                 }
             }
-            Some((name, Value::Object(answer)))
-        })
-        .collect()
+            _ => {}
+        }
+        by_name.insert(name, Value::Object(answer));
+    }
+    Ok(by_name)
 }
 
 async fn run_openai_decisions(
@@ -339,7 +352,7 @@ async fn run_openai_decisions(
         .map_err(|e| Error::ExecutionErr(format!("Unexpected OpenAI response ({e}): {body}")))?;
 
     Ok(DecisionResult {
-        output: serde_json::value::to_raw_value(&openai_answers(parsed.answers))
+        output: serde_json::value::to_raw_value(&openai_answers(parsed.answers)?)
             .map_err(|e| Error::internal_err(format!("serializing decision answers: {e}")))?,
         model: parsed.model,
         usage: parsed
@@ -434,7 +447,7 @@ mod tests {
     #[test]
     fn openai_questions_and_answers_translate() {
         let questions = json!({
-            "intent": {"type": "choice", "instructions": "Why?", "criteria": {"refund": "Money back", "bug": ""}},
+            "intent": {"type": "choice", "instructions": "Why?", "criteria": {"refund": {"when": "paid"}, "bug": ""}},
             "urgency": {"type": "score", "instructions": "How urgent?", "criteria": ["Can wait", "Now"]},
             "angry": {"type": "noul", "instructions": "Angry?", "criteria": {"true": "Insults"}}
         });
@@ -443,7 +456,7 @@ mod tests {
             asked,
             json!([
                 {"choices": [
-                    {"value": "refund", "description": "Money back"},
+                    {"value": "refund", "description": "{\"when\":\"paid\"}"},
                     {"value": "bug", "description": "bug"}
                 ], "type": "choice", "name": "intent", "instructions": "Why?"},
                 {"levels": [
@@ -467,7 +480,7 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(
-            Value::Object(openai_answers(answers)),
+            Value::Object(openai_answers(answers).unwrap()),
             json!({
                 "angry": {"type": "predicate", "probability": 0.92, "noul": 0.92},
                 "intent": {"type": "choice", "choice": "refund", "confidence": 0.9}
@@ -477,7 +490,13 @@ mod tests {
         let messages = json!([{"role": "user", "content": [{"type": "input_text", "text": "hi"}]}]);
         assert_eq!(openai_input(&messages), messages);
         assert_eq!(openai_input(&json!({"m": "hi"})), json!("{\"m\":\"hi\"}"));
-        assert_eq!(openai_input(&json!(["a", "b"])), json!("[\"a\",\"b\"]"));
+        assert_eq!(
+            openai_input(&json!([{"role": "admin"}])),
+            json!("[{\"role\":\"admin\"}]")
+        );
+        let refused =
+            serde_json::from_value(json!([{"type": "refusal", "name": "angry"}])).unwrap();
+        assert!(openai_answers(refused).is_err());
     }
 
     /// Refused are the values a flow produces when it forgot the input (no key, `null`, a blank
