@@ -944,6 +944,15 @@
 		}
 	}
 
+	// A running parallel module keeps this flow's own id in `job` (its children are only in
+	// `flow_jobs`), so passing it through would make the nested viewer watch this flow again.
+	function innerViewerJobId(mod: FlowStatusModule): string {
+		if (mod.job && mod.job == job?.id && mod.flow_jobs?.length) {
+			return mod.flow_jobs[0]
+		}
+		return mod.job ?? ''
+	}
+
 	function onJobsLoadedInner(mod: FlowStatusModule, job: Job, force?: boolean): void {
 		let id = mod.id
 		if (id && ((mod.flow_jobs ?? []).length == 0 || force)) {
@@ -1783,7 +1792,7 @@
 										{subflowParentsGlobalModuleStates}
 										{subflowParentsDurationStatuses}
 										{isSelectedBranch}
-										jobId={mod.job ?? ''}
+										jobId={innerViewerJobId(mod)}
 										{reducedPolling}
 										innerModule={mod.flow_jobs ? job.raw_flow?.modules[i]?.value : undefined}
 										flowJobIds={mod.flow_jobs

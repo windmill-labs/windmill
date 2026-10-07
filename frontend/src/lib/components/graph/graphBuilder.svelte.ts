@@ -29,9 +29,11 @@ export type InsertKind =
 	| 'approval'
 	| 'end'
 	| 'aiagent'
+	| 'aidecision'
 	| 'mcpTool'
 	| 'websearchTool'
 	| 'aiAgentTool'
+	| 'aiDecisionTool'
 
 export type InlineScript = {
 	language: RawScript['language']

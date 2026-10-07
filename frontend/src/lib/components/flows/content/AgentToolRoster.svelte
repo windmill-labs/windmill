@@ -20,6 +20,8 @@
 		emptyMessage?: string
 		/** Where the picker's popover belongs, when the roster is not inside the flow editor. */
 		pickerPortal?: string
+		/** The roster of an agent used as a tool, which cannot run agent or decision tools. */
+		nestedAgent?: boolean
 	}
 
 	let {
@@ -28,7 +30,8 @@
 		onAddTool = undefined,
 		onDeleteTool = undefined,
 		emptyMessage = 'No tools yet. Add one from the agent on the flow graph.',
-		pickerPortal = '#flow-editor'
+		pickerPortal = '#flow-editor',
+		nestedAgent = false
 	}: Props = $props()
 
 	let funcDesc = $state('')
@@ -37,6 +40,7 @@
 	function toolKind(tool: AgentTool): string | undefined {
 		const value = tool?.value as Record<string, any>
 		if (value?.type === 'aiagent') return 'agent'
+		if (value?.type === 'aidecision') return 'decision'
 		if (value?.tool_type === 'mcp') return 'MCP'
 		if (value?.tool_type === 'websearch') return 'web search'
 		return undefined
@@ -81,6 +85,7 @@
 			<InsertModuleInner
 				bind:funcDesc
 				toolMode
+				{nestedAgent}
 				on:close={close}
 				on:new={(e) => (onAddTool?.(e.detail), close())}
 				on:insert={(e) => (onAddTool?.(e.detail), close())}
@@ -99,6 +104,7 @@
 				on:pickMcpTool={() => (onAddTool?.({ kind: 'mcpTool' }), close())}
 				on:pickWebsearchTool={() => (onAddTool?.({ kind: 'websearchTool' }), close())}
 				on:pickAiAgentTool={() => (onAddTool?.({ kind: 'aiAgentTool' }), close())}
+				on:pickAiDecisionTool={() => (onAddTool?.({ kind: 'aiDecisionTool' }), close())}
 			/>
 		{/snippet}
 	</Popover>

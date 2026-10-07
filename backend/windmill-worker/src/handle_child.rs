@@ -41,7 +41,7 @@ use windmill_common::job_metrics;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     sync::{broadcast, watch},
-    time::{interval, sleep, Instant, MissedTickBehavior},
+    time::{interval_at, sleep, Instant, MissedTickBehavior},
 };
 
 use futures::{
@@ -49,7 +49,7 @@ use futures::{
     stream, StreamExt,
 };
 
-use crate::common::{resolve_job_timeout, OccupancyMetrics, StreamNotifier};
+use crate::common::{resolve_job_timeout, OccupancyMetrics, StreamNotifier, TimeoutSource};
 use crate::job_logger::{append_job_logs, append_result_stream, append_with_limit, strip_nul};
 use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
@@ -181,7 +181,7 @@ pub async fn handle_child(
 
     enum KillReason {
         TooManyLogs,
-        Timeout { is_job_specific: bool },
+        Timeout { phase: String, source: TimeoutSource, secs: u64 },
         Cancelled(Option<CanceledBy>),
         AlreadyCompleted,
     }
@@ -190,11 +190,9 @@ pub async fn handle_child(
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             match self {
                 KillReason::TooManyLogs => f.write_str("too many logs (max size: 2MB)"),
-                KillReason::Timeout { is_job_specific } => f.write_str(if *is_job_specific {
-                    "timeout after exceeding job-specific duration limit"
-                } else {
-                    "timeout after exceeding instance-wide job duration limit"
-                }),
+                KillReason::Timeout { phase, source, secs } => {
+                    write!(f, "timeout: `{phase}` exceeded {}", source.describe(*secs))
+                }
                 KillReason::Cancelled(canceled_by) => {
                     let mut reason = "cancelled".to_string();
                     if let Some(canceled_by) = canceled_by {
@@ -212,7 +210,54 @@ pub async fn handle_child(
         }
     }
 
-    let (timeout_duration, timeout_warn_msg, is_job_specific) =
+    impl KillReason {
+        /// Reports a kill once the process is gone: a span event on the enclosing span and,
+        /// through the logs bridge, a log record carrying the job's log context.
+        fn emit_canceled_event(
+            &self,
+            job_id: &Uuid,
+            timeout_reason: &str,
+            signal: &'static str,
+            detected_at: chrono::DateTime<chrono::Utc>,
+        ) {
+            // `force` is only known for a soft cancel: a job completed under the worker
+            // may have been force canceled or completed by anything else server-side.
+            let (kill_reason, canceled_by, canceled_reason, force) = match self {
+                KillReason::TooManyLogs => return,
+                KillReason::Timeout { .. } => {
+                    ("timeout", Some("timeout"), Some(timeout_reason), None)
+                }
+                KillReason::Cancelled(by) => (
+                    "cancelled",
+                    by.as_ref().and_then(|x| x.username.as_deref()),
+                    by.as_ref().and_then(|x| x.reason.as_deref()),
+                    Some(false),
+                ),
+                KillReason::AlreadyCompleted => ("already_completed", None, None, None),
+            };
+            let exited_at = chrono::Utc::now();
+            let root_job = windmill_common::log_context::current_log_context()
+                .and_then(|c| c.root_job.clone());
+            let rfc3339 = |t: chrono::DateTime<chrono::Utc>| {
+                t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+            };
+            tracing::info!(
+                job_id = %job_id,
+                root_job,
+                kill_reason,
+                canceled_by,
+                canceled_reason,
+                force,
+                kill_signal = signal,
+                cancel_detected_at = %rfc3339(detected_at),
+                process_exited_at = %rfc3339(exited_at),
+                kill_duration_ms = (exited_at - detected_at).num_milliseconds(),
+                "job.canceled"
+            );
+        }
+    }
+
+    let (timeout_duration, timeout_warn_msg, timeout_source) =
         resolve_job_timeout(&conn, w_id, job_id, custom_timeout).await;
     if let Some(msg) = timeout_warn_msg {
         append_logs(&job_id, w_id, msg.as_str(), conn).await;
@@ -224,26 +269,30 @@ pub async fn handle_child(
             biased;
             result = Box::into_pin(child.wait()) => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
-            _ = sleep(timeout_duration) => KillReason::Timeout { is_job_specific },
+            _ = sleep(timeout_duration) => KillReason::Timeout {
+                phase: child_name.to_string(),
+                source: timeout_source,
+                secs: timeout_duration.as_secs(),
+            },
             ex = update_job, if job_id != Uuid::nil() => match ex {
                 UpdateJobPollingExit::Done(canceled_by) => KillReason::Cancelled(canceled_by),
                 UpdateJobPollingExit::AlreadyCompleted => KillReason::AlreadyCompleted,
             },
         };
+        let detected_at = chrono::Utc::now();
         tx.send(()).expect("rx should never be dropped");
         drop(tx);
 
+        let timeout_reason = format!(
+            "`{child_name}` exceeded {}",
+            timeout_source.describe(timeout_duration.as_secs())
+        );
         let set_reason = async {
             if matches!(kill_reason, KillReason::Timeout { .. }) {
                 match conn {
                     Connection::Sql(db) => {
-                        if let Err(err) = set_job_cancelled_query(
-                            job_id,
-                            db,
-                            "timeout",
-                            &format!("duration > {}", timeout_duration.as_secs()),
-                        )
-                        .await
+                        if let Err(err) =
+                            set_job_cancelled_query(job_id, db, "timeout", &timeout_reason).await
                         {
                             tracing::error!(%job_id, %err, "error setting cancelation reason for job {job_id}: {err}");
                         }
@@ -255,7 +304,7 @@ pub async fn handle_child(
                                 None,
                                 &JobCancelled {
                                     canceled_by: "timeout".to_string(),
-                                    reason: format!("duration > {}", timeout_duration.as_secs()),
+                                    reason: timeout_reason.clone(),
                                 },
                             )
                             .await
@@ -267,59 +316,78 @@ pub async fn handle_child(
             }
         };
 
-        #[allow(unused_variables)]
-        if let Some(id) = child.id() {
-            if *MAX_WAIT_FOR_SIGINT > 0 {
-                #[cfg(any(target_os = "linux", target_os = "macos"))]
-                signal::kill(Pid::from_raw(id as i32), Signal::SIGINT).unwrap();
+        // Resolves once the process is reaped, to the last signal it was sent, or to `None`
+        // when the kill could not be confirmed. SIGINT and SIGTERM are only sent where the
+        // sends below are compiled in: elsewhere an exit during their wait is unsignaled.
+        let unix_signal = |s: &'static str| {
+            if cfg!(any(target_os = "linux", target_os = "macos")) { s } else { "none" }
+        };
+        let kill = async {
+            #[allow(unused_variables)]
+            if let Some(id) = child.id() {
+                if *MAX_WAIT_FOR_SIGINT > 0 {
+                    #[cfg(any(target_os = "linux", target_os = "macos"))]
+                    signal::kill(Pid::from_raw(id as i32), Signal::SIGINT).unwrap();
 
-                for _ in 0..*MAX_WAIT_FOR_SIGINT {
-                    if child.try_wait().is_ok_and(|x| x.is_some()) {
-                        break;
+                    for _ in 0..*MAX_WAIT_FOR_SIGINT {
+                        if child.try_wait().is_ok_and(|x| x.is_some()) {
+                            break;
+                        }
+                        sleep(Duration::from_secs(1)).await;
                     }
-                    sleep(Duration::from_secs(1)).await;
+                    if child.try_wait().is_ok_and(|x| x.is_some()) {
+                        set_reason.await;
+                        return Ok(Some(unix_signal("SIGINT")));
+                    }
                 }
-                if child.try_wait().is_ok_and(|x| x.is_some()) {
-                    set_reason.await;
-                    return Ok(Err(kill_reason));
+                if sigterm {
+                    #[cfg(any(target_os = "linux", target_os = "macos"))]
+                    signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
+
+                    for _ in 0..*MAX_WAIT_FOR_SIGTERM {
+                        if child.try_wait().is_ok_and(|x| x.is_some()) {
+                            break;
+                        }
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                    if child.try_wait().is_ok_and(|x| x.is_some()) {
+                        set_reason.await;
+                        return Ok(Some(unix_signal("SIGTERM")));
+                    }
                 }
             }
-            if sigterm {
-                #[cfg(any(target_os = "linux", target_os = "macos"))]
-                signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
-
-                for _ in 0..*MAX_WAIT_FOR_SIGTERM {
-                    if child.try_wait().is_ok_and(|x| x.is_some()) {
-                        break;
+            #[cfg(windows)]
+            {
+                let pid_to_kill = child.id();
+                let killed = match kill_process_tree(pid_to_kill).await {
+                    Ok(_) => {
+                        tracing::debug!(
+                            "successfully killed process tree with PID: {:?}",
+                            pid_to_kill
+                        );
+                        true
                     }
-                    sleep(Duration::from_secs(1)).await;
-                }
-                if child.try_wait().is_ok_and(|x| x.is_some()) {
-                    set_reason.await;
-                    return Ok(Err(kill_reason));
-                }
+                    Err(e) => {
+                        tracing::error!("failed to kill process tree: {:?}", e);
+                        false
+                    }
+                };
+                set_reason.await;
+                return Ok(killed.then_some("taskkill"));
             }
-        }
-        #[cfg(windows)]
-        {
-            let pid_to_kill = child.id();
-            match kill_process_tree(pid_to_kill).await {
-                Ok(_) => tracing::debug!(
-                    "successfully killed process tree with PID: {:?}",
-                    pid_to_kill
-                ),
-                Err(e) => tracing::error!("failed to kill process tree: {:?}", e),
-            };
-            set_reason.await;
-            return Ok(Err(kill_reason));
-        }
 
-        #[cfg(unix)]
-        {
-            /* send SIGKILL and reap child process */
-            let (_, kill) = future::join(set_reason, Box::into_pin(child.kill())).await;
-            kill.map(|()| Err(kill_reason))
+            #[cfg(unix)]
+            {
+                /* send SIGKILL and reap child process */
+                let (_, kill) = future::join(set_reason, Box::into_pin(child.kill())).await;
+                kill.map(|()| Some("SIGKILL"))
+            }
+        };
+        let signal: io::Result<Option<&'static str>> = kill.await;
+        if let Some(signal) = signal? {
+            kill_reason.emit_canceled_event(&job_id, &timeout_reason, signal, detected_at);
         }
+        Ok(Err(kill_reason))
     };
 
     let mut stream_result = Vec::new();
@@ -955,8 +1023,13 @@ where
     let update_job_interval = Duration::from_millis(500);
 
     let conn = conn.clone();
-    let mut interval = interval(update_job_interval);
+    // No tick at t=0: a job that finishes within the first interval issues none of the
+    // ping/metric statements below. Cancels are picked up by the next job ping. Memory is still
+    // sampled at start, without SQL: it is the only `mem_peak` reading a short job gets,
+    // and the completed job row reports it.
+    let mut interval = interval_at(Instant::now() + update_job_interval, update_job_interval);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    *mem_peak = (*mem_peak).max(get_mem.next().await.unwrap_or(0));
 
     let mut i = 0;
 
@@ -993,12 +1066,12 @@ where
                 }
 
 
-                let update_job_row = i == 2 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
+                let update_job_row = i == 1 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
                 if update_job_row && job_id != Uuid::nil() {
                     if let Connection::Sql(ref db) = conn {
                         // Only track memory when it's non-zero (avoids storing all-zero timeseries for jobs that don't report memory)
                         if current_mem > 0 {
-                            // Register on first non-zero reading (deferred from i==2 to avoid metric for jobs with no memory reporting)
+                            // Register on first non-zero reading, so jobs with no memory reporting get no metric
                             if memory_metric_id.is_err() {
                                 memory_metric_id = job_metrics::register_metric_for_job(
                                     &db,
@@ -1017,11 +1090,10 @@ where
                             }
                         }
                     }
-                    if matches!(conn, Connection::Http(_)) {
-                        if i % 4 != 0 {
-                            // only ping every 4th time (2s) on http agent mode
-                            continue;
-                        }
+                    // An agent worker pays an HTTP round trip per ping, so it pings every 2 s for
+                    // the first 10 s, then every 5 s.
+                    if matches!(conn, Connection::Http(_)) && i % if i < 20 { 4 } else { 10 } != 0 {
+                        continue;
                     }
                     let ping_job_status = ping_job_status(&conn, &job_id, Some(*mem_peak), if current_mem > 0 { Some(current_mem) } else { None }).await.unwrap_or_else(|e| {
                         tracing::error!("Unable to ping job status for job {job_id}. Error was: {:?}", e);

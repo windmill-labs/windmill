@@ -44,7 +44,6 @@
 	interface Props {
 		logs?: AuditLog[]
 		username?: string
-		pageIndex?: number | undefined
 		before?: string | undefined
 		after?: string | undefined
 		perPage?: number | undefined
@@ -53,13 +52,14 @@
 		actionKind?: ActionKind | 'all'
 		scope?: undefined | 'all_workspaces' | 'instance'
 		loading?: boolean
+		/** Lay the filters out in a row (page header) rather than stacked (popover). */
+		inline?: boolean
 		onRefresh?: () => void
 	}
 
 	let {
 		logs = undefined,
 		username = $bindable('all'),
-		pageIndex = $bindable(1),
 		before = $bindable(undefined),
 		after = $bindable(undefined),
 		perPage = $bindable(100),
@@ -68,6 +68,7 @@
 		actionKind = $bindable(undefined),
 		scope = $bindable(undefined),
 		loading = false,
+		inline = false,
 		onRefresh
 	}: Props = $props()
 
@@ -100,7 +101,6 @@
 		}
 
 		addQueryParam('username', username)
-		addQueryParam('page', pageIndex)
 		addQueryParam('perPage', perPage)
 		addQueryParam('before', before)
 		addQueryParam('after', after)
@@ -120,7 +120,6 @@
 	function handlePopState() {
 		const urlSearchParams = new URLSearchParams(window.location.search)
 		username = urlSearchParams.get('username') ?? 'all'
-		pageIndex = Number(urlSearchParams.get('page')) || 1
 		before = urlSearchParams.get('before') ?? undefined
 		after = urlSearchParams.get('after') ?? undefined
 		perPage = Number(urlSearchParams.get('perPage')) || 100
@@ -149,6 +148,7 @@
 		JOBS: 'jobs',
 		JOBS_CANCEL: 'jobs.cancel',
 		JOBS_FORCE_CANCEL: 'jobs.force_cancel',
+		JOBS_RUN_NOW: 'jobs.run_now',
 		JOBS_DISAPPROVAL: 'jobs.disapproval',
 		JOBS_DELETE: 'jobs.delete',
 		JOBS_SHARE_PUBLICLY: 'jobs.share_publicly',
@@ -262,12 +262,12 @@
 
 	// observe all the variables that should be reflected in the url
 	$effect(() => {
-		;[username, perPage, before, after, operation, resource, actionKind, scope, pageIndex]
+		;[username, perPage, before, after, operation, resource, actionKind, scope]
 		untrack(() => updateQueryParams())
 	})
 </script>
 
-<div class="flex flex-col gap-8 2xl:gap-2 2xl:flex-row mt-4 xl:mt-0 pr-2">
+<div class={inline ? 'flex flex-row gap-2' : 'flex flex-col gap-8 mt-4 xl:mt-0'}>
 	{#if $workspaceStore == 'admins'}
 		<div class="flex gap-1 relative">
 			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
@@ -405,7 +405,6 @@
 				username = 'all'
 				operation = 'all'
 				actionKind = 'all'
-				pageIndex = 1
 				perPage = 100
 				resource = 'all'
 				scope = undefined

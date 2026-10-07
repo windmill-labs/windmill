@@ -1,7 +1,12 @@
 <script lang="ts">
-	import { type Snippet } from 'svelte'
+	import { type Snippet, untrack } from 'svelte'
 	import Select from './select/Select.svelte'
-	import { fetchAvailableModels, AI_PROVIDERS } from './copilot/lib'
+	import {
+		fetchAvailableModels,
+		AI_PROVIDERS,
+		DECISION_AI_PROVIDERS,
+		aiProviderDetails
+	} from './copilot/lib'
 	import type { AIProvider, ProviderConfig } from '$lib/gen'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import Toggle from './Toggle.svelte'
@@ -19,13 +24,17 @@
 		 *  other than the one being navigated. Resources and the models read off them are per
 		 *  workspace, so without it this offers what the wrong one holds. */
 		workspace?: string | undefined
+		/** Offer the decision providers (TypeSafe, Cloudflare, OpenAI) and their decision models in
+		 *  place of the chat ones, for an AI decision. */
+		decision?: boolean
 	}
 
 	let {
 		value: _uncheckedValue = $bindable(),
 		disabled = false,
 		actions,
-		workspace = undefined
+		workspace = undefined,
+		decision = false
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace ?? '')
@@ -44,12 +53,15 @@
 	let modelsCache = new Map<string, string[]>()
 
 	// The resource picker offers every provider type at once and the pick is what names the kind.
-	// One string for the component's life: it is what the picker queries with.
-	const providerResourceTypes = Object.keys(AI_PROVIDERS).join(',')
+	// One list for the component's life: it is what the picker queries with.
+	const offeredProviders = Object.keys(
+		untrack(() => decision) ? DECISION_AI_PROVIDERS : AI_PROVIDERS
+	)
+	const providerResourceTypes = offeredProviders.join(',')
 
 	if (!_uncheckedValue) {
 		_uncheckedValue = {
-			kind: 'openai',
+			kind: untrack(() => decision) ? 'typesafe' : 'openai',
 			resource: '',
 			model: ''
 		}
@@ -72,12 +84,26 @@
 		return r
 	})
 
+	// A decision provider's models are the ones Windmill knows: none has a listing of its decision
+	// models, and an OpenAI resource's lists its chat models.
+	function defaultModels(provider: AIProvider): string[] {
+		return decision
+			? ((DECISION_AI_PROVIDERS as Record<string, { defaultModels: string[] }>)[provider]
+					?.defaultModels ?? [])
+			: aiProviderDetails(provider).defaultModels
+	}
+
 	async function loadModels(signal?: AbortSignal) {
 		const provider = value?.kind
 		const resourceValue = value?.resource
 		const resourcePath = resourceValueToPath(resourceValue)
 
 		if (!provider || !resourcePath) {
+			return
+		}
+		if (decision) {
+			availableModels = defaultModels(provider)
+			loading = false
 			return
 		}
 
@@ -101,8 +127,7 @@
 				return
 			}
 			// Fall back to default models for this provider
-			const defaultModels = AI_PROVIDERS[provider]?.defaultModels || []
-			availableModels = defaultModels
+			availableModels = defaultModels(provider)
 		} finally {
 			if (!signal?.aborted) {
 				loading = false
@@ -118,7 +143,7 @@
 	function onResourcePicked(_path: string | undefined, type: string | undefined) {
 		// An empty type is the placeholder the picker keeps for a saved path it could not find. It
 		// says nothing about the provider, so the kind stands.
-		if (!value || !type || !(type in AI_PROVIDERS)) {
+		if (!value || !type || !offeredProviders.includes(type)) {
 			return
 		}
 		if (value.kind === type) {
@@ -166,8 +191,7 @@
 		if (provider && resourcePath) {
 			loadModels(abortController.signal)
 		} else {
-			const defaultModels = provider ? AI_PROVIDERS[provider]?.defaultModels || [] : []
-			availableModels = defaultModels
+			availableModels = provider ? defaultModels(provider) : []
 			loading = false
 		}
 
@@ -226,7 +250,7 @@
 		/>
 	</div>
 
-	{#if value?.model}
+	{#if value?.model && !decision}
 		<div class="flex flex-col gap-1">
 			<span class="text-xs font-normal text-secondary">Reasoning effort</span>
 			<AIReasoningEffortPicker
@@ -237,21 +261,24 @@
 		</div>
 	{/if}
 
-	<div class="flex justify-end">
-		<Toggle
-			disabled={disabled || !value?.kind || !value?.resource || !value?.model}
-			bind:checked={useAsDefault}
-			options={{ right: 'Use as personal default for other new agents' }}
-			size="xs"
-			on:change={(e) => {
-				if (!e.detail) {
-					removeConfig()
-				} else {
-					saveConfig(value)
-				}
-			}}
-		/>
-	</div>
+	<!-- The default seeds new agents, which a decision provider cannot run. -->
+	{#if !decision}
+		<div class="flex justify-end">
+			<Toggle
+				disabled={disabled || !value?.kind || !value?.resource || !value?.model}
+				bind:checked={useAsDefault}
+				options={{ right: 'Use as personal default for other new agents' }}
+				size="xs"
+				on:change={(e) => {
+					if (!e.detail) {
+						removeConfig()
+					} else {
+						saveConfig(value)
+					}
+				}}
+			/>
+		</div>
+	{/if}
 
 	{@render actions?.()}
 </div>

@@ -41,6 +41,7 @@ export type ExtendedOpenFlow = OpenFlow & {
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
 	on_behalf_of?: string
+	job_token_scopes?: string[] | null
 }
 
 export type FlowInputEditorState = {

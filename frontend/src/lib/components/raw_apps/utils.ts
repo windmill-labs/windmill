@@ -83,9 +83,71 @@ export type RawAppRuntimeLogEntry = {
 	message: string
 	ts: number
 }
-export type RawAppRuntimeLogRequester = (
-	limit: number
-) => Promise<RawAppRuntimeLogEntry[] | undefined>
+export type RawAppPreviewLogs = {
+	/** Console output of the rendered app; undefined when the preview document isn't loaded. */
+	entries: RawAppRuntimeLogEntry[] | undefined
+	/** Set while the latest UI Builder build failed. A failed build never reaches the preview
+	 * document, so its console cannot report it. */
+	buildError: string | undefined
+	/** Files were sent to the UI Builder and its build has not reported back in time. */
+	buildPending: boolean
+	buildLogs: string
+}
+export type RawAppRuntimeLogRequester = (limit: number) => Promise<RawAppPreviewLogs>
+
+export const RAW_APP_BUILD_WAIT_MS = 20_000
+
+/** Whether files sent to the UI Builder have produced a build result yet, so a read made
+ * right after an edit waits for that edit's build instead of reporting the previous one.
+ * The UI Builder carries no build id: when edits land while a build runs, the result of
+ * the older build can settle the wait. */
+export function createRawAppBuildTracker(timeoutMs = RAW_APP_BUILD_WAIT_MS) {
+	// Stays set after a timed-out wait: the UI Builder never builds an app with no
+	// entrypoint, so a build may never report, and a later read must not call it done.
+	let pending = false
+	let generation = 0
+	let waiters: (() => void)[] = []
+	function release() {
+		const toRelease = waiters
+		waiters = []
+		toRelease.forEach((w) => w())
+	}
+	return {
+		get pending() {
+			return pending
+		},
+		/** Files were sent for a build; returns the generation to pass to `settle`. */
+		start(): number {
+			pending = true
+			return ++generation
+		},
+		/** A build reported. With `gen`, only settles if no edit was sent since. */
+		settle(gen?: number) {
+			if (gen !== undefined && gen !== generation) return
+			pending = false
+			release()
+		},
+		/** Ends every wait without settling, e.g. when the editor unmounts. */
+		release,
+		get generation() {
+			return generation
+		},
+		wait(): Promise<void> {
+			if (!pending) return Promise.resolve()
+			return new Promise((resolve) => {
+				const done = () => {
+					clearTimeout(timer)
+					resolve()
+				}
+				const timer = setTimeout(() => {
+					waiters = waiters.filter((w) => w !== done)
+					resolve()
+				}, timeoutMs)
+				waiters.push(done)
+			})
+		}
+	}
+}
 
 const RAW_APP_RUNTIME_LOG_LEVELS = new Set<RawAppRuntimeLogLevel>([
 	'log',
@@ -127,6 +189,34 @@ export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): stri
 	return lines.join('\n')
 }
 
+const BUILD_LOG_TAIL_LINES = 40
+const BUILD_LOG_TAIL_CHARS = 6000
+// Per-package install progress: dozens of lines per build that would crowd the errors out of the tail.
+const ROUTINE_INSTALL_LOG_LINE = /^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
+
+export function formatBuildLogTailForChat(buildLogs: string): string {
+	// The bundler log accumulates every install and build since the editor opened.
+	const lines = buildLogs
+		.split('\n')
+		.filter((line) => line.trim() && !ROUTINE_INSTALL_LOG_LINE.test(line))
+		.slice(-BUILD_LOG_TAIL_LINES)
+	let tail = lines.join('\n')
+	while (tail.length > BUILD_LOG_TAIL_CHARS && lines.length > 1) {
+		lines.shift()
+		tail = lines.join('\n')
+	}
+	tail = tail.slice(-BUILD_LOG_TAIL_CHARS)
+	return tail ? `Recent bundler logs:\n${tail}` : 'No bundler logs yet.'
+}
+
+export function formatBuildFailureForChat(buildError: string, buildLogs: string): string {
+	return [
+		'The app build FAILED, so the preview is not running the current code. Fix these errors in the frontend files, then call get_app_runtime_logs again to confirm the build passes.',
+		`Build error:\n${buildError}`,
+		formatBuildLogTailForChat(buildLogs)
+	].join('\n\n')
+}
+
 export type RawAppRunSummary = {
 	job_id: string
 	component: string
@@ -144,6 +234,38 @@ export type RawAppScreenshotRequester = () => Promise<string>
 
 export function formatAppRunsForChat(runs: RawAppRunSummary[]): string {
 	return JSON.stringify(runs, null, 2)
+}
+
+/** `sandbox` attribute of a sandbox-isolated app's frame, deployed or in the editor preview. */
+export const RAW_APP_SANDBOX_FLAGS =
+	'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation'
+
+/** Envelope type for a sandboxed pop-out's relayed messages. */
+export const RAW_APP_PREVIEW_RELAY = 'wm:previewRelay'
+
+/** Where a sandboxed app's (shimmed) localStorage persists, per app. The editor
+ * preview has its own store, so testing in it never touches the deployed app's data. */
+export function rawAppStorageKey(workspace: string, path: string, preview = false): string {
+	return `wm_apps_localstorage:${preview ? 'p:' : ''}${workspace}:${path}`
+}
+
+export function readRawAppStorage(storeKey: string): Record<string, string> {
+	try {
+		return JSON.parse(localStorage.getItem(storeKey) || '{}')
+	} catch (_) {
+		return {}
+	}
+}
+
+/** Applies one `wm_ls_op` relayed by a sandboxed app's storage shim. */
+export function applyRawAppStorageOp(storeKey: string, d: any) {
+	try {
+		const s = readRawAppStorage(storeKey)
+		if (d.op === 'set') s[d.key] = String(d.value)
+		else if (d.op === 'remove') delete s[d.key]
+		else if (d.op === 'clear') for (const k in s) delete s[k]
+		localStorage.setItem(storeKey, JSON.stringify(s))
+	} catch (_) {}
 }
 
 // The sandboxed (isolated) raw-app wrapper is generated server-side and served as
@@ -201,8 +323,14 @@ export function unsandboxedRawAppHtml(
 </html>`
 }
 
-function removeStaticFields(schema: Schema, fields: Record<string, { type: string }>): Schema {
-	const staticFields = Object.keys(fields).filter((k) => fields[k].type == 'static')
+// The app fills static and ctx fields itself, so the frontend never passes them.
+function removeServerFilledFields(
+	schema: Schema,
+	fields: Record<string, { type: string }>
+): Schema {
+	const staticFields = Object.keys(fields).filter(
+		(k) => fields[k].type == 'static' || fields[k].type == 'ctx'
+	)
 	return {
 		...schema,
 		properties: {
@@ -217,14 +345,16 @@ function hiddenRunnableToTsType(runnable: Runnable) {
 	if (isRunnableByName(runnable)) {
 		if (runnable?.inlineScript?.schema) {
 			return schemaToTsType(
-				removeStaticFields(runnable?.inlineScript?.schema, runnable?.fields ?? {})
+				removeServerFilledFields(runnable?.inlineScript?.schema, runnable?.fields ?? {})
 			)
 		} else {
 			return '{}'
 		}
 	} else if (isRunnableByPath(runnable)) {
 		if (runnable?.schema) {
-			return schemaToTsType(removeStaticFields(runnable.schema as Schema, runnable?.fields ?? {}))
+			return schemaToTsType(
+				removeServerFilledFields(runnable.schema as Schema, runnable?.fields ?? {})
+			)
 		} else {
 			return '{}'
 		}

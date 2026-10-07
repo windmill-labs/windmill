@@ -110,8 +110,9 @@ describe('memoryOptionLabel', () => {
 	// The ignored-input note names the setting by the same label its own button carries.
 	it('names each memory option the way the field renders it', () => {
 		expect(memoryOptionLabel({ kind: 'manual', messages: [] })).toBe('Previous messages (legacy)')
-		expect(memoryOptionLabel({ kind: 'auto', context_length: 4 })).toBe('On (legacy)')
-		expect(memoryOptionLabel({ kind: 'window', context_length: 10 })).toBe('On')
+		expect(memoryOptionLabel({ kind: 'auto', context_length: 4 })).toBe('Legacy (older)')
+		expect(memoryOptionLabel({ kind: 'window', context_length: 10 })).toBe('Legacy')
+		expect(memoryOptionLabel({ kind: 'compaction', context_window: 128000 })).toBe('On')
 		// Keeping no messages runs as off, whichever kind says so.
 		expect(memoryOptionLabel({ kind: 'window', context_length: 0 })).toBe('Off')
 		expect(memoryOptionLabel({ kind: 'auto' })).toBe('Off')
@@ -125,14 +126,15 @@ describe('memoryPropertyFor', () => {
 		memoryPropertyFor(property, value).oneOf.map((variant: { title: string }) => variant.title)
 
 	it('adds a legacy kind as an option only while the value holds it', () => {
-		expect(memoryPropertyFor(property, { kind: 'window', context_length: 10 })).toBe(property)
+		expect(memoryPropertyFor(property, { kind: 'compaction' })).toBe(property)
 		expect(memoryPropertyFor(property, undefined)).toBe(property)
+		expect(kinds({ kind: 'window', context_length: 10 })).toEqual(['off', 'compaction', 'window'])
 		expect(kinds({ kind: 'auto', context_length: 4, memory_id: 'x' })).toEqual([
 			'off',
-			'window',
+			'compaction',
 			'auto'
 		])
-		expect(kinds({ kind: 'manual', messages: [] })).toEqual(['off', 'window', 'manual'])
+		expect(kinds({ kind: 'manual', messages: [] })).toEqual(['off', 'compaction', 'manual'])
 		const autoVariant = (value: unknown) => memoryPropertyFor(property, value).oneOf.at(-1)
 		expect(autoVariant({ kind: 'auto', context_length: 4 }).properties.memory_id).toBeUndefined()
 		expect(

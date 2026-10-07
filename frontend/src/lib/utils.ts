@@ -629,6 +629,7 @@ export type InputCat =
 	| 'dynamic'
 	| 'json-schema'
 	| 'ai-provider'
+	| 'ai-decision-questions'
 
 export namespace DynamicInput {
 	const DYN_FORMAT_PREFIX = ['dynmultiselect-', 'dynselect-']
@@ -636,6 +637,20 @@ export namespace DynamicInput {
 	export type HelperScript =
 		| { source: 'deployed'; path: string; runnable_kind: RunnableKind }
 		| { source: 'inline'; code: string; lang: ScriptLang }
+
+	/** A flow's dropdown options for its editor. An operator may not run request-supplied code, and
+	 * a builder cannot change the stored code, so an operator reads it from the deployed flow. */
+	export function flowHelperScript(
+		code: string | undefined,
+		lang: ScriptLang | undefined,
+		deployedPath: string | undefined,
+		operator: boolean | undefined
+	): HelperScript | undefined {
+		if (!code || !lang) return undefined
+		return operator && deployedPath
+			? { source: 'deployed', path: deployedPath, runnable_kind: 'flow' }
+			: { source: 'inline', code, lang }
+	}
 
 	export const generatePythonFnTemplate = (functionName: string): string => {
 		return `
@@ -693,8 +708,10 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
-	} else if (type == 'object' && format == 'ai-provider') {
+	} else if (type == 'object' && (format == 'ai-provider' || format == 'ai-decision-provider')) {
 		return 'ai-provider'
+	} else if (type == 'object' && format == 'ai-decision-questions') {
+		return 'ai-decision-questions'
 	} else if (type == 'object' && DynamicInput.isDynInputFormat(format)) {
 		return 'dynamic'
 	} else if (!type || type == 'object' || type == 'array') {
@@ -1447,6 +1464,8 @@ const CLEANED_VALUE_KEYS = new Set([
 	'other_drafts_users',
 	'created_at',
 	'created_by',
+	'edited_at',
+	'edited_by',
 	'workspace_id',
 	'parent_hashes',
 	'lock_error_logs'
@@ -1482,29 +1501,6 @@ export function orderedJsonStringify(obj: any, space?: string | number) {
 		(key, value) => (value != undefined && value != null && allKeys.add(key), value)
 	)
 	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
-}
-
-function evalJs(expr: string) {
-	let template = `
-return function (fields) {
-"use strict";
-return ${expr.startsWith('return ') ? expr.substring(7) : expr}
-}
-`
-	let functor = Function(template)
-	return functor()
-}
-export function computeShow(argName: string, expr: string | undefined, args: any) {
-	if (expr) {
-		try {
-			let r = evalJs(expr)(args ?? {})
-			return r
-		} catch (e) {
-			console.error(`Impossible to eval ${expr}:`, e)
-			return true
-		}
-	}
-	return true
 }
 
 function urlizeTokenInternal(token: string, formatter: 'html' | 'md'): string {

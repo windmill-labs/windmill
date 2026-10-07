@@ -201,6 +201,38 @@
 	 */
 	let useClientCredentials = $state(false)
 
+	/** Slack v2 grants a user token for `user_scope` and a bot token for `scope`,
+	 * from the same app: the registry's `user_scopes` offers the choice. */
+	let useUserToken = $state(false)
+	/** Both kinds share one resource type, so the default path and description tell them apart. */
+	let tokenKind = $derived(
+		registryEntry()?.user_scopes && !useClientCredentials
+			? useUserToken
+				? 'user'
+				: 'bot'
+			: undefined
+	)
+	let defaultName = $derived(tokenKind ? `${resourceType}_${tokenKind}` : resourceType)
+	/** Last description filled in from `tokenKind`, replaced on reconnect unless the user edited it. */
+	let generatedDescription = ''
+
+	function fillGeneratedDescription() {
+		if (description === generatedDescription) {
+			description = ''
+		}
+		generatedDescription = tokenKind ? `${resourceType} ${tokenKind} token` : ''
+		if (emptyString(description)) {
+			description = generatedDescription
+		}
+	}
+
+	function selectUserToken(user: boolean) {
+		if (user !== useUserToken) {
+			scopes = user ? (registryEntry()?.user_scopes ?? []) : instanceScopes
+		}
+		useUserToken = user
+	}
+
 	/**
 	 * Client credentials for resource-level OAuth
 	 */
@@ -241,6 +273,15 @@
 	 * list rather than "every other field" because most OAuth types also hold the fields of
 	 * another way in: ServiceNow's basic-auth password, Bitbucket's app password. */
 	let resourceFields = $derived((registryEntry()?.resource_fields as string[] | undefined) ?? [])
+	/** The grant's defaults are offered as checkboxes too, so unticking one drops it.
+	 * `scope_options` lists authorization-code scopes, invalid in a 2-legged request. */
+	let scopeOptions = $derived(
+		useClientCredentials
+			? defaultCcScopes()
+			: useUserToken
+				? [...(registryEntry()?.user_scope_options ?? []), ...(registryEntry()?.user_scopes ?? [])]
+				: [...(registryEntry()?.scope_options ?? []), ...instanceScopes]
+	)
 
 	/** Their slice of the resource type's schema, so they render with the type's own
 	 * descriptions; plain text inputs while the type is not synced from the hub. */
@@ -286,6 +327,7 @@
 	function resetClientCredentialsState() {
 		supportsClientCredentials = false
 		useClientCredentials = false
+		useUserToken = false
 		authCodeUnavailable = false
 		ccInstanceConfigured = false
 		ccBringYourOwn = false
@@ -294,6 +336,10 @@
 		ccInstance = ''
 		tokenUrl = ''
 		scopes = []
+		if (description === generatedDescription) {
+			description = ''
+		}
+		generatedDescription = ''
 	}
 
 	/** Default scopes for the client-credentials grant. Registry providers use
@@ -449,16 +495,15 @@
 
 	// Google's terms require its own button on the control that starts the sign-in, which is
 	// the step-2 Connect: step 1 only picks a type, and a manual step 2 saves a resource
-	// without ever reaching Google.
+	// without ever reaching Google. Every registry provider that signs in through Google's
+	// authorize endpoint counts; `google` itself is a login provider, not a registry entry.
 	run(() => {
 		isGoogleSignin =
 			step == 2 &&
 			!manual &&
 			(resourceType == 'google' ||
-				resourceType == 'gmail' ||
-				resourceType == 'gcal' ||
-				resourceType == 'gdrive' ||
-				resourceType == 'gsheets')
+				(registryEntryFor(resourceType)?.auth_url?.startsWith('https://accounts.google.com/') ??
+					false))
 	})
 
 	run(() => {
@@ -606,16 +651,18 @@
 			value = data.res.access_token!
 			valueToken = data.res
 			responseExtra = data.extra ?? {}
+			fillGeneratedDescription()
 			step = 4
 			// `fillPath` decides the path as surely as express does, so neither stops here.
 			if (fillPath || express) {
-				path = fillPath ?? `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+				path = fillPath ?? `u/${$userStore?.username}/${defaultName}_${new Date().getTime()}`
 				next()
 			}
 		}
 	}
 
 	async function getScopesAndParams() {
+		useUserToken = false
 		if (!connects?.includes(connectClient)) {
 			// No instance OAuth client (registry-declared CC-only provider):
 			// defaults come from the static registry instead.
@@ -746,9 +793,10 @@
 						...tokenResponse,
 						grant_type: 'client_credentials' // Mark this token as client_credentials
 					}
+					fillGeneratedDescription()
 					step = 4
 					if (fillPath || express) {
-						path = fillPath ?? `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+						path = fillPath ?? `u/${$userStore?.username}/${defaultName}_${new Date().getTime()}`
 						next()
 					}
 				} catch (error) {
@@ -764,7 +812,11 @@
 				 * Opens popup for user to authenticate with OAuth provider
 				 */
 				const url = new URL(`/api/oauth/connect/${connectClient}`, window.location.origin)
-				url.searchParams.append('scopes', scopes.join('+'))
+				// An empty `scopes` still overrides the instance's bot scopes.
+				url.searchParams.append('scopes', useUserToken ? '' : scopes.join('+'))
+				if (useUserToken) {
+					url.searchParams.append('user_scope', scopes.join(','))
+				}
 				if (extra_params.length > 0) {
 					extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
 				}
@@ -1147,8 +1199,6 @@
 		if (step !== 1) return
 		highlight.onKeydown(e)
 	}
-
-	let editScopes = $state(false)
 </script>
 
 {#if !express}
@@ -1557,24 +1607,29 @@
 					</div>
 				{/if}
 
-				<div class="flex flex-col gap-1">
-					<h3 class="text-xs font-semibold text-emphasis flex gap-4"
-						>Scopes <button
-							onclick={() => {
-								editScopes = !editScopes
-							}}><Pen size={14} /></button
-						></h3
-					>
-
-					{#if editScopes}
-						<OauthScopes bind:scopes options={registryEntry()?.scope_options} />
-					{:else}
-						<div class="flex flex-col gap-1">
-							{#each scopes as scope}
-								<div class="py-0.5 pl-2 text-xs">- {scope}</div>
-							{/each}
+				{#if registryEntry()?.user_scopes && !useClientCredentials}
+					<div class="flex flex-col gap-1">
+						<h3 class="text-sm font-semibold text-emphasis mb-1">Connect as</h3>
+						<div class="flex flex-col gap-2" role="radiogroup" aria-label="Connect as">
+							<RadioCard
+								label="The app (bot token)"
+								description="Acts as the app's bot user, in the channels it is added to."
+								selected={!useUserToken}
+								onSelect={() => selectUserToken(false)}
+							/>
+							<RadioCard
+								label="Yourself (user token)"
+								description="Acts as you, with access to what you can see: history, DMs and search."
+								selected={useUserToken}
+								onSelect={() => selectUserToken(true)}
+							/>
 						</div>
-					{/if}
+					</div>
+				{/if}
+
+				<div class="flex flex-col gap-1">
+					<h3 class="text-xs font-semibold text-emphasis">Scopes</h3>
+					<OauthScopes bind:scopes options={scopeOptions} />
 				</div>
 			</div>
 		{/if}
@@ -1588,7 +1643,7 @@
 		<Label label="Path">
 			<Path
 				initialPath=""
-				namePlaceholder={resourceType}
+				namePlaceholder={defaultName}
 				bind:error={pathError}
 				bind:path
 				kind="resource"

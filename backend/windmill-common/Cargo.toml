@@ -22,7 +22,7 @@ smtp = ["dep:mail-send", "dep:rustls", "dep:tokio-rustls", "dep:rustls-native-ce
 scoped_cache = []
 cloud = []
 dev_override = []
-openidconnect = ["dep:openidconnect"]
+openidconnect = ["dep:openidconnect", "dep:rsa"]
 python = ["dep:windmill-parser-py"]
 
 [lib]
@@ -33,6 +33,7 @@ path = "src/lib.rs"
 tar.workspace = true
 hmac.workspace = true
 sha2.workspace = true
+ryu-js.workspace = true
 sha1.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
@@ -76,6 +77,7 @@ bitflags.workspace = true
 once_cell.workspace = true
 phf.workspace = true
 tokio-postgres.workspace = true
+postgres-protocol.workspace = true
 postgres-native-tls.workspace = true
 native-tls.workspace = true
 

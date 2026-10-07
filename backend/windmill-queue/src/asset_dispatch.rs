@@ -822,6 +822,7 @@ async fn push_subscriber(
             debouncing_settings,
             concurrency_settings,
             labels: script.labels,
+            job_token_scopes: script.job_token_scopes,
         }
     };
 
@@ -903,6 +904,7 @@ async fn push_subscriber(
             Some(producer_path.to_string()),
             JobTriggerKind::Asset,
         )),
+        None,
         None,
     )
     .await

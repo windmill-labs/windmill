@@ -9,6 +9,7 @@
 	} from '$lib/components/triggers/native/utils'
 	import NativeTriggerTable from '$lib/components/triggers/native/NativeTriggerTable.svelte'
 	import NativeTriggerEditor from '$lib/components/triggers/native/NativeTriggerEditor.svelte'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		sendUserToast,
 		removeTriggerKindIfUnused,
@@ -20,12 +21,15 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Button, Alert, EmptyState, Skeleton } from '$lib/components/common'
 	import { LoaderCircle, Plus, Webhook } from 'lucide-svelte'
-	import { GithubIcon, GoogleIcon, NextcloudIcon } from '$lib/components/icons'
+	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
+	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
+	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { page } from '$app/state'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	const triggerLock = useTriggerLock()
 
 	type TriggerW = ExtendedNativeTrigger & { marked?: any }
 
@@ -220,7 +224,8 @@
 				variant="accent"
 				startIcon={{ icon: Plus }}
 				on:click={() => editor?.openNew()}
-				disabled={!serviceAvailable}
+				disabled={!serviceAvailable || !!$triggerLock}
+				title={$triggerLock}
 			>
 				New&nbsp;{serviceConfig?.serviceDisplayName || serviceName} trigger
 			</Button>
@@ -279,6 +284,8 @@
 							label: `Add a ${serviceConfig?.serviceDisplayName || serviceName} trigger`,
 							icon: Plus,
 							onClick: () => editor?.openNew(),
+							disabled: !!$triggerLock,
+							title: $triggerLock,
 							aiId: 'native-triggers-empty-add',
 							aiDescription: 'Add native trigger'
 						}}

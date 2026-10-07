@@ -57,6 +57,7 @@ mod job_payload {
                 language: ScriptLang::Deno,
                 priority: None,
                 apply_preprocessor: false,
+                job_token_scopes: None,
             })
             .arg("world", json!("foo"))
             .run_until_complete(&db, false, port)
@@ -92,6 +93,7 @@ mod job_payload {
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
                 labels: None,
+                job_token_scopes: None,
             })
             .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
@@ -239,6 +241,7 @@ mod job_payload {
             let result = RunJob::from(JobPayload::FlowNode {
                 id,
                 path: "f/system/hello_with_nodes_flow/forloop-0".into(),
+                no_inherited_flow_env: false,
             })
             .arg("iter", json!({ "value": "tests", "index": 0 }))
             .run_until_complete(&db, false, port)
@@ -434,6 +437,7 @@ mod job_payload {
                 apply_preprocessor: false,
                 version: 1443253234253454,
                 labels: None,
+                job_token_scopes: None,
             })
             .run_until_complete(&db, false, port)
             .await
@@ -484,6 +488,7 @@ mod job_payload {
                 apply_preprocessor: true,
                 version: 1443253234253456,
                 labels: None,
+                job_token_scopes: None,
             })
             .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
@@ -555,6 +560,7 @@ mod job_payload {
                 apply_preprocessor: true,
                 version: 1443253234253454,
                 labels: None,
+                job_token_scopes: None,
             })
             .run_until_complete(&db, false, port)
             .await
@@ -1149,6 +1155,7 @@ mod job_payload {
                 apply_preprocessor: true,
                 version: 1443253234253454,
                 labels: None,
+                job_token_scopes: None,
             })
             .run_until_complete(db, false, port)
             .await;
@@ -1624,6 +1631,7 @@ mod job_payload {
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
                 labels: None,
+                job_token_scopes: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -1675,6 +1683,7 @@ mod job_payload {
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
                 labels: None,
+                job_token_scopes: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -1726,6 +1735,7 @@ mod job_payload {
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
                 labels: None,
+                job_token_scopes: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -1777,6 +1787,7 @@ mod job_payload {
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
                 labels: None,
+                job_token_scopes: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -1830,6 +1841,7 @@ mod job_payload {
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
                 labels: None,
+                job_token_scopes: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))

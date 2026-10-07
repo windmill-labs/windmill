@@ -6,46 +6,52 @@ This guide covers raw apps from the terminal: scaffolding via `wmill app new`, t
 
 **You — the AI agent — create the app yourself by running `wmill app new` with the right flags. Do NOT tell the user to "run `wmill app new` and follow the prompts" or wait for them to do it.** The bare `wmill app new` is an interactive wizard that hangs waiting for stdin in any non-TTY context (which includes you). Always pass flags.
 
-### Step 1 — Gather the three required values by asking the user
+### Step 1 — Settle the setup
 
-You need three things to run the command:
+You need three values to run the command:
 
 1. **summary** — a short description of the app
 2. **path** — the windmill path, e.g. `f/folder/my_app` or `u/username/my_app`
 3. **framework** — one of `react19` (recommended), `react18`, `svelte5`, `vue`
 
-If the user's request did not supply *every* one of these explicitly, ask. Do not guess values, do not invent paths, do not pick a framework on the user's behalf, do not "just use react19 because it's the default".
+**summary and path**: if the user's request did not supply them, ask. Do not guess values and do not invent paths.
 
-Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and group all missing fields into a single round-trip so the user answers them at once:
+**framework**: never ask. Use the one the user named, otherwise the one the project's existing apps use, otherwise `react19` (see "Starting a new app" in the authoring guide).
 
-- For `framework` — multiple-choice with the four allowed values; mark `react19` as `(Recommended)` and put it first.
+**data setup**: when the app has to store data and the user did not say where, ask which data table, which schema and which tables, as "Data setup" in the authoring guide lays out. `wmill datatable list` gives the data tables to offer.
+
+Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and group everything missing into a single round-trip so the user answers at once:
+
 - For `summary` and `path` — provide one or two example values as multiple-choice options (the user can pick "Other" to type a free-form answer).
+- For the data setup — the choices the authoring guide lists, the default first.
 
-Only proceed once you have concrete values for all three. If the user replies with something ambiguous, ask again rather than guessing.
+Only proceed once every value is concrete. If the user replies with something ambiguous, ask again rather than guessing.
 
 ### Step 2 — Run the command yourself
 
-Once you have summary + path + framework, run it:
+Once the setup is settled, run it:
 
 ```bash
 wmill app new \
   --summary "Customer dashboard" \
   --path f/sales/dashboard \
-  --framework react19
+  --framework react19 \
+  --datatable main \
+  --schema app1
 ```
 
-That's the minimum. The datatable wizard and the "Open in Claude Desktop?" prompt are skipped silently because passing any of `--summary`/`--path`/`--framework` puts the command in non-interactive mode.
+`--summary`, `--path` and `--framework` are the minimum. The datatable wizard and the "Open in Claude Desktop?" prompt are skipped silently because passing any of them puts the command in non-interactive mode, so the data setup only reaches the app through the flags below.
 
 ### Optional flags
 
-Layer these in only when the user asked for them:
-
 | Flag | When to add it |
 |---|---|
-| `--datatable <name>` | The user wants this app wired to a specific Windmill datatable. Without it, the app is created with no datatable. |
-| `--schema <name>` | Together with `--datatable`. Creates the schema with `CREATE SCHEMA IF NOT EXISTS` if it doesn't already exist. |
+| `--datatable <name>` | The app stores data: the data table settled in step 1. Without it, the app is created with no datatable. |
+| `--schema <name>` | Together with `--datatable`, when the app's tables go in a schema, new or existing. If the schema doesn't exist yet, writes a `sql_to_apply/` migration with `CREATE SCHEMA IF NOT EXISTS`, applied like any other migration (see "SQL Migrations" below). Leave it out for `public`. |
 | `--overwrite` | The target directory already exists and the user said it's OK to replace. Without it, non-interactive mode aborts with an error so you don't clobber existing work. |
 | `--no-open-in-desktop` | Already implied in non-interactive mode; only needed if you're somehow running interactively. |
+
+Existing tables the app reuses have no flag: list them under `data.tables` in `raw_app.yaml` (see "Data tables" below).
 
 ### Step 3 — Offer the visual preview
 
@@ -57,8 +63,9 @@ For apps the preview command runs from the app folder (`cd <app_path>__raw_app &
 
 - ❌ Running `wmill app new` with no flags (the prompt will hang).
 - ❌ Telling the user to "run `wmill app new` and follow the prompts" — that's a step backwards from what you can do directly.
-- ❌ Inventing a path/summary/framework instead of asking the user.
-- ❌ Defaulting to `react19` because the user didn't say — even sensible defaults must be confirmed.
+- ❌ Inventing a path or summary instead of asking the user.
+- ❌ Asking which framework to use — `react19` is the default when nothing says otherwise.
+- ❌ Creating a schema or tables for a new app before the user has said where its data goes.
 - ❌ Passing `--overwrite` automatically when the directory exists — confirm with the user first.
 
 ### Interactive (only when a human is at the terminal)
@@ -163,7 +170,7 @@ The `data` block in `raw_app.yaml` controls which tables the app can query.
 ```yaml
 data:
   datatable: main           # Default datatable
-  schema: app_schema        # Default schema (optional)
+  schema: app_schema        # Schema the app's tables go in (optional); still write them as app_schema.<table>
   tables:
     - main/users            # Table in public schema
     - main/app_schema:items # Table in specific schema
@@ -208,6 +215,8 @@ data:
     - main/users
 ```
 
+A migration runs with no default schema, so a table outside `public` is created with its schema, `CREATE TABLE IF NOT EXISTS app_schema.items (...)`, listed as `main/app_schema:items`, and queried as `app_schema.items`.
+
 ### Migration best practices
 
 - **Use idempotent SQL**: `CREATE TABLE IF NOT EXISTS`, etc.
@@ -217,8 +226,9 @@ data:
 
 ## CLI Commands
 
-Two commands you run yourself, not the user:
+Commands you run yourself, not the user:
 - `wmill app new` — run it with flags, per the "Creating a Raw App" section above.
+- `wmill app lint <app_folder>` — checks the app's structure and that it builds. Run it after editing, before offering a preview or a deploy; a bundle that compiles still says nothing about behavior, so a preview is what checks that.
 - `wmill generate-metadata` — (re)generates local lock files and refreshes `wmill-lock.yaml` content hashes; writes local files only (not a deploy). After adding or editing a runnable, offer it and run it on agreement — or automatically if the project's `AGENTS.md` opts into that (see "After creating a runnable" above).
 
 For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:

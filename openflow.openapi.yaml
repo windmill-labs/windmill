@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.817.0
+  version: 1.827.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -203,11 +203,11 @@ components:
             - height
         color:
           type: string
-          description: Color of the note (e.g., "yellow", "#ffff00")
+          description: "Color of the note, one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray. Any other value renders unstyled."
         type:
           type: string
           enum: [free, group]
-          description: Type of note - 'free' for standalone notes, 'group' for notes that group other nodes
+          description: Type of note - 'free' for standalone notes. 'group' notes are deprecated; segment a flow with FlowValue.groups instead.
         locked:
           type: boolean
           default: false
@@ -245,7 +245,7 @@ components:
           description: ID of the last flow module in this group (topological exit point)
         color:
           type: string
-          description: Color for the group in the flow editor
+          description: "Color for the group in the flow editor, one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray. Omit it to let the editor pick one."
       required:
         - start_id
         - end_id
@@ -376,6 +376,12 @@ components:
         continue_on_error:
           type: boolean
           description: If true, flow continues even if this step fails
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of this step's jobs is restricted to (domain:action[:resource], e.g. oidc:write), on top of the flow's own restriction: a step can only narrow it. Applies to everything the step runs (loop and branch bodies, AI agent tools)."
         retry:
           description: Retry configuration if this step fails
           $ref: '#/components/schemas/Retry'
@@ -473,6 +479,8 @@ components:
         - togetherai
         - customai
         - aws_bedrock
+        - typesafe
+        - cloudflare
 
     ProviderConfig:
       type: object
@@ -571,6 +579,25 @@ components:
       required:
         - kind
 
+    MemoryCompaction:
+      type: object
+      description: |
+        Keeps the whole memory named by the run's memory id (or the step's `memory_id`), replacing
+        its older part with a summary as the conversation approaches the model's context window.
+        Without a memory id the agent runs without memory, and compaction bounds the run's own loop.
+      properties:
+        kind:
+          type: string
+          enum:
+            - compaction
+        context_window:
+          type: integer
+          description: |
+            Overrides the context window looked up from the model, in tokens. Only a model
+            Windmill does not know needs one; those fall back to 128000.
+      required:
+        - kind
+
     MemoryMessage:
       type: object
       description: A single message in conversation history
@@ -609,6 +636,7 @@ components:
       oneOf:
         - $ref: '#/components/schemas/MemoryOff'
         - $ref: '#/components/schemas/MemoryWindow'
+        - $ref: '#/components/schemas/MemoryCompaction'
         - $ref: '#/components/schemas/MemoryAuto'
         - $ref: '#/components/schemas/MemoryManual'
       discriminator:
@@ -616,6 +644,7 @@ components:
         mapping:
           'off': '#/components/schemas/MemoryOff'
           window: '#/components/schemas/MemoryWindow'
+          compaction: '#/components/schemas/MemoryCompaction'
           auto: '#/components/schemas/MemoryAuto'
           manual: '#/components/schemas/MemoryManual'
 
@@ -658,6 +687,7 @@ components:
         - $ref: '#/components/schemas/BranchAll'
         - $ref: '#/components/schemas/Identity'
         - $ref: '#/components/schemas/AiAgent'
+        - $ref: '#/components/schemas/AiDecision'
       discriminator:
         propertyName: type
         mapping:
@@ -670,6 +700,7 @@ components:
           branchall: '#/components/schemas/BranchAll'
           identity: '#/components/schemas/Identity'
           aiagent: '#/components/schemas/AiAgent'
+          aidecision: '#/components/schemas/AiDecision'
 
     RawScript:
       type: object
@@ -978,6 +1009,12 @@ components:
         description:
           type: string
           description: Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script.
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of this tool's jobs is restricted to, on top of the agent step's own restriction: a tool can only narrow it."
         value:
           $ref: '#/components/schemas/ToolValue'
       required:
@@ -1090,8 +1127,8 @@ components:
                 parameter). Leave unset to use the run's memory id. A fixed value shares one memory
                 across every run; an expression such as `flow_input.customer_id` keeps one memory per
                 key. When it evaluates to an empty value the agent runs without memory. Read only
-                while `memory` is `window`: it is ignored when memory is off, and an older `auto` or
-                `manual` memory reads neither history input.
+                while `memory` is `window` or `compaction`: it is ignored when memory is off, and an
+                older `auto` or `manual` memory reads neither history input.
             previous_messages:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1187,6 +1224,62 @@ components:
         parallel:
           type: boolean
           description: If true, the agent can execute multiple tool calls in parallel
+      required:
+        - type
+        - input_transforms
+
+    AiDecision:
+      type: object
+      description: |
+        AI decision step: one call to a decision model (TypeSafe's Jev, Cloudflare's
+        Jev-compatible Clef, or OpenAI's Decisions API) that answers typed questions about a
+        state with calibrated probabilities, instead of generating text.
+        Prefer it over an AI agent to classify, route, score or check something: it is fast,
+        cheap and its answers are structured. Its result is { output: { <question name>: answer },
+        model, usage }, so a later step reads e.g. results.<id>.output.intent.choice. To route on
+        the answers, follow it with a branchone whose branch exprs read
+        results.<id>.output.<question>.choice. Usable as an AI agent tool, where the calling agent
+        supplies the state.
+      properties:
+        input_transforms:
+          type: object
+          description: Input parameters for the decision mapped to their values
+          properties:
+            # A provider config whose kind is 'typesafe' (model 'jev-latest' unless pinned),
+            # 'cloudflare' (model 'clef' or 'clef-flash') or 'openai' (model 'gpt-6-luna').
+            provider:
+              $ref: '#/components/schemas/ProviderTransform'
+            state:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                What the questions are asked about: a string, an object or an array of strings.
+                An object with descriptive keys holding only what the questions need works best.
+                Example: { message: flow_input.message, plan: results.a.plan }
+            questions:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Object mapping each question name to { type, instructions, criteria }, where type is:
+                - 'choice': criteria maps each option to its description (up to 255); the answer
+                  has choice, probabilities and confidence
+                - 'score': criteria is an ordered array of 2 to 10 level descriptions; the answer
+                  has score, legend, probabilities and confidence
+                - 'noul': yes/no, criteria optionally { true, false } descriptions; the answer has
+                  noul, the probability of yes (0 to 1)
+                Example: { intent: { type: 'choice', instructions: 'What does the customer want?',
+                criteria: { refund: 'Money back', bug: 'Something is broken' } } }
+          required:
+            - provider
+            - state
+            - questions
+        type:
+          type: string
+          enum:
+            - aidecision
+        tag:
+          type: string
+          description: Worker group tag for execution routing. If not set, the step runs on the flow's tag (default `flow`)
       required:
         - type
         - input_transforms

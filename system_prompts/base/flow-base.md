@@ -22,6 +22,7 @@ These are strict Windmill schema rules. Follow them exactly.
 - `preprocessor_module` and `failure_module` only support `script` or `rawscript`
 - `preprocessor_module` runs before normal modules and cannot reference `results.*`
 - `failure_module` can use the `error` object with `error.message`, `error.step_id`, `error.name`, and `error.stack`
+- A flow whose `failure_module` runs still ends as failed, unless the handler returns an object with `recover: true`: the flow then ends as a success. This also holds when the failing step is inside a loop, a branch or a subflow. `recover` never changes which steps run; whether a loop or branch carries on past a failure is still decided by its own settings (`skip_failures`, `continue_on_error`)
 
 Correct shape:
 
@@ -135,7 +136,7 @@ needs becomes unreachable.
       },
       "user_message": { "type": "javascript", "expr": "flow_input.user_message" },
       "user_attachments": { "type": "javascript", "expr": "flow_input.files" },
-      "memory": { "type": "static", "value": { "kind": "window", "context_length": 10 } },
+      "memory": { "type": "static", "value": { "kind": "compaction" } },
       "streaming": { "type": "static", "value": true },
       "output_type": { "type": "static", "value": "text" }
     },
@@ -170,12 +171,109 @@ names, so neither is name-checked at all — leave those summaries as they are.
 - Always set `summary`. It must be unique among that agent's tools, and must not be one of the
   reserved ids (`do`, `bg`, `ctx`, `state`, `if`, `else`, `for`, `delete`, `while`, `new`, `in`,
   `failure`, `preprocessor`, `as`, `Input`, `Result`, `Trigger`)
-- A tool name outside that character set is rejected: flow write tools refuse it, and a flow that
-  reaches the worker with one fails every run with `Invalid tool name`
+- A tool name outside that character set fails any run that offers the tool to the agent, with `Invalid tool name`.
+<!-- chat-only -->
+  The flow write tools refuse such a name.
+<!-- /chat-only -->
+<!-- cli-only -->
+  `wmill lint <flow folder>` reports it before anything runs.
+<!-- /cli-only -->
 - Tool `id` follows the same rules as any module ID — unique across the flow, underscores not spaces
 - `description` is optional free text telling the agent when and how to call the tool. Set it
   whenever the name alone does not make that obvious; it overrides the description derived from the
   underlying script
+
+## AI Decision Modules
+
+An `aidecision` module asks a decision model (TypeSafe's Jev, Cloudflare's Clef or OpenAI's Decisions API) typed questions about a `state` and
+answers each with calibrated probabilities instead of text. Prefer it over an `aiagent` when the step
+is a judgment (classify, route, score or a yes/no check) that needs no tools and no free text: it
+is faster, cheaper, and its answers have a fixed shape.
+
+```json
+{
+  "id": "triage",
+  "summary": "Classify the ticket",
+  "value": {
+    "type": "aidecision",
+    "input_transforms": {
+      "provider": {
+        "type": "static",
+        "value": { "kind": "typesafe", "resource": "$res:f/ai/typesafe", "model": "jev-latest" }
+      },
+      "state": { "type": "javascript", "expr": "flow_input.message" },
+      "questions": {
+        "type": "static",
+        "value": {
+          "intent": {
+            "type": "choice",
+            "instructions": "What does the customer want?",
+            "criteria": { "refund": "Money back", "bug": "Something is broken", "other": "Anything else" }
+          },
+          "urgency": {
+            "type": "score",
+            "instructions": "How urgent is the ticket?",
+            "criteria": ["Can wait", "This week", "Today", "Right now"]
+          },
+          "angry": { "type": "noul", "instructions": "Is the customer angry?" }
+        }
+      }
+    }
+  }
+}
+```
+
+- `provider.kind` is `typesafe` (`model` `jev-latest` unless a version is pinned), `cloudflare`
+  (`model` `clef`, or `clef-flash` for faster answers) or `openai` (`model` `gpt-6-luna`, never a
+  chat model); the resource is of that same type
+- `state` is the content to evaluate: usually a text, such as the message to classify. To combine
+  several values, pass an object with descriptive keys holding only what the questions need
+  (`({ message: flow_input.message, plan: results.get_account.plan })`); an array of strings also works
+- `questions` maps each question name to `{ type, instructions, criteria }`:
+  - `choice`: `criteria` maps each option to its description (up to 255 options). The answer has
+    `choice`, `probabilities` and `confidence`
+  - `score`: `criteria` is an ordered array of 2 to 10 level descriptions. The answer has `score`,
+    `legend`, `probabilities` and `confidence`
+  - `noul`: yes/no, `criteria` optionally `{ "true": ..., "false": ... }` descriptions. The answer has
+    `noul`, the probability of yes from 0 to 1
+- The result is `{ output, model, usage }` with `output` keyed by question name, so a later step
+  reads `results.triage.output.intent.choice`, `results.triage.output.urgency.score` or
+  `results.triage.output.angry.noul > 0.7`
+- On `openai` the same `questions` are translated for its Decisions API and the answers read the
+  same way (`choice`, `score`, `noul`), except that `probabilities` is a list of
+  `{ value, probability }` (plus `label` on a score) and a score has no `legend`. A question OpenAI
+  refuses to answer fails the step. A `state` that is
+  an array of user messages (`[{ role: "user", content: [{ type: "input_text", text }, { type: "input_image", image_url: "data:image/png;base64,..." }] }]`)
+  is sent as is, which is how an image is evaluated; any other object or array is sent as JSON text
+
+### Branching on the Answers
+
+To route on the answers, put a `branchone` right after the decision, one branch per option, with
+each `expr` reading the decision by id:
+
+```json
+{
+  "id": "route",
+  "value": {
+    "type": "branchone",
+    "branches": [
+      { "summary": "refund", "expr": "results.triage.output.intent.choice === 'refund'", "modules": [...] },
+      { "summary": "bug", "expr": "results.triage.output.intent.choice === 'bug'", "modules": [...] }
+    ],
+    "default": [...]
+  }
+}
+```
+
+For a yes/no question, one branch with `"expr": "results.triage.output.angry.noul >= 0.5"` (tune the
+threshold as needed) and the `default` as the "no" path.
+
+### As an Agent Tool
+
+An `aidecision` can be a `flowmodule` tool of an `aiagent` (`"tool_type": "flowmodule", "type":
+"aidecision"`): set `state` to `{ "type": "ai" }` so the calling model supplies it, and only `output`
+goes back to the model. The Tool Naming Rules apply to its `summary`. Only a flow's own agent step
+can call one, not an agent used as a tool.
 
 ## Common Mistakes to Avoid
 
@@ -194,9 +292,11 @@ names, so neither is name-checked at all — leave those summaries as they are.
 
 ## Loop Structure Rules
 
+- A `forloopflow` runs its `modules` once per element of `iterator`, a javascript expression returning an array (e.g. `results.get_items`); `parallel: true` runs the iterations concurrently, and `skip_failures: true` carries on past a failed iteration
 - For `whileloopflow`, break the loop with a module-level `stop_after_if`: on the loop module itself, or on an inner step (required when that step carries state via its own `results` — see below)
 - `stop_after_if` is always a sibling of `id` and `value` on a flow module — never a direct key of the loop's `value` object
 - `stop_after_all_iters_if` is for checks after the whole loop finishes, not the normal per-iteration break condition
+- `stop_after_if` is evaluated after each iteration: on the loop module, `result` is that iteration's result (what its last step returned); on an inner step, it is that step's result
 - `flow_input.iter.value` in a `whileloopflow` is just the iteration index (same number as `flow_input.iter.index`) — it never carries state, so `flow_input.iter.value.<field>` is always undefined and a loop whose stop condition depends on it never terminates
 - To carry state across iterations, a step reads its own previous-iteration result via `results.<its_own_id>` with a first-iteration fallback (e.g. `results.b ?? flow_input.start`) — but then the loop's `stop_after_if` MUST sit on that inner step, not on the loop module: a body that is exactly one plain step with the stop condition on the loop module runs on a fast path where `results.<step_id>` is null on every iteration and the loop never terminates (bodies with 2+ steps, or whose single step has its own `stop_after_if`, retry or similar, resolve `results` across iterations regardless of stop placement)
 - For state that is just a counter, derive it from the index instead (e.g. `flow_input.iter.index + 1`) — that works in every configuration, including with `stop_after_if` on the loop module
@@ -334,6 +434,7 @@ Incorrect shape (identity has no resume URLs — not a real approval):
 
 ## Branch Result Scope Rules
 
+- A `branchone` runs the first of its `branches` whose `expr` is true, in order, and its `default` modules when none is; a `branchall` runs every branch (concurrently with `parallel: true`)
 - Inside a branch, you may reference earlier outer steps and earlier steps in the same branch
 - Outside a `branchone`, do NOT reference ids of steps that only exist inside its branches or default branch. Use `results.<branchone_module_id>` instead
 - Outside a `branchall`, do NOT reference ids of steps inside its branches. Use `results.<branchall_module_id>` instead
@@ -393,6 +494,52 @@ JavaScript transform (dynamic expression):
 - For flow inputs: Use type `"object"` with format `"resource-{type}"` (e.g., `"resource-postgresql"`)
 - For step inputs: Use static value `"$res:path/to/resource"`
 
+## Reusing Existing Scripts and Flows
+
+Unless the user asked for new code, look for a workspace script or flow that already does a step's job before writing it, and reuse it by path instead of copying its logic into a rawscript:
+
+- a workspace script: `type: script` with `path` (e.g. `f/folder/send_email`)
+- a workspace flow, run as a subflow: `type: flow` with `path`
+- a Hub script: `type: script` with a `hub/<version>/<app>/<name>` path
+
+The step's `input_transforms` must cover the reused item's inputs, so read its input schema first.
+<!-- cli-only -->
+Find candidates in the local tree (a `.script.yaml` sits next to each script and holds its input schema, a `flow.yaml` in each flow folder) and on the workspace with `wmill script list` / `wmill flow list`; `wmill script get <path>` and `wmill flow get <path>` show an item's details.
+<!-- /cli-only -->
+
+## Additional Prompt for AI
+
+A flow's input schema may carry a top-level `prompt_for_ai` string, as a script's can: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that flow, and keep it when you rewrite the schema.
+
+## Organizing Flows: Groups and Notes
+
+Groups and notes shape how a flow reads in the editor; neither changes what it does.
+
+**Segment every non-trivial flow into groups without waiting to be asked.** Whenever a flow has more than a couple of steps, or consecutive steps form a stage ("fetch", "transform", "notify"), put them in a group, and aim for every meaningful step to belong to one. Use notes sparingly, for flow-wide information that belongs to no span of steps: the flow's purpose, key assumptions, warnings, TODOs. One note is usually enough; never label a run of steps with a note, which is what a group is for.
+
+`value.groups` lists the groups, each spanning the steps from `start_id` to `end_id`:
+
+- `start_id`, `end_id` (required): ids of the group's first and last step; the same id for both makes a one-step group
+- `summary`: the group's title
+- `note`: markdown shown under the title
+- `color`: one of `yellow`, `blue`, `green`, `purple`, `pink`, `orange`, `red`, `cyan`, `lime`, `gray`, never a hex code or CSS color; leave it out and the editor picks one
+- `autocollapse`: `true` shows the group collapsed by default
+
+The editor refuses to draw a flow whose groups break any of these rules:
+
+- `start_id` and `end_id` are steps of the same list: both top-level, or both in the same loop body or branch. A group can hold a loop or branch step whole, but cannot start outside one and end inside it
+- `start_id` does not come after `end_id` in that list
+- groups nest (one entirely inside another) but never partly overlap, and no two groups share both `start_id` and `end_id`
+- groups hold ordinary steps only: never `preprocessor`, `failure`, `Input`, `Result`, `Trigger`, or an AI agent's tools
+
+`value.notes` lists sticky notes, each with a unique `id`, markdown `text`, a `color` from the same list, and `type: free`. The `group` note type is deprecated; use `value.groups` instead.
+<!-- cli-only -->
+Give each note a `position` (`{ x, y }`) and a `size` (`{ width, height }`): the editor draws a note without them at the origin and cannot resize it. `x: -400` with `width: 275` places it beside the graph.
+<!-- /cli-only -->
+<!-- chat-only -->
+Leave a note's `position` and `size` out and they are filled in for you.
+<!-- /chat-only -->
+
 ## Final Structural Self-Check
 
 Before finalizing a flow, verify:
@@ -402,6 +549,10 @@ Before finalizing a flow, verify:
 - any approval step has module-level `suspend`
 - no downstream step references inner branch step ids from outside the branch
 - every AI agent flowmodule tool has a unique `summary` made only of letters, numbers and underscores
+- every group starts and ends on steps of the same list, start before end, nesting without partial overlap
+<!-- cli-only -->
+- `wmill lint <flow folder>` reports no error
+<!-- /cli-only -->
 
 ## S3 Object Operations
 

@@ -16,10 +16,12 @@ use axum::{
 };
 use windmill_api_auth::{
     auth::{list_tokens_internal, TruncatedTokenWithEmail},
-    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
-    ApiAuthed,
+    build_scope_path_predicate, check_scopes, get_scope_tags, maybe_refresh_folders,
+    require_owner_of_path, ApiAuthed,
 };
-use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
+use windmill_common::workspaces::{
+    check_deploy_rules, check_operator_can_build_flows, operator_can_build_flows, RuleCheckResult,
+};
 use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     utils::HTTP_CLIENT,
@@ -35,7 +37,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::assets::{clear_static_asset_usage, AssetUsageKind};
-use windmill_common::flows::FlowModule;
+use windmill_common::flows::{FlowModule, FlowValue};
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
     MIN_VERSION_SUPPORTS_NODE_DEBOUNCING,
@@ -241,7 +243,7 @@ async fn list_flows(
 
     // Append the authed user's drafts at paths with no deployed flow; see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
+        && (!authed.is_operator || operator_can_build_flows(&db, &w_id).await?)
         && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()
@@ -256,7 +258,8 @@ async fn list_flows(
             r#"SELECT DISTINCT ON (path)
                       path,
                       value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-                      created_at
+                      created_at,
+                      email IS NULL as "legacy!"
                FROM draft
                WHERE workspace_id = $1
                  AND typ = 'flow'
@@ -313,9 +316,9 @@ async fn list_flows(
                 inherited_labels: None,
                 is_draft: true,
                 draft_path,
-                // Synthesized rows are the authed user's own draft.
+                // Owned by nobody when legacy; see scripts.rs.
                 draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
-                    username: Some(authed.username.clone()),
+                    username: (!row.legacy).then(|| authed.username.clone()),
                 }])),
             });
         }
@@ -570,7 +573,13 @@ async fn list_paths_linking_agent(
     Ok(Json(flows))
 }
 
-async fn validate_flow(new_flow: &NewFlow) -> error::Result<()> {
+async fn validate_flow(
+    new_flow: &NewFlow,
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+) -> error::Result<()> {
     #[cfg(not(feature = "enterprise"))]
     if new_flow.ws_error_handler_muted.is_some_and(|val| val) {
         return Err(Error::BadRequest(
@@ -581,7 +590,137 @@ async fn validate_flow(new_flow: &NewFlow) -> error::Result<()> {
 
     guard_flow_from_debounce_data(new_flow).await?;
 
+    if authed.is_operator {
+        validate_operator_flow(
+            &new_flow.parse_flow_value()?,
+            &new_flow.tag,
+            new_flow.schema.as_ref().map(|s| s.0.get()),
+            authed,
+            db,
+            user_db,
+            w_id,
+        )
+        .await?;
+    }
+
     return Ok(());
+}
+
+/// What an operator with builder rights must pass to store a flow, deployed or as a draft: a
+/// developer who loads a builder's draft in the editor runs its code as themselves.
+pub async fn validate_operator_flow(
+    value: &FlowValue,
+    flow_tag: &Option<String>,
+    schema: Option<&str>,
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+) -> error::Result<()> {
+    // Dynamic dropdown code runs as whoever loads the flow's form: it is code like a step's.
+    if let Some(schema) = schema {
+        let schema: serde_json::Value = serde_json::from_str(schema)?;
+        if schema.get("x-windmill-dyn-select-code").is_some() {
+            return Err(Error::PermissionDenied(
+                "This flow has dynamic dropdown code, so only a developer can edit it".to_string(),
+            ));
+        }
+    }
+    validate_operator_composed_flow(value, flow_tag, authed, db, user_db, w_id).await
+}
+
+/// Runs on every write and every preview of a flow authored by an operator with builder rights.
+/// The walk in `check_flow_is_composition_only` only sees the value; what it collects is
+/// authorized here against the caller's own permissions.
+pub async fn validate_operator_composed_flow(
+    value: &FlowValue,
+    flow_tag: &Option<String>,
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+) -> error::Result<()> {
+    let mut refs = windmill_common::flows::check_flow_is_composition_only(value)?;
+
+    // A tag is how a step picks the worker group it runs on: unauthorized, a builder could route
+    // a job onto a privileged one.
+    refs.tags.extend(flow_tag.clone().filter(|t| !t.is_empty()));
+    if !refs.tags.is_empty() {
+        // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
+        let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
+        for tag in &refs.tags {
+            windmill_common::jobs::check_tag_available_for_workspace_internal(
+                db,
+                w_id,
+                tag,
+                None,
+                std::future::ready(w_id.to_string()),
+                is_super_admin,
+                get_scope_tags(authed),
+            )
+            .await?;
+        }
+    }
+
+    if refs.runnables.is_empty() && refs.pinned_scripts.is_empty() {
+        return Ok(());
+    }
+    // A flow can step through the same script thirty times; this runs on every write, preview and
+    // dependency job.
+    refs.runnables.sort();
+    refs.runnables.dedup();
+    refs.pinned_scripts
+        .sort_by_key(|(path, hash)| (path.clone(), hash.0));
+    refs.pinned_scripts
+        .dedup_by_key(|(path, hash)| (path.clone(), hash.0));
+    // The worker resolves a step's path with the root DB handle and runs it as that runnable's
+    // `on_behalf_of`, so composing an unreadable path would run code the builder cannot see. RLS
+    // on this transaction is the check.
+    let mut tx = user_db.clone().begin(authed).await?;
+    for (is_flow, path) in &refs.runnables {
+        let readable = if *is_flow {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2)",
+                w_id,
+                path,
+            )
+        } else {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2)",
+                w_id,
+                path,
+            )
+        }
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if !readable {
+            return Err(Error::PermissionDenied(format!(
+                "{} {path} does not exist or is not readable by you",
+                if *is_flow { "Flow" } else { "Script" }
+            )));
+        }
+    }
+    // A pinned step is dispatched by its hash alone, ignoring the path beside it, so a readable
+    // path paired with another script's hash would still run that other script.
+    for (path, hash) in &refs.pinned_scripts {
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND hash = $3)",
+            w_id,
+            path,
+            hash.0,
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if !exists {
+            return Err(Error::PermissionDenied(format!(
+                "Version {hash} is not a readable version of {path}"
+            )));
+        }
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 async fn create_flow(
@@ -592,11 +731,7 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(mut nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create flows for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "create flows").await?;
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
 
     // A `<= 0` flow timeout is "unset", not a 0-second limit that kills every run instantly.
@@ -616,7 +751,7 @@ async fn create_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf).await?;
+    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -669,6 +804,24 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
+    let job_token_scopes = nf
+        .job_token_scopes
+        .as_ref()
+        .and_then(|scopes| scopes.as_deref())
+        .map(windmill_common::scopes::validate_job_token_scopes)
+        .transpose()?;
+    let restricts_steps = windmill_common::scopes::validate_flow_step_job_token_scopes(
+        &serde_json::from_str::<windmill_common::flows::FlowValue>(nf.value.get())
+            .map_err(|e| windmill_common::error::Error::BadRequest(e.to_string()))?,
+    )?;
+    if job_token_scopes.is_some() || restricts_steps {
+        windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+            .assert()
+            .await?;
+    }
+    if restricts_steps {
+        windmill_common::feature_usage::log_feature_usage("job_token_scopes", "deploy", "step:set");
+    }
     let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
         nf.on_behalf_of_email.as_deref(),
         nf.on_behalf_of.as_deref(),
@@ -689,14 +842,14 @@ async fn create_flow(
         dedicated_worker, visible_to_runner_only,
         ws_error_handler_muted,
         value, schema, edited_by, edited_at, labels,
-        on_behalf_of, on_behalf_of_email
+        on_behalf_of, on_behalf_of_email, job_token_scopes
     ) VALUES (
         $1, $2, $3, $4,
         NULL, '', $5,
         $6, $7,
         $8,
         $9, $10::text::json, $11, now(), $12,
-        $13, $14
+        $13, $14, $15
     )"#,
         w_id,
         nf.path,
@@ -712,9 +865,11 @@ async fn create_flow(
         nf.labels.as_deref() as Option<&[String]>,
         resolved_on_behalf_of,
         legacy_on_behalf_of_email,
+        job_token_scopes.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .await?;
+    windmill_common::scopes::log_job_token_scopes_deploy("flow", job_token_scopes.as_deref());
 
     let version = sqlx::query_scalar!(
         "INSERT INTO flow_version (workspace_id, path, value, schema, created_by)
@@ -836,6 +991,7 @@ async fn create_flow(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
         None,
         None,
@@ -1018,7 +1174,7 @@ async fn get_flow_version(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow = sqlx::query_as::<_, Flow>(
-        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow.job_token_scopes, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
         FROM flow
         LEFT JOIN flow_version ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
         WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
@@ -1078,6 +1234,7 @@ async fn get_flow_version_by_id(
             flow.visible_to_runner_only,
             flow.on_behalf_of,
             flow.labels,
+            flow.job_token_scopes,
             flow_version.schema,
             flow_version.value,
             flow_version.created_at as edited_at,
@@ -1187,11 +1344,7 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(ef): Json<EditFlow>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update flows for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "update flows").await?;
     let flow_path = flow_path.to_path();
     // The URL identifies the flow being updated; the body path is only needed to rename.
     let mut nf = ef.into_new_flow(flow_path);
@@ -1218,7 +1371,7 @@ async fn update_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf).await?;
+    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -1237,6 +1390,27 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     let is_new_path = nf.path != flow_path;
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
+    // Absent keeps the deployed value: a client unaware of the setting must not drop a
+    // restriction by saving the flow.
+    let set_job_token_scopes = nf.job_token_scopes.is_some();
+    let job_token_scopes = nf
+        .job_token_scopes
+        .as_ref()
+        .and_then(|scopes| scopes.as_deref())
+        .map(windmill_common::scopes::validate_job_token_scopes)
+        .transpose()?;
+    let restricts_steps = windmill_common::scopes::validate_flow_step_job_token_scopes(
+        &serde_json::from_str::<windmill_common::flows::FlowValue>(nf.value.get())
+            .map_err(|e| windmill_common::error::Error::BadRequest(e.to_string()))?,
+    )?;
+    if job_token_scopes.is_some() || restricts_steps {
+        windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+            .assert()
+            .await?;
+    }
+    if restricts_steps {
+        windmill_common::feature_usage::log_feature_usage("job_token_scopes", "deploy", "step:set");
+    }
     let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
         nf.on_behalf_of_email.as_deref(),
         nf.on_behalf_of.as_deref(),
@@ -1271,7 +1445,8 @@ async fn update_flow(
             edited_at = now(),
             labels = COALESCE($13, labels),
             on_behalf_of = $14,
-            on_behalf_of_email = $15
+            on_behalf_of_email = $15,
+            job_token_scopes = CASE WHEN $16 THEN $17 ELSE job_token_scopes END
         WHERE
             path = $11 AND workspace_id = $12",
         if is_new_path { flow_path } else { &nf.path },
@@ -1289,19 +1464,24 @@ async fn update_flow(
         nf.labels.as_deref() as Option<&[String]>,
         resolved_on_behalf_of,
         legacy_on_behalf_of_email,
+        set_job_token_scopes,
+        job_token_scopes.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .await
     .map_err(|e| {
         error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}"))
     })?;
+    if set_job_token_scopes {
+        windmill_common::scopes::log_job_token_scopes_deploy("flow", job_token_scopes.as_deref());
+    }
 
     if is_new_path {
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
             "INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
-            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, job_token_scopes)
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, job_token_scopes
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
             nf.path,
@@ -1565,6 +1745,7 @@ async fn update_flow(
         None,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -1740,6 +1921,7 @@ async fn get_flow_by_path(
             flow.visible_to_runner_only, 
             flow.on_behalf_of,
             flow.labels,
+            flow.job_token_scopes,
             folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,
@@ -1781,6 +1963,7 @@ async fn get_flow_by_path(
             flow.visible_to_runner_only, 
             flow.on_behalf_of,
             flow.labels,
+            flow.job_token_scopes,
             folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,
@@ -1855,11 +2038,7 @@ async fn archive_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot archive flows for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "archive flows").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2000,11 +2179,7 @@ async fn delete_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete flows for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "delete flows").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2213,6 +2388,7 @@ mod tests {
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
                     debouncing: None,
+                    job_token_scopes: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -2248,6 +2424,7 @@ mod tests {
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
                     debouncing: None,
+                    job_token_scopes: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -2283,6 +2460,7 @@ mod tests {
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
                     debouncing: None,
+                    job_token_scopes: None,
                 },
             ],
             failure_module: Some(Box::new(FlowModule {
@@ -2317,6 +2495,7 @@ mod tests {
                 apply_preprocessor: None,
                 pass_flow_input_directly: None,
                 debouncing: None,
+                job_token_scopes: None,
             })),
             preprocessor_module: None,
             same_worker: false,

@@ -78,6 +78,36 @@ function assertAcyclicChunks() {
 }
 
 /**
+ * Fail the build if a chunk statically reachable from one containing `entry` contains a module
+ * whose id includes one of `forbidden`. Only static imports count: a dynamic import is the
+ * fix, not the problem.
+ */
+function assertStaticClosureExcludes(ctx, bundle, entry, forbidden, hint) {
+	const chunks = Object.entries(bundle).filter(([, c]) => c.type === 'chunk')
+	const idsOf = (c) => c.moduleIds ?? Object.keys(c.modules ?? {})
+	const starts = chunks
+		.filter(([, c]) => idsOf(c).some((id) => id.includes(entry)))
+		.map(([file]) => file)
+	if (!starts.length) ctx.error(`No chunk contains ${entry}; update ${hint}`)
+	const seen = new Set(starts)
+	const queue = [...starts]
+	while (queue.length) {
+		const chunk = bundle[queue.shift()]
+		if (!chunk) continue
+		const hit = idsOf(chunk).find((id) => forbidden.some((f) => id.includes(f)))
+		if (hit) ctx.error(`${entry} statically loads ${hit}; import it lazily (see ${hint})`)
+		for (const dep of chunk.imports ?? []) {
+			if (seen.has(dep)) continue
+			seen.add(dep)
+			queue.push(dep)
+		}
+	}
+}
+
+const isClientBuild = (bundle) =>
+	Object.keys(bundle).some((file) => file.startsWith('_app/immutable/'))
+
+/**
  * Fail the build if a public app URL statically loads the low-code runtime or monaco.
  *
  * These pages also serve raw apps, which only need a small shell around their bundle's
@@ -94,30 +124,36 @@ function assertLeanPublicAppRoutes() {
 	return {
 		name: 'wm-assert-lean-public-app-routes',
 		generateBundle(_options, bundle) {
-			const chunks = Object.entries(bundle).filter(([, c]) => c.type === 'chunk')
-			if (!chunks.some(([file]) => file.startsWith('_app/immutable/'))) return
-			const idsOf = (c) => c.moduleIds ?? Object.keys(c.modules ?? {})
+			if (!isClientBuild(bundle)) return
 			for (const route of routes) {
-				const starts = chunks
-					.filter(([, c]) => idsOf(c).some((id) => id.includes(route)))
-					.map(([file]) => file)
-				if (!starts.length)
-					this.error(`No chunk contains ${route}; update assertLeanPublicAppRoutes`)
-				const seen = new Set(starts)
-				const queue = [...starts]
-				while (queue.length) {
-					const chunk = bundle[queue.shift()]
-					if (!chunk) continue
-					const hit = idsOf(chunk).find((id) => forbidden.some((f) => id.includes(f)))
-					if (hit) {
-						this.error(`${route} statically loads ${hit}; import it lazily (see loadAppPreview.ts)`)
-					}
-					for (const dep of chunk.imports ?? []) {
-						if (seen.has(dep)) continue
-						seen.add(dep)
-						queue.push(dep)
-					}
-				}
+				assertStaticClosureExcludes(this, bundle, route, forbidden, 'loadAppPreview.ts')
+			}
+		}
+	}
+}
+
+/**
+ * Fail the build if the app shell or the home page statically loads monaco.
+ *
+ * The layouts below wrap every page, so what they import statically is downloaded before
+ * any page renders, and the home page is where most sessions land; monaco is several MB.
+ * Editors, drawers and modals that reach it are dynamic imports mounted on first use (see
+ * the `(logged)` layout).
+ */
+function assertMonacoFreeAppShell() {
+	const entries = [
+		'/src/routes/+layout.svelte',
+		'/src/routes/(root)/+layout.svelte',
+		'/src/routes/(root)/(logged)/+layout.svelte',
+		'/src/routes/(root)/(logged)/+page.svelte'
+	]
+	const forbidden = ['/node_modules/monaco-editor/', '/node_modules/@codingame/monaco-vscode-']
+	return {
+		name: 'wm-assert-monaco-free-app-shell',
+		generateBundle(_options, bundle) {
+			if (!isClientBuild(bundle)) return
+			for (const entry of entries) {
+				assertStaticClosureExcludes(this, bundle, entry, forbidden, 'the (logged) layout')
 			}
 		}
 	}
@@ -163,18 +199,26 @@ function isolateAuthCookie(proxy) {
 
 // Cross-origin isolation headers, scoped to mirror the production predicate —
 // see `needs_cross_origin_isolation` in backend/windmill-api/src/static_assets.rs
-// for which paths need them and why the raw app viewer must be excluded.
+// for why only opted-in public apps get them.
 // `enforce: 'pre'` so these headers are set before SvelteKit's sirv static
 // handler serves `static/` files and ends the response without calling next().
 function needsCrossOriginIsolation(url) {
 	const [path, query = ''] = url.split('?')
 	return (
-		path.startsWith('/apps_raw/edit') ||
-		path.startsWith('/apps_raw/add') ||
-		path.startsWith('/ui_builder/') ||
-		((path.startsWith('/public/') || path.startsWith('/a/')) &&
-			new URLSearchParams(query).has('wm_coep'))
+		(path.startsWith('/public/') || path.startsWith('/a/')) &&
+		new URLSearchParams(query).has('wm_coep')
 	)
+}
+
+// Normalized like the static server resolves it, so `//ui_builder/...` or an
+// encoded name can't reach the file without the header.
+function isPreviewShell(url) {
+	let path = url.split('?')[0]
+	try {
+		path = decodeURIComponent(path)
+	} catch {}
+	path = path.replace(/\/+/g, '/')
+	return path === '/ui_builder/app-preview.html'
 }
 
 let plugin = {
@@ -185,6 +229,14 @@ let plugin = {
 			if (needsCrossOriginIsolation(req.url ?? '')) {
 				res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
 				res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
+			}
+			// Mirrors `static_assets.rs`. Set before the static handler and the :4000
+			// proxy fallback alike, so both paths serve the shell sandboxed.
+			if (isPreviewShell(req.url ?? '')) {
+				res.setHeader(
+					'Content-Security-Policy',
+					'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation'
+				)
 			}
 			// CORP on everything so dev assets stay loadable as subresources of
 			// isolated documents on other dev origins (e.g. 127.0.0.1 vs localhost).
@@ -208,6 +260,18 @@ const config = {
 			'public.windmill.xyz'
 		],
 		port: parseInt(process.env.FRONTEND_PORT) || 3000,
+		// Transform the app shell's module graph at startup rather than on the first page
+		// load, which otherwise sits on the loading screen for ~15s (Tailwind's full content
+		// scan for app.css alone takes several seconds).
+		warmup: {
+			clientFiles: [
+				'./src/lib/assets/app.css',
+				'./src/routes/+layout.svelte',
+				'./src/routes/(root)/+layout.svelte',
+				'./src/routes/(root)/(logged)/+layout.svelte',
+				'./src/routes/(root)/(logged)/+page.svelte'
+			]
+		},
 		cors: { origin: '*' },
 		// `windmill-chat` (svelte.config.js alias) lives outside the frontend root.
 		fs: {
@@ -265,8 +329,6 @@ const config = {
 							target: 'http://localhost:4000',
 							changeOrigin: true,
 							headers: {
-								'Cross-Origin-Opener-Policy': 'same-origin',
-								'Cross-Origin-Embedder-Policy': 'require-corp',
 								'Cross-Origin-Resource-Policy': 'cross-origin'
 							}
 						}
@@ -279,7 +341,8 @@ const config = {
 		...(process.env.HTTPS === 'true' ? [mkcert()] : []),
 		plugin,
 		assertAcyclicChunks(),
-		assertLeanPublicAppRoutes()
+		assertLeanPublicAppRoutes(),
+		assertMonacoFreeAppShell()
 	],
 	define: { '__pkg__.version': JSON.stringify(version) },
 	optimizeDeps: {

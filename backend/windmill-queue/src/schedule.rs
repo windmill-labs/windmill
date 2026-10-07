@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::jobs::HTTP_CLIENT;
 use crate::push;
 use crate::PushIsolationLevel;
 use anyhow::Context;
@@ -25,6 +26,7 @@ use windmill_common::jobs::OnBehalfOf;
 use windmill_common::runnable_settings::ConcurrencySettings;
 use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::schedule::schedule_to_user;
+use windmill_common::scripts::get_full_hub_script_by_path;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::WarnAfterExt;
@@ -34,7 +36,7 @@ use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
-    utils::{now_from_db, ScheduleType, StripPath},
+    utils::{now_from_db, report_critical_error, ScheduleType, StripPath},
 };
 
 /// Helper to fetch metadata for a schedule's script or flow
@@ -81,6 +83,8 @@ async fn get_schedule_metadata<'c>(
             Some(version),
             parsed_retry,
         ))
+    } else if schedule.script_path.starts_with("hub/") {
+        Ok((None, None, None, None, None, parsed_retry))
     } else {
         let (
             hash,
@@ -99,6 +103,7 @@ async fn get_schedule_metadata<'c>(
             on_behalf_of,
             _runnable_settings_handle,
             _labels,
+            _job_token_scopes,
         ) = windmill_common::get_latest_hash_for_path(
             &mut **tx,
             db,
@@ -197,6 +202,62 @@ pub async fn push_scheduled_job<'c>(
             next
         );
         return Ok(tx);
+    }
+
+    // Only a chained push (`now_cutoff` is the previous occurrence) can miss one: create,
+    // edit, enable and re-arm start fresh, and a pause, even one already over, is deliberate.
+    let missed = now_cutoff
+        .filter(|_| schedule.paused_until.is_none())
+        .and_then(|prev| {
+            // A failed count leaves the streak as it was rather than reading as a run on time.
+            count_missed_occurrences(&sched, &tz, prev, next)
+                .inspect_err(|e| {
+                    tracing::warn!(
+                        "failed to count the occurrences schedule {} missed: {e}",
+                        &schedule.path
+                    )
+                })
+                .ok()
+        });
+    if let Some((missed, last_missed)) = missed {
+        // Past the cap the walk stops short of the last miss; the time it was detected is at
+        // most one period after it.
+        let last_missed = last_missed.map(|l| if missed == MAX_COUNTED_MISSES { now } else { l });
+        if let Some(last_missed) = last_missed {
+            let streak = sqlx::query!(
+                "UPDATE schedule SET late_run_streak = late_run_streak + 1,
+                    missed_occurrences = CASE WHEN late_run_streak = 0 THEN $3
+                        ELSE missed_occurrences + $3 END,
+                    last_missed_at = $4
+                WHERE workspace_id = $1 AND path = $2
+                RETURNING late_run_streak, missed_occurrences",
+                &schedule.workspace_id,
+                &schedule.path,
+                missed as i32,
+                last_missed,
+            )
+            .fetch_optional(&mut *tx)
+            .warn_after_seconds_with_sql(1, "update_schedule_late_run_streak".to_string())
+            .await?;
+            if let Some(streak) = streak.filter(|s| s.late_run_streak == LATE_RUNS_BEFORE_ALERT) {
+                tokio::spawn(alert_late_run_streak(
+                    db.clone(),
+                    schedule.workspace_id.clone(),
+                    schedule.path.clone(),
+                    streak.missed_occurrences,
+                ));
+            }
+        } else if schedule.late_run_streak > 0 {
+            sqlx::query!(
+                "UPDATE schedule SET late_run_streak = 0
+                WHERE workspace_id = $1 AND path = $2",
+                &schedule.workspace_id,
+                &schedule.path,
+            )
+            .execute(&mut *tx)
+            .warn_after_seconds_with_sql(1, "reset_schedule_late_run_streak".to_string())
+            .await?;
+        }
     }
 
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
@@ -308,7 +369,8 @@ pub async fn push_scheduled_job<'c>(
         .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
         .await?;
         let on_behalf_of = flow_info.on_behalf_of(&schedule.workspace_id, db).await?;
-        let FlowVersionInfo { version, tag, dedicated_worker, labels, .. } = flow_info;
+        let FlowVersionInfo { version, tag, dedicated_worker, labels, job_token_scopes, .. } =
+            flow_info;
 
         (
             JobPayload::Flow {
@@ -317,11 +379,54 @@ pub async fn push_scheduled_job<'c>(
                 apply_preprocessor: false,
                 version,
                 labels,
+                job_token_scopes,
             },
             tag,
             None,
             on_behalf_of,
         )
+    } else if schedule.script_path.starts_with("hub/") {
+        let tag = schedule.tag.clone().filter(|t| !t.is_empty());
+        let payload = match &schedule.retry {
+            // The language is what lets `push` materialize this as a native retry
+            // instead of a flow wrapper, which would queue the next tick at start.
+            Some(retry) => JobPayload::SingleStepFlow {
+                path: schedule.script_path.clone(),
+                hash: None,
+                flow_version: None,
+                language: Some(
+                    get_full_hub_script_by_path(
+                        StripPath(schedule.script_path.clone()),
+                        &HTTP_CLIENT,
+                        Some(db),
+                    )
+                    .await?
+                    .language,
+                ),
+                retry: Some(serde_json::from_value::<Retry>(retry.clone()).map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Unable to parse retry information from schedule: {e}"
+                    ))
+                })?),
+                error_handler_path: None,
+                error_handler_args: None,
+                skip_handler: None,
+                args: args.clone(),
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                priority: None,
+                tag_override: tag.clone(),
+                trigger_path: None,
+                apply_preprocessor: false,
+                concurrency_settings: ConcurrencySettings::default(),
+                debouncing_settings: DebouncingSettings::default(),
+            },
+            None => JobPayload::ScriptHub {
+                path: schedule.script_path.clone(),
+                apply_preprocessor: false,
+            },
+        };
+        (payload, tag, None, None)
     } else {
         let (
             hash,
@@ -340,6 +445,7 @@ pub async fn push_scheduled_job<'c>(
             on_behalf_of,
             runnable_settings_handle,
             labels,
+            job_token_scopes,
         ) = windmill_common::get_latest_hash_for_path(
             &mut *tx,
             db,
@@ -433,6 +539,7 @@ pub async fn push_scheduled_job<'c>(
                         concurrency_time_window_s,
                     ),
                     labels,
+                    job_token_scopes,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -562,6 +669,7 @@ pub async fn push_scheduled_job<'c>(
             JobTriggerKind::Schedule,
         )),
         None,
+        None,
     )
     .warn_after_seconds_with_sql(1, "push in push_scheduled_job".to_string())
     .await?;
@@ -574,6 +682,68 @@ pub async fn push_scheduled_job<'c>(
     }
 
     Ok(tx) // TODO: Bubble up pushed UUID from here
+}
+
+const MAX_COUNTED_MISSES: u32 = 1000;
+
+/// Due slots of the cron strictly between the previous occurrence and the next one, and
+/// the last of them. A chain on time costs one `find_next`: its first slot is `next` itself.
+fn count_missed_occurrences(
+    sched: &ScheduleType,
+    tz: &chrono_tz::Tz,
+    prev: DateTime<Utc>,
+    next: DateTime<Utc>,
+) -> Result<(u32, Option<DateTime<Utc>>)> {
+    let mut count = 0;
+    let mut last = None;
+    let mut slot = prev.with_timezone(tz);
+    while count < MAX_COUNTED_MISSES {
+        match sched.find_next(&slot) {
+            Ok(s) if s.with_timezone(&Utc) < next => {
+                count += 1;
+                last = Some(s.with_timezone(&Utc));
+                slot = s;
+            }
+            Ok(_) => break,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok((count, last))
+}
+
+/// A single late run is a blip (a slow run, a worker restart, an edit mid-run); only a
+/// streak alerts, once, when it reaches this length. The schedules list shows every one.
+const LATE_RUNS_BEFORE_ALERT: i32 = 3;
+
+/// Spawned: it reaches the instance alert channels, which must not hold up the push.
+async fn alert_late_run_streak(db: DB, w_id: String, path: String, missed: i32) {
+    // The push transaction holds this row until it ends, so FOR SHARE waits for it: a push
+    // that rolled back leaves the streak short of the threshold, and only its committed
+    // retry alerts.
+    let committed = sqlx::query_scalar!(
+        "SELECT late_run_streak FROM schedule WHERE workspace_id = $1 AND path = $2 FOR SHARE",
+        &w_id,
+        &path,
+    )
+    .fetch_optional(&db)
+    .await;
+    match committed {
+        Ok(Some(streak)) if streak >= LATE_RUNS_BEFORE_ALERT => {}
+        Ok(_) => return,
+        Err(e) => {
+            tracing::warn!("failed to confirm the late run streak of schedule {w_id}/{path}: {e}");
+            return;
+        }
+    }
+    report_critical_error(
+        format!(
+            "Schedule {path} missed {missed} occurrences: its last {LATE_RUNS_BEFORE_ALERT} runs in a row started or finished too late"
+        ),
+        db,
+        Some(&w_id),
+        None,
+    )
+    .await;
 }
 
 /// Enabled schedules with no occurrence in the queue, as `(workspace_id, path)`.
@@ -697,7 +867,7 @@ pub async fn get_schedule_opt<'c>(
     path: &str,
 ) -> Result<Option<Schedule>> {
     let schedule_opt = sqlx::query_as::<_, Schedule>(
-        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels, late_run_streak FROM schedule WHERE path = $1 AND workspace_id = $2",
     )
     .bind(path)
     .bind(w_id)
@@ -755,4 +925,23 @@ pub async fn clear_schedule<'c>(
 
     windmill_common::jobs::delete_jobs(&mut **tx, &deleted_ids).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counts_the_slots_missed_between_two_occurrences() {
+        let every_30s = ScheduleType::from_str("*/30 * * * * *", None, false).unwrap();
+        let at = |s: &str| DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc);
+        let tz = chrono_tz::UTC;
+        let prev = at("2026-09-02T08:20:00Z");
+        let count = |next| count_missed_occurrences(&every_30s, &tz, prev, at(next)).unwrap();
+        assert_eq!(count("2026-09-02T08:20:30Z"), (0, None));
+        assert_eq!(
+            count("2026-09-02T08:21:30Z"),
+            (2, Some(at("2026-09-02T08:21:00Z")))
+        );
+    }
 }

@@ -29,6 +29,13 @@ INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, sc
     ARRAY['jobs:run:flows:f/shared/flow1']
 );
 
+-- A path-scoped read token for test-user-2: it reads the runs of `f/shared/flow1` only.
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
+    encode(sha256('READ_SCOPED_TOKEN'::bytea), 'hex'), 'READ_SCOP', 'READ_SCOPED_TOKEN',
+    'test2@windmill.dev', 'flow history token', false,
+    ARRAY['jobs:read:f/shared/flow1']
+);
+
 -- Same, scoped to a script. The two jobs below both run through a `singlestepflow`
 -- wrapper (native retry / scheduled runs produce these) — one wrapping a script, one
 -- wrapping a flow — so the confinement has to project each onto the runnable it wraps
@@ -64,6 +71,32 @@ INSERT INTO public.v2_job (
 INSERT INTO public.v2_job_completed (id, workspace_id, duration_ms, status, result) VALUES
     ('15151515-1515-1515-1515-151515151515', 'test-workspace', 1000, 'success'::job_status,
      '{"wrapped": "WRAPPED_FLOW_RESULT"}');
+
+-- Scoped to an agent. An agent run is a preview of the one-step flow the run endpoint builds
+-- (step `__wm_agent_root`), filed under the agent's path, or `<path>.chat` for a chat turn.
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
+    encode(sha256('RUN_SCOPED_AGENT_TOKEN'::bytea), 'hex'), 'RUN_AGENT', 'RUN_SCOPED_AGENT_TOKEN',
+    'test2@windmill.dev', 'agent token', false,
+    ARRAY['jobs:run:agents:f/shared/agent1']
+);
+
+INSERT INTO public.v2_job (
+    id, workspace_id, created_by, created_at, permissioned_as, permissioned_as_email,
+    kind, script_lang, runnable_path, tag, visible_to_owner, raw_flow
+) VALUES
+    ('17171717-1717-1717-1717-171717171717', 'test-workspace', 'test-user-2',
+     '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+     'flowpreview', 'deno', 'f/shared/agent1', 'flow', true,
+     '{"modules": [{"id": "__wm_agent_root", "value": {"type": "aiagent", "tools": []}}]}'),
+    ('18181818-1818-1818-1818-181818181818', 'test-workspace', 'test-user-2',
+     '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+     'flowpreview', 'deno', 'f/shared/agent1.chat', 'flow', true,
+     '{"modules": [{"id": "__wm_agent_root", "value": {"type": "aiagent", "tools": []}}]}');
+INSERT INTO public.v2_job_completed (id, workspace_id, duration_ms, status, result) VALUES
+    ('17171717-1717-1717-1717-171717171717', 'test-workspace', 1000, 'success'::job_status,
+     '{"agent": "AGENT_RESULT"}'),
+    ('18181818-1818-1818-1818-181818181818', 'test-workspace', 1000, 'success'::job_status,
+     '{"agent": "AGENT_CHAT_RESULT"}');
 
 -- A token pairing an app scope with a run scope, as someone driving an app's components
 -- programmatically would build. `APP_INLINE_JOB` is an inline-script component run: no

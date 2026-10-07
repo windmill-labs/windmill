@@ -456,6 +456,26 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         );
     }
 
+    // An agent run and a chat turn of it belong to the agent, readable by the token scoped to
+    // it and by no flow-scoped one.
+    for (job, expected) in [
+        ("17171717-1717-1717-1717-171717171717", "AGENT_RESULT"),
+        ("18181818-1818-1818-1818-181818181818", "AGENT_CHAT_RESULT"),
+    ] {
+        let path = format!("completed/get_result/{job}");
+        let (status, body) = get(&base, &path, Some("RUN_SCOPED_AGENT_TOKEN")).await;
+        assert!(
+            status.is_success() && body.contains(expected),
+            "agent-scoped token must read its agent's run {job} (got {status}): {body}"
+        );
+        let (status, body) = get(&base, &path, Some("RUN_SCOPED_TOKEN")).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::NOT_FOUND,
+            "a flow-scoped token must not read an agent run {job} (got {status}): {body}"
+        );
+    }
+
     // An `apps:run:<app>` scope is a start grant too: the inline-script component run it
     // launched — a kind no `jobs:run` scope can name — stays readable to a token scoped
     // to that app, and stays out of reach for one that is only scoped to run jobs.
@@ -513,13 +533,17 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
     let (status, secret) = get(
         &authed_base,
         &format!("job_signature/{STEP_JOB}/0"),
-        Some("SECRET_TOKEN_2"),
+        Some("SECRET_TOKEN"),
     )
     .await;
-    assert!(status.is_success(), "owner must mint a resume secret: {secret}");
+    assert!(
+        status.is_success(),
+        "an admin must mint a resume secret: {secret}"
+    );
     let secret = secret.trim().trim_matches('"').to_string();
-    let approval_result =
-        format!("completed/get_result/{STEP_JOB}?suspended_job={STEP_JOB}&resume_id=0&secret={secret}");
+    let approval_result = format!(
+        "completed/get_result/{STEP_JOB}?suspended_job={STEP_JOB}&resume_id=0&secret={secret}"
+    );
     let (status, body) = get(&base, &approval_result, None).await;
     assert!(
         status.is_success(),
@@ -538,6 +562,56 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         status,
         reqwest::StatusCode::FORBIDDEN,
         "run-scoped token must not enumerate jobs (got {status}): {body}"
+    );
+
+    // ---- PATH-SCOPED READ TOKEN: READ_SCOPED_TOKEN is test-user-2's
+    //      `jobs:read:f/shared/flow1`. It reads that flow's runs and the steps beneath
+    //      them, and nothing else its owner created.
+    for (path, expected) in [
+        (
+            format!("completed/get_result/{FLOW_JOB}"),
+            r#""flow": "done""#,
+        ),
+        (
+            format!("completed/get_result/{STEP_JOB}"),
+            "STEP_RESULT_INHERITED",
+        ),
+    ] {
+        let (status, body) = get(&base, &path, Some("READ_SCOPED_TOKEN")).await;
+        assert!(
+            status.is_success() && body.contains(expected),
+            "read-scoped token must read a run of its flow ({path}, got {status}): {body}"
+        );
+    }
+    for path in [
+        format!("completed/get_result/{VICTIM}"),
+        format!("get/{VICTIM}"),
+        format!("flow/approval_info/{VICTIM}"),
+    ] {
+        let (status, body) = get(&base, &path, Some("READ_SCOPED_TOKEN")).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::NOT_FOUND,
+            "read-scoped token must not read a job outside its paths ({path}, got {status}): {body}"
+        );
+    }
+    // The lists answer with the top-level runs at its paths only, where the same user's
+    // unscoped token sees the other runs too.
+    for list in ["list", "completed/list"] {
+        let (status, body) = get(&authed_base, list, Some("READ_SCOPED_TOKEN")).await;
+        assert!(status.is_success(), "{list} (got {status}): {body}");
+        let jobs: Vec<serde_json::Value> = serde_json::from_str(&body)?;
+        let mut ids: Vec<&str> = jobs.iter().filter_map(|j| j["id"].as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, [WRAPPED_FLOW_JOB, FLOW_JOB], "{list}: {body}");
+    }
+    let (_, body) = get(&authed_base, "list", Some("SECRET_TOKEN_2")).await;
+    assert!(body.contains(VICTIM), "unscoped list: {body}");
+    let (status, body) = get(&authed_base, "completed/count", Some("READ_SCOPED_TOKEN")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "read-scoped token must not count the workspace's jobs (got {status}): {body}"
     );
 
     // ---- APP EMBED TOKEN: cancellation confined to the app's own jobs. The token
@@ -991,6 +1065,89 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         !status.is_success(),
         "a public token must not let an anonymous caller cancel the run (got {status}): {body}"
     );
+    // ---- RUN_NOW is gated like cancel, and only moves a job still waiting for a
+    //      future start. ----
+    let run_now = format!("queue/run_now/{RUNNING_JOB}");
+    let (status, body) = post(&authed_base, &run_now, Some("SECRET_TOKEN_3")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "viewer must not start another user's job early (got {status}): {body}"
+    );
+    let (status, body) = post(&authed_base, &run_now, Some("SECRET_TOKEN_2")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::BAD_REQUEST,
+        "a running job has no future start to move (got {status}): {body}"
+    );
+    sqlx::query(
+        "UPDATE v2_job_queue SET running = false, scheduled_for = now() + interval '1 hour'
+         WHERE id = $1::uuid",
+    )
+    .bind(RUNNING_JOB)
+    .execute(&db)
+    .await?;
+    let (status, body) = post(&authed_base, &run_now, Some("SECRET_TOKEN_2")).await;
+    assert!(
+        status.is_success(),
+        "owner must start their deferred job now (got {status}): {body}"
+    );
+    let due: bool =
+        sqlx::query_scalar("SELECT scheduled_for <= now() FROM v2_job_queue WHERE id = $1::uuid")
+            .bind(RUNNING_JOB)
+            .fetch_one(&db)
+            .await?;
+    assert!(due, "run_now must make the job due immediately");
+
+    // A schedule tick that is not due yet is refused: the schedule would queue that same
+    // tick again on completion and run twice.
+    sqlx::query(
+        "INSERT INTO schedule (workspace_id, path, edited_by, schedule, script_path, permissioned_as)
+         VALUES ('test-workspace', 'u/test-user-2/daily', 'test-user-2', '0 0 3 * * *',
+                 'u/test-user-2/running_secret', 'u/test-user-2')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "UPDATE v2_job SET trigger_kind = 'schedule', trigger = 'u/test-user-2/daily'
+         WHERE id = $1::uuid",
+    )
+    .bind(RUNNING_JOB)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "UPDATE v2_job_queue SET scheduled_for =
+            (date_trunc('day', now() AT TIME ZONE 'UTC') + interval '1 day 3 hours') AT TIME ZONE 'UTC'
+         WHERE id = $1::uuid",
+    )
+    .bind(RUNNING_JOB)
+    .execute(&db)
+    .await?;
+    let (status, body) = post(&authed_base, &run_now, Some("SECRET_TOKEN_2")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::BAD_REQUEST,
+        "an upcoming schedule tick must not be started early (got {status}): {body}"
+    );
+    // A tick a concurrency limit pushed past its time is off the cron occurrences and
+    // may still be started early.
+    sqlx::query(
+        "UPDATE v2_job_queue SET scheduled_for = now() + interval '1 hour 37 seconds 123 milliseconds'
+         WHERE id = $1::uuid",
+    )
+    .bind(RUNNING_JOB)
+    .execute(&db)
+    .await?;
+    let (status, body) = post(&authed_base, &run_now, Some("SECRET_TOKEN_2")).await;
+    assert!(
+        status.is_success(),
+        "a deferred schedule tick must still start now (got {status}): {body}"
+    );
+    sqlx::query("UPDATE v2_job SET trigger_kind = NULL, trigger = NULL WHERE id = $1::uuid")
+        .bind(RUNNING_JOB)
+        .execute(&db)
+        .await?;
+
     // The owner still cancels their own job (no over-blocking). Keep this last: it
     // takes RUNNING_JOB out of the queue.
     let (status, body) = post(

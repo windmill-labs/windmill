@@ -40,8 +40,13 @@
 		EllipsisVertical,
 		Share2,
 		Globe,
-		Users
+		Users,
+		Play,
+		SearchX,
+		ArrowRight
 	} from 'lucide-svelte'
+	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
+	import { forLater } from '$lib/forLater'
 
 	import { isJobResolvable } from '$lib/utils'
 	import {
@@ -277,6 +282,27 @@
 			sendUserToast(`job ${id} canceled`)
 		} catch (err) {
 			sendUserToast('could not cancel job', true)
+		}
+	}
+
+	// A schedule's upcoming tick sits on a whole second and the backend refuses it; a tick
+	// deferred by a concurrency limit lands on a sub-second instant and can still start now.
+	let canRunNow = $derived(
+		job?.type === 'QueuedJob' &&
+			!job.running &&
+			!job.suspend &&
+			!!job.scheduled_for &&
+			forLater(job.scheduled_for) &&
+			!(job.schedule_path && new Date(job.scheduled_for).getMilliseconds() === 0)
+	)
+
+	async function runJobNow(id: string) {
+		try {
+			await JobService.runQueuedJobNow({ workspace: $workspaceStore!, id })
+			sendUserToast(`job ${id} will start as soon as a worker is available`)
+			getJob()
+		} catch (err) {
+			sendUserToast(`could not start job now: ${err?.body ?? err}`, true)
 		}
 	}
 
@@ -728,30 +754,50 @@
 		</div>
 	</div>
 {:else if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
-	<div class="max-w-7xl px-4 mx-auto w-full">
-		<div class="flex flex-col gap-6">
-			<h1 class="text-red-400 mt-6 text-2xl font-semibold"
-				>Job {page.params.run} not found in {$workspaceStore}</h1
-			>
-			<h2 class="text-primary text-lg font-semibold">Are you in the right workspace?</h2>
-			<div class="flex flex-col gap-2">
-				{#each $userWorkspaces as workspace}
-					<div>
+	{@const currentWorkspace = $userWorkspaces.find((w) => w.id === $workspaceStore)}
+	{@const otherWorkspaces = $userWorkspaces.filter((w) => w.id !== $workspaceStore)}
+	<div class="max-w-lg px-4 mx-auto w-full py-16">
+		<div class="flex flex-col items-center text-center gap-3">
+			<div class="rounded-full bg-surface-secondary p-3">
+				<SearchX size={24} class="text-secondary" />
+			</div>
+			<h1 class="text-lg font-semibold text-emphasis">Run not found</h1>
+			<p class="text-xs text-secondary">
+				No run with ID
+				<span class="font-mono text-emphasis break-all">{page.params.run}</span>
+				exists in
+				<span class="font-semibold text-emphasis">{currentWorkspace?.name ?? $workspaceStore}</span
+				>. It may belong to another workspace, or it may have been deleted.
+			</p>
+		</div>
+
+		{#if otherWorkspaces.length > 0}
+			<div class="mt-8 flex flex-col gap-2">
+				<h2 class="text-xs font-semibold text-emphasis">Look in another workspace</h2>
+				<div
+					class="flex flex-col rounded-md border border-light bg-surface-tertiary divide-y divide-border-light overflow-hidden"
+				>
+					{#each otherWorkspaces as workspace (workspace.id)}
 						<Button
-							variant="default"
+							variant="subtle"
 							unifiedSize="md"
-							on:click={() => {
-								goto(`/run/${page.params.run}?workspace=${workspace.id}`)
-							}}
+							btnClasses="h-auto justify-start text-left gap-3 px-3 py-2 rounded-none"
+							endIcon={{ icon: ArrowRight, classes: 'text-hint' }}
+							onClick={() => goto(`/run/${page.params.run}?workspace=${workspace.id}`)}
 						>
-							See in {workspace.name}
+							<WorkspaceIcon workspaceColor={workspace.color} padding="p-1" size={12} />
+							<div class="flex flex-col min-w-0 grow">
+								<span class="text-xs font-semibold text-emphasis truncate">{workspace.name}</span>
+								<span class="text-2xs text-secondary truncate">{workspace.id}</span>
+							</div>
 						</Button>
-					</div>
-				{/each}
-				<div>
-					<Button href="{base}/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
+					{/each}
 				</div>
 			</div>
+		{/if}
+
+		<div class="mt-6 flex justify-center">
+			<Button href="{base}/runs" unifiedSize="md" variant="default">Go to runs page</Button>
 		</div>
 	</div>
 {:else}
@@ -884,6 +930,17 @@
 					}}
 				>
 					Current runs
+				</Button>
+			{/if}
+			{#if canRunNow}
+				<Button
+					unifiedSize="md"
+					variant="default"
+					startIcon={{ icon: Play }}
+					on:click={() => job?.id && runJobNow(job.id)}
+					title="Start this job now instead of at its scheduled time, skipping any remaining delay or sleep. It keeps the same id, and a concurrency limit is still enforced."
+				>
+					Run now
 				</Button>
 			{/if}
 			{#if job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}

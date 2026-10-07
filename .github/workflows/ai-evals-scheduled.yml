@@ -1,0 +1,186 @@
+name: AI Evals (scheduled)
+
+# The global (AI chat) and cli suites on current models, posted to the AI evals
+# dashboard in the windmill-prod workspace (f/ai/ai_evals_dashboard) so quality is
+# tracked over time. Weekly: one global pass at --runs 3 is about 45M tokens per
+# model. Each mode and model is its own job, so a slow model neither delays nor
+# shares a timeout with the others. Run it by hand to measure a branch against
+# main, or to include the flow, app and script suites.
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      modes:
+        description: "Space-separated modes (global, cli, flow, app, script)"
+        default: "global cli"
+      models:
+        description: "Space-separated model aliases (bun run cli -- models); cli skips those it has no agent for"
+        default: "sonnet-5.5 opus-5.5 gpt-6-sol gpt-6-astra deepseek-v4-pro"
+      runs:
+        description: "Runs per case"
+        default: "3"
+      reasoning:
+        description: "Reasoning effort for frontend modes (empty: the product default)"
+        default: ""
+
+concurrency:
+  group: ai-evals-scheduled-${{ github.ref }}
+
+env:
+  MODELS: ${{ inputs.models || 'sonnet-5.5 opus-5.5 gpt-6-sol gpt-6-astra deepseek-v4-pro' }}
+  RUNS: ${{ inputs.runs || '3' }}
+  REASONING: ${{ inputs.reasoning }}
+  # Routes on the cloud instance are prefixed with their workspace.
+  INGEST_URL: https://app.windmill.dev/api/r/windmill-prod/f/ai/ingest_ai_eval_run
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ai_evals/core
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - id: matrix
+        env:
+          MODES: ${{ inputs.modes || 'global cli' }}
+        # cli takes only the aliases with a `cli` entry in ai_evals/core/models.ts.
+        run: |
+          cli_models=$(bun -e '
+            import { EVAL_MODELS } from "./ai_evals/core/models.ts";
+            console.log(JSON.stringify(EVAL_MODELS.filter((m) => m.cli)
+              .flatMap((m) => [m.id, ...m.aliases]).map((a) => a.toLowerCase())));')
+          echo "matrix=$(jq -cn --arg modes "$MODES" --arg models "$MODELS" --argjson cli "$cli_models" '
+            def words: split(" ") | map(select(. != ""));
+            [ $modes | words[] | select(IN("global", "flow", "app", "script", "cli")) as $mode
+              | $models | words[]
+              | select($mode != "cli" or (ascii_downcase | IN($cli[])))
+              | {mode: $mode, model: .} ]')" >> "$GITHUB_OUTPUT"
+
+  evals:
+    needs: setup
+    runs-on: ubicloud-standard-16
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    services:
+      postgres:
+        image: postgres:16
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_DB: windmill
+          POSTGRES_PASSWORD: changeme
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-workspaces: backend
+          toolchain: 1.97.0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Build Windmill
+        working-directory: ./backend
+        env:
+          SQLX_OFFLINE: true
+          CARGO_BUILD_JOBS: 12
+          RUSTFLAGS: ""
+        run: cargo build --features quickjs
+
+      - name: Start Windmill
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
+          RUST_LOG: info
+        run: |
+          mkdir -p ../ai_evals/logs
+          ./target/debug/windmill > ../ai_evals/logs/windmill.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8000/api/version > /dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -sf http://localhost:8000/api/version > /dev/null || { tail -50 ../ai_evals/logs/windmill.log; exit 1; }
+
+      - name: Install frontend deps + generate client
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run generate-backend-client
+
+      - name: Install CLI deps + generate CLI client
+        working-directory: ./cli
+        run: bun install && ./gen_wm_client.sh && ./windmill-utils-internal/gen_wm_client.sh
+
+      - name: Install Codex CLI
+        if: matrix.mode == 'cli'
+        run: npm install --global @openai/codex@0.159.3
+
+      - name: Run ${{ matrix.mode }} evals on ${{ matrix.model }}
+        working-directory: ./ai_evals
+        env:
+          MODE: ${{ matrix.mode }}
+          MODEL: ${{ matrix.model }}
+          WMILL_AI_EVAL_BACKEND_URL: http://localhost:8000
+          WMILL_AI_EVAL_BACKEND_WORKSPACE: integration-tests
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          bun install
+          mkdir -p results
+          reasoning=()
+          [ -n "$REASONING" ] && [ "$MODE" != cli ] && reasoning=(--reasoning "$REASONING")
+          bun run cli -- run "$MODE" --model "$MODEL" --runs "$RUNS" "${reasoning[@]}" \
+            --output "$PWD/results/$MODE-$MODEL.json" || echo "::warning::$MODE on $MODEL errored"
+
+      - name: Post results to the dashboard
+        if: always()
+        working-directory: ./ai_evals
+        env:
+          MODE: ${{ matrix.mode }}
+          INGEST_TOKEN: ${{ secrets.AI_EVALS_INGEST_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$INGEST_TOKEN" ] || { echo "::warning::AI_EVALS_INGEST_TOKEN is not set"; exit 0; }
+          shopt -s nullglob
+          for f in results/"$MODE"-*.json; do
+            # Keep what the dashboard reads; the full traces stay in the run's artifacts.
+            jq -c --arg ref "$GITHUB_REF" --arg trigger "$GITHUB_EVENT_NAME" --arg url "$RUN_URL" '
+              {result_json: (del(.cases[].prompt, .cases[].initialPath, .cases[].expectedPath)
+                | .cases[].attempts[] |= {attempt, passed, durationMs, toolCallCount, judgeScore,
+                    judgeSummary, error, tokenUsage, checks: [.checks[]? | {name, passed}]}),
+               git_ref: $ref, trigger: $trigger, run_url: $url}' "$f" \
+            | curl -sS --fail-with-body --retry 3 -X POST "$INGEST_URL" \
+                -H "Authorization: Bearer $INGEST_TOKEN" -H 'content-type: application/json' \
+                --data-binary @- && echo " <- $f" || echo "::warning::failed to post $f"
+          done
+
+      - name: Archive logs and results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-evals-${{ matrix.mode }}-${{ matrix.model }}
+          path: |
+            ai_evals/logs
+            ai_evals/results

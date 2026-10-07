@@ -3,7 +3,7 @@
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { Building, Repeat, Square, ArrowDown, GitBranch, Bot } from 'lucide-svelte'
+	import { Building, Repeat, Square, ArrowDown, GitBranch, Bot, Scale } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	interface Props {
@@ -22,6 +22,8 @@
 
 {#if module?.value?.type === 'aiagent'}
 	<Bot size={16} class="text-ai" />
+{:else if module?.value?.type === 'aidecision'}
+	<Scale size={16} class="text-ai" />
 {:else if module?.value?.type === 'rawscript'}
 	<LanguageIcon lang={module.value.language} width={iconWidth} height={iconHeight} />
 {:else if module?.summary === 'Terminate flow'}

@@ -17,7 +17,7 @@ use windmill_common::{
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
-    DB,
+    DeletedScriptVersions, DB,
 };
 use windmill_queue::schedule::clear_schedule;
 
@@ -382,7 +382,8 @@ async fn list_scripts(
             r#"SELECT DISTINCT ON (path)
                       path,
                       value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-                      created_at
+                      created_at,
+                      email IS NULL as "legacy!"
                FROM draft
                WHERE workspace_id = $1
                  AND typ = 'script'
@@ -463,9 +464,10 @@ async fn list_scripts(
                 inherited_labels: None,
                 is_draft: true,
                 draft_path,
-                // Synthesized rows are the authed user's own draft (single-user case).
+                // A legacy (`email IS NULL`) row belongs to nobody: naming the caller would
+                // route every discard to their own (absent) row and leave it undeletable.
                 draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
-                    username: Some(authed.username.clone()),
+                    username: (!row.legacy).then(|| authed.username.clone()),
                 }])),
             });
         }
@@ -551,6 +553,7 @@ async fn create_snapshot_script(
     let mut handle_deployment_metadata = None;
     let mut moved_native_triggers = Vec::new();
     let mut deployed_path = None;
+    let mut deployed_perpetual = false;
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
@@ -559,6 +562,7 @@ async fn create_snapshot_script(
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
             let use_esm = ns.codebase.as_ref().is_some_and(|x| x.contains(".esm"));
             deployed_path = Some(ns.path.clone());
+            deployed_perpetual = ns.restart_unless_cancelled == Some(true);
             let (new_hash, ntx, hdm, moved) = create_script_internal(
                 ns,
                 w_id.clone(),
@@ -616,6 +620,19 @@ async fn create_snapshot_script(
     }
     reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
     if let Some(hdm) = handle_deployment_metadata {
+        let runnable_now = matches!(hdm, PostCommitDeploy::Full { .. });
+        if let Some(script_path) = deployed_path
+            .as_deref()
+            .filter(|_| runnable_now && deployed_perpetual)
+        {
+            windmill_queue::restart_perpetual_runs_on_new_version(
+                &db,
+                &w_id,
+                script_path,
+                &authed.username,
+            )
+            .await;
+        }
         hdm.handle(&db).await?;
     }
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
@@ -734,6 +751,9 @@ async fn deploy_script(
         return Err(Error::PermissionDenied(msg));
     }
     let script_path = ns.path.clone();
+    // Only a perpetual deploy can have runs to move, so every other one skips the lookups that
+    // would find that out.
+    let perpetual = ns.restart_unless_cancelled == Some(true);
     let email = authed.email.clone();
     let username = authed.username.clone();
     let authed_for_triggers = authed.clone();
@@ -757,6 +777,19 @@ async fn deploy_script(
         // they don't run against a version whose lock does not exist yet — and
         // don't run twice.
         let ready_to_test = matches!(hdm, PostCommitDeploy::Full { .. });
+        // The version is runnable, so the perpetual runs of earlier ones move to it here, before
+        // anything that can fail this deploy after its commit: a version nothing moved to would
+        // leave those runs on the old code with nothing left to notice. A deploy that needed lock
+        // generation hands this to its dependency job instead.
+        if ready_to_test && perpetual {
+            windmill_queue::restart_perpetual_runs_on_new_version(
+                &db,
+                &w_id,
+                &script_path,
+                &username,
+            )
+            .await;
+        }
         hdm.handle(&db).await?;
         let db2 = db.clone();
         if ready_to_test {
@@ -785,6 +818,16 @@ async fn deploy_script(
 fn invalidate_script_path_caches(w_id: &str, script_path: &str) {
     windmill_common::invalidate_latest_script_hash_caches(w_id, script_path);
     RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{w_id}:{script_path}"));
+}
+
+/// [`DeletedScriptVersions::evict`], plus this crate's own path -> hash cache. Run by the
+/// deleting process after its commit and by every process on the deletion event.
+pub fn evict_deleted_script_versions(deleted: DeletedScriptVersions) {
+    deleted.evict_with(|deleted| {
+        for path in &deleted.paths {
+            RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{}:{path}", deleted.workspace_id));
+        }
+    });
 }
 
 /// What a script deploy still has to do once its transaction has committed.
@@ -856,6 +899,7 @@ async fn is_noop_deploy_against_parent(
     ns: &NewScript,
     parent: &Script<ScriptRunnableSettingsHandle>,
     resolved_on_behalf_of: Option<&str>,
+    resolved_job_token_scopes: Option<&[String]>,
     db: &DB,
 ) -> Result<bool> {
     if parent.archived || parent.deleted {
@@ -909,6 +953,8 @@ async fn is_noop_deploy_against_parent(
         // caller-intent flag (auto-resolve parent), not script state
         auto_parent: _,
         labels,
+        // resolved against the deployed value into `resolved_job_token_scopes`, compared below
+        job_token_scopes: _,
         // caller-intent flag (preserve user drafts on CLI/git-sync deploys);
         // transient, never persisted, does not change what the script *is*
         skip_draft_deletion: _,
@@ -980,6 +1026,9 @@ async fn is_noop_deploy_against_parent(
         return Ok(false);
     }
     if resolved_on_behalf_of != parent.on_behalf_of.as_deref() {
+        return Ok(false);
+    }
+    if resolved_job_token_scopes != parent.job_token_scopes.as_deref() {
         return Ok(false);
     }
     // Both of a dbt script's derived fields are compared as they WOULD BE STORED,
@@ -1130,6 +1179,96 @@ async fn validate_dbt_relation(
             )),
             other => other,
         })
+}
+
+/// The schema the editor would have derived from `content`, for a deploy that sends
+/// none (MCP, a bare API call). `None` for a language whose parser this build lacks,
+/// or code that does not parse.
+fn infer_main_schema(
+    language: &ScriptLang,
+    kind: Option<&ScriptKind>,
+    content: &str,
+    previous: Option<&serde_json::Value>,
+) -> Option<Schema> {
+    let entrypoint =
+        matches!(kind, Some(ScriptKind::Preprocessor)).then(|| "preprocessor".to_string());
+    // The database a SQL script runs against is an argument unless the code names
+    // it (`-- database f/...`), as in the editor.
+    let with_db = |sig: anyhow::Result<windmill_parser::MainArgSignature>, resource: &str| {
+        sig.map(|mut sig| {
+            if windmill_parser_sql::parse_db_resource(content).is_none() {
+                sig.args.insert(
+                    0,
+                    windmill_parser::Arg {
+                        name: "database".to_string(),
+                        typ: windmill_parser::Typ::Resource(resource.to_string()),
+                        ..Default::default()
+                    },
+                );
+            }
+            sig
+        })
+    };
+    let sig = match language {
+        ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
+            windmill_parser_ts::parse_deno_signature(content, false, false, entrypoint)
+        }
+        #[cfg(feature = "python")]
+        ScriptLang::Python3 => {
+            windmill_parser_py::parse_python_signature(content, entrypoint, false)
+        }
+        ScriptLang::Go => windmill_parser_go::parse_go_sig(content),
+        ScriptLang::Bash => windmill_parser_bash::parse_bash_sig(content),
+        ScriptLang::Powershell => windmill_parser_bash::parse_powershell_sig(content),
+        ScriptLang::Postgresql => {
+            with_db(windmill_parser_sql::parse_pgsql_sig(content), "postgresql")
+        }
+        ScriptLang::Mysql => with_db(windmill_parser_sql::parse_mysql_sig(content), "mysql"),
+        ScriptLang::Bigquery => {
+            with_db(windmill_parser_sql::parse_bigquery_sig(content), "bigquery")
+        }
+        ScriptLang::Snowflake => with_db(
+            windmill_parser_sql::parse_snowflake_sig(content),
+            "snowflake",
+        ),
+        ScriptLang::Mssql => with_db(
+            windmill_parser_sql::parse_mssql_sig(content),
+            "ms_sql_server",
+        ),
+        ScriptLang::OracleDB => {
+            with_db(windmill_parser_sql::parse_oracledb_sig(content), "oracledb")
+        }
+        ScriptLang::DuckDb => windmill_parser_sql::parse_duckdb_sig(content),
+        ScriptLang::Graphql => {
+            windmill_parser_graphql::parse_graphql_sig(content).map(|mut sig| {
+                sig.args.insert(
+                    0,
+                    windmill_parser::Arg {
+                        name: "api".to_string(),
+                        typ: windmill_parser::Typ::Resource("graphql".to_string()),
+                        ..Default::default()
+                    },
+                );
+                sig
+            })
+        }
+        ScriptLang::Ansible => windmill_parser_yaml::parse_ansible_sig(content),
+        _ => return None,
+    };
+    match sig {
+        Ok(sig) => serde_json::value::to_raw_value(&windmill_parser::json_schema::main_arg_schema(
+            &sig, previous,
+        ))
+        .ok()
+        .map(|v| Schema(sqlx::types::Json(v))),
+        Err(e) => {
+            tracing::warn!(
+                "could not infer the schema of a {} script: {e:#}",
+                language.as_str()
+            );
+            None
+        }
+    }
 }
 
 async fn create_script_internal<'c>(
@@ -1359,6 +1498,71 @@ async fn create_script_internal<'c>(
         parent_adopted_from_retired_path = ns.parent_hash.is_some();
     }
 
+    // Absent keeps the previous version's value, read once the parent is settled (a rename
+    // adopts its source head above), so a client unaware of the setting cannot drop a
+    // restriction by redeploying or renaming.
+    let resolved_job_token_scopes: Option<Vec<String>> = match (&ns.job_token_scopes, &ns.parent_hash) {
+        (Some(Some(scopes)), _) => {
+            windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+                .assert()
+                .await?;
+            Some(windmill_common::scopes::validate_job_token_scopes(scopes)?)
+        }
+        (Some(None), _) => None,
+        (None, Some(parent_hash)) => sqlx::query_scalar!(
+            "SELECT job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
+            parent_hash.0,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten(),
+        (None, None) => sqlx::query_scalar!(
+            "SELECT job_token_scopes FROM script WHERE path = $1 AND workspace_id = $2 \
+             AND deleted = false ORDER BY created_at DESC LIMIT 1",
+            &ns.path,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten(),
+    };
+    ns.job_token_scopes = Some(resolved_job_token_scopes.clone());
+
+    // Before hashing, so the hash and the no-op check see the schema that gets stored.
+    // `{}` counts as absent: an agent filling every tool argument sends it for "none".
+    let schema_absent = ns.schema.as_ref().is_none_or(|s| {
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(s.0.get())
+            .is_ok_and(|m| m.is_empty())
+    });
+    if schema_absent && !matches!(ns.language, ScriptLang::Dbt) {
+        let previous = match &ns.parent_hash {
+            Some(p_hash) => sqlx::query_scalar::<_, Option<sqlx::types::Json<serde_json::Value>>>(
+                "SELECT schema FROM script WHERE hash = $1 AND workspace_id = $2",
+            )
+            .bind(p_hash.0)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten()
+            .map(|s| s.0),
+            None => None,
+        };
+        // Code the server cannot parse keeps the previous version's schema, as it
+        // does in the editor, rather than losing it for good.
+        ns.schema = infer_main_schema(
+            &ns.language,
+            ns.kind.as_ref(),
+            &ns.content,
+            previous.as_ref(),
+        )
+        .or_else(|| {
+            previous
+                .and_then(|p| serde_json::value::to_raw_value(&p).ok())
+                .map(|v| Schema(sqlx::types::Json(v)))
+        });
+    }
+
     // Must stay below the parent resolution above: an auto_parent deploy hashed before
     // it carries a first deploy's lineage, so redeploying content the path has held
     // before collides with that archived version instead of superseding it. The
@@ -1453,8 +1657,14 @@ async fn create_script_internal<'c>(
             // CLI pushes must not produce phantom commits on the downstream
             // git repository.
             if skip_if_noop
-                && is_noop_deploy_against_parent(&ns, &ps, resolved_on_behalf_of.as_deref(), &db)
-                    .await?
+                && is_noop_deploy_against_parent(
+                    &ns,
+                    &ps,
+                    resolved_on_behalf_of.as_deref(),
+                    resolved_job_token_scopes.as_deref(),
+                    &db,
+                )
+                .await?
             {
                 tracing::info!(
                     workspace_id = %w_id,
@@ -2030,8 +2240,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of, on_behalf_of_email) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of, on_behalf_of_email, job_token_scopes) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42)",
         &w_id,
         &hash.0,
         ns.path,
@@ -2075,9 +2285,14 @@ async fn create_script_internal<'c>(
         ns.labels.as_deref() as Option<&[String]>,
         resolved_on_behalf_of,
         legacy_on_behalf_of_email,
+        resolved_job_token_scopes.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .await?;
+    windmill_common::scopes::log_job_token_scopes_deploy(
+        "script",
+        resolved_job_token_scopes.as_deref(),
+    );
 
     // A lock that is not left to a dependency job queues none, so this is the only place its hash
     // can be recorded. `try_skip_relock` treats a missing hash for an imported script as changed,
@@ -2734,23 +2949,17 @@ async fn create_script_internal<'c>(
         tracing::info!("creating script {hash:?} at path {script_path} on workspace {w_id}",);
     }
     if needs_lock_gen {
-        let tag = if ns.dedicated_worker.is_some_and(|x| x) {
-            Some(windmill_common::worker::dedicated_worker_tag(
-                &w_id, &ns.path,
-            ))
-        } else if ns.tag.as_ref().is_some_and(|x| x.contains("$args[")) {
-            None
-        } else if lang == ScriptLang::Bunnative {
-            // if a custom tag is set for a bunnative script, this prevents the custom tag to be used for the dependency job
-            // forcing the bundling to run on a worker with the bun tag
-            None
-        } else {
-            ns.tag
-        };
+        let tag = windmill_common::scripts::dependency_job_tag(ns.tag, &lang);
 
         let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
         if let Some(dm) = ns.deployment_message {
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
+        }
+        // The version becomes runnable when this job writes its lock, which is where the
+        // perpetual runs of earlier versions can move to it. Only a deploy someone made carries
+        // this, so a relock triggered by an imported script changing leaves those runs alone.
+        if ns.restart_unless_cancelled.is_some_and(|x| x) {
+            args.insert("restart_perpetual_runs".to_string(), to_raw_value(&true));
         }
         if let Some(ref p_path) = p_path_opt {
             args.insert("parent_path".to_string(), to_raw_value(&p_path));
@@ -2790,6 +2999,7 @@ async fn create_script_internal<'c>(
             None,
             Some(&authed.clone().into()),
             false,
+            None,
             None,
             None,
             None,
@@ -2913,6 +3123,7 @@ async fn create_script_internal<'c>(
                     None,
                     Some(&authed.clone().into()),
                     false,
+                    None,
                     None,
                     None,
                     None,
@@ -4012,6 +4223,8 @@ async fn delete_script_by_hash(
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
     clear_macro_registry(&mut *tx, &w_id, &script.path).await?;
+    let deleted = DeletedScriptVersions::new(&w_id, [(script.path.clone(), hash.0)]);
+    deleted.notify(&mut *tx).await?;
 
     audit_log(
         &mut *tx,
@@ -4024,6 +4237,7 @@ async fn delete_script_by_hash(
     )
     .await?;
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     webhook.send_message(
         w_id.clone(),
@@ -4091,14 +4305,24 @@ async fn delete_script_by_path(
     .fetch_all(&mut *tx)
     .await?;
 
-    let script = sqlx::query_scalar!(
-        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+    let deleted_hashes = sqlx::query_scalar!(
+        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING hash",
         path,
         w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_all(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?;
+    if deleted_hashes.is_empty() {
+        return Err(Error::NotFound(format!(
+            "script {path} not found in {w_id}"
+        )));
+    }
+    let script = path.to_string();
+    let deleted = DeletedScriptVersions::new(
+        &w_id,
+        deleted_hashes.into_iter().map(|h| (script.clone(), h)),
+    );
 
     // After the DELETE, never before: every dbt writer locks the `script` row
     // first, so taking a sidecar ahead of it deadlocks one of the pair. The
@@ -4138,6 +4362,7 @@ async fn delete_script_by_path(
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
     clear_macro_registry(&mut *tx, &w_id, path).await?;
+    deleted.notify(&mut *tx).await?;
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(
@@ -4168,6 +4393,7 @@ async fn delete_script_by_path(
     )
     .await?;
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     handle_deployment_metadata(
         &authed.email,
@@ -4263,14 +4489,21 @@ async fn delete_scripts_bulk(
         }
     }
 
-    let mut deleted_paths = sqlx::query_scalar!(
-        "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
-        w_id,
-        &request.paths
-    )
-    .fetch_all(&mut *tx)
-    .await
-    .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?;
+    let deleted = DeletedScriptVersions::new(
+        &w_id,
+        sqlx::query!(
+            "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path, hash",
+            w_id,
+            &request.paths
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?
+        .into_iter()
+        .map(|r| (r.path, r.hash)),
+    );
+    deleted.notify(&mut *tx).await?;
+    let deleted_paths = deleted.paths.clone();
 
     // Same reason as the single-path delete, over every requested path rather
     // than the deleted ones: a path that had no script left can still hold state.
@@ -4278,10 +4511,6 @@ async fn delete_scripts_bulk(
         windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, p).await?;
         windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, p).await?;
     }
-
-    // remove duplicates from deleted_paths
-    deleted_paths.sort();
-    deleted_paths.dedup();
 
     sqlx::query!(
         "DELETE FROM draft WHERE workspace_id = $1 AND path = ANY($2) AND typ = 'script'",
@@ -4323,6 +4552,7 @@ async fn delete_scripts_bulk(
     .await?;
 
     tx.commit().await?;
+    evict_deleted_script_versions(deleted);
 
     try_join_all(deleted_paths.iter().map(|path| {
         handle_deployment_metadata(

@@ -1,3 +1,7 @@
+use crate::ai::compaction::{
+    memory_within_capacity, persisted_bytes, AgentHistory, CompactionRequest, CompactionTrigger,
+    Compactor,
+};
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -6,7 +10,8 @@ use crate::ai::utils::{
     parse_raw_script_schema, update_flow_status_module_with_actions,
     update_flow_status_module_with_actions_success,
 };
-use crate::memory_oss::{read_from_memory, write_to_memory};
+use crate::memory_common::MAX_MEMORY_SIZE_BYTES;
+use crate::memory_oss::{memory_storage_capacity_bytes, read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
 use async_recursion::async_recursion;
 use regex::Regex;
@@ -23,7 +28,9 @@ use windmill_mcp::McpClient;
 use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
+    decision::{decision_inputs, run_decision, AIDecisionArgs},
     image_handler::upload_image_to_s3,
+    model_context::model_context_window,
     providers::{
         create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
         openai::{
@@ -58,9 +65,13 @@ use windmill_queue::{append_logs, cancel_single_job, CanceledBy, MiniPulledJob};
 use crate::{
     ai::stream_event_processor::StreamEventProcessor,
     common::{
-        build_args_map, resolve_job_timeout, transform_json_value, OccupancyMetrics, StreamNotifier,
+        build_args_map, get_root_job_id, resolve_job_timeout, transform_json_value,
+        OccupancyMetrics, StreamNotifier,
     },
-    handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
+    handle_child::{
+        run_future_with_polling_update_job_poller,
+        run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome,
+    },
 };
 
 lazy_static::lazy_static! {
@@ -74,17 +85,29 @@ lazy_static::lazy_static! {
         "required": ["user_message"],
         "additionalProperties": false,
     }));
+
+    // Text only: the model writes the state as it reads the conversation, and a schema offering a
+    // union of types is refused by some providers' strict tool schemas.
+    static ref AI_DECISION_TOOL_SCHEMA: Box<RawValue> = to_raw_value(&serde_json::json!({
+        "type": "object",
+        "properties": {
+            "state": {
+                "type": "string",
+                "description": "What the questions are asked about, with only what they need.",
+            },
+        },
+        "required": ["state"],
+        "additionalProperties": false,
+    }));
 }
 
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
 
-/// What a run stopped by `max_iterations` reports back. `Message` rather than
-/// `OpenAIMessage` is load-bearing: `agent_action` is `skip_serializing` on the
-/// latter and reaches JSON only through this wrapper, so serializing these raw
-/// drops every tool name and job id and leaves the partial run unreadable.
+/// Partial failures retain action metadata through `Message`: serializing raw
+/// `OpenAIMessage` values would strip the tool names and IDs the viewer needs.
 #[derive(serde::Serialize)]
-struct MaxIterPartialResult<'a> {
+struct AgentPartialResult<'a> {
     messages: Vec<Message<'a>>,
 }
 
@@ -120,6 +143,63 @@ fn prepare_auto_memory_messages_for_persistence(
     non_system_messages[start_idx..].to_vec()
 }
 
+/// Provider request settings must follow any endpoint fallback learned during the run.
+struct CompactionContext<'a> {
+    compactor: Option<&'a mut Compactor>,
+    timeout: Option<std::time::Duration>,
+    credentials: &'a windmill_ai::credentials::ProviderCredentials,
+    args: &'a AIAgentArgs,
+    client: &'a AuthedClient,
+    job: &'a MiniPulledJob,
+    conn: &'a Connection,
+}
+
+/// Bills and logs successful checkpoints. Request and persistence policy stay with their callers.
+async fn compact_if_needed(
+    ctx: CompactionContext<'_>,
+    query_builder: &dyn windmill_ai::query_builder::QueryBuilder,
+    include_usage: bool,
+    messages: &mut AgentHistory,
+    trigger: CompactionTrigger,
+    final_usage: &mut Option<TokenUsage>,
+) -> bool {
+    let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
+        return false;
+    };
+    let pass = compactor
+        .compact(
+            messages,
+            trigger,
+            &CompactionRequest {
+                query_builder,
+                credentials: ctx.credentials,
+                model: ctx.args.provider.get_model(),
+                timeout,
+                client: ctx.client,
+                workspace_id: &ctx.job.workspace_id,
+                job_id: &ctx.job.id,
+                include_usage,
+            },
+        )
+        .await;
+    if let Some(usage) = pass.usage {
+        match final_usage {
+            Some(existing) => existing.accumulate(&usage),
+            None => *final_usage = Some(usage),
+        }
+    }
+    if pass.changed {
+        append_logs(
+            &ctx.job.id,
+            &ctx.job.workspace_id,
+            "AI agent memory summarized; the run's action results are preserved.\n".to_string(),
+            ctx.conn,
+        )
+        .await;
+    }
+    pass.changed
+}
+
 /// The inputs a linked step supplies for itself; the resource holds the rest of the brain.
 const FLOW_LOCAL_AGENT_KEYS: [&str; 5] = [
     "user_message",
@@ -137,11 +217,32 @@ const STEP_HISTORY_KEYS: [&str; 2] = ["memory_id", "previous_messages"];
 enum HistorySource<'a> {
     /// Supplied by the flow and replayed as is: memory is neither read nor written.
     Messages(&'a [OpenAIMessage]),
-    Window {
+    Managed {
         memory_id: Uuid,
-        context_length: usize,
+        bound: MemoryBound,
     },
     Stateless,
+}
+
+/// What keeps a managed conversation inside the model's context.
+#[derive(Debug, Clone, Copy)]
+enum MemoryBound {
+    /// Only the most recent messages are sent and kept.
+    LastMessages(usize),
+    /// Everything is sent and kept; compaction summarizes what no longer fits.
+    Compaction,
+}
+
+impl MemoryBound {
+    /// How many of the memory's messages a run reads and writes back. Compaction keeps all of
+    /// them: the summary it writes is what bounds the conversation, so truncating on top of it
+    /// would drop the tail that summary was written to precede.
+    fn messages_to_keep(self) -> usize {
+        match self {
+            MemoryBound::LastMessages(context_length) => context_length,
+            MemoryBound::Compaction => usize::MAX,
+        }
+    }
 }
 
 /// A step's memory id counts only as the step authored it. A static empty value is a form
@@ -169,7 +270,12 @@ fn resolve_history_source<'a>(
     flow_path: &str,
 ) -> (HistorySource<'a>, Vec<&'static str>) {
     let mut notes = Vec::new();
-    let no_memory_id = "No memory id was passed to this run, so the agent runs without memory.";
+    let managed = |bound: MemoryBound, notes: &mut Vec<&'static str>| {
+        managed_memory_id(args, run_memory_id, workspace_id, flow_path, notes)
+            .map_or(HistorySource::Stateless, |memory_id| {
+                HistorySource::Managed { memory_id, bound }
+            })
+    };
     match &args.memory {
         // The step's own history inputs came after these, so a step that still holds one reads it
         // alone: what it did before the editor offered them is what it keeps doing.
@@ -182,43 +288,25 @@ fn resolve_history_source<'a>(
             // An id baked in at save time only ever applied when the run carried none.
             match run_memory_id.or(*memory_id) {
                 Some(memory_id) => (
-                    HistorySource::Window { memory_id, context_length: *context_length },
+                    HistorySource::Managed {
+                        memory_id,
+                        bound: MemoryBound::LastMessages(*context_length),
+                    },
                     notes,
                 ),
                 None => {
-                    notes.push(no_memory_id);
+                    notes.push(NO_RUN_MEMORY_ID);
                     (HistorySource::Stateless, notes)
                 }
             }
         }
         Some(Memory::Window { context_length }) => {
-            if args
-                .previous_messages
-                .as_ref()
-                .is_some_and(|messages| !messages.is_empty())
-            {
-                notes.push("Managed memory is on, so this step's previous messages are ignored.");
-            }
-            let memory_id = match args.memory_id.as_deref() {
-                Some("") => {
-                    notes.push(
-                        "This step's memory id evaluated to an empty value, so the agent runs without memory.",
-                    );
-                    return (HistorySource::Stateless, notes);
-                }
-                Some(step_memory_id) => memory_key(workspace_id, flow_path, step_memory_id),
-                None => match run_memory_id {
-                    Some(memory_id) => memory_id,
-                    None => {
-                        notes.push(no_memory_id);
-                        return (HistorySource::Stateless, notes);
-                    }
-                },
-            };
-            (
-                HistorySource::Window { memory_id, context_length: *context_length },
-                notes,
-            )
+            let source = managed(MemoryBound::LastMessages(*context_length), &mut notes);
+            (source, notes)
+        }
+        Some(Memory::Compaction { .. }) => {
+            let source = managed(MemoryBound::Compaction, &mut notes);
+            (source, notes)
         }
         Some(Memory::Off) | None => {
             if args.memory_id.as_deref().is_some_and(|id| !id.is_empty()) {
@@ -229,6 +317,40 @@ fn resolve_history_source<'a>(
                 None => (HistorySource::Stateless, notes),
             }
         }
+    }
+}
+
+const NO_RUN_MEMORY_ID: &str =
+    "No memory id was passed to this run, so the agent runs without memory.";
+
+/// The memory a step under a current setting reads and writes: its own id where it set one,
+/// otherwise the run's. `None` is a step that ends up stateless, with the reason noted.
+fn managed_memory_id(
+    args: &AIAgentArgs,
+    run_memory_id: Option<Uuid>,
+    workspace_id: &str,
+    flow_path: &str,
+    notes: &mut Vec<&'static str>,
+) -> Option<Uuid> {
+    if args
+        .previous_messages
+        .as_ref()
+        .is_some_and(|messages| !messages.is_empty())
+    {
+        notes.push("Managed memory is on, so this step's previous messages are ignored.");
+    }
+    match args.memory_id.as_deref() {
+        Some("") => {
+            notes.push(
+                "This step's memory id evaluated to an empty value, so the agent runs without memory.",
+            );
+            None
+        }
+        Some(step_memory_id) => Some(memory_key(workspace_id, flow_path, step_memory_id)),
+        None => run_memory_id.or_else(|| {
+            notes.push(NO_RUN_MEMORY_ID);
+            None
+        }),
     }
 }
 
@@ -394,7 +516,8 @@ fn overlay_tool_inputs(
             FlowModuleValue::Script { input_transforms, .. }
             | FlowModuleValue::RawScript { input_transforms, .. }
             | FlowModuleValue::FlowScript { input_transforms, .. }
-            | FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+            | FlowModuleValue::AIAgent { input_transforms, .. }
+            | FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
             _ => continue,
         };
         for (key, transform) in overrides {
@@ -504,6 +627,7 @@ pub async fn handle_ai_agent_job(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
+    job_completed_tx: crate::JobCompletedSender,
 ) -> Result<Box<RawValue>, Error> {
     // build_args_map returns None if no $res:/$var: transforms needed, in which case use original args
     let local_args = match build_args_map(job, client, conn).await? {
@@ -583,6 +707,7 @@ pub async fn handle_ai_agent_job(
     };
 
     let value = flow_data.value();
+    let preserve_step_tags = value.preserve_step_tags;
 
     let module = if direct_parent_job_kind == JobKind::AIAgent {
         let parent_agent_step_id = direct_parent_job_flow_step_id.as_deref().ok_or_else(|| {
@@ -607,6 +732,22 @@ pub async fn handle_ai_agent_job(
 
     let summary = module.summary.clone();
 
+    let module_value = module.get_value()?;
+    if let FlowModuleValue::AIDecision { .. } = module_value {
+        return handle_ai_decision(
+            conn,
+            db,
+            job,
+            &local_args,
+            direct_parent_job_kind == JobKind::AIAgent,
+            canceled_by,
+            mem_peak,
+            occupancy_metrics,
+            worker_name,
+        )
+        .await;
+    }
+
     let FlowModuleValue::AIAgent {
         tools: module_tools,
         omit_output_from_conversation,
@@ -614,7 +755,7 @@ pub async fn handle_ai_agent_job(
         tool_inputs,
         input_transforms: step_input_transforms,
         ..
-    } = module.get_value()?
+    } = module_value
     else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
@@ -714,16 +855,18 @@ pub async fn handle_ai_agent_job(
     keep_authored_memory_id(&mut args, &step_input_transforms);
 
     // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
-    // a linked resource's tool set may still contain AIAgent tools (the editor can't constrain a
-    // shared resource); don't advertise them — invoking one would only fail the depth check as a
-    // third-level agent.
+    // a linked resource's tool set may still contain AIAgent or AIDecision tools (the editor can't
+    // constrain a shared resource); don't advertise them — invoking one would only fail the depth
+    // check as a third level.
     let tools = if direct_parent_job_kind == JobKind::AIAgent {
         tools
             .into_iter()
             .filter(|t| {
                 !matches!(
                     &t.value,
-                    ToolValue::FlowModule(FlowModuleValue::AIAgent { .. })
+                    ToolValue::FlowModule(
+                        FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. }
+                    )
                 )
             })
             .collect()
@@ -898,6 +1041,18 @@ pub async fn handle_ai_agent_job(
                         None,
                     )
                 }
+                FlowModuleValue::AIDecision { input_transforms, .. } => {
+                    // The calling model supplies only the state: the questions are the tool.
+                    let description = decision_tool_description(&input_transforms);
+                    (
+                        Some(
+                            RawValue::from_string(AI_DECISION_TOOL_SCHEMA.get().to_string())
+                                .expect("AI_DECISION_TOOL_SCHEMA should always be valid JSON"),
+                        ),
+                        input_transforms,
+                        description,
+                    )
+                }
                 _ => {
                     return Err(Error::internal_err(format!(
                         "Unsupported tool: {}",
@@ -1008,8 +1163,10 @@ pub async fn handle_ai_agent_job(
             has_stream,
             has_websearch,
             omit_output_from_conversation,
+            preserve_step_tags,
             cancel_rx,
             tool_abort_handles.clone(),
+            job_completed_tx,
         );
 
         let mut occupancy_opt = Some(occupancy_metrics);
@@ -1028,12 +1185,9 @@ pub async fn handle_ai_agent_job(
             cancel_tx,
             CANCEL_GRACE_PERIOD,
         )
-        .await?
+        .await
     };
     // agent_fut and update_job are now dropped — borrows on mcp_clients and canceled_by released
-
-    // Cleanup MCP clients
-    cleanup_mcp_clients(mcp_clients).await;
 
     let format_cancel_info = |cb: &Option<CanceledBy>| {
         cb.as_ref()
@@ -1045,38 +1199,42 @@ pub async fn handle_ai_agent_job(
             })
     };
 
-    match outcome {
-        GracefulPollOutcome::Ok(result) => Ok(result),
-        GracefulPollOutcome::Timeout(ms) => {
-            tracing::error!("AI agent timeout after {}s", ms / 1000);
-            Err(Error::ExecutionErr(format!(
-                "AI agent timeout after (>{}s)",
-                ms / 1000
-            )))
-        }
-        GracefulPollOutcome::Cancelled { canceled_by: cb } => {
-            let (by, reason) = format_cancel_info(&cb);
-            Err(Error::ExecutionErr(format!(
-                "Job cancelled by {by} (reason: {reason})"
-            )))
-        }
-        GracefulPollOutcome::CancelledTimeout { canceled_by: cb } => {
-            let (by, reason) = format_cancel_info(&cb);
-            // Abort any still-running spawned tool tasks
-            // unwrap safe: lock is only held briefly for push/drain, no panic possible inside
-            for handle in tool_abort_handles.lock().unwrap().drain(..) {
-                handle.abort();
+    let result = match outcome {
+        Err(error) => Err(error),
+        Ok(outcome) => match outcome {
+            GracefulPollOutcome::Ok(result) => Ok(result),
+            GracefulPollOutcome::Timeout(ms) => {
+                tracing::error!("AI agent timeout after {}s", ms / 1000);
+                Err(Error::ExecutionErr(format!(
+                    "AI agent timeout after (>{}s)",
+                    ms / 1000
+                )))
             }
-            // Hard timeout: clean up orphaned jobs still stuck in v2_job_queue
-            cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, cb).await;
-            Err(Error::ExecutionErr(format!(
-                "Job cancelled by {by} (reason: {reason}, timed out waiting for tool calls)"
-            )))
+            GracefulPollOutcome::Cancelled { canceled_by: cb } => {
+                let (by, reason) = format_cancel_info(&cb);
+                Err(Error::ExecutionErr(format!(
+                    "Job cancelled by {by} (reason: {reason})"
+                )))
+            }
+            GracefulPollOutcome::CancelledTimeout { canceled_by: cb } => {
+                let (by, reason) = format_cancel_info(&cb);
+                Err(Error::ExecutionErr(format!(
+                    "Job cancelled by {by} (reason: {reason}, timed out waiting for tool calls)"
+                )))
+            }
+            GracefulPollOutcome::AlreadyCompleted => {
+                Err(Error::AlreadyCompleted("Job already completed".to_string()))
+            }
+        },
+    };
+    if result.is_err() {
+        for handle in tool_abort_handles.lock().unwrap().drain(..) {
+            handle.abort();
         }
-        GracefulPollOutcome::AlreadyCompleted => {
-            Err(Error::AlreadyCompleted("Job already completed".to_string()))
-        }
+        cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, canceled_by.clone()).await;
     }
+    cleanup_mcp_clients(mcp_clients).await;
+    result
 }
 
 /// OpenAI rejects a `prompt_cache_key` over 64 characters
@@ -1123,14 +1281,22 @@ pub async fn run_agent(
     has_stream: &mut bool,
     has_websearch: bool,
     omit_output_from_conversation: bool,
+    preserve_step_tags: bool,
 
     // cancellation signal from parent
     cancel_rx: tokio::sync::watch::Receiver<bool>,
 
     // abort handles for spawned tool tasks
     tool_abort_handles: ToolAbortHandles,
+    job_completed_tx: crate::JobCompletedSender,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
+    if args.provider.kind.is_decision_provider() {
+        return Err(Error::BadRequest(format!(
+            "{:?} serves decision models, which answer typed questions rather than messages: use an AI decision step",
+            args.provider.kind
+        )));
+    }
     let credentials = args.provider.to_provider_credentials(db).await?;
     let base_url = &credentials.base_url;
     let api_key = credentials.api_key.as_deref().unwrap_or("");
@@ -1224,7 +1390,7 @@ pub async fn run_agent(
             "'user_message' must be provided for image output"
         } else if matches!(
             args.memory,
-            Some(Memory::Window { .. } | Memory::Auto { .. })
+            Some(Memory::Window { .. } | Memory::Compaction { .. } | Memory::Auto { .. })
         ) {
             "'user_message' must be provided while managed memory is on"
         } else {
@@ -1236,13 +1402,13 @@ pub async fn run_agent(
     if matches!(output_type, OutputType::Text) {
         match &history {
             HistorySource::Messages(provided) => messages.extend(provided.iter().cloned()),
-            HistorySource::Window { memory_id, context_length } => {
+            HistorySource::Managed { memory_id, bound } => {
                 if let Some(step_id) = effective_flow_step_id {
                     match read_from_memory(db, &job.workspace_id, *memory_id, step_id).await {
                         Ok(Some(loaded_messages)) => {
                             let messages_to_load = prepare_auto_memory_messages_for_request(
                                 &loaded_messages,
-                                *context_length,
+                                bound.messages_to_keep(),
                             );
                             messages.extend(messages_to_load);
                         }
@@ -1334,6 +1500,7 @@ pub async fn run_agent(
         }
     }
 
+    let mut messages = AgentHistory::new(messages);
     let mut actions = vec![];
     let mut content = None;
     let mut final_usage: Option<TokenUsage> = None;
@@ -1419,6 +1586,49 @@ pub async fn run_agent(
         .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
         .unwrap_or(DEFAULT_MAX_AGENT_ITERATIONS);
 
+    let mut compactor = match &args.memory {
+        Some(Memory::Compaction { context_window }) if is_text_output => {
+            let tool_schema_tokens = tool_defs
+                .as_ref()
+                .and_then(|defs| serde_json::to_string(defs).ok())
+                .map(|schemas| schemas.len() / 4)
+                .unwrap_or(0);
+            // An unset window — the usual case — is looked up from the model. The field
+            // is the override for what the lookup cannot serve: a Custom AI deployment,
+            // or an id the table does not list.
+            let context_window = match context_window {
+                0 => model_context_window(args.provider.get_model()),
+                declared => *declared,
+            };
+            Some(Compactor::new(
+                context_window,
+                tool_schema_tokens,
+                args.max_completion_tokens,
+            ))
+        }
+        _ => None,
+    };
+    // The store otherwise evicts oldest messages, including the summary. Bound only
+    // persisted context here; the running agent can still use the full model window.
+    let persist_capacity = match (&compactor, &history, effective_flow_step_id) {
+        (Some(_), HistorySource::Managed { .. }, Some(_)) => memory_storage_capacity_bytes().await,
+        _ => None,
+    };
+    // The summarization call runs under the agent's own request timeout, which resolves
+    // from the job alone and so is the same for every iteration.
+    let compaction_timeout = match compactor {
+        Some(_) => Some(
+            resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+                .await
+                .0,
+        ),
+        None => None,
+    };
+    // Held across iterations so an OIDC role is assumed once for the job and
+    // re-assumed only near expiry, rather than on every model turn.
+    #[cfg(feature = "bedrock")]
+    let mut bedrock_assumed_role: Option<windmill_ai::ai_bedrock::AssumedRoleCredentials> = None;
+
     // Main agent loop
     for i in 0..max_iterations {
         // Check if parent was canceled — stop iterating but let current tool calls finish
@@ -1430,232 +1640,328 @@ pub async fn run_agent(
             break;
         }
 
-        // Handle AWS Bedrock provider specially using the official SDK
-        let parsed = if credentials.provider == AIProvider::AWSBedrock {
-            #[cfg(feature = "bedrock")]
-            {
-                let region = credentials
-                    .region
-                    .as_deref()
-                    .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
-                // Use Bedrock SDK via dedicated query builder
-                windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
-                    .execute_request(
-                        &messages,
-                        tool_defs.as_deref(),
-                        args.provider.get_model(),
-                        args.temperature,
-                        args.provider.get_reasoning_effort(),
-                        args.max_completion_tokens,
-                        api_key,
-                        region,
-                        stream_event_processor.as_ref().map(|p| p.boxed_sink()),
-                        client,
-                        &job.workspace_id,
-                        structured_output_tool_name.as_deref(),
-                        credentials.aws_access_key_id.as_deref(),
-                        credentials.aws_secret_access_key.as_deref(),
-                        credentials.aws_session_token.as_deref(),
-                    )
-                    .await?
-            }
-            #[cfg(not(feature = "bedrock"))]
-            {
-                return Err(Error::internal_err(
-                    "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
-                ));
-            }
-        } else {
-            // For all other providers, use the HTTP client approach
-            let mut build_args = BuildRequestArgs {
-                messages: &messages,
-                tools: tool_defs.as_deref(),
-                model: args.provider.get_model(),
-                temperature: args.temperature,
-                reasoning_effort: args.provider.get_reasoning_effort(),
-                max_tokens: args.max_completion_tokens,
-                output_schema: args.output_schema.as_ref(),
-                output_type,
-                system_prompt: args.system_prompt.as_deref(),
-                user_message: args.user_message.as_deref().unwrap_or(""),
-                attachments: args.user_attachments.as_deref(),
-                has_websearch,
-                prompt_cache_key: include_prompt_cache_key.then_some(prompt_cache_key.as_str()),
-                reasoning_summary: !is_reasoning_summary_unavailable(
-                    &credentials,
-                    args.provider.get_model(),
-                ),
-            };
+        compact_if_needed(
+            CompactionContext {
+                compactor: compactor.as_mut(),
+                timeout: compaction_timeout,
+                credentials: &credentials,
+                args,
+                client,
+                job,
+                conn,
+            },
+            query_builder.as_ref(),
+            include_usage,
+            &mut messages,
+            CompactionTrigger::Threshold,
+            &mut final_usage,
+        )
+        .await;
 
-            // A worker cannot run the client credentials exchange, so an OAuth resource
-            // has no token here: the request would carry an empty credential and come
-            // back 401.
-            if needs_unavailable_oauth_exchange(
-                &credentials,
-                args.provider.resource.token_url.as_deref(),
-                &query_builder.get_auth_headers(api_key, base_url, output_type),
-            ) {
-                return Err(Error::ExecutionErr(format!(
-                    "The {:?} resource authenticates with OAuth, which AI agent steps do not \
-                     support. Set an API key on the resource, or carry the provider's credential \
-                     header in its `headers`.",
-                    credentials.provider
-                )));
-            }
+        let mut retried_context = false;
+        let (parsed, request_message_count) = loop {
+            // How many messages this request carries, so the provider's prompt count can
+            // later be told apart from what the response and its tool results add.
+            let request_message_count = messages.context().len();
 
-            let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
-                .await
-                .0;
-
-            let trailing_headers = common_outbound_headers(&credentials).collect::<Vec<_>>();
-
-            // `endpoint` derives from the user-controlled provider base_url, so pin
-            // DNS to the SSRF-validated address: the connect must not rebind to an
-            // internal IP between the check and the request (TOCTOU).
-            let pinned_ai_client = pinned_ai_client_for(base_url).await?;
-
-            // Helper to build HTTP request with headers
-            let build_http_request =
-                |endpoint: &str, auth_headers: &[(&'static str, String)], body: String| {
-                    let mut req = pinned_ai_client
-                        .post(endpoint)
-                        .timeout(timeout)
-                        .header("Content-Type", "application/json");
-
-                    for (header_name, header_value) in auth_headers {
-                        req = req.header(*header_name, header_value.clone());
-                    }
-
-                    for (header_name, header_value) in &trailing_headers {
-                        req = req.header(header_name.as_str(), header_value.as_str());
-                    }
-
-                    req.body(body)
-                };
-
-            // An endpoint can reject the request shape rather than the model:
-            // `stream_options` and `prompt_cache_key`, which not every OpenAI-compatible
-            // gateway accepts, a reasoning summary, which OpenAI refuses to unverified
-            // organizations, and the route itself, when an Azure resource is outside
-            // the Responses API's model/region matrix. Each is retried once with that
-            // part dropped.
-            // Set where the route is found to be absent, and read once the fallback has
-            // answered: a rejection it did not resolve says nothing about the deployment.
-            let mut rerouted_by_a_route_rejection = false;
-            let resp = loop {
-                let request_body = if include_usage {
-                    query_builder
-                        .build_request(&build_args, client, &job.workspace_id)
-                        .await?
-                } else {
-                    query_builder
-                        .build_request_without_usage(&build_args, client, &job.workspace_id)
-                        .await?
-                };
-                let endpoint =
-                    query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
-                let auth_headers = retain_effective_credentials(
-                    &credentials,
-                    query_builder.get_auth_headers(api_key, base_url, output_type),
-                );
-
-                let resp = build_http_request(&endpoint, &auth_headers, request_body)
-                    .send()
-                    .await
-                    .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
-
-                match resp.error_for_status_ref() {
-                    Ok(_) => {
-                        if rerouted_by_a_route_rejection {
-                            remember_chat_completions_only(base_url, args.provider.get_model());
-                        }
-                        break resp;
-                    }
-                    Err(e) => {
-                        let status = resp.status();
-                        let text = resp
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "<failed to read body>".to_string());
-
-                        // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
-                        let rejects_usage_tracking = include_usage
-                            && query_builder.supports_retry_without_usage()
-                            && status.as_u16() == 400
-                            && (text.contains("stream_options")
-                                || text.contains("include_usage")
-                                || text.contains("Additional properties are not allowed"));
-
-                        // An OpenAI-compatible gateway that validates the body strictly
-                        // names the offending field, whether it calls it an unrecognized
-                        // argument or an unexpected additional property.
-                        let rejects_prompt_cache_key = build_args.prompt_cache_key.is_some()
-                            && status.as_u16() == 400
-                            && text.contains("prompt_cache_key");
-
-                        let summary_refused = build_args.reasoning_summary
-                            && rejects_reasoning_summary(status.as_u16(), &text);
-
-                        // Only the first call of the step may re-route: an endpoint that
-                        // does not serve this API rejects that one already, whereas a
-                        // rejection once the conversation is under way is about the
-                        // conversation (context length, content filter, tool schema).
-                        let route_unserved = i == 0
-                            && query_builder.supports_chat_completions_fallback(base_url)
-                            && matches!(status.as_u16(), 400 | 404)
-                            && *output_type == OutputType::Text;
-
-                        if rejects_usage_tracking {
-                            tracing::info!(
-                                "Retrying request without stream_options due to provider incompatibility"
-                            );
-                            include_usage = false;
-                        } else if rejects_prompt_cache_key {
-                            // Checked before the route fallback: the endpoint serves this
-                            // route, it just refuses one optional field, and re-routing
-                            // the whole step over that would give up far more.
-                            tracing::info!(
-                                "Retrying request without prompt_cache_key due to provider incompatibility"
-                            );
-                            include_prompt_cache_key = false;
-                            build_args.prompt_cache_key = None;
-                        } else if summary_refused {
-                            tracing::info!(
-                                "Retrying request without the reasoning summary the endpoint refused"
-                            );
-                            remember_reasoning_summary_unavailable(
-                                &credentials,
+            // Handle AWS Bedrock provider specially using the official SDK
+            let attempt: error::Result<_> = async {
+                let parsed = if credentials.provider == AIProvider::AWSBedrock {
+                    #[cfg(feature = "bedrock")]
+                    {
+                        let region = credentials
+                            .region
+                            .as_deref()
+                            .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
+                        // An OIDC role resolves to ordinary IAM keys, so from here the
+                        // call is identical to the explicit-keys mode.
+                        let assumed = windmill_ai::ai_bedrock::refresh_bedrock_oidc_credentials(
+                            &credentials,
+                            &mut bedrock_assumed_role,
+                            client,
+                            &job.id,
+                        )
+                        .await?;
+                        let (access_key_id, secret_access_key, session_token) = match assumed {
+                            Some(assumed) => (
+                                Some(assumed.access_key_id.as_str()),
+                                Some(assumed.secret_access_key.as_str()),
+                                Some(assumed.session_token.as_str()),
+                            ),
+                            None => (
+                                credentials.aws_access_key_id.as_deref(),
+                                credentials.aws_secret_access_key.as_deref(),
+                                credentials.aws_session_token.as_deref(),
+                            ),
+                        };
+                        // Use Bedrock SDK via dedicated query builder
+                        windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
+                            .execute_request(
+                                messages.context(),
+                                tool_defs.as_deref(),
                                 args.provider.get_model(),
-                            );
-                            build_args.reasoning_summary = false;
-                        } else if route_unserved {
-                            tracing::info!(
-                                "Endpoint rejected the request ({}), falling back to chat/completions",
-                                status
-                            );
-                            // Only a 404 says the route is absent. A 400 is ambiguous —
-                            // a deployment that does serve the route rejects tool
-                            // schemas, blocked hosted tools and filtered content the
-                            // same way — so it re-routes this step and nothing more.
-                            rerouted_by_a_route_rejection = status.as_u16() == 404;
-                            query_builder = create_chat_completions_query_builder(&credentials);
-                            include_usage = true;
+                                args.temperature,
+                                args.provider.get_reasoning_effort(),
+                                args.max_completion_tokens,
+                                api_key,
+                                region,
+                                stream_event_processor.as_ref().map(|p| p.boxed_sink()),
+                                client,
+                                &job.workspace_id,
+                                structured_output_tool_name.as_deref(),
+                                access_key_id,
+                                secret_access_key,
+                                session_token,
+                            )
+                            .await?
+                    }
+                    #[cfg(not(feature = "bedrock"))]
+                    {
+                        return Err(Error::internal_err(
+                            "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
+                        ));
+                    }
+                } else {
+                    // For all other providers, use the HTTP client approach
+                    let mut build_args = BuildRequestArgs {
+                        messages: messages.context(),
+                        tools: tool_defs.as_deref(),
+                        model: args.provider.get_model(),
+                        temperature: args.temperature,
+                        reasoning_effort: args.provider.get_reasoning_effort(),
+                        max_tokens: args.max_completion_tokens,
+                        output_schema: args.output_schema.as_ref(),
+                        output_type,
+                        system_prompt: args.system_prompt.as_deref(),
+                        user_message: args.user_message.as_deref().unwrap_or(""),
+                        attachments: args.user_attachments.as_deref(),
+                        has_websearch,
+                        prompt_cache_key: include_prompt_cache_key.then_some(prompt_cache_key.as_str()),
+                        reasoning_summary: !is_reasoning_summary_unavailable(
+                            &credentials,
+                            args.provider.get_model(),
+                        ),
+                    };
+
+                    // A worker cannot run the client credentials exchange, so an OAuth resource
+                    // has no token here: the request would carry an empty credential and come
+                    // back 401.
+                    if needs_unavailable_oauth_exchange(
+                        &credentials,
+                        args.provider.resource.token_url.as_deref(),
+                        &query_builder.get_auth_headers(api_key, base_url, output_type),
+                    ) {
+                        return Err(Error::ExecutionErr(format!(
+                            "The {:?} resource authenticates with OAuth, which AI agent steps do not \
+                             support. Set an API key on the resource, or carry the provider's credential \
+                             header in its `headers`.",
+                            credentials.provider
+                        )));
+                    }
+
+                    let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+                        .await
+                        .0;
+
+                    let trailing_headers = common_outbound_headers(&credentials).collect::<Vec<_>>();
+
+                    // `endpoint` derives from the user-controlled provider base_url, so pin
+                    // DNS to the SSRF-validated address: the connect must not rebind to an
+                    // internal IP between the check and the request (TOCTOU).
+                    let pinned_ai_client = pinned_ai_client_for(base_url).await?;
+
+                    // Helper to build HTTP request with headers
+                    let build_http_request =
+                        |endpoint: &str, auth_headers: &[(&'static str, String)], body: String| {
+                            let mut req = pinned_ai_client
+                                .post(endpoint)
+                                .timeout(timeout)
+                                .header("Content-Type", "application/json");
+
+                            for (header_name, header_value) in auth_headers {
+                                req = req.header(*header_name, header_value.clone());
+                            }
+
+                            for (header_name, header_value) in &trailing_headers {
+                                req = req.header(header_name.as_str(), header_value.as_str());
+                            }
+
+                            req.body(body)
+                        };
+
+                    // An endpoint can reject the request shape rather than the model:
+                    // `stream_options` and `prompt_cache_key`, which not every OpenAI-compatible
+                    // gateway accepts, a reasoning summary, which OpenAI refuses to unverified
+                    // organizations, and the route itself, when an Azure resource is outside
+                    // the Responses API's model/region matrix. Each is retried once with that
+                    // part dropped.
+                    // Set where the route is found to be absent, and read once the fallback has
+                    // answered: a rejection it did not resolve says nothing about the deployment.
+                    let mut rerouted_by_a_route_rejection = false;
+                    let resp = loop {
+                        let request_body = if include_usage {
+                            query_builder
+                                .build_request(&build_args, client, &job.workspace_id)
+                                .await?
                         } else {
-                            return Err(Error::internal_err(format!(
-                                "API error calling {}: {} - {}",
-                                endpoint, e, text
-                            )));
+                            query_builder
+                                .build_request_without_usage(&build_args, client, &job.workspace_id)
+                                .await?
+                        };
+                        let endpoint =
+                            query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
+                        let auth_headers = retain_effective_credentials(
+                            &credentials,
+                            query_builder.get_auth_headers(api_key, base_url, output_type),
+                        );
+
+                        let resp = build_http_request(&endpoint, &auth_headers, request_body)
+                            .send()
+                            .await
+                            .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
+
+                        match resp.error_for_status_ref() {
+                            Ok(_) => {
+                                if rerouted_by_a_route_rejection {
+                                    remember_chat_completions_only(base_url, args.provider.get_model());
+                                }
+                                break resp;
+                            }
+                            Err(e) => {
+                                let status = resp.status();
+                                let text = resp
+                                    .text()
+                                    .await
+                                    .unwrap_or_else(|_| "<failed to read body>".to_string());
+
+                                // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
+                                let rejects_usage_tracking = include_usage
+                                    && query_builder.supports_retry_without_usage()
+                                    && status.as_u16() == 400
+                                    && (text.contains("stream_options")
+                                        || text.contains("include_usage")
+                                        || text.contains("Additional properties are not allowed"));
+
+                                // An OpenAI-compatible gateway that validates the body strictly
+                                // names the offending field, whether it calls it an unrecognized
+                                // argument or an unexpected additional property.
+                                let rejects_prompt_cache_key = build_args.prompt_cache_key.is_some()
+                                    && status.as_u16() == 400
+                                    && text.contains("prompt_cache_key");
+
+                                let summary_refused = build_args.reasoning_summary
+                                    && rejects_reasoning_summary(status.as_u16(), &text);
+
+                                // Only the first call of the step may re-route: an endpoint that
+                                // does not serve this API rejects that one already, whereas a
+                                // rejection once the conversation is under way is about the
+                                // conversation (context length, content filter, tool schema).
+                                let route_unserved = i == 0
+                                    && !windmill_ai::query_builder::is_context_length_error(&text)
+                                    && query_builder.supports_chat_completions_fallback(base_url)
+                                    && matches!(status.as_u16(), 400 | 404)
+                                    && *output_type == OutputType::Text;
+
+                                if rejects_usage_tracking {
+                                    tracing::info!(
+                                        "Retrying request without stream_options due to provider incompatibility"
+                                    );
+                                    include_usage = false;
+                                } else if rejects_prompt_cache_key {
+                                    // Checked before the route fallback: the endpoint serves this
+                                    // route, it just refuses one optional field, and re-routing
+                                    // the whole step over that would give up far more.
+                                    tracing::info!(
+                                        "Retrying request without prompt_cache_key due to provider incompatibility"
+                                    );
+                                    include_prompt_cache_key = false;
+                                    build_args.prompt_cache_key = None;
+                                } else if summary_refused {
+                                    tracing::info!(
+                                        "Retrying request without the reasoning summary the endpoint refused"
+                                    );
+                                    remember_reasoning_summary_unavailable(
+                                        &credentials,
+                                        args.provider.get_model(),
+                                    );
+                                    build_args.reasoning_summary = false;
+                                } else if route_unserved {
+                                    tracing::info!(
+                                        "Endpoint rejected the request ({}), falling back to chat/completions",
+                                        status
+                                    );
+                                    // Only a 404 says the route is absent. A 400 is ambiguous —
+                                    // a deployment that does serve the route rejects tool
+                                    // schemas, blocked hosted tools and filtered content the
+                                    // same way — so it re-routes this step and nothing more.
+                                    rerouted_by_a_route_rejection = status.as_u16() == 404;
+                                    query_builder = create_chat_completions_query_builder(&credentials);
+                                    include_usage = true;
+                                } else {
+                                    return Err(Error::internal_err(format!(
+                                        "API error calling {}: {} - {}",
+                                        endpoint, e, text
+                                    )));
+                                }
+                            }
                         }
+                    };
+
+                    if let Some(ref stream_event_processor) = stream_event_processor {
+                        query_builder
+                            .parse_streaming_response(resp, stream_event_processor.boxed_sink())
+                            .await?
+                    } else {
+                        query_builder.parse_image_response(resp).await?
+                    }
+                };
+                Ok(parsed.without_nul())
+            }.await;
+
+            match attempt {
+                Ok(parsed) => break (parsed, request_message_count),
+                Err(error)
+                    if !retried_context
+                        && compactor.is_some()
+                        && windmill_ai::query_builder::is_context_length_error(
+                            &error.to_string(),
+                        ) =>
+                {
+                    retried_context = true;
+                    append_logs(
+                        &job.id,
+                        &job.workspace_id,
+                        "Provider rejected the context size; attempting compaction before one retry.\n".to_string(),
+                        conn,
+                    ).await;
+                    let changed = compact_if_needed(
+                        CompactionContext {
+                            compactor: compactor.as_mut(),
+                            timeout: compaction_timeout,
+                            credentials: &credentials,
+                            args,
+                            client,
+                            job,
+                            conn,
+                        },
+                        query_builder.as_ref(),
+                        include_usage,
+                        &mut messages,
+                        CompactionTrigger::ContextRejected,
+                        &mut final_usage,
+                    )
+                    .await;
+                    if !changed {
+                        append_logs(
+                            &job.id,
+                            &job.workspace_id,
+                            "Context compaction could not produce a smaller usable request; returning the provider error without retry.\n".to_string(),
+                            conn,
+                        ).await;
+                        return Err(error);
                     }
                 }
-            };
-
-            if let Some(ref stream_event_processor) = stream_event_processor {
-                query_builder
-                    .parse_streaming_response(resp, stream_event_processor.boxed_sink())
-                    .await?
-            } else {
-                query_builder.parse_image_response(resp).await?
+                Err(error) => return Err(error),
             }
         };
 
@@ -1669,6 +1975,11 @@ pub async fn run_agent(
                 used_websearch,
                 usage,
             } => {
+                messages.record_usage(
+                    usage.as_ref().and_then(|u| u.input_tokens),
+                    request_message_count,
+                );
+
                 // Accumulate usage from this iteration
                 if let Some(u) = usage {
                     match &mut final_usage {
@@ -1713,6 +2024,7 @@ pub async fn run_agent(
                                 db,
                                 &conversation_id,
                                 Some(job.id),
+                                get_root_job_id(job),
                                 "Used websearch tool",
                                 MessageType::Tool,
                                 &step_name,
@@ -1765,6 +2077,7 @@ pub async fn run_agent(
                                 db,
                                 &conversation_id,
                                 Some(job.id),
+                                get_root_job_id(job),
                                 response_content,
                                 MessageType::Assistant,
                                 &step_name,
@@ -1792,7 +2105,7 @@ pub async fn run_agent(
                         name: &'static str,
                         #[serde(skip_serializing_if = "Option::is_none")]
                         step_id: Option<&'a str>,
-                        result: MaxIterPartialResult<'a>,
+                        result: AgentPartialResult<'a>,
                     }
                     return Err(Error::ExecutionRawError(
                         serde_json::value::to_raw_value(&MaxIterError {
@@ -1802,8 +2115,9 @@ pub async fn run_agent(
                             ),
                             name: "ExecutionErr",
                             step_id: effective_flow_step_id,
-                            result: MaxIterPartialResult {
+                            result: AgentPartialResult {
                                 messages: messages
+                                    .result()
                                     .iter()
                                     .map(|m| Message {
                                         message: m,
@@ -1851,6 +2165,7 @@ pub async fn run_agent(
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
                     omit_output_from_conversation,
+                    preserve_step_tags,
                     reasoning: if structured_output_first {
                         None
                     } else {
@@ -1859,6 +2174,7 @@ pub async fn run_agent(
                     previous_result: &previous_result,
                     id_context: &id_context,
                     tool_abort_handles: tool_abort_handles.clone(),
+                    job_completed_tx: job_completed_tx.clone(),
                 };
 
                 let (tool_messages, tool_content, tool_used_structured_output) =
@@ -1892,6 +2208,7 @@ pub async fn run_agent(
                             db,
                             &conversation_id,
                             Some(job.id),
+                            get_root_job_id(job),
                             answer,
                             MessageType::Assistant,
                             &step_name,
@@ -1943,6 +2260,7 @@ pub async fn run_agent(
                             db,
                             &conversation_id,
                             Some(job.id),
+                            get_root_job_id(job),
                             &message_content,
                             MessageType::Assistant,
                             &step_name,
@@ -1966,8 +2284,42 @@ pub async fn run_agent(
         }
     }
 
+    if let Some(capacity_bytes) =
+        persist_capacity.filter(|limit| persisted_bytes(messages.context()) > *limit)
+    {
+        compact_if_needed(
+            CompactionContext {
+                compactor: compactor.as_mut(),
+                timeout: compaction_timeout,
+                credentials: &credentials,
+                args,
+                client,
+                job,
+                conn,
+            },
+            query_builder.as_ref(),
+            include_usage,
+            &mut messages,
+            CompactionTrigger::Storage { capacity_bytes },
+            &mut final_usage,
+        )
+        .await;
+    }
+    let memory_to_save = match persist_capacity {
+        Some(limit) => memory_within_capacity(messages.context(), limit),
+        None => Some(messages.context()),
+    };
+    if memory_to_save.is_some_and(|tail| tail.len() < messages.context().len()) {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory exceeds storage capacity after compaction; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
+    } else if memory_to_save.is_none() {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory has no complete user-starting conversation that fits storage capacity and memory was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
+    }
+
     // Return the final result
     let final_messages: Vec<Message> = messages
+        .result()
         .iter()
         .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
         .collect();
@@ -2009,34 +2361,56 @@ pub async fn run_agent(
         }
     }
 
-    // final_messages holds the complete history: what was loaded plus this run's messages
-    if matches!(output_type, OutputType::Text) {
-        if let HistorySource::Window { memory_id, context_length } = &history {
+    // Storage limits affect only the saved suffix, never the returned execution history.
+    if let Some(memory_to_save) = memory_to_save.filter(|_| matches!(output_type, OutputType::Text))
+    {
+        if let HistorySource::Managed { memory_id, bound } = &history {
             if let Some(step_id) = effective_flow_step_id {
-                let all_messages: Vec<OpenAIMessage> =
-                    final_messages.iter().map(|m| m.message.clone()).collect();
-
-                if !all_messages.is_empty() {
+                if !memory_to_save.is_empty() {
                     let messages_to_persist = prepare_auto_memory_messages_for_persistence(
-                        &all_messages,
-                        *context_length,
+                        memory_to_save,
+                        bound.messages_to_keep(),
                     );
 
-                    if let Err(e) = write_to_memory(
+                    match write_to_memory(
                         db,
                         &job.workspace_id,
                         *memory_id,
                         step_id,
                         &messages_to_persist,
+                        matches!(bound, MemoryBound::LastMessages(_)),
                     )
                     .await
                     {
-                        tracing::error!(
-                            "Failed to persist {} messages to memory for step {}: {}",
-                            messages_to_persist.len(),
-                            step_id,
-                            e
-                        );
+                        // The conversation outgrew what the database holds and was cut
+                        // from its oldest message. Only the worker's own log says so
+                        // otherwise, so from the flow's side the agent simply starts the
+                        // next run having forgotten how this one began.
+                        Ok(dropped) if dropped > 0 => {
+                            append_logs(
+                                &job.id,
+                                &job.workspace_id,
+                                format!(
+                                    "Memory does not fit the {}KB the database holds, so its \
+                                     {dropped} oldest messages were dropped. Configure instance \
+                                     object storage to keep the whole conversation.\n",
+                                    MAX_MEMORY_SIZE_BYTES / 1000
+                                ),
+                                conn,
+                            )
+                            .await;
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to persist {} messages to memory for step {}: {}",
+                                messages_to_persist.len(),
+                                step_id,
+                                e
+                            );
+                            append_logs(&job.id, &job.workspace_id,
+                                "Agent memory could not be saved. The answer is preserved; the next run may load older memory.\n".to_string(), conn).await;
+                        }
                     }
                 }
             }
@@ -2058,6 +2432,104 @@ pub async fn run_agent(
             final_usage
         },
     }))
+}
+
+/// An AI decision, run as a flow step or as a tool of an agent: its questions answered about its
+/// state in one call, with no loop, tools, memory or stream. It writes no conversation row: it is
+/// not an agent step, so a chat flow posts its result like any other step's.
+async fn handle_ai_decision(
+    conn: &Connection,
+    db: &DB,
+    job: &MiniPulledJob,
+    local_args: &HashMap<String, Box<RawValue>>,
+    as_tool: bool,
+    canceled_by: &mut Option<CanceledBy>,
+    mem_peak: &mut i32,
+    occupancy_metrics: &mut OccupancyMetrics,
+    worker_name: &str,
+) -> error::Result<Box<RawValue>> {
+    let args = serde_json::from_str::<AIDecisionArgs>(&serde_json::to_string(local_args)?)?;
+    if !args.provider.kind.runs_decisions() {
+        return Err(Error::BadRequest(format!(
+            "An AI decision runs on a TypeSafe, Cloudflare or OpenAI resource, not {:?}",
+            args.provider.kind
+        )));
+    }
+    let (state, questions) = decision_inputs(args.state.as_ref(), args.questions.as_ref())?;
+    let credentials = args.provider.to_provider_credentials(db).await?;
+    let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+        .await
+        .0;
+    // Under the job poller, so the job keeps its heartbeat and a cancel drops the request.
+    let result = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        conn,
+        mem_peak,
+        canceled_by,
+        run_decision(
+            &credentials,
+            args.provider.get_model(),
+            state,
+            questions,
+            timeout,
+        ),
+        worker_name,
+        &job.workspace_id,
+        &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
+    )
+    .await?;
+    windmill_common::feature_usage::log_feature_usage(
+        "ai_decision",
+        "run",
+        if as_tool { "tool" } else { "step" },
+    );
+    Ok(to_raw_value(&result))
+}
+
+/// What a decision tool tells the calling model it answers, read off its static questions. None
+/// when they come from an expression, which only a run evaluates.
+fn decision_tool_description(input_transforms: &HashMap<String, InputTransform>) -> Option<String> {
+    let InputTransform::Static { value } = input_transforms.get("questions")? else {
+        return None;
+    };
+    let questions = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(value.get())
+        .ok()
+        .filter(|questions| !questions.is_empty())?;
+    let described = questions
+        .iter()
+        .map(|(name, question)| {
+            let criteria = question.get("criteria");
+            let kind = match question.get("type").and_then(|t| t.as_str()) {
+                Some("choice") => {
+                    let options = criteria
+                        .and_then(|c| c.as_object())
+                        .map(|c| c.keys().cloned().collect::<Vec<_>>().join(", "))
+                        .unwrap_or_default();
+                    format!("one of {options}")
+                }
+                Some("score") => {
+                    let levels = criteria
+                        .and_then(|c| c.as_array())
+                        .map(|c| {
+                            c.iter()
+                                .filter_map(|l| l.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" < ")
+                        })
+                        .unwrap_or_default();
+                    format!("a score over {levels}")
+                }
+                _ => "yes or no".to_string(),
+            };
+            format!("{name} ({kind})")
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(format!(
+        "Answers these questions about the state it is given, with probabilities: {described}."
+    ))
 }
 
 /// Whether the step asked for its answer as it is generated. Absence means on, matching the
@@ -2100,6 +2572,7 @@ mod tests {
     enum Resolved {
         Messages(usize),
         Window(Uuid, usize),
+        Compaction(Uuid, usize),
         Stateless { noted: bool },
     }
 
@@ -2185,6 +2658,18 @@ mod tests {
                 Resolved::Stateless { noted: true },
             ),
             (
+                "compaction keeps the run's memory",
+                json!({ "memory": { "kind": "compaction", "context_window": 32000 } }),
+                Some(run),
+                Resolved::Compaction(run, 32000),
+            ),
+            (
+                "a cleared context window is left for the model lookup to fill",
+                json!({ "memory": { "kind": "compaction", "context_window": null } }),
+                Some(run),
+                Resolved::Compaction(run, 0),
+            ),
+            (
                 "a step memory id overrides the run's",
                 json!({ "memory": window, "memory_id": "cust_1" }),
                 Some(run),
@@ -2247,8 +2732,20 @@ mod tests {
             let args: AIAgentArgs = serde_json::from_value(raw).unwrap();
             let resolved = match resolve_history_source(&args, run_memory_id, "ws", "f/flow") {
                 (HistorySource::Messages(m), _) => Resolved::Messages(m.len()),
-                (HistorySource::Window { memory_id, context_length }, _) => {
-                    Resolved::Window(memory_id, context_length)
+                (
+                    HistorySource::Managed {
+                        memory_id,
+                        bound: MemoryBound::LastMessages(context_length),
+                    },
+                    _,
+                ) => Resolved::Window(memory_id, context_length),
+                (HistorySource::Managed { memory_id, bound: MemoryBound::Compaction }, _) => {
+                    match args.memory {
+                        Some(Memory::Compaction { context_window }) => {
+                            Resolved::Compaction(memory_id, context_window)
+                        }
+                        _ => panic!("expected compaction settings"),
+                    }
                 }
                 (HistorySource::Stateless, notes) => {
                     Resolved::Stateless { noted: !notes.is_empty() }
@@ -2349,7 +2846,7 @@ mod tests {
             ..Default::default()
         }];
 
-        let partial = MaxIterPartialResult {
+        let partial = AgentPartialResult {
             messages: messages
                 .iter()
                 .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
@@ -2406,6 +2903,7 @@ mod tests {
             let mut its = HashMap::new();
             its.insert(key.to_string(), js(expr));
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: None,
                 description: None,
@@ -2433,6 +2931,7 @@ mod tests {
             script_tool("a", "x", "authoring_flow_expr"),
             script_tool("b", "y", "keep_me"),
             AgentTool {
+                job_token_scopes: None,
                 id: "m".to_string(),
                 summary: None,
                 description: None,
@@ -2480,6 +2979,7 @@ mod tests {
     fn narrow_roster_keeps_the_entries_a_run_named() {
         fn named(id: &str, summary: &str) -> AgentTool {
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: Some(summary.to_string()),
                 description: None,
@@ -2495,6 +2995,7 @@ mod tests {
         }
         fn mcp(id: &str, summary: &str, path: &str) -> AgentTool {
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: Some(summary.to_string()),
                 description: None,
@@ -2507,6 +3008,7 @@ mod tests {
         }
         fn websearch(id: &str, summary: Option<&str>) -> AgentTool {
             AgentTool {
+                job_token_scopes: None,
                 id: id.to_string(),
                 summary: summary.map(str::to_string),
                 description: None,
@@ -2758,11 +3260,13 @@ async fn cleanup_orphaned_tool_jobs(
             )
         });
 
-    // Find direct child jobs still in v2_job_queue (agent tool jobs are always direct children)
     let orphaned_ids: Vec<Uuid> = match sqlx::query_scalar!(
-        r#"SELECT j.id FROM v2_job j
-            JOIN v2_job_queue q ON q.id = j.id
-            WHERE j.parent_job = $1 AND j.workspace_id = $2"#,
+        r#"WITH RECURSIVE descendants AS (
+            SELECT id FROM v2_job WHERE parent_job = $1 AND workspace_id = $2
+            UNION ALL
+            SELECT j.id FROM v2_job j JOIN descendants d ON j.parent_job = d.id
+            WHERE j.workspace_id = $2
+        ) SELECT d.id AS "id!" FROM descendants d JOIN v2_job_queue q ON q.id = d.id"#,
         parent_job_id,
         w_id,
     )

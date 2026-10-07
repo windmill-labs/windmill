@@ -52,14 +52,15 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { workspaceAIClients, getStreamedCompletionText } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
 import { getEffectiveModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
 	formatCompactSummary,
-	buildSummaryMessageContent
+	buildSummaryMessageContent,
+	toolExchangesAsText
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
 import { redactFileArgs, redactSecretArgs } from '$lib/components/job_args'
@@ -88,10 +89,11 @@ import {
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { get } from 'svelte/store'
+import { fromStore, get } from 'svelte/store'
+import type { ProviderToolSummary } from './agentContext'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
-import { copilotInfo } from '$lib/aiStore'
+import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
@@ -109,7 +111,12 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import {
+	closeInterruptedToolBatch,
+	runChatLoop,
+	sendsWebSearch,
+	truncateToToolPairedPrefix
+} from './chatLoop'
 import { FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE, OutputTokenLimitError } from './outputTokenLimit'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
@@ -161,6 +168,7 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
+import { navigationOperatorBuilderFlows } from '$lib/operatorWriteRights'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -171,7 +179,10 @@ import { PlanModeController, type PlanModeHost } from './planModeController.svel
 // cannot see — the upcoming completion and tool results, system-prompt/tool-
 // schema changes from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
-const COMPACTION_TARGET_RATIO = 0.7
+// The gap below the trigger is what one compaction buys: each summarization request
+// carries most of the window, and a target close to the trigger spends that on a few
+// turns of room and summarizes its own previous summary again soon after.
+const COMPACTION_TARGET_RATIO = 0.5
 // How often a running turn is offered to the mid-turn checkpoint (see
 // sendRequest). The whole transcript is rewritten on each accepted checkpoint,
 // so this bounds the write rate; it also bounds how much of a turn a tab that
@@ -289,6 +300,8 @@ export function supportsAutoAcceptToolConfirmations(mode: AIMode): boolean {
 export function supportsPlanMode(mode: AIMode): boolean {
 	return PLAN_MODES.has(mode)
 }
+
+const isOperatorBuilderFlows = fromStore(navigationOperatorBuilderFlows)
 
 export function isAIModeVisible(mode: AIMode): boolean {
 	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
@@ -485,7 +498,7 @@ export class AIChatManager implements ChatViewHost {
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
-	skipResponsesApi = false
+	skipResponsesApi = $state(false)
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
@@ -746,6 +759,28 @@ export class AIChatManager implements ChatViewHost {
 	 * transitions, whichever one is offered right now. A reference answer, so flipping the
 	 * autonomy picker must not change it. */
 	availableTools: Tool<any>[] = $derived(this.#shipped(this.planMode.availableTools))
+	#copilotInfo = fromStore(copilotInfo)
+	#sessionModel = fromStore(copilotSessionModel)
+	/** Capabilities the provider runs on its own servers, attached by the adapter at send
+	 * time. Never part of `tools`: the request path would try to dispatch them. The two
+	 * `void` reads only subscribe: the model helpers read through `get()`, which tracks
+	 * nothing, so a change of model or of the workspace's AI config would otherwise not
+	 * re-derive. A workspace switch re-derives through the AI config it loads. */
+	get providerTools(): ProviderToolSummary[] {
+		void this.#copilotInfo.current
+		void this.#sessionModel.current
+		const model = tryGetCurrentModel()
+		if (!model || (model.provider === 'openai' && this.skipResponsesApi)) return []
+		const enabled = isWebSearchEnabledForProvider(model.provider)
+		return sendsWebSearch(this.operatingWorkspace ?? '', model, enabled)
+			? [
+					{
+						name: 'Web search',
+						description: "Runs on the provider's servers, no confirmation."
+					}
+				]
+			: []
+	}
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -1403,12 +1438,19 @@ export class AIChatManager implements ChatViewHost {
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
+	// The flow and script builders both write code, which the backend refuses from an operator
+	// with the builder right: leaving them reachable would only produce work that cannot be
+	// deployed.
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
 			this.scriptEditorOptions !== undefined &&
-			!this.disabledModes.script,
-		flow: this.flowAiChatHelpers !== undefined && !this.disabledModes.flow,
+			!this.disabledModes.script &&
+			!isOperatorBuilderFlows.current,
+		flow:
+			this.flowAiChatHelpers !== undefined &&
+			!this.disabledModes.flow &&
+			!isOperatorBuilderFlows.current,
 		app: this.appAiChatHelpers !== undefined && !this.disabledModes.app,
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,
@@ -1545,20 +1587,18 @@ export class AIChatManager implements ChatViewHost {
 		this.compacting = true
 		try {
 			// Cap the summarizer's output at the budget already reserved for the
-			// summary. Without a cap the model's default max_tokens applies, and the
-			// Anthropic SDK rejects non-streaming requests whose max_tokens implies
-			// >10 minutes of generation (~21k tokens) before anything is sent.
-			const raw = await getNonStreamingCompletion(
+			// summary: without a cap the model's default max_tokens applies.
+			const raw = await getStreamedCompletionText(
 				[
 					// Strip image blobs from the summarizer input — the summary text stands in
 					// for them, so re-sending base64 to the summarizer only wastes tokens.
-					...stripImagePartsFromMessages(sanitizeToolCallArguments(prefix)),
+					...toolExchangesAsText(stripImagePartsFromMessages(sanitizeToolCallArguments(prefix))),
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
 				abortController,
 				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS }
 			)
-			const formatted = formatCompactSummary(raw ?? '')
+			const formatted = formatCompactSummary(raw)
 			if (!formatted) {
 				return 'empty'
 			}

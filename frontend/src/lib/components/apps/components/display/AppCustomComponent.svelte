@@ -123,7 +123,13 @@
 </script>
 
 <InitializeComponent {id} />
-<div class="w-full h-full overflow-auto {customComponent?.name ?? 'no_name'}">
+<!-- The host stays mounted so the renderer can attach, but the user's code draws regardless of
+	render: hide it, or a not-yet-rendered component lands in its parent's layout flow. Inline so
+	CSS the bundle puts on its root class cannot override it. -->
+<div
+	class="w-full h-full overflow-auto {customComponent?.name ?? 'no_name'}"
+	style:display={render ? undefined : 'none'}
+>
 	<RunnableWrapper {outputs} render autoRefresh {componentInput} {id} bind:result>
 		{#if !loaded && render}
 			<Loader2 class="animate-spin" />

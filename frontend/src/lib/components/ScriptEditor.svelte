@@ -81,6 +81,7 @@
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
+	import DraggableTabs, { type TabItem } from './common/tabs/DraggableTabs.svelte'
 	import { slide } from 'svelte/transition'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import CaptureButton from './triggers/CaptureButton.svelte'
@@ -407,6 +408,30 @@
 	let supportsModules = $derived((lang === 'bun' || lang === 'python3') && isWacV2)
 	let mainFileName = $derived('script.' + langToExt(scriptLangToEditorLang(lang)))
 
+	// A module path always ends in a file extension, so this id can't collide with one.
+	const MAIN_FILE_TAB_ID = '__main__'
+	// Tab order is view state only: `modules` is stored as JSONB, which re-sorts its keys on
+	// deploy, so an order written into it would not survive.
+	let moduleTabOrder: string[] = $state([])
+	let fileTabs = $derived.by<TabItem[]>(() => {
+		const paths = Object.keys(modules ?? {})
+		const rank = new Map(paths.map((p, i) => [p, i + moduleTabOrder.length]))
+		moduleTabOrder.forEach((p, i) => rank.has(p) && rank.set(p, i))
+		return [
+			{ id: MAIN_FILE_TAB_ID, label: mainFileName, closable: false, pinned: 'left' },
+			// Not closable through the strip: closing deletes the module's code, so it stays on
+			// the explicit × rather than Delete/Backspace and middle-click.
+			...paths
+				.sort((a, b) => rank.get(a)! - rank.get(b)!)
+				.map((modulePath) => ({
+					id: modulePath,
+					label: modulePath,
+					title: modulePath,
+					closable: false
+				}))
+		]
+	})
+
 	let modulePathInput = $state('')
 	let showAddModulePopover = $state(false)
 	let modulePathInputEl: HTMLInputElement | undefined = $state(undefined)
@@ -561,6 +586,7 @@
 		delete modules[modulePath]
 		delete moduleTestState[modulePath]
 		modules = { ...modules }
+		moduleTabOrder = moduleTabOrder.filter((p) => p !== modulePath)
 	}
 
 	function validateRenameModulePath(newPath: string, oldPath: string): string {
@@ -591,6 +617,11 @@
 		return 'path' in canonical && canonical.path === oldPath
 	}
 
+	function prefillRename(modulePath: string) {
+		renameModuleInput = modulePath
+		renameModuleError = ''
+	}
+
 	function renameModule(oldPath: string) {
 		if (!renameModuleInput.trim()) return
 		const canonical = canonicalModulePath(renameModuleInput)
@@ -611,6 +642,7 @@
 		delete modules[oldPath]
 		modules[newPath] = { ...mod, language: newLang ?? mod.language }
 		modules = { ...modules }
+		moduleTabOrder = moduleTabOrder.map((p) => (p === oldPath ? newPath : p))
 		if (moduleTestState[oldPath]) {
 			moduleTestState[newPath] = moduleTestState[oldPath]
 			delete moduleTestState[oldPath]
@@ -2005,7 +2037,8 @@
 						</div>
 					{:else}
 						{#if previewLayout !== 'bottom'}
-							<div class="flex justify-center pt-1 relative">
+							<!-- min-h keeps room for the absolute controls when debug mode hides the run buttons -->
+							<div class="flex justify-center pt-1 relative min-h-9">
 								<div class="absolute top-2 left-2">
 									<HideButton
 										hidden={false}
@@ -2562,93 +2595,71 @@
 {#snippet editorContent()}
 	<div class="h-full !overflow-visible bg-surface dark:bg-surface-secondary relative flex flex-col">
 		{#if supportsModules}
-			<div
-				class="flex items-center border-b border-tertiary/30 bg-surface-secondary px-1 gap-0.5 text-xs overflow-x-auto shrink-0"
+			<DraggableTabs
+				tabs={fileTabs}
+				activeId={activeModuleTab ?? MAIN_FILE_TAB_ID}
+				onSelect={(id) => (id === MAIN_FILE_TAB_ID ? switchToMain() : switchToModule(id))}
+				onReorder={(next) => (moduleTabOrder = next.map((t) => t.id))}
+				class="shrink-0 border-b border-light bg-surface-secondary/50"
 			>
-				<button
-					class="px-2 py-1 rounded-t {activeModuleTab === null
-						? 'bg-surface font-semibold border-b-2 border-blue-500'
-						: 'hover:bg-surface-hover'}"
-					onclick={() => switchToMain()}
-				>
-					{mainFileName}
-				</button>
-				{#each Object.keys(modules ?? {}) as modulePath}
-					<div
-						class="group rounded-t flex items-center {activeModuleTab === modulePath
-							? 'bg-surface font-semibold border-b-2 border-blue-500'
-							: 'hover:bg-surface-hover'}"
-					>
-						<button class="pl-2 py-1 flex items-center" onclick={() => switchToModule(modulePath)}>
-							{modulePath}
-						</button>
-						<div class="flex items-center pr-1 w-[32px] justify-end">
+				{#snippet tabAccessory(tab)}
+					{#if tab.id !== MAIN_FILE_TAB_ID}
+						<!-- Stops the trigger's click, mouse or Enter/Space alike, from also selecting the tab. -->
+						<span role="presentation" class="inline-flex" onclick={(e) => e.stopPropagation()}>
 							<Popover
 								placement="bottom-start"
 								openFocus={renameModuleInputEl}
 								contentClasses="p-3 w-72"
+								class="inline-flex"
+								triggerAttrs={{
+									'aria-label': `Rename ${tab.id}`,
+									onpointerdown: () => prefillRename(tab.id),
+									onkeydown: (e: KeyboardEvent) =>
+										(e.key === 'Enter' || e.key === ' ') && prefillRename(tab.id)
+								}}
 							>
 								{#snippet trigger()}
 									<span
-										class="opacity-0 group-hover:opacity-100 hover:text-blue-500 transition-opacity"
-										role="button"
-										tabindex="0"
-										onclick={(e) => {
-											e.stopPropagation()
-											renameModuleInput = modulePath
-											renameModuleError = ''
-										}}
-										onkeydown={(e) => {
-											if (e.key === 'Enter') {
-												e.stopPropagation()
-												renameModuleInput = modulePath
-												renameModuleError = ''
-											}
-										}}
+										class="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
 									>
-										<Pencil size={12} />
+										<Pencil size={10} />
 									</span>
 								{/snippet}
 								{#snippet content({ close })}
-									{@render renameModuleForm(modulePath, close)}
+									{@render renameModuleForm(tab.id, close)}
 								{/snippet}
 							</Popover>
-							<span
-								class="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity"
-								role="button"
-								tabindex="0"
-								onclick={(e) => {
-									e.stopPropagation()
-									removeModule(modulePath)
-								}}
-								onkeydown={(e) => {
-									if (e.key === 'Enter') {
-										e.stopPropagation()
-										removeModule(modulePath)
-									}
-								}}
-							>
-								<X size={12} />
-							</span>
-						</div>
-					</div>
-				{/each}
-				<Popover
-					placement="bottom-start"
-					bind:isOpen={showAddModulePopover}
-					openFocus={modulePathInputEl}
-					contentClasses="p-3 w-72"
-				>
-					{#snippet trigger()}
-						<span class="px-2 py-1 rounded-t hover:bg-surface-hover inline-flex items-center">
-							<Plus size={12} />
 						</span>
-					{/snippet}
-					{#snippet content({ close })}
-						{@render addModuleForm(close)}
-					{/snippet}
-				</Popover>
-			</div>
+						<Button
+							variant="subtle"
+							unifiedSize="2xs"
+							iconOnly
+							startIcon={{ icon: X }}
+							wrapperClasses="opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+							aria-label={`Delete ${tab.id}`}
+							title={`Delete ${tab.id}`}
+							onClick={() => removeModule(tab.id)}
+						/>
+					{/if}
+				{/snippet}
+				{#snippet afterTabs()}
+					<Popover
+						placement="bottom-start"
+						bind:isOpen={showAddModulePopover}
+						openFocus={modulePathInputEl}
+						contentClasses="p-3 w-72"
+						class="ml-0.5 h-6 w-6 rounded-md inline-flex items-center justify-center text-hint hover:text-secondary hover:bg-surface-hover focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected"
+						triggerAttrs={{ 'aria-label': 'Add module' }}
+					>
+						{#snippet trigger()}
+							<Plus size={12} />
+						{/snippet}
+						{#snippet content({ close })}
+							{@render addModuleForm(close)}
+						{/snippet}
+					</Popover>
+				{/snippet}
+			</DraggableTabs>
 		{/if}
 		<div class="relative flex-1 min-h-0 min-w-0 !overflow-visible">
 			<div class="absolute bg-surface top-2 right-4 z-10 flex flex-row gap-2">

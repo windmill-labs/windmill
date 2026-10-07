@@ -1137,13 +1137,15 @@ describe('global AI tools', () => {
 
 		expect(ScriptService.queryHubScripts).toHaveBeenCalledWith({
 			text: 'slack message',
-			kind: 'script'
+			kind: 'script',
+			app: undefined
 		})
 		expect(ScriptService.getHubScriptContentByPath).not.toHaveBeenCalled()
-		expect(JSON.parse(raw)).toEqual([
+		expect(JSON.parse(raw).results).toEqual([
 			{
 				path: 'hub/7/slack/send_message',
-				summary: 'Send Message'
+				summary: 'Send Message',
+				integration: 'slack'
 			}
 		])
 	})
@@ -2603,6 +2605,25 @@ describe('global AI tools', () => {
 		// Neither the pre-existing file body nor the just-written one is resent.
 		expect(raw).not.toContain(sentinel)
 		expect(raw).not.toContain('function New')
+	})
+
+	it('records the data setup a new app is initialized with', async () => {
+		await callGlobalTool('init_app', {
+			path: 'u/admin/tickets',
+			framework: 'react19',
+			data: {
+				datatable: 'main',
+				schema: 'helpdesk',
+				tables: ['helpdesk:tickets', 'notes', 'main/customers']
+			}
+		})
+
+		const draft = getBackendDraft('raw_app', 'u/admin/tickets', { workspace: WORKSPACE })
+		expect(draft?.data).toEqual({
+			datatable: 'main',
+			schema: 'helpdesk',
+			tables: ['main/helpdesk:tickets', 'main/helpdesk:notes', 'main/customers']
+		})
 	})
 
 	it('discards a draft without deleting the workspace item', async () => {
@@ -4253,6 +4274,86 @@ describe('global AI tools', () => {
 		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	it('records the diff of the one raw app file a call changed', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/diffed_app',
+			{
+				summary: 'Diffed',
+				files: { '/index.tsx': 'untouched', '/styles.css': 'a { color: red; }\n' },
+				runnables: {
+					go: {
+						name: 'Go',
+						type: 'inline',
+						inlineScript: { language: 'python3', content: 'x = 1' }
+					},
+					greet: {
+						name: 'Greet',
+						type: 'inline',
+						inlineScript: { language: 'bun', content: 'export const main = () => 1' }
+					}
+				},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+		const statuses: any[] = []
+		const callbacks = {
+			...toolCallbacks,
+			setToolStatus: (_toolId: string, status: any) => statuses.push(status)
+		}
+
+		await callGlobalTool(
+			'patch_app_file',
+			{
+				path: 'u/admin/diffed_app',
+				file_path: '/styles.css',
+				old_string: 'red',
+				new_string: 'blue',
+				replace_all: false
+			},
+			callbacks
+		)
+		await callGlobalTool(
+			'delete_app_runnable',
+			{ path: 'u/admin/diffed_app', key: 'go' },
+			callbacks
+		)
+		await callGlobalTool(
+			'write_app_runnable',
+			{
+				path: 'u/admin/diffed_app',
+				key: 'ref',
+				runnable: { name: 'Ref', type: 'flow', path: 'u/admin/hello_flow' }
+			},
+			callbacks
+		)
+		await callGlobalTool(
+			'write_app_runnable',
+			{
+				path: 'u/admin/diffed_app',
+				key: 'greet',
+				runnable: {
+					name: 'Greet',
+					type: 'inline',
+					inlineScript: { language: 'python3', content: 'def main(): return 1' }
+				}
+			},
+			callbacks
+		)
+
+		expect(statuses.filter((status) => status.codeDiff).map((status) => status.codeDiff)).toEqual([
+			{ before: 'a { color: red; }\n', after: 'a { color: blue; }\n', lang: 'css' },
+			{ before: 'x = 1', after: '', lang: 'python' },
+			{
+				before: 'export const main = () => 1',
+				after: 'def main(): return 1',
+				lang: 'python',
+				beforeLang: 'typescript'
+			}
+		])
+	})
+
 	it('does not persist a raw app draft when delete_app_file validation fails', async () => {
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
@@ -4627,6 +4728,7 @@ describe('global AI tools', () => {
 			expect(onDeployed).toHaveBeenCalledWith({
 				sessionId: 'sess-123',
 				kind: 'raw_app',
+				storagePath: 'f/apps/report',
 				path: 'f/apps/report'
 			})
 		} finally {

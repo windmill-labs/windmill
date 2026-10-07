@@ -5,9 +5,13 @@ export interface FrontendEvalModelConfig {
   model: string;
 }
 
+// The coding agent that drives the model in cli mode (adapters/cli/runtime.ts).
 export interface CliEvalModelConfig {
-  provider: "anthropic";
+  runtime: "claude-code" | "codex";
   model: string;
+  // An Anthropic-compatible endpoint other than Anthropic's, for claude-code,
+  // and the env var holding its key.
+  anthropicEndpoint?: { baseUrl: string; apiKeyEnv: string };
 }
 
 export interface EvalModelSpec {
@@ -35,7 +39,7 @@ export const EVAL_MODELS: EvalModelSpec[] = [
       model: "claude-haiku-4-5-20251001",
     },
     cli: {
-      provider: "anthropic",
+      runtime: "claude-code",
       model: "haiku",
     },
   },
@@ -55,7 +59,7 @@ export const EVAL_MODELS: EvalModelSpec[] = [
       model: "claude-sonnet-4-5-20250929",
     },
     cli: {
-      provider: "anthropic",
+      runtime: "claude-code",
       model: "sonnet",
     },
   },
@@ -74,8 +78,34 @@ export const EVAL_MODELS: EvalModelSpec[] = [
       model: "claude-opus-4-6",
     },
     cli: {
-      provider: "anthropic",
+      runtime: "claude-code",
       model: "opus",
+    },
+  },
+  {
+    id: "sonnet-5.5",
+    label: "Claude Sonnet 5.5",
+    aliases: ["sonnet-5.5", "claude-sonnet-5.5", "claude-sonnet-5-5"],
+    frontend: {
+      provider: "anthropic",
+      model: "claude-sonnet-5-5",
+    },
+    cli: {
+      runtime: "claude-code",
+      model: "claude-sonnet-5-5",
+    },
+  },
+  {
+    id: "opus-5.5",
+    label: "Claude Opus 5.5",
+    aliases: ["opus-5.5", "claude-opus-5.5", "claude-opus-5-5"],
+    frontend: {
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+    },
+    cli: {
+      runtime: "claude-code",
+      model: "claude-opus-5-5",
     },
   },
   {
@@ -94,6 +124,68 @@ export const EVAL_MODELS: EvalModelSpec[] = [
     frontend: {
       provider: "openai",
       model: "gpt-5.5",
+    },
+  },
+  {
+    id: "gpt-5.6-sol",
+    label: "GPT-5.6 Sol",
+    aliases: ["gpt-5.6-sol"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-5.6-sol",
+    },
+  },
+  {
+    id: "gpt-6-astra",
+    label: "GPT-6 Astra",
+    aliases: ["gpt-6-astra", "gpt-6"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-6-astra",
+    },
+    cli: {
+      runtime: "codex",
+      model: "gpt-6-astra",
+    },
+  },
+  {
+    id: "gpt-6-sol",
+    label: "GPT-6 Sol",
+    aliases: ["gpt-6-sol"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-6-sol",
+    },
+  },
+  {
+    id: "gpt-6.1-sol",
+    label: "GPT-6.1 Sol",
+    aliases: ["gpt-6.1-sol"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-6.1-sol",
+    },
+    cli: {
+      runtime: "codex",
+      model: "gpt-6.1-sol",
+    },
+  },
+  {
+    id: "gpt-6-luna",
+    label: "GPT-6 Luna",
+    aliases: ["gpt-6-luna"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-6-luna",
+    },
+  },
+  {
+    id: "gemini-3.8-flash",
+    label: "Gemini 3.8 Flash",
+    aliases: ["gemini-3.8-flash"],
+    frontend: {
+      provider: "googleai",
+      model: "gemini-3.8-flash",
     },
   },
   {
@@ -121,10 +213,19 @@ export const EVAL_MODELS: EvalModelSpec[] = [
   {
     id: "deepseek-v4-flash",
     label: "DeepSeek V4 Flash",
-    aliases: ["deepseek", "deepseek-v4", "deepseek-v4-flash"],
+    aliases: ["deepseek-v4", "deepseek-v4-flash"],
     frontend: {
       provider: "deepseek",
       model: "deepseek-v4-flash",
+    },
+  },
+  {
+    id: "deepseek-flash",
+    label: "DeepSeek V4.1 Flash",
+    aliases: ["deepseek", "deepseek-flash", "deepseek-v4.1-flash"],
+    frontend: {
+      provider: "deepseek",
+      model: "deepseek-flash",
     },
   },
   {
@@ -134,6 +235,14 @@ export const EVAL_MODELS: EvalModelSpec[] = [
     frontend: {
       provider: "deepseek",
       model: "deepseek-v4-pro",
+    },
+    cli: {
+      runtime: "claude-code",
+      model: "deepseek-v4-pro",
+      anthropicEndpoint: {
+        baseUrl: "https://api.deepseek.com/anthropic",
+        apiKeyEnv: "DEEPSEEK_API_KEY",
+      },
     },
   },
 ];
@@ -173,9 +282,18 @@ export function formatRunModelLabel(
   model: EvalModelSpec,
 ): string {
   if (mode === "cli") {
-    return `${model.cli!.provider}:${model.cli!.model}`;
+    return formatCliRunModelLabel(model.cli!);
   }
   return `${model.frontend!.provider}:${model.frontend!.model}`;
+}
+
+// Claude on Claude Code keeps the `anthropic:` prefix its dashboard history was
+// recorded under; any other pairing names the agent.
+export function formatCliRunModelLabel(config: CliEvalModelConfig): string {
+  if (config.runtime === "claude-code" && !config.anthropicEndpoint) {
+    return `anthropic:${config.model}`;
+  }
+  return `${config.runtime}:${config.model}`;
 }
 
 export function getFrontendEvalModel(

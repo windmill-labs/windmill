@@ -450,6 +450,7 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_TAGS_WORKSPACES: arc_swap::ArcSwap<Option<Vec<String>>> = arc_swap::ArcSwap::from_pointee(None);
     pub static ref FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX: AtomicBool = AtomicBool::new(false);
     pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
+    pub static ref DEPENDENCY_JOB_TAG: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -476,6 +477,7 @@ lazy_static::lazy_static! {
         env_vars: Default::default(),
         native_mode: false,
         object_store_cache_config: Default::default(),
+        paused: false,
     });
 
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
@@ -810,7 +812,7 @@ fn format_pull_query(peek: String) -> String {
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
-            j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
+            j.script_entrypoint_override, j.preprocessed, p.job_token_scopes, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
         FROM q, j
@@ -843,11 +845,14 @@ pub fn make_suspended_pull_query(tags: &[String]) -> String {
 }
 // pub async fn make_suspended
 pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
-    if wc.worker_tags.len() == 0 {
-        tracing::error!("Empty tags in worker tags, skipping");
-        return;
-    }
-    let query = make_suspended_pull_query(&wc.worker_tags);
+    // An empty tag list must clear the query: keeping the previous one would leave a reloaded
+    // worker pulling suspended jobs for tags it no longer listens to.
+    let query = if wc.worker_tags.is_empty() {
+        tracing::error!("Empty tags in worker tags, pulling no suspended jobs");
+        String::new()
+    } else {
+        make_suspended_pull_query(&wc.worker_tags)
+    };
     WORKER_SUSPENDED_PULL_QUERY.store(std::sync::Arc::new(query));
 }
 
@@ -862,6 +867,24 @@ pub fn make_pull_query(tags: &[String]) -> String {
         tags.iter().map(|x| format!("'{x}'")).join(", ")
     ));
     query
+}
+
+/// Claim a parent's tool jobs matching its worker tags. The caller must supply only child IDs
+/// it owns; this query is an internal scheduling primitive and does not authorize job access.
+pub fn make_tool_job_pull_query(job_ids: &[uuid::Uuid], tags: &[String]) -> String {
+    // pull() binds only the worker name. These literals come from typed UUIDs, never input SQL.
+    let ids = job_ids.iter().map(|id| format!("'{id}'::uuid")).join(", ");
+    let tags = tags
+        .iter()
+        .map(|tag| format!("'{}'", tag.replace('\'', "''")))
+        .join(", ");
+    format_pull_query(format!(
+        "SELECT id FROM v2_job_queue
+        WHERE running = false AND id = ANY(ARRAY[{ids}]::uuid[]) AND scheduled_for <= now()
+        AND tag = ANY(ARRAY[{tags}]::text[])
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED LIMIT 1"
+    ))
 }
 
 // Variant of `make_pull_query` that additionally excludes jobs whose workspace_id is in the
@@ -901,6 +924,42 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
     }
     WORKER_PULL_QUERIES.store(std::sync::Arc::new(queries));
     WORKER_PULL_QUERIES_FAIRNESS.store(std::sync::Arc::new(fairness_queries));
+}
+
+const WORKER_GROUP_PAUSED_CACHE_TTL: Duration = Duration::from_secs(10);
+
+lazy_static::lazy_static! {
+    static ref WORKER_GROUP_PAUSED_CACHE: quick_cache::sync::Cache<String, (bool, std::time::Instant)> =
+        quick_cache::sync::Cache::new(1000);
+}
+
+/// Whether the config of `worker_group` is paused, as the server sees it. A worker that reads
+/// its own config knows from `WORKER_CONFIG`; this is for the server deciding on behalf of
+/// workers that do not, and is cached since they ask on every pull.
+pub async fn is_worker_group_paused(db: &DB, worker_group: &str) -> bool {
+    if let Some((paused, at)) = WORKER_GROUP_PAUSED_CACHE.get(worker_group) {
+        if at.elapsed() < WORKER_GROUP_PAUSED_CACHE_TTL {
+            return paused;
+        }
+    }
+    let paused = match sqlx::query_scalar!(
+        "SELECT COALESCE(config->'paused' = 'true'::jsonb, false) FROM config WHERE name = $1",
+        format!("worker__{worker_group}")
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(paused) => paused.flatten().unwrap_or(false),
+        Err(e) => {
+            tracing::error!("Could not read whether worker group {worker_group} is paused: {e:#}");
+            return false;
+        }
+    };
+    WORKER_GROUP_PAUSED_CACHE.insert(
+        worker_group.to_string(),
+        (paused, std::time::Instant::now()),
+    );
+    paused
 }
 
 lazy_static::lazy_static! {
@@ -1157,6 +1216,7 @@ pub struct TypeScriptAnnotations {
     pub native: bool,
     pub nobundling: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 #[annotations("--")]
@@ -1939,6 +1999,9 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_30m,
                 insert_ping.native_mode.unwrap_or(false),
                 insert_ping.ip.as_deref(),
+                insert_ping
+                    .last_job_executed
+                    .zip(insert_ping.last_job_workspace_id.as_deref()),
                 db,
             )
             .await?
@@ -2220,12 +2283,15 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
     ip: Option<&str>,
+    last_job: Option<(Uuid, &str)>,
     db: &DB,
 ) -> anyhow::Result<()> {
+    let (last_job_id, last_job_workspace_id) = last_job.unzip();
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
-         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip) WHERE worker = $6",
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip),
+         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id) WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -2239,6 +2305,8 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_30m,
         native_mode,
         ip,
+        last_job_id,
+        last_job_workspace_id,
     )
         .execute(db))
     .await??;
@@ -2442,6 +2510,12 @@ pub async fn load_worker_config(
             .collect();
         priority_tags_sorted.push(PriorityTags { priority: 0, tags: Vec::from_iter(all_tags_set) }); // push the tags that were not listed as high priority with a priority = 0
         priority_tags_sorted.sort_by_key(|elt| Reverse(elt.priority)); // sort by priority DESC
+
+        // The buckets come out of hash maps: without a fixed order two loads of the same
+        // config compare unequal, and a reload reads that as a config change.
+        for bucket in priority_tags_sorted.iter_mut() {
+            bucket.tags.sort();
+        }
     } else {
         // if no priority is used, push all tags with a priority to 0
         priority_tags_sorted.push(PriorityTags { priority: 0, tags: worker_tags.clone() });
@@ -2511,6 +2585,7 @@ pub async fn load_worker_config(
         env_vars: resolved_env_vars,
         native_mode,
         object_store_cache_config: config.object_store_cache_config,
+        paused: config.paused.unwrap_or(false),
     })
 }
 
@@ -2601,6 +2676,7 @@ pub struct WorkerConfigOpt {
     pub env_vars_allowlist: Option<Vec<String>>,
     pub native_mode: Option<bool>,
     pub object_store_cache_config: Option<serde_json::Value>,
+    pub paused: Option<bool>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -2620,6 +2696,7 @@ impl Default for WorkerConfigOpt {
             env_vars_allowlist: Default::default(),
             native_mode: Default::default(),
             object_store_cache_config: Default::default(),
+            paused: Default::default(),
         }
     }
 }
@@ -2642,12 +2719,15 @@ pub struct WorkerConfig {
     /// in the group config. Raw JSON: `windmill-common` cannot depend on the object store crate
     /// that parses it, and comparing the raw value is what tells a reload the store changed.
     pub object_store_cache_config: Option<serde_json::Value>,
+    /// The group pulls no job from the queue: its workers finish what they hold, keep pinging
+    /// and leave queued jobs for when it is resumed.
+    pub paused: bool,
 }
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?}, object_store_cache_config: {} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode,
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?}, paused: {:?}, object_store_cache_config: {} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode, self.paused,
         // holds bucket credentials
         self.object_store_cache_config.as_ref().map(|_| "***").unwrap_or("None"))
     }

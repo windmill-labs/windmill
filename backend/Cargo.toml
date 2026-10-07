@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.817.0"
+version = "1.827.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.817.0"
+version = "1.827.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -249,36 +249,22 @@ sqlx-sqlite = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }
 # Use tiberius main branch for libgssapi 0.8.1 fix (https://github.com/prisma/tiberius/issues/343)
 tiberius = { git = "https://github.com/prisma/tiberius", rev = "59db57960a14b422fb3a1309aa4aa47880896ff8" }
-# Pin tokio-postgres / postgres-types / postgres-protocol to the
-# MaterializeInc fork. windmill-trigger-postgres already pulled this
-# fork in transitively for the postgres-replication crate
-# (CopyBothDuplex, LogicalReplicationStream, TupleData with binary
-# tuple support) which upstream rust-postgres has declined to merge
-# since 2021 (PR #752 → #778, both still unmerged).
+# Pin tokio-postgres / postgres-types / postgres-protocol to
+# windmill-labs/rust-postgres, branch `windmill-describe-first`: the
+# MaterializeInc fork (postgres-replication, which upstream has not merged)
+# plus `Client::describe_typed`, which pg_executor needs before
+# query_typed_raw so result columns of types the client has not seen yet
+# (custom enums / domains, citext, postgis) don't deadlock a large result,
+# and `Client::transaction_status`, which keeps a connection left inside a
+# transaction out of the executor's cache. Each pinned commit carries a `windmill-*` tag so it stays reachable when the
+# branch is rebased onto MaterializeInc master.
 #
-# MI also carries a mitigation for the
-# Client::query_typed_raw / Client::prepare deadlock on result columns
-# whose Oid the client doesn't know about yet (citext, custom enums /
-# domains, postgis): MI's 2025-12-11 PR #33 resized the per-request
-# response channel from mpsc::channel(1) → mpsc::channel(1024).
-# bounded(1024) is sufficient for any realistic typeinfo deferral
-# (need ~2-3 batches) but leaves a theoretical failure mode at
-# >~64 MB results with a custom-Oid column. The strict-correct fix is
-# mpsc::unbounded(); a follow-up PR to MI is open proposing that.
-#
-# The [patch.crates-io] entries below force windmill-worker's
-# pg_executor (which imports `tokio_postgres::` directly from
-# crates.io) onto the same fork as windmill-trigger-postgres, so the
-# deadlock mitigation reaches both consumers.
-#
-# Upstream deadlock PRs (open, not on the critical path now that MI
-# is mitigated):
-#   https://github.com/rust-postgres/rust-postgres/pull/1348
-#   https://github.com/rust-postgres/rust-postgres/pull/1349
-# Reproducer: https://github.com/rubenfiszel/tokio-postgres-deadlock-repro
-tokio-postgres = { git = "https://github.com/MaterializeInc/rust-postgres", rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe" }
-postgres-types = { git = "https://github.com/MaterializeInc/rust-postgres", rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe" }
-postgres-protocol = { git = "https://github.com/MaterializeInc/rust-postgres", rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe" }
+# The [patch.crates-io] entries force windmill-worker's pg_executor (which
+# imports `tokio_postgres::` from crates.io) onto the same fork as
+# windmill-trigger-postgres.
+tokio-postgres = { git = "https://github.com/windmill-labs/rust-postgres", rev = "b3a6443aa1ae90a4f6c4b742103ba80584598f2e" }
+postgres-types = { git = "https://github.com/windmill-labs/rust-postgres", rev = "b3a6443aa1ae90a4f6c4b742103ba80584598f2e" }
+postgres-protocol = { git = "https://github.com/windmill-labs/rust-postgres", rev = "b3a6443aa1ae90a4f6c4b742103ba80584598f2e" }
 
 [dependencies]
 anyhow.workspace = true
@@ -328,6 +314,9 @@ strum.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
 windows-sys = { version = "0.52", features = ["Win32_System_Services", "Win32_System_Console", "Win32_Foundation"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = { version = "0.1.31", default-features = false }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -470,7 +459,7 @@ tower-cookies = "^0.11"
 serde = "^1"
 # 1.0.151 introduced RawValue::from_string_unchecked, which the SQL executors use
 # to avoid re-parsing every collected row.
-serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value"] }
+serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value", "float_roundtrip"] }
 serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4", "js"] }
 thiserror = "^2"
@@ -511,13 +500,15 @@ quick-xml = { version = "^0.37", features = ["serialize"] }
 url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "0.5.1"
 reqwest = { version = "^0.13", features = ["json", "stream", "gzip", "multipart", "query", "form"] }
+# The reqwest object_store builds its HTTP clients with, for a custom `HttpConnector`.
+reqwest_object_store = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
 eventsource-stream = "0.2.3"
 time = "^0"
 serde_urlencoded = "^0"
 astral-tokio-tar = "^0.6.2"
 tempfile = "^3"
 x509-parser = "^0.16"
-tokio-util = { version = "=0.7.17", features = ["io"] }
+tokio-util = { version = "=0.7.17", features = ["io", "rt"] }
 json-pointer = "^0"
 itertools = "^0.14.0"
 regex = "^1"
@@ -581,6 +572,7 @@ base64 = "^0.22.1"
 base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
+ryu-js = "1.0.3"
 md-5 = "0.10.6"
 sha1 = "0.10.6"
 sqlx = { version = "0.8.0", features = [
@@ -624,8 +616,9 @@ wasm-bindgen-test = "^0"
 convert_case = "0.6.0"
 getrandom = "0.2"
 tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1", "with-bit-vec-0_6"]}
-rust-postgres = { package = "tokio-postgres", git = "https://github.com/MaterializeInc/rust-postgres", rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe"}
-rust-postgres-native-tls = { package = "postgres-native-tls", git = "https://github.com/MaterializeInc/rust-postgres", features = ["runtime"], rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe" }
+postgres-protocol = "0.6"
+rust-postgres = { package = "tokio-postgres", git = "https://github.com/windmill-labs/rust-postgres", rev = "b3a6443aa1ae90a4f6c4b742103ba80584598f2e"}
+rust-postgres-native-tls = { package = "postgres-native-tls", git = "https://github.com/windmill-labs/rust-postgres", features = ["runtime"], rev = "b3a6443aa1ae90a4f6c4b742103ba80584598f2e" }
 bit-vec = "=0.6.3"
 mappable-rc = "^0"
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls", "rust_decimal"]}

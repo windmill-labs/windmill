@@ -77,31 +77,34 @@ Public CLI surface:
 - `--verbose`: stream assistant output for frontend runs
 - `--skip-judge`: skip LLM judge scoring for the run
 - `--execution-only`: only require the model/proxy/frontend loop to complete; skip validators, tool expectations, backend artifact validation, and judge scoring
+- `--reasoning <effort>`: reasoning effort for frontend modes (`off`, `low`, `medium`, `high`, `max`, …); without it the product's default applies (`high` on models that can reason). The effort is appended to the recorded model label (`anthropic:claude-sonnet-5-5@max`)
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 - `--backend-validation <mode>`: optional backend smoke validation (`off` or `preview`) for `script` and `flow` evals
 
 ## Models
 
-Use `bun run cli -- models` to see the current aliases.
-
-Today:
-
-- `haiku`
-- `sonnet`
-- `opus`
-- `4o`
-- `gpt-5.5`
-- `gemini-3-flash-preview`
-- `gemini-3.1-pro-preview`
-- `deepseek-v4-flash`
-- `deepseek-v4-pro`
+Use `bun run cli -- models` to see the current aliases; `core/models.ts` is the list.
 
 Notes:
 
 - the command also prints accepted alias spellings such as `gpt-4o`, `gpt-55`, `claude-opus-4.6`, and `claude-haiku-4.5`
 - frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, Gemini, and DeepSeek-backed aliases
-- `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
-- the judge model is separate and currently defaults to `claude-sonnet-4-6`; use `--skip-judge` for deterministic-only runs
+- `cli` mode runs a coding agent over the workspace, chosen by the alias's `cli` entry; aliases without one are rejected there:
+
+  | Agent | Models | Label | Needs |
+  | --- | --- | --- | --- |
+  | Claude Code (`@anthropic-ai/claude-agent-sdk`) | Claude aliases | `anthropic:<model>` | `ANTHROPIC_API_KEY` |
+  | Claude Code on DeepSeek's Anthropic-compatible endpoint | `deepseek-v4-pro` | `claude-code:<model>` | `DEEPSEEK_API_KEY` |
+  | Codex (`codex exec --json`) | `gpt-6.1-sol`, `gpt-6-astra` | `codex:<model>` | `codex` on `PATH` (CI pins 0.159.3), `OPENAI_API_KEY` |
+
+  Codex runs with a throwaway `HOME`, so your own `~/.codex` config and skills stay out of the run. It has no
+  Skill tool: it finds `.agents/skills` on its own and loads a skill by reading its `SKILL.md`, so the trace
+  records any command that touches `.agents/skills/<name>/SKILL.md` as a `Skill` call to `<name>`, just
+  before that command, or just after it when the command mutates something before reading the skill. Its shell commands are recorded as `Bash` and its patches as `Edit`, so the
+  `invokes skill … before first mutation` checks compare the same things for both agents. Codex has no
+  turn cap; a run stops at `maxTurns` rounds of tool calls (parallel calls count once) and fails, as a
+  Claude Code run does at its cap.
+- the judge model is separate and currently defaults to `claude-sonnet-5-5`; use `--skip-judge` for deterministic-only runs
 
 ## Case Format
 
@@ -174,6 +177,12 @@ the decrypted value, exactly as against a real backend. The chat's read path pas
 `decryptSecret: false`, so a case can verify it never invents a value it was not shown.
 Seed a recognizable secret (the existing fixture uses `sk_live_do_not_leak_me`) and
 assert it via `valueExcludes` to catch a leak.
+
+`runtime.userAnswers` scripts the user's side of `askUserQuestion` in a global case: one
+answer per question, in the order they are asked, and a question past the last answer is
+dismissed, so `userAnswers: []` dismisses every question. Without it the tool reports that
+it cannot ask, and the model usually carries on with its own guess, which makes "asks
+before creating anything" impossible to assert.
 
 `toolExpect.toolCallArgs` entries support `sharedByAtLeast: <n>`: at least `n` recorded
 calls to that tool must carry the same non-blank string in the field. Use it for calls that

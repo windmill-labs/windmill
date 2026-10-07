@@ -17,6 +17,7 @@
 		 * button needs it: without it that text is invisible to the editor's dirty state,
 		 * so it is silently dropped on close and cannot even enable Save on its own. */
 		onPendingChange?: (pending: string) => void
+		disabled?: boolean
 	}
 
 	let {
@@ -24,7 +25,8 @@
 		onchange,
 		class: clazz = '',
 		workspace,
-		onPendingChange
+		onPendingChange,
+		disabled = false
 	}: Props = $props()
 
 	let adding = $state(false)
@@ -140,12 +142,14 @@
 	{#each labels ?? [] as label (label)}
 		<Badge color="blue" small>
 			{label}
-			<button class="ml-0.5 hover:text-red-500" onclick={() => removeLabel(label)}>
-				<X size={10} />
-			</button>
+			{#if !disabled}
+				<button class="ml-0.5 hover:text-red-500" onclick={() => removeLabel(label)}>
+					<X size={10} />
+				</button>
+			{/if}
 		</Badge>
 	{/each}
-	{#if adding}
+	{#if adding && !disabled}
 		<div class="relative">
 			<input
 				bind:this={inputEl}
@@ -189,7 +193,7 @@
 				</div>
 			{/if}
 		</div>
-	{:else}
+	{:else if !disabled}
 		<Button
 			variant="subtle"
 			unifiedSize="xs"

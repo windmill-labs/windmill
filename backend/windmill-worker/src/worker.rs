@@ -16,11 +16,10 @@ use tokio::time::timeout;
 // Re-export proxy env-var snapshots so callers (including EE modules)
 // can keep importing them via `crate::{NO_PROXY, HTTP_PROXY, HTTPS_PROXY}`.
 use windmill_common::client::AuthedClient;
-use windmill_common::db::UserDbWithAuthed;
-use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::InlineScriptTarget;
 use windmill_common::jobs::RunInlineScriptFnParams;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
+use windmill_common::jobs::MODULES_ARG;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
 use windmill_common::otel_oss::{
     otel_incr_worker_execution_count, otel_incr_worker_started,
@@ -948,6 +947,22 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     } else {
         String::new()
     }
+}
+
+/// The registry overrides of a workspace, empty when it has none.
+///
+/// One snapshot: registry settings reload under running jobs, so a caller whose cache key
+/// has to agree with the registry values it used reads both from here rather than calling
+/// [`workspace_registry_cache_suffix`] and a `read_ee_registry_*` helper separately.
+pub async fn workspace_registry_overrides(
+    w_id: &str,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let registries = WORKSPACE_REGISTRIES.read().await;
+    registries
+        .as_ref()
+        .and_then(|m| m.get(w_id))
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// The name a build artifact is cached under, derived from `base` — the runnable's own
@@ -2006,6 +2021,7 @@ pub fn create_span_with_name(
         root_job = field::Empty,
         workspace_id = %arc_job.workspace_id,
         worker = %worker_name,
+        worker_group = %*WORKER_GROUP,
         hostname = field::Empty,
         tag = %arc_job.tag,
         language = field::Empty,
@@ -2157,6 +2173,7 @@ pub fn log_context_for_job(
         job_id: Some(arc_job.id.to_string()),
         workspace_id: Some(arc_job.workspace_id.clone()),
         worker: Some(worker_name.to_string()),
+        worker_group: Some(WORKER_GROUP.clone()),
         tag: Some(arc_job.tag.clone()),
         job_kind: Some(arc_job.kind.as_str().to_string()),
         created_by: Some(arc_job.created_by.clone()),
@@ -2321,6 +2338,7 @@ fn start_interactive_worker_shell(
     job_completed_tx: JobCompletedSender,
     base_internal_url: String,
     worker_dir: String,
+    unreported_job: Arc<std::sync::Mutex<Option<(Uuid, String)>>>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let started_at = Instant::now();
@@ -2406,6 +2424,8 @@ fn start_interactive_worker_shell(
                         precomputed_agent_info: precomputed_bundle,
                         flow_runners,
                     } = extract_job_and_perms(job, &conn).await;
+
+                    *unreported_job.lock().unwrap() = Some((job.id, job.workspace_id.clone()));
 
                     let authed_client = AuthedClient::new(
                         base_internal_url.to_owned(),
@@ -2899,6 +2919,11 @@ pub async fn run_worker(
     // Only jobs run by this process count towards EXIT_AFTER_N_JOBS: the point is the age of
     // the environment, not the lifetime total.
     let mut jobs_executed_in_env: u64 = 0;
+    // The job poller only records a job in `worker_ping` once it has run for a poll interval, so
+    // the main-loop ping reports the last pulled job for shorter ones. The interactive shell runs
+    // jobs under this worker's name too and must set the same slot, or the ping would overwrite a
+    // shell job its poller recorded with an older main-loop job. Sent once, then left to the poller.
+    let unreported_job: Arc<std::sync::Mutex<Option<(Uuid, String)>>> = Default::default();
 
     let is_dedicated_worker: bool = {
         let config = WORKER_CONFIG.load();
@@ -3016,6 +3041,7 @@ pub async fn run_worker(
             job_completed_tx.clone(),
             base_internal_url.to_owned(),
             worker_dir.clone(),
+            unreported_job.clone(),
         );
 
         Some(it_shell)
@@ -3219,6 +3245,7 @@ pub async fn run_worker(
 
             let read_cgroups =
                 *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS;
+            let last_job = unreported_job.lock().unwrap().take();
             update_worker_ping_full(
                 &conn,
                 read_cgroups,
@@ -3228,6 +3255,7 @@ pub async fn run_worker(
                 &mut occupancy_metrics,
                 &killpill_tx,
                 ip,
+                last_job.as_ref().map(|(id, w_id)| (*id, w_id.as_str())),
             )
             .await;
 
@@ -3396,6 +3424,10 @@ pub async fn run_worker(
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
                 }
+            } else if WORKER_CONFIG.load().paused {
+                // Checked after the same-worker channel: a flow this worker already runs
+                // still needs it for its remaining same-worker steps.
+                Ok(None)
             } else {
                 match &conn {
                     Connection::Sql(db) => {
@@ -3562,6 +3594,7 @@ pub async fn run_worker(
 
                 last_executed_job = None;
                 jobs_executed += 1;
+                *unreported_job.lock().unwrap() = Some((job.id, job.workspace_id.clone()));
                 let mut dirties_env = dirties_worker_env(
                     job.kind,
                     &job.tag,
@@ -3582,8 +3615,12 @@ pub async fn run_worker(
                     // dispatch by path and return before that check, so a job sent down them
                     // would run with whatever arguments survived the failure.
                     let fails_before_running = job.pre_run_error.is_some();
+                    // A dedicated worker or flow runner runs every job it gets with its own
+                    // unscoped worker token, so a job with a restricted token runs here, with the
+                    // token minted for it, whichever tag brought it.
+                    let restricted = job.job_token_scopes.is_some();
 
-                    if !dedicated_workers.is_empty() && !fails_before_running {
+                    if !dedicated_workers.is_empty() && !fails_before_running && !restricted {
                         let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
                             // For flow steps inside branches/loops, runnable_path includes
                             // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
@@ -3628,7 +3665,9 @@ pub async fn run_worker(
                         NextJob::Http(_) => None,
                     };
 
-                    if let Some(flow_runners) = flow_runners.filter(|_| !fails_before_running) {
+                    if let Some(flow_runners) =
+                        flow_runners.filter(|_| !fails_before_running && !restricted)
+                    {
                         let key_o = job.flow_step_id.as_ref().map(|x| x.to_string());
                         if let Some(key) = key_o {
                             if let Some(flow_runner_tx) = flow_runners.runners.get(&key) {
@@ -4772,13 +4811,17 @@ pub async fn handle_queued_job(
         };
 
         // Skip verbose job header for WAC v2 replays (checkpoint has completed steps)
-        let is_wac_replay = if let Connection::Sql(db) = conn {
-            crate::wac_executor::load_checkpoint(db, &job.id)
-                .await
-                .map(|c| !c.completed_steps.is_empty())
-                .unwrap_or(false)
-        } else {
-            false
+        let is_wac_replay = match conn {
+            Connection::Sql(db)
+                if crate::wac_executor::lang_supports_wac_v2(job.script_lang)
+                    && !job.kind.is_dependency() =>
+            {
+                crate::wac_executor::load_checkpoint(db, &job.id)
+                    .await
+                    .map(|c| !c.completed_steps.is_empty())
+                    .unwrap_or(false)
+            }
+            _ => false,
         };
 
         if !is_wac_replay {
@@ -4973,6 +5016,7 @@ pub async fn handle_queued_job(
                         hostname,
                         killpill_rx,
                         &mut has_stream,
+                        job_completed_tx.clone(),
                     ))
                     .await
                 }
@@ -5379,6 +5423,7 @@ async fn handle_code_execution_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
+    let _custom_timeout = crate::common::RunningJobCustomTimeout::register(job.id, job.timeout);
     let script_hash = || {
         job.runnable_id
             .ok_or_else(|| Error::internal_err("expected script hash"))
@@ -5527,12 +5572,16 @@ async fn handle_code_execution_job(
         None => job,
     };
 
-    // Any job kind, not just previews: whatever is here is what gets written to the job dir
-    // and built in, so the agent-worker server precomputing a cache name has to resolve
-    // modules the same way (`windmill-api-agent-workers`, `get_code_and_lock`).
+    // Whatever is here is what gets written to the job dir and built in, so the agent-worker
+    // server precomputing a cache name has to resolve modules the same way
+    // (`windmill-api-agent-workers`, `get_code_and_lock`). `push` stores `_MODULES` for a
+    // preview only, from its `RawCode`; a job queued by a server predating that may still carry
+    // a caller's, and honoring it on a deployed runnable would run caller code as that runnable
+    // (and as its `on_behalf_of` identity).
     let modules = modules_from_data.clone().or_else(|| {
-        job.args.as_ref().and_then(|args| {
-            args.get("_MODULES").and_then(|raw| {
+        let args = job.args.as_ref().filter(|_| job.kind == JobKind::Preview);
+        args.and_then(|args| {
+            args.get(MODULES_ARG).and_then(|raw| {
                 serde_json::from_str::<std::collections::HashMap<String, ScriptModule>>(raw.get())
                     .ok()
             })
@@ -6304,8 +6353,12 @@ pub async fn run_language_executor(
         )
         .await;
 
-        let reserved_variables =
+        let mut reserved_variables =
             get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+        // Same reason as in `build_nativets_env_code`.
+        if windmill_common::worker::TypeScriptAnnotations::parse(&code).no_network {
+            reserved_variables.remove("WM_TOKEN");
+        }
 
         let env_code = format!(
             "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
@@ -7208,30 +7261,8 @@ pub fn init_worker_internal_server_inline_utils(
         run_inline_script: Arc::new(|params: RunInlineScriptFnParams| {
             Box::pin(async move {
                 let (script_hash, runnable_path) = match params.target {
-                    InlineScriptTarget::Path(ref path) => {
-                        let db = params
-                            .conn
-                            .as_sql()
-                            .ok_or_else(|| {
-                                error::Error::InternalErr(
-                                    "run_inline_script by path requires a SQL connection"
-                                        .to_string(),
-                                )
-                            })?
-                            .clone();
-                        let authed_ref = params.user_db.as_ref().map(|(_, a)| a.to_authed_ref());
-                        let user_db_authed =
-                            params.user_db.as_ref().zip(authed_ref.as_ref()).map(
-                                |((udb, _), ar)| UserDbWithAuthed { db: udb.clone(), authed: ar },
-                            );
-                        let script_hash_info = get_latest_deployed_hash_for_path(
-                            user_db_authed,
-                            db,
-                            &params.workspace_id,
-                            path,
-                        )
-                        .await?;
-                        (ScriptHash(script_hash_info.hash), Some(path.clone()))
+                    InlineScriptTarget::Path { ref path, hash } => {
+                        (ScriptHash(hash), Some(path.clone()))
                     }
                     InlineScriptTarget::Hash(hash) => (ScriptHash(hash), None),
                 };

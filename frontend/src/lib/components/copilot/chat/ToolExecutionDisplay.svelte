@@ -51,9 +51,10 @@
 
 	interface Props {
 		message: ToolDisplayMessage
+		hidePreviewChip?: boolean
 	}
 
-	let { message }: Props = $props()
+	let { message, hidePreviewChip = false }: Props = $props()
 
 	// Recorded by the call itself, from the connected-server list rather than from the
 	// model's arguments — which is what lets a reloaded transcript still resolve it, and
@@ -113,12 +114,22 @@
 	// otherwise the error set on its status would be invisible.
 	const detailsAvailable = $derived(message.showDetails === true || message.error !== undefined)
 
-	let isExpanded = $derived(
-		Boolean(
-			(detailsAvailable && (!isSuccessful || !autoCollapseDetails)) ||
-				(message.isStreamingArguments && hasParameters) ||
-				(message.isLoading && message.needsConfirmation)
-		)
+	// Queued and running calls stay closed: their label already says what they are doing, and
+	// opening them would only show empty logs and result. A call opens while its arguments
+	// stream, while it waits on the user, and once it has an error or details to keep in view.
+	// The user's toggle lives in state keyed by call id: the `message` prop is replaced on every
+	// chat update, so an override written onto a derived would be recomputed away. A pending
+	// confirmation wins over it, since the Run/Reject footer renders inside the card.
+	let toggled = $state<{ id: string | undefined; open: boolean } | undefined>(undefined)
+	const isExpanded = $derived(
+		Boolean(message.isLoading && message.needsConfirmation) ||
+			(toggled?.id === message.tool_call_id
+				? toggled.open
+				: Boolean(
+						(detailsAvailable &&
+							(message.error !== undefined || (isSuccessful && !autoCollapseDetails))) ||
+							(message.isStreamingArguments && hasParameters)
+					))
 	)
 
 	const visibleActions = $derived(
@@ -136,13 +147,17 @@
 	// A call that inspected a run rather than starting one gets the same card, bound to
 	// the job it named — what happened in a run reads the same either way.
 	const isRunCard = $derived(Boolean(message.runForm || message.inspectedRun))
-	const isDiffCard = $derived(Boolean(message.codeDiff) || hasToolCodeDiff(message.toolName))
+	const isDiffCard = $derived(hasToolCodeDiff(message))
 
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
 	const showPreviewChip = $derived(
 		Boolean(
-			message.previewCard && !message.isLoading && !message.error && !message.needsConfirmation
+			!hidePreviewChip &&
+				message.previewCard &&
+				!message.isLoading &&
+				!message.error &&
+				!message.needsConfirmation
 		)
 	)
 
@@ -188,7 +203,7 @@
 {:else if isRunCard}
 	<RunScriptCard {message} />
 {:else if isDiffCard}
-	<ToolDiffCard {message} />
+	<ToolDiffCard {message} {hidePreviewChip} />
 {:else if planState}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->
@@ -314,9 +329,10 @@
 	<ChatCollapsibleCard
 		{label}
 		expanded={isExpanded}
-		onToggle={() => (isExpanded = !isExpanded)}
+		onToggle={() => (toggled = { id: message.tool_call_id, open: !isExpanded })}
 		toggleable={detailsAvailable || message.isStreamingArguments === true}
 		shimmer={isRunning}
+		settleLabel
 		class={message.isQueued && !message.error
 			? 'opacity-60 hover:opacity-100 transition-opacity'
 			: ''}

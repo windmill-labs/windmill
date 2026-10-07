@@ -12,6 +12,7 @@
 	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -50,6 +51,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	interface Props {
 		useDrawer?: boolean
@@ -116,7 +118,8 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+		(permsPath === undefined || canWrite(permsPath, permsForWrite ?? {}, actingUser)) &&
+			!$triggerLock
 	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
@@ -499,6 +502,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -602,10 +606,10 @@
 						<div class="mt-4">
 							{#if optionTabSelected === 'connection_options'}
 								<div class="flex p-2 flex-col gap-2 mt-3">
-									<ToggleButtonGroup bind:selected={client_version}>
-										{#snippet children({ item })}
-											<ToggleButton value="v5" label="Version 5" {item} />
-											<ToggleButton value="v3" label="Version 3" {item} />
+									<ToggleButtonGroup bind:selected={client_version} disabled={!can_write}>
+										{#snippet children({ item, disabled })}
+											<ToggleButton value="v5" label="Version 5" {item} {disabled} />
+											<ToggleButton value="v3" label="Version 3" {item} {disabled} />
 										{/snippet}
 									</ToggleButtonGroup>
 
@@ -622,6 +626,7 @@
 											textClass="font-normal text-sm"
 											color="nord"
 											size="xs"
+											disabled={!can_write}
 											bind:checked={v5_config.clean_start}
 											options={{
 												right: 'Clean start',
@@ -638,6 +643,7 @@
 												textClass="font-normal text-sm"
 												color="nord"
 												size="xs"
+												disabled={!can_write}
 												bind:checked={activateV5Options.session_expiry_interval}
 												on:change={(ev) => {
 													if (!ev.detail) {
@@ -669,6 +675,7 @@
 												textClass="font-normal text-sm"
 												color="nord"
 												size="xs"
+												disabled={!can_write}
 												bind:checked={activateV5Options.topic_alias_maximum}
 												on:change={(ev) => {
 													if (!ev.detail) {
@@ -700,6 +707,7 @@
 											textClass="font-normal text-sm"
 											color="nord"
 											size="xs"
+											disabled={!can_write}
 											checked={v3_config.clean_session}
 											on:change={() => {
 												v3_config.clean_session = !v3_config.clean_session

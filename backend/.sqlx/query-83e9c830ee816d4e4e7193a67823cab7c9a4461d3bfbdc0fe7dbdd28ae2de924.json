@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT restart_unless_cancelled, timeout, job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "restart_unless_cancelled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "timeout",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "job_token_scopes",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "83e9c830ee816d4e4e7193a67823cab7c9a4461d3bfbdc0fe7dbdd28ae2de924"
+}
