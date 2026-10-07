@@ -40,9 +40,17 @@
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { onboardingProfile } from '$lib/onboardingProfile'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
+
+	/** Bar width from which the two side trips stand in the bar rather than folding into the menu.
+	 *  Home's trail is ~250px and the rest of its actions ~400, so this leaves room for both
+	 *  labelled buttons without the trail starting to truncate. Below it they fold back. */
+	const BAR_FITS_SIDE_TRIPS = 1024
+	const sideTripsInBar = $derived(pageHeader.barWidth >= BAR_FITS_SIDE_TRIPS)
+	const hubOffered = $derived(!$userStore?.operator && HOME_SHOW_HUB)
 
 	let value = $state('')
 	// The stock examples, unless the invite that brought this person here wrote prompts for
@@ -353,7 +361,31 @@
 	<!-- The band's own menu: the connect helper, the hub, and whether the composer is on this page
 	     — all of them preferences or side trips, none of them the page's work. -->
 	<!-- data-home-ai-menu: where the mark flies to when the composer is removed. -->
-	<span data-home-ai-menu class="relative flex">
+	<span data-home-ai-menu class="relative flex items-center gap-1">
+		<!-- Wide enough, and the two side trips are buttons of their own: a menu is where a thing
+		     goes when the bar cannot hold it, not where it belongs. They fold back below the width
+		     above. -->
+		{#if sideTripsInBar}
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				startIcon={{ icon: PlugZap }}
+				on:click={() => homeConnectDrawer?.openDrawer?.()}
+			>
+				CLI / MCP
+			</Button>
+			{#if hubOffered}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: Globe2 }}
+					href={$hubBaseUrlStore}
+					target="_blank"
+				>
+					Hub
+				</Button>
+			{/if}
+		{/if}
 		{#if pulsing}
 			<!-- One ring out of the menu as the mark lands. Not `animate-ping`: that curve spends its
 			     opacity in the first three quarters, so the ring is already invisible by the time it
@@ -366,44 +398,52 @@
 				style:opacity={pulseOut ? 0 : 1}
 			></span>
 		{/if}
-		<DropdownV2
-			placement="bottom-end"
-			size="sm"
-			items={[
-				...(showComposer
-					? [
-							collapsed
-								? {
-										displayName: 'Restore session chat',
-										icon: WandSparkles,
-										action: () => setCollapsed(false)
-									}
-								: {
-										// The same words as the cross on the composer itself: one thing, one name,
-										// whichever of the two a reader reaches for.
-										displayName: 'Remove session chat',
-										icon: X,
-										action: () => setCollapsed(true)
-									}
-						]
-					: []),
-				{
-					displayName: 'CLI / MCP',
-					icon: PlugZap,
-					action: () => homeConnectDrawer?.openDrawer?.()
-				},
-				...(!$userStore?.operator && HOME_SHOW_HUB
-					? [
-							{
-								displayName: 'Hub',
-								icon: Globe2,
-								href: $hubBaseUrlStore,
-								hrefTarget: '_blank' as const
-							}
-						]
-					: [])
-			]}
-		/>
+		<!-- Nothing left to hold once the side trips stand in the bar and the composer is on the
+		     page: an ellipsis that opens an empty menu is a button that does nothing. -->
+		{#if showComposer || !sideTripsInBar}
+			<DropdownV2
+				placement="bottom-end"
+				size="sm"
+				items={[
+					...(showComposer
+						? [
+								collapsed
+									? {
+											displayName: 'Restore session chat',
+											icon: WandSparkles,
+											action: () => setCollapsed(false)
+										}
+									: {
+											// The same words as the cross on the composer itself: one thing, one name,
+											// whichever of the two a reader reaches for.
+											displayName: 'Remove session chat',
+											icon: X,
+											action: () => setCollapsed(true)
+										}
+							]
+						: []),
+					...(sideTripsInBar
+						? []
+						: [
+								{
+									displayName: 'CLI / MCP',
+									icon: PlugZap,
+									action: () => homeConnectDrawer?.openDrawer?.()
+								},
+								...(hubOffered
+									? [
+											{
+												displayName: 'Hub',
+												icon: Globe2,
+												href: $hubBaseUrlStore,
+												hrefTarget: '_blank' as const
+											}
+										]
+									: [])
+							])
+				]}
+			/>
+		{/if}
 	</span>
 {/snippet}
 
