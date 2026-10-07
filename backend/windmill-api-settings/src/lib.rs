@@ -29,6 +29,7 @@ mod log_cleanup;
 mod storage_usage;
 
 use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 use windmill_common::DB;
 
@@ -829,7 +830,68 @@ pub async fn set_global_setting(
     Json(value): Json<Value>,
 ) -> error::Result<()> {
     require_super_admin(&db, &authed).await?;
-    set_global_setting_internal(&db, key, value.value.unwrap_or(serde_json::Value::Null)).await
+    let value = value.value.unwrap_or(serde_json::Value::Null);
+    set_global_setting_internal(&db, key.clone(), value.clone()).await?;
+    audit_setting_write(&db, &authed, &key, Some(&value)).await
+}
+
+/// A setting is recorded by name, with its value only when that is a boolean or a number.
+/// Any other shape can carry a credential (a registry URL, a webhook, a header map), and no
+/// list of secret-bearing settings stays complete as settings are added.
+pub async fn audit_setting_write(
+    db: &DB,
+    authed: &ApiAuthed,
+    key: &str,
+    value: Option<&serde_json::Value>,
+) -> error::Result<()> {
+    let deleted = match value {
+        None | Some(serde_json::Value::Null) => true,
+        Some(serde_json::Value::String(s)) => s.trim().is_empty(),
+        Some(_) => false,
+    };
+    let recorded = match value {
+        Some(v @ (serde_json::Value::Bool(_) | serde_json::Value::Number(_))) => {
+            Some(v.to_string())
+        }
+        _ => None,
+    };
+    audit_log(
+        db,
+        authed,
+        if deleted {
+            "global_settings.delete"
+        } else {
+            "global_settings.update"
+        },
+        if deleted {
+            ActionKind::Delete
+        } else {
+            ActionKind::Update
+        },
+        "global",
+        Some(key),
+        recorded.as_deref().map(|v| [("value", v)].into()),
+    )
+    .await
+}
+
+async fn audit_instance_action(
+    db: &DB,
+    authed: &ApiAuthed,
+    operation: &str,
+    action_kind: ActionKind,
+    parameters: Option<std::collections::HashMap<&str, &str>>,
+) -> error::Result<()> {
+    audit_log(
+        db,
+        authed,
+        operation,
+        action_kind,
+        "global",
+        Some(&authed.email),
+        parameters,
+    )
+    .await
 }
 
 pub async fn set_global_setting_internal(
@@ -1305,6 +1367,13 @@ async fn set_instance_config(
                 run_setting_pre_write_hook(&db, key, value).await?;
             }
         }
+        // Taken here because the external-instance write removes its own key from the diff.
+        let written: Vec<(String, Option<serde_json::Value>)> = settings_diff
+            .upserts
+            .iter()
+            .map(|(k, v)| (k.clone(), Some(v.clone())))
+            .chain(settings_diff.deletes.iter().map(|k| (k.clone(), None)))
+            .collect();
         windmill_common::external_instance_pg::write_external_instance_pg_from_diff(
             &db,
             &mut settings_diff,
@@ -1314,6 +1383,10 @@ async fn set_instance_config(
         instance_config::apply_settings_diff(&db, &settings_diff)
             .await
             .map_err(|e| error::Error::internal_err(e.to_string()))?;
+
+        for (key, value) in &written {
+            audit_setting_write(&db, &authed, key, value.as_ref()).await?;
+        }
 
         if ai_config_changed {
             bump_instance_ai_config_revision();
@@ -1346,6 +1419,28 @@ async fn set_instance_config(
         instance_config::apply_configs_diff(&db, &configs_diff)
             .await
             .map_err(|e| error::Error::internal_err(e.to_string()))?;
+        let written = configs_diff
+            .upserts
+            .keys()
+            .map(|g| (g, "worker_config.update", ActionKind::Update))
+            .chain(
+                configs_diff
+                    .deletes
+                    .iter()
+                    .map(|g| (g, "worker_config.delete", ActionKind::Delete)),
+            );
+        for (group, operation, action_kind) in written {
+            audit_log(
+                &db,
+                &authed,
+                operation,
+                action_kind,
+                "global",
+                Some(&format!("worker__{group}")),
+                None,
+            )
+            .await?;
+        }
     }
 
     Ok(())
@@ -1583,6 +1678,14 @@ pub async fn renew_license_key(
             }
         )));
     } else {
+        audit_instance_action(
+            &db,
+            &authed,
+            "settings.renew_license_key",
+            ActionKind::Update,
+            None,
+        )
+        .await?;
         return Ok("Renewed license key".to_string());
     }
 }
@@ -1812,6 +1915,14 @@ async fn refresh_custom_instance_user_pwd(
     require_super_admin(&db, &authed).await?;
     windmill_common::utils::refresh_custom_instance_user_pwd(&db).await?;
     windmill_common::utils::refresh_custom_instance_replication_user_pwd(&db).await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.refresh_custom_instance_user_pwd",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(()))
 }
 
@@ -1970,7 +2081,8 @@ async fn setup_custom_instance_pg_database(
     windmill_common::datatable_roles::lock_instance_databases_governance(&mut tx, [dbname.trim()])
         .await?;
     let mut logs = CustomInstanceDbLogs::default();
-    let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
+    let result =
+        setup_custom_instance_pg_database_inner(authed.clone(), &db, &dbname, &mut logs).await;
     let success = result.is_ok();
     let error = result.err().map(|e| e.to_string());
     let status = CustomInstanceDb {
@@ -1998,6 +2110,20 @@ async fn setup_custom_instance_pg_database(
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.setup_custom_instance_pg_database",
+        ActionKind::Create,
+        Some(
+            [
+                ("dbname", dbname.as_str()),
+                ("success", if success { "true" } else { "false" }),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
     let status: CustomInstanceDb = serde_json::from_value(saved).map_err(to_anyhow)?;
 
     Ok(Json(status))
@@ -2176,6 +2302,14 @@ async fn drop_custom_instance_pg_database(
     require_super_admin(&db, &authed).await?;
 
     windmill_common::drop_custom_instance_database(&db, &dbname).await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.drop_custom_instance_pg_database",
+        ActionKind::Delete,
+        Some([("dbname", dbname.as_str())].into()),
+    )
+    .await?;
 
     Ok(format!("Database '{}' dropped successfully", dbname))
 }
@@ -2220,6 +2354,14 @@ pub async fn migrate_secrets_to_vault(
 
     let report = windmill_common::secret_backend::migrate_secrets_to_vault(&db, &settings).await?;
 
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_to_vault",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 
@@ -2241,6 +2383,14 @@ pub async fn migrate_secrets_to_database(
     let report =
         windmill_common::secret_backend::migrate_secrets_to_database(&db, &settings).await?;
 
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_to_database",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 
@@ -2274,6 +2424,14 @@ pub async fn migrate_secrets_to_azure_kv(
     let report =
         windmill_common::secret_backend::migrate_secrets_to_azure_kv(&db, &settings).await?;
 
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_to_azure_kv",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 
@@ -2291,6 +2449,14 @@ pub async fn migrate_secrets_from_azure_kv(
     let report =
         windmill_common::secret_backend::migrate_secrets_from_azure_kv(&db, &settings).await?;
 
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_from_azure_kv",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 
@@ -2315,6 +2481,14 @@ pub async fn migrate_secrets_to_aws_sm(
 ) -> JsonResult<SecretMigrationReport> {
     require_super_admin(&db, &authed).await?;
     let report = windmill_common::secret_backend::migrate_secrets_to_aws_sm(&db, &settings).await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_to_aws_sm",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 
@@ -2328,6 +2502,14 @@ pub async fn migrate_secrets_from_aws_sm(
     require_super_admin(&db, &authed).await?;
     let report =
         windmill_common::secret_backend::migrate_secrets_from_aws_sm(&db, &settings).await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_from_aws_sm",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 

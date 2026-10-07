@@ -89,6 +89,19 @@ pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
 }
 
 #[cfg(not(feature = "private"))]
+pub async fn audit_log_many<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    _db: E,
+    _author: &impl AuditAuthorable,
+    _operation: &str,
+    _action_kind: ActionKind,
+    _w_id: &str,
+    _resources: &[String],
+) -> Result<()> {
+    // Implementation is not open source as Audit logs is a Windmill Enterprise Edition feature
+    Ok(())
+}
+
+#[cfg(not(feature = "private"))]
 pub async fn list_audit(
     _tx: Transaction<'_, Postgres>,
     _w_id: String,
