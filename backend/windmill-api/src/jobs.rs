@@ -4580,7 +4580,7 @@ async fn cancel_selection(
         let Json(mut w_cancelled) = cancel_jobs(
             ids,
             &db,
-            authed.username.as_str(),
+            &authed,
             workspace_id.as_str(),
             force_cancel,
         )

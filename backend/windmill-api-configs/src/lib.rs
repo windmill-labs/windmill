@@ -224,12 +224,13 @@ async fn update_config(
 
     #[cfg(not(feature = "enterprise"))]
     let config = if name.starts_with("worker__") {
-        // In CE, only allow setting worker_tags, cache_clear, init_bash, and native_mode
+        // In CE, only allow setting worker_tags, cache_clear, init_bash, native_mode and paused
         serde_json::json!({
             "worker_tags": config.get("worker_tags"),
             "cache_clear": config.get("cache_clear"),
             "init_bash": config.get("init_bash"),
-            "native_mode": config.get("native_mode")
+            "native_mode": config.get("native_mode"),
+            "paused": config.get("paused")
         })
     } else {
         config
@@ -272,6 +273,18 @@ async fn update_config(
     }
 
     let mut tx = db.begin().await?;
+    let was_paused = if name.starts_with("worker__") {
+        sqlx::query_scalar!(
+            "SELECT COALESCE(config->'paused' = 'true'::jsonb, false) FROM config WHERE name = $1 FOR UPDATE",
+            &name
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        .unwrap_or(false)
+    } else {
+        false
+    };
     sqlx::query!(
         "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = EXCLUDED.config",
         &name,
@@ -291,6 +304,17 @@ async fn update_config(
     )
     .await?;
     tx.commit().await?;
+
+    if name.starts_with("worker__") {
+        let paused = config.get("paused").and_then(|v| v.as_bool()) == Some(true);
+        if paused != was_paused {
+            windmill_common::feature_usage::log_feature_usage(
+                "worker_group",
+                "pause_toggle",
+                if paused { "pause" } else { "resume" },
+            );
+        }
+    }
     Ok(format!("Updated config {name}"))
 }
 

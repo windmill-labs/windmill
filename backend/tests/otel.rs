@@ -168,6 +168,7 @@ async fn test_all_metrics_e2e() {
     // ── Gauges ──────────────────────────────────────────────────────
 
     otel_set_queue_count("python3", 42);
+    otel_set_queue_delay("python3", 12.5);
     otel_set_queue_running_count("deno", 5);
     otel_set_worker_busy("worker-test-1", 1);
     otel_set_db_pool(5, 10, 20);
@@ -188,7 +189,7 @@ async fn test_all_metrics_e2e() {
     let metrics = flush_and_get_metrics(&state);
     let names = metric_names(&metrics);
 
-    // ── Verify all 20 metric names are present ──────────────────────
+    // ── Verify all 21 metric names are present ──────────────────────
 
     let expected = [
         "windmill.queue.push_count",
@@ -197,6 +198,7 @@ async fn test_all_metrics_e2e() {
         "windmill.queue.zombie_restart_count",
         "windmill.queue.zombie_delete_count",
         "windmill.queue.count",
+        "windmill.queue.delay",
         "windmill.queue.running_count",
         "windmill.worker.execution_count",
         "windmill.worker.execution_duration",
@@ -260,6 +262,9 @@ async fn test_all_metrics_e2e() {
         })
         .expect("queue.count data point with tag=python3 not found");
     assert_eq!(dp.1, 42);
+
+    let m = find_metric(&metrics, "windmill.queue.delay").unwrap();
+    assert!((gauge_f64_value(m).unwrap() - 12.5).abs() < f64::EPSILON);
 
     let m = find_metric(&metrics, "windmill.queue.running_count").unwrap();
     let values = gauge_i64_values(m);
