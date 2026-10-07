@@ -66,9 +66,10 @@
 	}
 
 	export async function setArgs(nargs: Record<string, any>) {
-		// Only when this form is the one offering them. Unoffered, they stay in the arguments
-		// and travel with them: `enforceDisabledDefaults` copies every key, so the job still
-		// receives them, and taking them out here would drop them from whoever owns `args`.
+		// Only when this form is the one offering them: taking them aside is what lets the
+		// section edit them, and a form without that section has nowhere to put them back
+		// from. It does not keep them — `SchemaForm` holds `args` to the keys the schema
+		// declares — so a form that hides the section neither offers these nor carries them.
 		const { scriptArgs, commonParams } = showPsCommonParams
 			? extractPsCommonParams(nargs)
 			: { scriptArgs: nargs, commonParams: {} }

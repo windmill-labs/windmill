@@ -347,7 +347,10 @@
 	// card edits — rather than a copy of it. There is then nothing to keep in step and nothing
 	// to carry back: whatever is typed on either surface is what the call runs with.
 	let ownArgs: Record<string, any> | undefined = $state(undefined)
-	const args = $derived(pendingRun ? pendingRun.draftArgs : ownArgs)
+	// Falls back once the draft is gone: pressing Run settles the call, and the form must go
+	// on showing what it submitted while the job starts — and still show it if the start is
+	// refused, which leaves the reader on the page with the run to make again.
+	const args = $derived(pendingRun?.draftArgs ?? ownArgs)
 	function setArgs(next: Record<string, any> | undefined) {
 		if (pendingRun) pendingRun.setDraftArgs(next ?? {})
 		else ownArgs = next
@@ -390,6 +393,8 @@
 		const call = pendingRun
 		if (!call) return runFlow
 		return (_scheduledForStr: string | undefined, a: Record<string, any>) => {
+			// Kept for the moment the draft stops answering, just below.
+			ownArgs = a
 			if (!call.submit(a)) {
 				sendUserToast('That request is no longer waiting on this form', true)
 			}
