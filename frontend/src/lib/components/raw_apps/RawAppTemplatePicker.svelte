@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Code } from 'lucide-svelte'
+	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Code, Database } from 'lucide-svelte'
 	import { WorkerService, type Policy } from '$lib/gen'
 	import MissingWorkerTagAlert from '$lib/components/jobs/MissingWorkerTagAlert.svelte'
 	import { hasWorkerForTag, queuedWithoutWorkerMessage } from '$lib/components/jobs/missingWorker'
@@ -327,6 +327,21 @@
 		}
 	}
 
+	// Existing tables go with an existing schema: under the other modes the list is not shown,
+	// and what is not shown is not saved.
+	const tablesToUse = $derived(schemaMode === 'existing' ? preWhitelistedTables : [])
+
+	function exploreDatatable() {
+		dataTableDrawer?.openDrawer(
+			selectedDatatable
+				? {
+						datatable: selectedDatatable,
+						schema: schemaMode === 'existing' ? selectedSchema : undefined
+					}
+				: undefined
+		)
+	}
+
 	async function start(mode: RawAppBuildMode) {
 		if (starting) return
 		const template = templates[selectedTemplateIndex]
@@ -358,10 +373,10 @@
 
 		starting = undefined
 
-		const formattedTables = preWhitelistedTables.map(formatDataTableRef)
+		const formattedTables = tablesToUse.map(formatDataTableRef)
 		const keepsDatatable = usableDatatable !== undefined
 		// The roles shown, for the data tables the app ends up using.
-		const usedDatatables = new Set(preWhitelistedTables.map((t) => t.datatable))
+		const usedDatatables = new Set(tablesToUse.map((t) => t.datatable))
 		if (keepsDatatable) usedDatatables.add(usableDatatable!)
 		const shownRoles = Object.entries(pickerRoles ?? {}).filter(([dt]) => usedDatatables.has(dt))
 		const appRoles = shownRoles.length > 0 ? Object.fromEntries(shownRoles) : undefined
@@ -526,6 +541,14 @@
 													{/snippet}
 												</ToggleButtonGroup>
 											</div>
+											<Button
+												variant="default"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: Database }}
+												title="Explore {selectedDatatable ?? 'the data table'}"
+												onclick={exploreDatatable}
+											/>
 											{#if schemaMode === 'new'}
 												<TextInput
 													bind:value={newSchemaName}
@@ -559,20 +582,22 @@
 							</div>
 						</div>
 
-						<div class="pt-6">
-							<RawAppDataTableList
-								dataTableRefs={preWhitelistedTables}
-								defaultDatatable={selectedDatatable}
-								defaultSchema={effectiveSchema}
-								roles={pickerRoles}
-								standalone
-								hideDefaultSelector
-								onAdd={() => dataTableDrawer?.openDrawer()}
-								onRemove={(index) => {
-									preWhitelistedTables = preWhitelistedTables.filter((_, i) => i !== index)
-								}}
-							/>
-						</div>
+						{#if schemaMode === 'existing'}
+							<div class="pt-6">
+								<RawAppDataTableList
+									dataTableRefs={preWhitelistedTables}
+									defaultDatatable={selectedDatatable}
+									defaultSchema={effectiveSchema}
+									roles={pickerRoles}
+									standalone
+									hideDefaultSelector
+									onAdd={exploreDatatable}
+									onRemove={(index) => {
+										preWhitelistedTables = preWhitelistedTables.filter((_, i) => i !== index)
+									}}
+								/>
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -657,6 +682,8 @@
 			...refs
 		]
 		preWhitelistedRoles = { ...preWhitelistedRoles, ...browsedRoles }
+		// Tables picked while exploring are existing ones to use: show them.
+		if (refs.length > 0) schemaMode = 'existing'
 		if (selectedDatatable !== undefined && browsedRoles[selectedDatatable] !== undefined) {
 			selectedRole = browsedRoles[selectedDatatable]
 		}
