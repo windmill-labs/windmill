@@ -71,6 +71,7 @@ interface AIProviderDetails {
 // the frontier model. The gpt-5 family is deprecated (retires 2026-12-11) but
 // still served, so it stays in the list below the 5.6 models.
 const OPENAI_MODELS = [
+	'gpt-6.1-sol',
 	'gpt-6-sol',
 	'gpt-6-astra',
 	'gpt-6-luna',
