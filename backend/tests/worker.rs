@@ -4776,8 +4776,28 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
         },
     }))
     .await;
+    // A recovery the inner loop absorbs, then an error raised starting the next step: that
+    // error is a new failure and must leave the flow failed.
+    #[cfg(feature = "quickjs")]
+    let chaining_error = run(json!({
+        "id": "outer",
+        "value": {
+            "type": "forloopflow",
+            "iterator": { "type": "static", "value": [1] },
+            "skip_failures": false,
+            "modules": [failing_loop(true), {
+                "id": "guarded",
+                "skip_if": { "expr": "missingFunction()" },
+                "value": { "input_transforms": {}, "type": "identity" },
+            }],
+        },
+    }))
+    .await;
 
     server.close().await.unwrap();
+
+    #[cfg(feature = "quickjs")]
+    assert!(!chaining_error.success, "an error no handler recovered must keep the flow failed");
 
     assert!(stopped.success, "a recovered failure inside a loop should end the flow as a success");
     assert!(

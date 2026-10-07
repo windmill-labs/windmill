@@ -2179,6 +2179,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .await;
                 // override prior child's success so the parent learns this flow failed
                 success = false;
+                // a new failure, which no error handler recovered
+                recovered_by_child = false;
                 true
             }
             Ok(_) => false,
