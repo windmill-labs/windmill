@@ -16,6 +16,23 @@
 			prompt: 'Generate a weekly sales report from postgres and post it to Slack every Monday'
 		}
 	]
+
+	/** An operator's session can run what is deployed, read runs and call MCP servers, but
+	 * cannot create scripts, flows or apps, so none of these asks it to build one. */
+	export const homeAIOperatorExamples: { label: string; prompt: string }[] = [
+		{
+			label: 'Run a flow',
+			prompt: 'Find the flow that onboards a new employee and run it for Jane Doe, starting Monday'
+		},
+		{
+			label: 'Rerun failed jobs',
+			prompt: 'List the jobs that failed today, tell me why, and rerun the ones that timed out'
+		},
+		{
+			label: 'Summarize GitHub issues',
+			prompt: "Read this week's open GitHub issues and summarize the ones that mention billing"
+		}
+	]
 </script>
 
 <script lang="ts">
@@ -61,17 +78,18 @@
 	const hubOffered = $derived(!$userStore?.operator && HOME_SHOW_HUB)
 
 	let value = $state('')
-	// The stock examples, unless the invite that brought this person here wrote prompts for
+	// The stock examples for the reader's role, unless the invite that brought this person here wrote prompts for
 	// them — those replace the set outright rather than joining it, since a prompt written
 	// for someone's own stack next to "Ban Discord users" reads as the generic one.
-	let examples = $state(homeAIExamples)
+	let invitePrompts: { label: string; prompt: string }[] | undefined = $state(undefined)
 	void onboardingProfile().then((p) => {
 		if (!p?.starter_prompts?.length) return
-		examples = p.starter_prompts
+		invitePrompts = p.starter_prompts
 		promptIndex = 0
-		placeholder = examples[0].prompt
 	})
-	let placeholder = $state(homeAIExamples[0].prompt)
+	let examples = $derived(
+		invitePrompts ?? ($userStore?.operator ? homeAIOperatorExamples : homeAIExamples)
+	)
 	let placeholderVisible = $state(true)
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
@@ -182,7 +200,8 @@
 	// The index lives outside the effect so re-showing the composer resumes the rotation from the
 	// prompt currently displayed rather than restarting it.
 	const reducedMotion = useReducedMotion()
-	let promptIndex = 0
+	let promptIndex = $state(0)
+	let placeholder = $derived(prompts[promptIndex % prompts.length])
 	$effect(() => {
 		if (!showComposer || collapsed || reducedMotion.val) return
 		let timer: ReturnType<typeof setTimeout>
@@ -191,7 +210,6 @@
 			placeholderVisible = false
 			timer = setTimeout(() => {
 				promptIndex = (promptIndex + 1) % prompts.length
-				placeholder = prompts[promptIndex]
 				placeholderVisible = true
 				timer = setTimeout(next, CYCLE_MS)
 			}, FADE_MS)
@@ -217,7 +235,9 @@
 				</div>
 			{/if}
 			<div class="flex items-center justify-center gap-2 mb-4">
-				<p class="text-center font-regular text-3xl">Build with AI</p>
+				<p class="text-center font-regular text-3xl">
+					{$userStore?.operator ? 'Run with AI' : 'Build with AI'}
+				</p>
 				<Badge color="blue" small>Beta</Badge>
 			</div>
 			<!-- Anchors the send button / model settings to the input, not to the whole block — the row
@@ -232,7 +252,9 @@
 						underlyingInputEl="textarea"
 						inputProps={{
 							rows: 4,
-							'aria-label': 'Describe what you want to build',
+							'aria-label': $userStore?.operator
+								? 'Describe what you want to do'
+								: 'Describe what you want to build',
 							onkeydown: onKeydown
 						}}
 					/>
