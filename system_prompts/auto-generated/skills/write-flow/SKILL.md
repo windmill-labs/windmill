@@ -366,7 +366,7 @@ can call one, not an agent used as a tool.
 - After a suspend step (approval), the next step's javascript expressions also get:
   - `resume` - the last resume payload (the resume form values); with `continue_on_disapprove_timeout`, a disapproval or timeout yields `{ error: { name: "SuspendedDisapproved" | "SuspendedTimedOut", message } }` instead
   - `resumes` - every resume payload, in arrival order
-  - `approvers` - a plain array of strings, one per resume: the `approver` passed to `getResumeUrls(approver)` if any, else the resuming user's username, else `"anonymous"`, e.g. `approvers[0]`. It is NOT the `{ resume_id, approver }` objects stored in the flow status, so `approvers[0].approver` is always undefined
+  - `approvers` - a plain array of strings, one per resume: for a resume through the `resume`/`cancel` URL from `getResumeUrls(approver)`, the `approver` passed there if any; otherwise (including the `approvalPage` link) the resuming user's username, else `"anonymous"`, e.g. `approvers[0]`. It is NOT the `{ resume_id, approver }` objects stored in the flow status, so `approvers[0].approver` is always undefined
 
 ## Loop Structure Rules
 
