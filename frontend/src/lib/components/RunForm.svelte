@@ -355,6 +355,10 @@
 				<JsonInputs
 					bind:this={jsonEditor}
 					on:select={(e) => {
+						// The other way into the arguments, and the one the disabled fields do not
+						// cover: a password set here is a plain literal until the schema field mounts
+						// onto it, and that field mints on mount whether or not it is disabled.
+						if (argsReadonly) return
 						blockedByUnparseable = false
 						if (e.detail) {
 							args = enforceDisabledDefaults(e.detail, runnable?.schema).args

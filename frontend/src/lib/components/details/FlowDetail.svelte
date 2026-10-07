@@ -906,7 +906,7 @@
 											{inputSelected}
 										/>
 
-										{#if hasSchema}
+										{#if hasSchema && !pendingRun?.planModeActive}
 											<Toggle
 												bind:checked={jsonView}
 												size="xs"
