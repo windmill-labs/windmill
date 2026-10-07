@@ -851,7 +851,26 @@ pub async fn assert_lockfile(
 
             completed.next().await; // completed job
 
-            let result = completed_job(job, &db2).await.json_result().unwrap();
+            let mut result = completed_job(job, &db2).await.json_result().unwrap();
+
+            // Python locks pin every artifact of a release, and a release gains artifacts
+            // over time: compare the requirements, and only check that each one is pinned.
+            if let Some(lock) = result["lock"].as_str().map(str::to_string) {
+                if language == ScriptLang::Python3 {
+                    let entries = windmill_common::worker::parse_python_lockfile(&lock);
+                    assert!(
+                        entries.iter().all(|e| !e.hashes.is_empty()),
+                        "unpinned entry in {lock}"
+                    );
+                    result["lock"] = lock
+                        .split('\n')
+                        .filter(|l| !l.trim_start().starts_with("--hash="))
+                        .map(|l| l.trim_end_matches('\\').trim_end())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                        .into();
+                }
+            }
 
             assert_eq!(
                 result,

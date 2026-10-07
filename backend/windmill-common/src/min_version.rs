@@ -23,6 +23,10 @@ pub const MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2: VC = vc(1, 794, 0, "Bun v2 lockf
 // them, so a restriction set while one is live is silently ignored on the jobs it runs. Must
 // name the release this ships in.
 pub const MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES: VC = vc(1, 822, 0, "Restricted job tokens");
+// The release whose python installer reads a lockfile entry continued over several lines. An
+// older worker passes `name==ver \` to uv as is and fails every install of a lock generated
+// with `--generate-hashes`.
+pub const MIN_VERSION_SUPPORTS_PY_LOCK_HASHES: VC = vc(1, 807, 0, "Python lockfile hashes");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");

@@ -949,6 +949,15 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     }
 }
 
+/// Whether the workspace overrides any of `setting_keys` in its registry settings.
+pub async fn workspace_overrides_registry(w_id: &str, setting_keys: &[&str]) -> bool {
+    let registries = WORKSPACE_REGISTRIES.read().await;
+    registries
+        .as_ref()
+        .and_then(|m| m.get(w_id))
+        .is_some_and(|ws| setting_keys.iter().any(|k| ws.contains_key(*k)))
+}
+
 /// The name a build artifact is cached under, derived from `base` — the runnable's own
 /// cache-key input — and its inline modules.
 ///

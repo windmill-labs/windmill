@@ -13,9 +13,9 @@ use async_recursion::async_recursion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 #[cfg(not(target_arch = "wasm32"))]
-use std::str::FromStr;
-#[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
+use std::str::FromStr;
 
 use mapping::{FULL_IMPORTS_MAP, SHORT_IMPORTS_MAP};
 #[cfg(not(target_arch = "wasm32"))]
@@ -186,9 +186,8 @@ pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<NImp
     // This is needed because we've split off the real main function above
     let code_with_fake_main = format!("{}\n\ndef main(): pass", code);
 
-    let ast = Suite::parse(&code_with_fake_main, "main.py").map_err(|e| {
-        anyhow::anyhow!("Error parsing code for imports: {}", e.to_string())
-    })?;
+    let ast = Suite::parse(&code_with_fake_main, "main.py")
+        .map_err(|e| anyhow::anyhow!("Error parsing code for imports: {}", e.to_string()))?;
     // Note: We're still using the original code for finding pins,
     // as the TextRange values from the parsed AST would be based on code_with_fake_main
     // but we want to match against the original code
@@ -513,8 +512,14 @@ async fn parse_python_imports_inner(
         let mut nested = match n {
             NImport::Relative(rpath) => {
                 // First try to get content from temp_script_refs cache if available
-                let code_from_cache = if let Some(hash) = temp_script_refs.as_ref().and_then(|dt| dt.get(&rpath)) {
-                    tracing::debug!("Found relative import '{}' in temp_script_refs with hash '{}'", rpath, hash);
+                let code_from_cache = if let Some(hash) =
+                    temp_script_refs.as_ref().and_then(|dt| dt.get(&rpath))
+                {
+                    tracing::debug!(
+                        "Found relative import '{}' in temp_script_refs with hash '{}'",
+                        rpath,
+                        hash
+                    );
                     match windmill_common::cache::raw_script_temp::load(hash.clone(), db).await {
                         Ok(content) => Some(content),
                         Err(e) => {
@@ -529,19 +534,17 @@ async fn parse_python_imports_inner(
                 // Use cached content if available, otherwise fall back to deployed script
                 let code = match code_from_cache {
                     Some(content) => content,
-                    None => {
-                        sqlx::query_scalar!(
-                            r#"
+                    None => sqlx::query_scalar!(
+                        r#"
                         SELECT content FROM script WHERE path = $1 AND workspace_id = $2
                         AND archived = false ORDER BY created_at DESC LIMIT 1
                         "#,
-                            &rpath,
-                            w_id
-                        )
-                        .fetch_optional(db)
-                        .await?
-                        .unwrap_or_else(|| "".to_string())
-                    }
+                        &rpath,
+                        w_id
+                    )
+                    .fetch_optional(db)
+                    .await?
+                    .unwrap_or_else(|| "".to_string()),
                 };
 
                 if already_visited.contains(&rpath) {
@@ -693,6 +696,13 @@ fn extract_nimports_from_content(
     let lines = split_python_requirements(content);
     let locked_version = try_parse_locked_python_version_from_requirements(&lines);
     for requirement in lines {
+        // The `--hash=` lines of a pasted hash-pinned lock are already dropped; what is left
+        // of their requirement is a dangling continuation `uv pip compile` rejects.
+        let requirement = requirement
+            .trim_end()
+            .trim_end_matches('\\')
+            .trim_end()
+            .to_string();
         let key = extract_pkg_name(&requirement);
         hm.insert(
             key.clone(),

@@ -17,7 +17,7 @@ use windmill_common::{
     error,
     git_sync_oss::{sanitize_git_url, validate_git_repo_url},
     worker::{
-        is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
+        is_allowed_file_location, parse_python_lockfile, to_raw_value, write_file,
         write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
     },
 };
@@ -817,7 +817,7 @@ async fn handle_ansible_python_deps(
 
     if requirements.len() > 0 {
         let mut venv_path = handle_python_reqs(
-            split_python_requirements(requirements),
+            parse_python_lockfile(requirements),
             job_id,
             w_id,
             mem_peak,

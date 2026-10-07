@@ -106,6 +106,8 @@ mount {
     is_bind: true
 }
 
+{HASHED_REQ_FILE_MOUNT}
+
 mount {
     src: "{TARGET_DIR}"
     dst: "{TARGET_DIR}"
