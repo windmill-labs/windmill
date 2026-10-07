@@ -236,6 +236,38 @@ export function formatAppRunsForChat(runs: RawAppRunSummary[]): string {
 	return JSON.stringify(runs, null, 2)
 }
 
+/** `sandbox` attribute of a sandbox-isolated app's frame, deployed or in the editor preview. */
+export const RAW_APP_SANDBOX_FLAGS =
+	'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation'
+
+/** Envelope type for a sandboxed pop-out's relayed messages. */
+export const RAW_APP_PREVIEW_RELAY = 'wm:previewRelay'
+
+/** Where a sandboxed app's (shimmed) localStorage persists, per app. The editor
+ * preview has its own store, so testing in it never touches the deployed app's data. */
+export function rawAppStorageKey(workspace: string, path: string, preview = false): string {
+	return `wm_apps_localstorage:${preview ? 'p:' : ''}${workspace}:${path}`
+}
+
+export function readRawAppStorage(storeKey: string): Record<string, string> {
+	try {
+		return JSON.parse(localStorage.getItem(storeKey) || '{}')
+	} catch (_) {
+		return {}
+	}
+}
+
+/** Applies one `wm_ls_op` relayed by a sandboxed app's storage shim. */
+export function applyRawAppStorageOp(storeKey: string, d: any) {
+	try {
+		const s = readRawAppStorage(storeKey)
+		if (d.op === 'set') s[d.key] = String(d.value)
+		else if (d.op === 'remove') delete s[d.key]
+		else if (d.op === 'clear') for (const k in s) delete s[k]
+		localStorage.setItem(storeKey, JSON.stringify(s))
+	} catch (_) {}
+}
+
 // The sandboxed (isolated) raw-app wrapper is generated server-side and served as
 // a sandboxed, opaque-origin document (see `get_raw_app_data` in the backend
 // `apps.rs`, WIN-2006) — a blob: URL cannot carry the `CSP: sandbox` response
