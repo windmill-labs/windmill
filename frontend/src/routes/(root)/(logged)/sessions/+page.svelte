@@ -1135,12 +1135,14 @@
 						<!-- The band floats over this column too in full screen (it holds the tab strip
 						     there), so the panel clears it with the same offset the chat column uses. -->
 						<div
-							bind:clientWidth={() => previewWidth,
-							(w) => {
-								previewWidth = w
-								if (!fullscreen && !panesAnimating && contentWidth > 0)
-									panelShare = w / contentWidth
-							}}
+							bind:clientWidth={
+								() => previewWidth,
+								(w) => {
+									previewWidth = w
+									if (!fullscreen && !panesAnimating && contentWidth > 0)
+										panelShare = w / contentWidth
+								}
+							}
 							class="flex-1 min-h-0 flex flex-col {fullscreen ? `p-0 ${BAR_TOP_PAD}` : 'p-2 pl-0'}"
 						>
 							<!-- The action controls float over the tab strip, so the strip has to reserve

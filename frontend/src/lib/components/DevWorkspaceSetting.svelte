@@ -554,7 +554,11 @@
 			<b>{parentId}</b>. Promote changes from the home page banner or the Compare &amp; Deploy page.
 		</p>
 		<div class="text-2xs text-secondary">
-			Environment: <DevWorkspaceBadge label={currentLabel} color={currentWs?.color} fallbackColor="indigo" />
+			Environment: <DevWorkspaceBadge
+				label={currentLabel}
+				color={currentWs?.color}
+				fallbackColor="indigo"
+			/>
 			<span class="ml-1">
 				Set when the workspace is created or attached. Git sync deploys to the
 				<span class="font-mono">{currentLabel}</span> branch.
