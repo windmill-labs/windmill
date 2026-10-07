@@ -32,7 +32,9 @@
 
 	type CompareMode = 'fork' | 'draft'
 
-	let comparison: WorkspaceComparison | undefined = $state(undefined)
+	/** The last comparison that came back, with the pair it describes. Kept together: a comparison
+	 *  is only an answer about the two workspaces it was asked about. */
+	let comparisonResult = $state<{ pair: string; value: WorkspaceComparison } | undefined>(undefined)
 
 	// Which workspace this page compares, read rather than followed. The URL answers it when it
 	// names one: `?workspace=` is a switch already made, which the root layout applies to the
@@ -61,6 +63,15 @@
 	// settings, and where the picker below is the only thing that sets this.
 	const targetParam = $derived(page.url.searchParams.get('target') ?? undefined)
 	const compareTargetId = $derived(targetParam ?? parentWorkspaceId ?? undefined)
+	/** The pair on screen, as one value: what a comparison has to describe to be about it. */
+	const pairKey = $derived(`${currentWorkspaceId}->${compareTargetId}`)
+	/** The comparison, but only while it describes the pair on screen. A switch changes the pair
+	 *  during render and the card is remounted in that same render, so a comparison handed over
+	 *  without this check would be the previous pair's — and the card would fetch that pair's item
+	 *  paths from the new workspace, where every one of them is a 404 by construction. */
+	const comparison = $derived(
+		comparisonResult?.pair === pairKey ? comparisonResult.value : undefined
+	)
 	const isArbitraryTarget = $derived(!!compareTargetId && compareTargetId !== parentWorkspaceId)
 	// Fork/dev workspaces are identified by their parent link, not the `wm-fork-` id
 	// prefix. Distinct from having a compare target: a root workspace has no parent
@@ -244,12 +255,15 @@
 			return
 		}
 		const seq = ++comparisonReq
+		// The pair this request is about, read before the await: by the time it answers the page
+		// may be on another one, and the answer belongs to the pair that was asked.
+		const pair = pairKey
 		comparisonLoading = true
 
 		try {
 			const result = await fetchWorkspaceComparison(compareTargetId, currentWorkspaceId)
 			if (seq !== comparisonReq) return
-			comparison = result
+			comparisonResult = { pair, value: result }
 			comparisonError = undefined
 		} catch (e: any) {
 			if (seq !== comparisonReq) return
@@ -271,7 +285,6 @@
 		;[currentWorkspaceId, compareTargetId]
 
 		untrack(() => {
-			comparison = undefined
 			comparisonError = undefined
 			// The flag belongs to `checkForChanges`, which raises it per request and lowers it for
 			// the one still being waited on. Raising it here too left it stuck on the pair that
@@ -283,33 +296,45 @@
 	// Seeding the candidate set is what makes an arbitrary pair comparable at all;
 	// the comparison that follows is the expensive part, since it evaluates every
 	// candidate. Both are driven from here so the button reports the whole wait.
-	let scanning = $state(false)
+	/** The pair being scanned, so the button reports the wait for the pair it belongs to and not
+	 *  for whichever one the trail moved to meanwhile. */
+	let scanningPair = $state<string | undefined>(undefined)
+	const scanning = $derived(scanningPair === pairKey)
 	async function computeFullScan() {
 		if (!currentWorkspaceId || !compareTargetId) return
-		scanning = true
+		// Captured before the await, and used afterwards in place of the live values: the scan
+		// seeded this pair, so this is the pair to invalidate, re-compare and name in the toast.
+		const scanWorkspace = currentWorkspaceId
+		const scanTarget = compareTargetId
+		const pair = pairKey
+		scanningPair = pair
 		comparisonError = undefined
 		try {
 			const res = await WorkspaceService.seedFullDiffScan({
-				workspace: currentWorkspaceId,
-				targetWorkspaceId: compareTargetId
+				workspace: scanWorkspace,
+				targetWorkspaceId: scanTarget
 			})
-			invalidateWorkspaceComparison(compareTargetId)
-			await checkForChanges()
+			invalidateWorkspaceComparison(scanTarget)
+			// Only worth re-asking while the page is still on the pair that was scanned; it asks
+			// for the pair it moved to on its own.
+			if (pairKey === pair) await checkForChanges()
 			// The seed succeeded but the comparison that reads it may not have. Saying
 			// "compared" then would be a lie, and the seeded candidates are still there
-			// for the retry the card offers.
-			if (comparisonError) {
+			// for the retry the card offers. The error counts only while the page is still on the
+			// pair that was scanned: another pair's failure says nothing about this one.
+			if (pairKey === pair && comparisonError) {
 				sendUserToast(
 					`Seeded ${res.candidates} items but the comparison failed: ${comparisonError}`,
 					true
 				)
 			} else {
-				sendUserToast(`Compared ${res.candidates} items with ${compareTargetId}`)
+				sendUserToast(`Compared ${res.candidates} items with ${scanTarget}`)
 			}
 		} catch (e: any) {
 			sendUserToast(`Failed to compute the diff: ${e?.body ?? e}`, true)
 		} finally {
-			scanning = false
+			// Only the scan still being waited on stops the button; a later one owns it now.
+			if (scanningPair === pair) scanningPair = undefined
 		}
 	}
 
@@ -417,8 +442,15 @@
 </script>
 
 <!-- Named here rather than left to the route: the breadcrumb's fallback reads the first segment,
-     which would call this page "Forks" — the thing it compares, not what it is. -->
-<PageHeaderContent section={{ label: 'Compare' }} />
+     which would call this page "Forks" — the thing it compares, not what it is.
+     `actingWorkspaceId` only when the page is comparing a workspace other than the one the app is
+     pointed at, which is how a session's Review button and the prod→dev link open it: the trail
+     would otherwise name the parent while the page compares the fork, and its home link would
+     lead somewhere the page is not. -->
+<PageHeaderContent
+	section={{ label: 'Compare' }}
+	actingWorkspaceId={currentWorkspaceId !== $workspaceStore ? currentWorkspaceId : undefined}
+/>
 
 <CenteredPage>
 	<PageHeader title="Compare & Deploy">
@@ -475,7 +507,7 @@
 		     permissions and CI results — none of which carry over to a different pair. Keyed on
 		     the target alone, two forks of one parent shared a mount, since the target is the
 		     parent they have in common. -->
-		{#key `${currentWorkspaceId}->${compareTargetId}`}
+		{#key pairKey}
 			<CompareWorkspaces
 				{currentWorkspaceId}
 				parentWorkspaceId={compareTargetId}

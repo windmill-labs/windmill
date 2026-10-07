@@ -508,29 +508,61 @@
 		return `${diff.kind}:${diff.path}`
 	}
 
+	/** The two things a row needs from an item — the name it shows and who it runs as — are fields
+	 *  of the same object, so it is read once per item per workspace and awaited by both loops.
+	 *
+	 *  `SHARED_READ_KINDS` is the kinds that carry both. A folder has a summary and no identity; a
+	 *  schedule or a trigger has an identity read from its own endpoint, which `getOnBehalfOf`
+	 *  dispatches. */
+	const SHARED_READ_KINDS = ['script', 'flow', 'app', 'raw_app']
+	type ItemRead = { summary?: string; onBehalfOf?: string }
+	const itemReads = new Map<string, Promise<ItemRead>>()
+
+	function readItem(kind: string, path: string, workspace: string): Promise<ItemRead> {
+		const key = `${workspace}/${kind}:${path}`
+		let pending = itemReads.get(key)
+		if (!pending) {
+			// A failure is not an answer, so it is not kept: held, it would read as "this item has
+			// no identity", which is what decides whether the deploy offers to preserve one — and
+			// an item deployed without it silently becomes the deployer's. Each caller swallows its
+			// own, as both did before they shared a read.
+			pending = loadItem(kind, path, workspace).catch((error) => {
+				itemReads.delete(key)
+				throw error
+			})
+			itemReads.set(key, pending)
+		}
+		return pending
+	}
+
+	async function loadItem(kind: string, path: string, workspace: string): Promise<ItemRead> {
+		if (kind === 'script') {
+			const script = await ScriptService.getScriptByPath({ workspace, path })
+			return { summary: script.summary, onBehalfOf: script.on_behalf_of_email }
+		} else if (kind === 'flow') {
+			const flow = await FlowService.getFlowByPath({ workspace, path })
+			return { summary: flow.summary, onBehalfOf: flow.on_behalf_of_email }
+		} else if (kind === 'app' || kind === 'raw_app') {
+			const app = await AppService.getAppByPath({ workspace, path })
+			return { summary: app.summary, onBehalfOf: app.policy?.on_behalf_of_email }
+		} else if (kind === 'folder') {
+			const folder = await FolderService.getFolder({ workspace, name: path.replace(/^f\//, '') })
+			return { summary: folder.summary }
+		}
+		return {}
+	}
+
 	async function fetchSummary(
 		kind: string,
 		path: string,
 		workspace: string
 	): Promise<string | undefined> {
 		try {
-			if (kind === 'script') {
-				const script = await ScriptService.getScriptByPath({ workspace, path })
-				return script.summary
-			} else if (kind === 'flow') {
-				const flow = await FlowService.getFlowByPath({ workspace, path })
-				return flow.summary
-			} else if (kind === 'app' || kind === 'raw_app') {
-				const app = await AppService.getAppByPath({ workspace, path })
-				return app.summary
-			} else if (kind === 'folder') {
-				const folder = await FolderService.getFolder({ workspace, name: path.replace(/^f\//, '') })
-				return folder.summary
-			}
+			return (await readItem(kind, path, workspace)).summary
 		} catch (error) {
 			console.error(`Failed to fetch summary for ${kind}:${path}`, error)
+			return undefined
 		}
-		return undefined
 	}
 
 	// Both loops below run one item at a time and outlive the mount that started them: the page
@@ -547,9 +579,11 @@
 		const itemsToFetch = diffs.filter((diff) =>
 			['script', 'flow', 'app', 'raw_app', 'folder'].includes(diff.kind)
 		)
-		// Read once, so every request in this pass names the pair the pass was started for.
-		const source = currentWorkspaceId
-		const target = parentWorkspaceId
+		// Read once, so every request in this pass names the pair the pass was started for. Named
+		// the way the diff names the two sides: `exists_in_fork` is this workspace, `exists_in_source`
+		// the one it is compared against.
+		const forkWs = currentWorkspaceId
+		const sourceWs = parentWorkspaceId
 
 		for (const diff of itemsToFetch) {
 			if (!alive) return
@@ -561,10 +595,12 @@
 
 			summaryCache[key] = { loading: true }
 
-			// Fetch from both workspaces in parallel
+			// Only the sides that have the item. An item that is only ahead does not exist in the
+			// other workspace, so asking it there is a 404 by construction — a guaranteed-failing
+			// request per one-sided row, and a console error for each.
 			const [currentSummary, parentSummary] = await Promise.all([
-				fetchSummary(diff.kind, diff.path, source),
-				fetchSummary(diff.kind, diff.path, target)
+				diff.exists_in_fork ? fetchSummary(diff.kind, diff.path, forkWs) : undefined,
+				diff.exists_in_source ? fetchSummary(diff.kind, diff.path, sourceWs) : undefined
 			])
 			if (!alive) return
 
@@ -584,19 +620,28 @@
 			(d) =>
 				['flow', 'script', 'app', 'raw_app'].includes(d.kind) || isTriggerOrScheduleKind(d.kind)
 		)
-		const pair = [currentWorkspaceId, parentWorkspaceId]
+		const pair = [
+			{ workspace: currentWorkspaceId, side: 'fork' as const },
+			{ workspace: parentWorkspaceId, side: 'source' as const }
+		]
 		for (const diff of itemsWithOnBehalfOf) {
-			for (const workspace of pair) {
+			for (const { workspace, side } of pair) {
 				if (!alive) return
 				const workspacedKey = getWorkspacedKey(workspace, getItemKey(diff))
-				// Marked before the request, not after it answers: an item that is only ahead does not
-				// exist in the parent, so that side always fails, and a guard keyed on the value it
+				// Marked before the request, not after it answers: a guard keyed on the value it
 				// stores (`undefined` either way) would ask again on every pass, forever.
 				if (onBehalfOfRequested.has(workspacedKey)) continue
 				onBehalfOfRequested.add(workspacedKey)
+				// The side that does not have the item has nothing to say about who it runs as, and
+				// asking produces a 404 rather than an answer.
+				if (!(side === 'fork' ? diff.exists_in_fork : diff.exists_in_source)) continue
 
 				try {
-					const email = await getOnBehalfOf(diff.kind as Kind, diff.path, workspace)
+					// The same read the summary loop does, for the kinds that answer both from one
+					// object; the rest keep their own endpoint.
+					const email = SHARED_READ_KINDS.includes(diff.kind)
+						? (await readItem(diff.kind, diff.path, workspace)).onBehalfOf
+						: await getOnBehalfOf(diff.kind as Kind, diff.path, workspace)
 					if (!alive) return
 					onBehalfOfInfo[workspacedKey] = email
 				} catch {
