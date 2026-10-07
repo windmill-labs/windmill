@@ -953,6 +953,9 @@ components:
           description: Steps to execute if no branch expressions match
           items:
             $ref: '#/components/schemas/FlowModule'
+        default_summary:
+          type: string
+          description: Display name of the default branch, e.g. 'On success' when this branchone handles the errors of the step before it. Display only.
         type:
           type: string
           enum:

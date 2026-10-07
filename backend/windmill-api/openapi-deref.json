@@ -35695,6 +35695,10 @@
               "$ref": "#/components/schemas/schemas-FlowModule"
             }
           },
+          "default_summary": {
+            "type": "string",
+            "description": "Display name of the default branch, e.g. 'On success' when this branchone handles the errors of the step before it. Display only."
+          },
           "type": {
             "type": "string",
             "enum": [
@@ -47281,6 +47285,10 @@
             "items": {
               "$ref": "#/components/schemas/schemas-FlowModule"
             }
+          },
+          "default_summary": {
+            "type": "string",
+            "description": "Display name of the default branch, e.g. 'On success' when this branchone handles the errors of the step before it. Display only."
           },
           "type": {
             "type": "string",

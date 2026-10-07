@@ -31,6 +31,7 @@
 	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 	import { slideDynamic } from '$lib/transitions'
+	import ErrorHandlingShortcut from './ErrorHandlingShortcut.svelte'
 
 	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -171,6 +172,11 @@
 							rightTooltip:
 								"The flow continues to the next step even if this step fails (after exhausting retries, if any). The step's error becomes its return, so a following branch can handle it."
 						}}
+					/>
+					<ErrorHandlingShortcut
+						stepId={flowModule.id}
+						continueOnError={Boolean(flowModule.continue_on_error)}
+						class="pl-9"
 					/>
 					{#if suspendNeedsItsOwnContinueToggle}
 						<Alert type="info" title="Does not cover the approval" size="xs">

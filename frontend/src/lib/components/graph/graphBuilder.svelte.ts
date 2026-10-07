@@ -3,6 +3,7 @@ import { type Edge } from '@xyflow/svelte'
 import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
+import { errorHandlerIds, testsError, type BranchTone } from '../flows/errorHandling'
 import type { GraphModuleState } from './model'
 import type { SelectIntentOptions } from './selectionUtils.svelte'
 import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
@@ -245,6 +246,8 @@ export type BranchOneStartN = {
 		preLabel: string | undefined
 		branchIndex: number
 		modules: FlowModule[]
+		/** Set on a step's error handler: its On success default and its error branches. */
+		tone?: BranchTone
 	}
 }
 
@@ -460,6 +463,7 @@ export function graphBuilder(
 		for (const m of getAllModules(modules, failureModule)) {
 			moduleMap.set(m.id, m)
 		}
+		const errorHandlers = errorHandlerIds({ modules })
 
 		function addNode(module: FlowModule, extraData?: Record<string, any>) {
 			const duplicated = nodes.find((n) => n.id === module.id)
@@ -1026,6 +1030,7 @@ export function graphBuilder(
 						previousId = endNode.id
 					} else if (module.value.type === 'branchone') {
 						addNode(module)
+						const guardedId = errorHandlers.get(module.id)
 
 						const endNode: NodeLayout = {
 							id: `${module.id}-end`,
@@ -1040,14 +1045,15 @@ export function graphBuilder(
 						const defaultBranch: NodeLayout = {
 							id: `${module.id}-branch-default`,
 							data: {
-								label: 'Default',
+								label: defaultIfEmptyString(module.value.default_summary, 'Default'),
 								id: module.id,
 								branchIndex: -1,
 								eventHandlers: eventHandlers,
 								insertable: extra.insertable,
 								preLabel: undefined,
 								selected: false,
-								modules: module.value.default
+								modules: module.value.default,
+								tone: guardedId ? 'success' : undefined
 							},
 							type: 'branchOneStart'
 						}
@@ -1082,7 +1088,8 @@ export function graphBuilder(
 									eventHandlers: eventHandlers,
 									insertable: extra.insertable,
 									selected: false,
-									modules: branch.modules
+									modules: branch.modules,
+									tone: guardedId && testsError(branch.expr, guardedId) ? 'error' : undefined
 								},
 								type: 'branchOneStart'
 							}

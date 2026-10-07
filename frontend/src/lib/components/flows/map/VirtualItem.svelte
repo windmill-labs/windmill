@@ -6,7 +6,8 @@
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
-	import { Database, Square } from 'lucide-svelte'
+	import { CircleCheck, Database, Square } from 'lucide-svelte'
+	import type { BranchTone } from '../errorHandling'
 	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
 	import type { Job } from '$lib/gen'
 	import {
@@ -46,6 +47,9 @@
 		/** When set, overrides the node outline with this run-state's colored outline.
 		 * Used to mark the branch taken at runtime on branchone/branchall nodes. */
 		borderState?: FlowNodeState
+		/** Marks an error handler's On success / error branch label. Text and icon only: a
+		 *  green or red node background already means a step succeeded or failed in a run. */
+		tone?: BranchTone
 	}
 
 	let {
@@ -75,7 +79,8 @@
 		job,
 		showJobStatus = false,
 		flowHasChanged = false,
-		borderState = undefined
+		borderState = undefined,
+		tone = undefined
 	}: Props = $props()
 
 	const flowGraphContext = getGraphContext()
@@ -102,6 +107,14 @@
 	// AI action colors take priority over execution state, fallback to _VirtualItem
 	const effectiveState = $derived(aiActionToNodeState(action) ?? outputType ?? '_VirtualItem')
 	let colorClasses = $derived(getNodeColorClasses(effectiveState, selected))
+	// An AI diff or the selection keeps its own text color: the tone stays readable from the icon.
+	let toneText = $derived(
+		aiActionToNodeState(action) || selected
+			? colorClasses.text
+			: tone === 'success'
+				? 'text-green-600 dark:text-green-400'
+				: 'text-red-600 dark:text-red-400'
+	)
 	// The branch taken at runtime keeps its outline regardless of selection so it stays visible.
 	let outlineClasses = $derived(
 		borderState ? getNodeColorClasses(borderState, true).outline : colorClasses.outline
@@ -127,7 +140,14 @@
 					{@render icon?.()}
 				{/if}
 				<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
-					{#if label}
+					{#if label && tone}
+						<div class="flex min-w-0 items-center justify-center gap-1 {toneText}">
+							{#if tone === 'success'}
+								<CircleCheck size={12} class="shrink-0" />
+							{/if}
+							<span class="truncate">{label}</span>
+						</div>
+					{:else if label}
 						<div class="truncate text-center {colorClasses.text}">{label}</div>
 					{/if}
 					{#if preLabel}

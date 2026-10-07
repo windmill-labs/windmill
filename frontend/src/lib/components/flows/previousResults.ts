@@ -204,7 +204,9 @@ export function getStepPropPicker(
 	id: string,
 	flow: OpenFlow,
 	args: any,
-	include_node: boolean
+	include_node: boolean,
+	/** Reshapes the earlier steps' results before the picker and the editor types are built. */
+	shapePriorIds?: (priorIds: Record<string, any>) => Record<string, any>
 ): StepPropPicker {
 	const flowInput = getFlowInput(
 		dfs(parentModule?.id, flow),
@@ -228,6 +230,7 @@ export function getStepPropPicker(
 			})
 			.reverse()
 	)
+	if (shapePriorIds) priorIds = shapePriorIds(priorIds)
 
 	const pickableProperties = {
 		flow_input: flowInput,

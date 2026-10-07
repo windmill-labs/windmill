@@ -10,6 +10,8 @@
 	import type { FlowEditorContext, OutputViewerJob } from './flows/types'
 	import { getContext } from 'svelte'
 	import { getStringError } from './copilot/chat/utils'
+	import { suggestsErrorHandling } from './flows/errorHandling'
+	import ErrorHandlingHint from './flows/content/ErrorHandlingHint.svelte'
 
 	interface Props {
 		lang: Script['language']
@@ -43,7 +45,8 @@
 		tagLabel = undefined
 	}: Props = $props()
 
-	const { stepsInputArgs, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { stepsInputArgs, flowStateStore, flowStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
 	export function getOutputPickerInner() {
@@ -55,6 +58,13 @@
 	)
 	const logJob = $derived(testJob ?? selectedJob)
 	const preview = $derived.by(() => outputPickerInner?.getPreview?.())
+	const showsMock = $derived((mod.mock?.enabled && preview !== 'job') || preview === 'mock')
+	const suggestErrorHandling = $derived(
+		!showsMock &&
+			selectedJob?.type === 'CompletedJob' &&
+			!selectedJob.success &&
+			suggestsErrorHandling(flowStore.val.value, mod.id)
+	)
 </script>
 
 <Splitpanes horizontal>
@@ -77,6 +87,7 @@
 			{disableMock}
 			{disableHistory}
 			bind:this={outputPickerInner}
+			footer={suggestErrorHandling ? errorHandlingHint : undefined}
 		>
 			{#snippet copilot_fix()}
 				{@const stepError =
@@ -125,3 +136,7 @@
 		{/if}
 	</Pane>
 </Splitpanes>
+
+{#snippet errorHandlingHint()}
+	<ErrorHandlingHint stepId={mod.id} />
+{/snippet}

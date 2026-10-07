@@ -6,6 +6,8 @@
 	import { classNames, type Item, type StateStore } from '$lib/utils'
 	import { EllipsisVertical, Pin, X, Play, Loader2, TriangleAlert, Maximize2 } from 'lucide-svelte'
 	import type { StepSettingView } from '../flowStepSettings'
+	import ErrorHandlingShortcut from '../content/ErrorHandlingShortcut.svelte'
+	import ErrorHandlingHint from '../content/ErrorHandlingHint.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
@@ -36,6 +38,7 @@
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import MoveHandleButton from '$lib/components/graph/MoveHandleButton.svelte'
 	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { suggestsErrorHandling } from '../errorHandling'
 
 	const operatorBuilderFlows = useOperatorBuilderFlows()
 
@@ -137,6 +140,9 @@
 	// A script step is tested as a script preview, which operators are refused: running the
 	// deployed runnable is left to "Test flow".
 	let builderCannotTestStep = $derived($operatorBuilderFlows && mod?.value.type === 'script')
+	let suggestErrorHandling = $derived(
+		nodeState === 'Failure' && !!id && !!flowStore && suggestsErrorHandling(flowStore.val.value, id)
+	)
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let hover = $state(false)
@@ -294,6 +300,10 @@
 					{#snippet text()}
 						{s.tooltip}
 						<span class={s.summary.mono ? 'font-mono' : ''}>· {s.summary.text}</span>
+						<!-- The badge only shows while continue on error is configured. -->
+						{#if s.key === 'error-handling' && id && deletable}
+							<ErrorHandlingShortcut stepId={id} continueOnError class="mt-2" />
+						{/if}
 					{/snippet}
 				</Popover>
 			{/each}
@@ -364,6 +374,7 @@
 								(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
 							initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
 							bind:this={outputPickerInner}
+							footer={deletable && suggestErrorHandling ? errorHandlingHint : undefined}
 						/>
 					{/snippet}
 				</OutputPicker>
@@ -511,6 +522,12 @@
 		</div>
 	{/if}
 </div>
+
+{#snippet errorHandlingHint()}
+	{#if id}
+		<ErrorHandlingHint stepId={id} />
+	{/if}
+{/snippet}
 
 {#snippet buttonMaximizeSubflow()}
 	<div class="absolute -translate-y-[100%] top-2 right-12 h-7 p-1">
