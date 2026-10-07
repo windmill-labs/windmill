@@ -538,7 +538,7 @@ function formatExecutedWmillCommand(entry: CliWmillInvocation): string {
   return ["wmill", ...entry.argv].join(" ").trim();
 }
 
-function getFirstMutationToolIndex(toolsUsed: ToolInvocation[]): number | null {
+export function getFirstMutationToolIndex(toolsUsed: ToolInvocation[]): number | null {
   for (const [index, tool] of toolsUsed.entries()) {
     if (tool.tool === "Write" || tool.tool === "Edit") {
       return index;
@@ -558,7 +558,8 @@ function isLikelyMutatingBashCommand(command: string): boolean {
     /\b(?:cat|echo|printf)\b.*(?:>|>>|\|\s*tee\b)/.test(command) ||
     /\bsed\s+-i\b/.test(command) ||
     /\bperl\s+-pi\b/.test(command) ||
-    /\bwmill\b/.test(command)
+    // In command position only: `cat AGENTS.wmill.md` is a read.
+    /(?:^|[;&|(]|\b(?:then|do|xargs)\s)\s*wmill(?:\s|$)/.test(command)
   );
 }
 

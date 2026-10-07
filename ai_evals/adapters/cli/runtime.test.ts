@@ -3,6 +3,7 @@ import {
   anthropicUsageToBenchmarkTokenUsage,
   extractCliResultTokenUsage,
   extractProposedWmillCommands,
+  getFirstMutationToolIndex,
   parseWmillInvocationLog,
 } from "./runtime";
 
@@ -145,5 +146,17 @@ push
         timestamp: "2026-04-21T12:00:05+00:00",
       },
     ]);
+  });
+});
+
+describe("getFirstMutationToolIndex", () => {
+  it("counts wmill only as a command, not in a file name", () => {
+    const bash = (command: string) => ({ tool: "Bash", input: { command }, timestamp: 0 });
+    expect(
+      getFirstMutationToolIndex([
+        bash("cat AGENTS.wmill.md .agents/skills/x/SKILL.md"),
+        bash("ls && wmill generate-metadata"),
+      ])
+    ).toBe(1);
   });
 });
