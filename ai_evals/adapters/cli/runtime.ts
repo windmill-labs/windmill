@@ -2,7 +2,13 @@ import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, join } from "path";
 import { fileURLToPath } from "url";
-import { getCliEvalModel, resolveEvalModel, type CliEvalModelConfig } from "../../core/models";
+import {
+  getCliEvalModel,
+  resolveEvalModel,
+  type CliEvalModelConfig,
+} from "../../core/models";
+import { runCodex, type AgentRunResult } from "./codex";
+export { formatCliRunModelLabel } from "../../core/models";
 import type {
   BenchmarkTokenUsage,
   CliToolInvocation,
@@ -141,16 +147,70 @@ export async function runPromptAndCapture(
   maxTurns: number = 3,
   modelConfig: CliEvalModelConfig = DEFAULT_CLI_EVAL_MODEL
 ): Promise<PromptRunResult> {
-  const toolsUsed: ToolInvocation[] = [];
-  const skillsInvoked: string[] = [];
-  const bashCommands: string[] = [];
-  let output = "";
-  let assistantMessageCount = 0;
-  let tokenUsage: BenchmarkTokenUsage | null = null;
-  let finalContextTokens: number | null = null;
   const startedAt = Date.now();
   const stubBinDir = join(cwd, WMILL_STUB_DIR_NAME);
   const wmillLogPath = join(cwd, WMILL_LOG_FILE_NAME);
+  const env = {
+    ...getQueryEnv(),
+    PATH: process.env.PATH ? `${stubBinDir}${delimiter}${process.env.PATH}` : stubBinDir,
+    WMILL_BENCHMARK_LOG_PATH: wmillLogPath,
+  };
+
+  await installWmillStub(stubBinDir);
+
+  const run =
+    modelConfig.runtime === "codex"
+      ? await runCodex(prompt, cwd, maxTurns, modelConfig.model, env)
+      : await runClaudeCode(prompt, cwd, maxTurns, modelConfig, env);
+
+  const skillsInvoked: string[] = [];
+  const bashCommands: string[] = [];
+  for (const tool of run.toolsUsed) {
+    if (tool.tool === "Skill" && typeof tool.input.skill === "string") {
+      pushUnique(skillsInvoked, tool.input.skill);
+    }
+    if (tool.tool === "Bash") {
+      for (const command of extractBashCommands(tool.input)) {
+        pushUnique(bashCommands, command);
+      }
+    }
+  }
+
+  const wmillInvocations = await readWmillInvocationLog(wmillLogPath);
+
+  return {
+    output: run.output,
+    durationMs: Date.now() - startedAt,
+    tokenUsage: run.tokenUsage,
+    finalContextTokens: run.finalContextTokens,
+    trace: {
+      toolsUsed: run.toolsUsed,
+      skillsInvoked,
+      assistantMessageCount: run.assistantMessageCount,
+      bashCommands,
+      proposedCommands: extractProposedWmillCommands(run.output),
+      executedWmillCommands: wmillInvocations.map(formatExecutedWmillCommand),
+      wmillInvocations,
+      firstMutationToolIndex: getFirstMutationToolIndex(run.toolsUsed),
+    },
+  };
+}
+
+async function runClaudeCode(
+  prompt: string,
+  cwd: string,
+  maxTurns: number,
+  modelConfig: CliEvalModelConfig,
+  env: Record<string, string>
+): Promise<AgentRunResult> {
+  const result: AgentRunResult = {
+    output: "",
+    toolsUsed: [],
+    assistantMessageCount: 0,
+    tokenUsage: null,
+    finalContextTokens: null,
+  };
+  const endpoint = modelConfig.anthropicEndpoint;
 
   const options: Options = {
     cwd,
@@ -158,80 +218,50 @@ export async function runPromptAndCapture(
     maxTurns,
     settingSources: ["project"],
     allowedTools: ["Skill", "Read", "Glob", "Grep", "Bash", "Write", "Edit"],
-    env: {
-      ...getQueryEnv(),
-      PATH: process.env.PATH ? `${stubBinDir}${delimiter}${process.env.PATH}` : stubBinDir,
-      WMILL_BENCHMARK_LOG_PATH: wmillLogPath,
-    },
+    env: endpoint
+      ? {
+          ...env,
+          ANTHROPIC_BASE_URL: endpoint.baseUrl,
+          ANTHROPIC_API_KEY: env[endpoint.apiKeyEnv] ?? "",
+          // Claude Code's background calls default to Haiku, which the endpoint does not serve.
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: modelConfig.model,
+        }
+      : env,
   };
-
-  await installWmillStub(stubBinDir);
 
   for await (const message of query({ prompt, options })) {
     if (message.type === "assistant") {
-      assistantMessageCount += 1;
+      result.assistantMessageCount += 1;
       const turnContext = anthropicUsageToBenchmarkTokenUsage(
         message.message?.usage
       )?.prompt;
       if (turnContext && turnContext > 0) {
-        finalContextTokens = turnContext;
+        result.finalContextTokens = turnContext;
       }
       const content = message.message?.content;
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block.type === "tool_use") {
-            const input = normalizeToolInput(block.input);
-            toolsUsed.push({
+            result.toolsUsed.push({
               tool: block.name,
-              input,
+              input: normalizeToolInput(block.input),
               timestamp: Date.now()
             });
-
-            if (block.name === "Skill") {
-              const skillInput = input as { skill?: string };
-              if (skillInput.skill) {
-                pushUnique(skillsInvoked, skillInput.skill);
-              }
-            }
-
-            if (block.name === "Bash") {
-              for (const command of extractBashCommands(input)) {
-                pushUnique(bashCommands, command);
-              }
-            }
           } else if (block.type === "text") {
-            output += block.text;
+            result.output += block.text;
           }
         }
       }
     } else if (message.type === "result") {
       const resultMessage = message as { result?: string };
-      tokenUsage = extractCliResultTokenUsage(message) ?? tokenUsage;
+      result.tokenUsage = extractCliResultTokenUsage(message) ?? result.tokenUsage;
       if (typeof resultMessage.result === "string") {
-        output += resultMessage.result;
+        result.output += resultMessage.result;
       }
     }
   }
 
-  const proposedCommands = extractProposedWmillCommands(output);
-  const wmillInvocations = await readWmillInvocationLog(wmillLogPath);
-
-  return {
-    output,
-    durationMs: Date.now() - startedAt,
-    tokenUsage,
-    finalContextTokens,
-    trace: {
-      toolsUsed,
-      skillsInvoked,
-      assistantMessageCount,
-      bashCommands,
-      proposedCommands,
-      executedWmillCommands: wmillInvocations.map(formatExecutedWmillCommand),
-      wmillInvocations,
-      firstMutationToolIndex: getFirstMutationToolIndex(toolsUsed),
-    },
-  };
+  return result;
 }
 
 export function wasSkillInvoked(result: PromptRunResult, skillName: string): boolean {
@@ -240,10 +270,6 @@ export function wasSkillInvoked(result: PromptRunResult, skillName: string): boo
 
 export function wasToolUsed(result: PromptRunResult, toolName: string): boolean {
   return result.trace.toolsUsed.some((tool) => tool.tool === toolName);
-}
-
-export function formatCliRunModelLabel(modelConfig: CliEvalModelConfig): string {
-  return `${modelConfig.provider}:${modelConfig.model}`;
 }
 
 export function getToolInputs(
