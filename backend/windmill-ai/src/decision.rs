@@ -1,6 +1,7 @@
-//! AI decision steps: one call to a System One endpoint (TypeSafe's Jev, or Cloudflare's
-//! Jev-compatible Clef on Workers AI), which answers typed questions (`choice`, `score`, `noul`)
-//! about a state with calibrated probabilities instead of text.
+//! AI decision steps: one call to a decision endpoint, which answers typed questions (`choice`,
+//! `score`, `noul`) about a state with calibrated probabilities instead of text. The questions and
+//! answers are System One's (TypeSafe's Jev, Cloudflare's Jev-compatible Clef on Workers AI);
+//! OpenAI's Decisions API is asked and read through a translation to that shape.
 
 use std::time::Duration;
 
@@ -30,6 +31,8 @@ pub struct AIDecisionArgs {
 pub const TYPESAFE_DEFAULT_MODEL: &str = "jev-latest";
 /// Cloudflare's larger decision model, run when the step names none.
 pub const CLOUDFLARE_DEFAULT_MODEL: &str = "clef";
+/// The model OpenAI's Decisions API serves, run when the step names none.
+pub const OPENAI_DEFAULT_MODEL: &str = "gpt-6-luna";
 
 #[derive(Serialize)]
 struct SystemOneRequest<'a> {
@@ -108,7 +111,245 @@ pub fn decision_inputs<'a>(
     Ok((state, questions))
 }
 
-pub async fn run_systemone(
+/// Posts a decision request with the resource's bearer key and returns the response body.
+async fn post_decision<T: Serialize>(
+    credentials: &ProviderCredentials,
+    endpoint: &str,
+    vendor: &str,
+    payload: &T,
+    timeout: Duration,
+) -> Result<String> {
+    let auth_headers = retain_effective_credentials(
+        credentials,
+        vec![(
+            "Authorization",
+            format!(
+                "Bearer {}",
+                credentials.api_key.as_deref().unwrap_or_default()
+            ),
+        )],
+    );
+
+    // The endpoint derives from the resource's base URL, so the connect is pinned to the
+    // address the SSRF check validated.
+    let client = pinned_ai_client_for(&credentials.base_url).await?;
+    let mut request = client.post(endpoint).timeout(timeout);
+    for (name, value) in auth_headers {
+        request = request.header(name, value);
+    }
+    for (name, value) in common_outbound_headers(credentials) {
+        request = request.header(name, value);
+    }
+
+    let response = request
+        .json(payload)
+        .send()
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Failed to call {vendor}: {e}")))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "<failed to read body>".to_string());
+        return Err(Error::ExecutionErr(format!(
+            "{vendor} error calling {endpoint}: {status} - {body}"
+        )));
+    }
+
+    response
+        .text()
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Failed to read the {vendor} response: {e}")))
+}
+
+/// Answers a decision on the endpoint its provider serves.
+pub async fn run_decision(
+    credentials: &ProviderCredentials,
+    model: &str,
+    state: &Value,
+    questions: &Map<String, Value>,
+    timeout: Duration,
+) -> Result<DecisionResult> {
+    if credentials.provider == AIProvider::OpenAI {
+        run_openai_decisions(credentials, model, state, questions, timeout).await
+    } else {
+        run_systemone(credentials, model, state, questions, timeout).await
+    }
+}
+
+#[derive(Serialize)]
+struct OpenAIDecisionsRequest<'a> {
+    model: &'a str,
+    input: Value,
+    questions: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+struct OpenAIDecisionsResponse {
+    #[serde(default)]
+    model: Option<String>,
+    answers: Vec<Map<String, Value>>,
+    #[serde(default)]
+    usage: Option<SystemOneUsage>,
+}
+
+/// The state as a Decisions `input`. OpenAI reads a text or a list of messages, so a list of
+/// messages (the only way to pass an image) goes as it is and any other object or array as its
+/// JSON text.
+fn openai_input(state: &Value) -> Value {
+    match state {
+        Value::String(_) => state.clone(),
+        Value::Array(items)
+            if !items.is_empty()
+                && items
+                    .iter()
+                    .all(|m| m.get("role").is_some_and(Value::is_string)) =>
+        {
+            state.clone()
+        }
+        _ => Value::String(state.to_string()),
+    }
+}
+
+/// The questions as OpenAI's Decisions API takes them: a list naming each question, with a
+/// `noul` asked as its `predicate`. A choice or level is described by its own name when the step
+/// gives it no description, since OpenAI documents a description on every one.
+fn openai_questions(questions: &Map<String, Value>) -> Result<Vec<Value>> {
+    let text = |v: &Value| match v {
+        Value::String(s) => s.clone(),
+        v => v.to_string(),
+    };
+    let described = |name: &str, description: &Value| match description {
+        Value::String(d) if !d.trim().is_empty() => d.clone(),
+        _ => name.to_string(),
+    };
+    questions
+        .iter()
+        .map(|(name, question)| {
+            let criteria = question.get("criteria");
+            let mut instructions = question.get("instructions").map(text).unwrap_or_default();
+            let mut asked = Map::new();
+            let kind = match question.get("type").and_then(Value::as_str) {
+                Some("choice") => {
+                    let choices = criteria
+                        .and_then(Value::as_object)
+                        .filter(|c| !c.is_empty())
+                        .ok_or_else(|| {
+                            Error::BadRequest(format!(
+                                "The choice question '{name}' needs its options as 'criteria'"
+                            ))
+                        })?
+                        .iter()
+                        .map(|(value, d)| {
+                            serde_json::json!({"value": value, "description": described(value, d)})
+                        })
+                        .collect();
+                    asked.insert("choices".to_string(), Value::Array(choices));
+                    "choice"
+                }
+                Some("score") => {
+                    let levels = criteria
+                        .and_then(Value::as_array)
+                        .filter(|c| !c.is_empty())
+                        .ok_or_else(|| {
+                            Error::BadRequest(format!(
+                                "The score question '{name}' needs its levels as 'criteria'"
+                            ))
+                        })?
+                        .iter()
+                        .map(|level| {
+                            let label = text(level);
+                            serde_json::json!({"label": label, "description": label})
+                        })
+                        .collect();
+                    asked.insert("levels".to_string(), Value::Array(levels));
+                    "score"
+                }
+                Some("noul") => {
+                    for (key, meaning) in [("true", "Yes"), ("false", "No")] {
+                        if let Some(Value::String(d)) = criteria.and_then(|c| c.get(key)) {
+                            if !d.trim().is_empty() {
+                                instructions.push_str(&format!("\n{meaning}: {d}"));
+                            }
+                        }
+                    }
+                    "predicate"
+                }
+                other => {
+                    return Err(Error::BadRequest(format!(
+                    "The question '{name}' has type {}, which is not 'choice', 'score' or 'noul'",
+                    other.map_or("none".to_string(), |t| format!("'{t}'"))
+                )))
+                }
+            };
+            asked.insert("type".to_string(), kind.into());
+            asked.insert("name".to_string(), name.as_str().into());
+            asked.insert("instructions".to_string(), instructions.into());
+            Ok(Value::Object(asked))
+        })
+        .collect()
+}
+
+/// OpenAI's answers keyed by question name, as every decision's are. A predicate's probability is
+/// also given as `noul`, so a flow reads a yes/no answer the same way whichever provider gave it.
+fn openai_answers(answers: Vec<Map<String, Value>>) -> Map<String, Value> {
+    answers
+        .into_iter()
+        .filter_map(|mut answer| {
+            let Some(Value::String(name)) = answer.remove("name") else {
+                return None;
+            };
+            if answer.get("type").and_then(Value::as_str) == Some("predicate") {
+                if let Some(probability) = answer.get("probability").cloned() {
+                    answer.insert("noul".to_string(), probability);
+                }
+            }
+            Some((name, Value::Object(answer)))
+        })
+        .collect()
+}
+
+async fn run_openai_decisions(
+    credentials: &ProviderCredentials,
+    model: &str,
+    state: &Value,
+    questions: &Map<String, Value>,
+    timeout: Duration,
+) -> Result<DecisionResult> {
+    let model = match model.trim() {
+        "" => OPENAI_DEFAULT_MODEL,
+        model => model,
+    };
+    let endpoint = format!("{}/decisions", credentials.base_url.trim_end_matches('/'));
+    let body = post_decision(
+        credentials,
+        &endpoint,
+        "OpenAI",
+        &OpenAIDecisionsRequest {
+            model,
+            input: openai_input(state),
+            questions: openai_questions(questions)?,
+        },
+        timeout,
+    )
+    .await?;
+    let parsed = serde_json::from_str::<OpenAIDecisionsResponse>(&body)
+        .map_err(|e| Error::ExecutionErr(format!("Unexpected OpenAI response ({e}): {body}")))?;
+
+    Ok(DecisionResult {
+        output: serde_json::value::to_raw_value(&openai_answers(parsed.answers))
+            .map_err(|e| Error::internal_err(format!("serializing decision answers: {e}")))?,
+        model: parsed.model,
+        usage: parsed
+            .usage
+            .map(|u| TokenUsage::from_input_output(u.input_tokens, u.output_tokens))
+            .filter(|u| !u.is_empty()),
+    })
+}
+
+async fn run_systemone(
     credentials: &ProviderCredentials,
     model: &str,
     state: &Value,
@@ -138,49 +379,14 @@ pub async fn run_systemone(
         format!("{base}/systemone")
     };
     let vendor = if cloudflare { "Cloudflare" } else { "TypeSafe" };
-    let auth_headers = retain_effective_credentials(
+    let body = post_decision(
         credentials,
-        vec![(
-            "Authorization",
-            format!(
-                "Bearer {}",
-                credentials.api_key.as_deref().unwrap_or_default()
-            ),
-        )],
-    );
-
-    // The endpoint derives from the resource's base URL, so the connect is pinned to the
-    // address the SSRF check validated.
-    let client = pinned_ai_client_for(&credentials.base_url).await?;
-    let mut request = client.post(&endpoint).timeout(timeout);
-    for (name, value) in auth_headers {
-        request = request.header(name, value);
-    }
-    for (name, value) in common_outbound_headers(credentials) {
-        request = request.header(name, value);
-    }
-
-    let response = request
-        .json(&SystemOneRequest { model, state, questions })
-        .send()
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Failed to call {vendor}: {e}")))?;
-
-    let status = response.status();
-    if !status.is_success() {
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "<failed to read body>".to_string());
-        return Err(Error::ExecutionErr(format!(
-            "{vendor} error calling {endpoint}: {status} - {body}"
-        )));
-    }
-
-    let body = response
-        .text()
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Failed to read the {vendor} response: {e}")))?;
+        &endpoint,
+        vendor,
+        &SystemOneRequest { model, state, questions },
+        timeout,
+    )
+    .await?;
     // Tried in turn rather than as an untagged enum, which cannot hold the raw `answers`.
     let parsed = match serde_json::from_str::<SystemOneResponse>(&body) {
         Ok(parsed) => parsed,
@@ -221,6 +427,57 @@ mod tests {
         for id in [None, Some("a/b"), Some("../x"), Some("a?b"), Some("")] {
             assert!(cloudflare_workers_ai_base_url(id).is_err(), "{id:?}");
         }
+    }
+
+    /// A `noul` goes out as a predicate with its yes/no meanings in the instructions, and comes
+    /// back readable as `noul`; choices and levels go out as lists, answers come back by name.
+    #[test]
+    fn openai_questions_and_answers_translate() {
+        let questions = json!({
+            "intent": {"type": "choice", "instructions": "Why?", "criteria": {"refund": "Money back", "bug": ""}},
+            "urgency": {"type": "score", "instructions": "How urgent?", "criteria": ["Can wait", "Now"]},
+            "angry": {"type": "noul", "instructions": "Angry?", "criteria": {"true": "Insults"}}
+        });
+        let asked = Value::Array(openai_questions(questions.as_object().unwrap()).unwrap());
+        assert_eq!(
+            asked,
+            json!([
+                {"choices": [
+                    {"value": "refund", "description": "Money back"},
+                    {"value": "bug", "description": "bug"}
+                ], "type": "choice", "name": "intent", "instructions": "Why?"},
+                {"levels": [
+                    {"label": "Can wait", "description": "Can wait"},
+                    {"label": "Now", "description": "Now"}
+                ], "type": "score", "name": "urgency", "instructions": "How urgent?"},
+                {"type": "predicate", "name": "angry", "instructions": "Angry?\nYes: Insults"}
+            ])
+        );
+        for bad in [
+            json!({"q": {"type": "choice", "instructions": "?"}}),
+            json!({"q": {"type": "score", "instructions": "?", "criteria": []}}),
+            json!({"q": {"type": "predicate", "instructions": "?"}}),
+        ] {
+            assert!(openai_questions(bad.as_object().unwrap()).is_err(), "{bad}");
+        }
+
+        let answers = serde_json::from_value(json!([
+            {"type": "predicate", "name": "angry", "probability": 0.92},
+            {"type": "choice", "name": "intent", "choice": "refund", "confidence": 0.9}
+        ]))
+        .unwrap();
+        assert_eq!(
+            Value::Object(openai_answers(answers)),
+            json!({
+                "angry": {"type": "predicate", "probability": 0.92, "noul": 0.92},
+                "intent": {"type": "choice", "choice": "refund", "confidence": 0.9}
+            })
+        );
+
+        let messages = json!([{"role": "user", "content": [{"type": "input_text", "text": "hi"}]}]);
+        assert_eq!(openai_input(&messages), messages);
+        assert_eq!(openai_input(&json!({"m": "hi"})), json!("{\"m\":\"hi\"}"));
+        assert_eq!(openai_input(&json!(["a", "b"])), json!("[\"a\",\"b\"]"));
     }
 
     /// Refused are the values a flow produces when it forgot the input (no key, `null`, a blank
