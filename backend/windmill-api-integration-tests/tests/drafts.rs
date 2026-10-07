@@ -295,3 +295,117 @@ async fn test_cross_user_draft_privacy(db: Pool<Postgres>) -> anyhow::Result<()>
 
     Ok(())
 }
+
+/// Moving a session's drafts into a fork is all-or-nothing: a draft the caller already has in
+/// the fork blocks the whole transfer rather than one side silently winning, and the source
+/// copy is removed only together with a successful copy.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let c = client_for("SECRET_TOKEN");
+    let me = "test@windmill.dev";
+    let fork = "wm-fork-transfer";
+    let transfer_url = format!("http://localhost:{port}/api/w/{WS}/drafts/transfer");
+    let fork_count = |path: &'static str| {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM draft WHERE workspace_id = $1 AND path = $2 AND email = $3",
+        )
+        .bind(fork)
+        .bind(path)
+        .bind(me)
+        .fetch_one(&db)
+    };
+
+    let r = c
+        .post(save_url(port, "script", "u/test-user/a"))
+        .json(&json!({ "value": { "content": "a" } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200);
+    let r = c
+        .post(format!(
+            "http://localhost:{port}/api/w/{WS}/workspaces/create_fork"
+        ))
+        .json(&json!({ "id": fork, "name": "transfer" }))
+        .send()
+        .await?;
+    assert!(r.status().is_success(), "create fork: {}", r.text().await?);
+    // Created after the fork, so only the source has it.
+    let r = c
+        .post(save_url(port, "script", "u/test-user/b"))
+        .json(&json!({ "value": { "content": "b" } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200);
+
+    let items = json!([
+        { "kind": "script", "path": "u/test-user/a" },
+        { "kind": "script", "path": "u/test-user/b" }
+    ]);
+
+    // A token bound to the source authenticates on its routes but must not write the fork.
+    sqlx::query(
+        "INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, workspace_id)
+         VALUES (encode(sha256('BOUND_TOKEN'::bytea), 'hex'), 'BOUND_TOK', 'BOUND_TOKEN', $1, 'bound', true, $2)",
+    )
+    .bind(me)
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    let r = client_for("BOUND_TOKEN")
+        .post(&transfer_url)
+        .json(&json!({ "target_workspace": fork, "items": items }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 403);
+    assert_eq!(fork_count("u/test-user/b").await?, 0);
+
+    // `a` was cloned into the fork: the whole transfer is refused and nothing moves.
+    let body: serde_json::Value = c
+        .post(&transfer_url)
+        .json(&json!({ "target_workspace": fork, "items": items, "remove_from_source": true }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        body["conflicts"],
+        json!([{ "kind": "script", "path": "u/test-user/a" }])
+    );
+    assert_eq!(fork_count("u/test-user/b").await?, 0);
+    assert_eq!(draft_count(&db, "u/test-user/a", "script", me).await, 1);
+    assert_eq!(draft_count(&db, "u/test-user/b", "script", me).await, 1);
+
+    sqlx::query("DELETE FROM draft WHERE workspace_id = $1 AND path = 'u/test-user/a'")
+        .bind(fork)
+        .execute(&db)
+        .await?;
+    let body: serde_json::Value = c
+        .post(&transfer_url)
+        .json(&json!({ "target_workspace": fork, "items": items, "remove_from_source": true }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(body["conflicts"], json!([]));
+    assert_eq!(body["copied"].as_array().unwrap().len(), 2);
+    assert_eq!(body["removed"].as_array().unwrap().len(), 2);
+    assert_eq!(fork_count("u/test-user/a").await?, 1);
+    assert_eq!(fork_count("u/test-user/b").await?, 1);
+    assert_eq!(draft_count(&db, "u/test-user/a", "script", me).await, 0);
+    assert_eq!(draft_count(&db, "u/test-user/b", "script", me).await, 0);
+
+    // Only a fork of the source is a valid target.
+    let r = c
+        .post(format!(
+            "http://localhost:{port}/api/w/{fork}/drafts/transfer"
+        ))
+        .json(&json!({ "target_workspace": WS, "items": items }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 400);
+
+    Ok(())
+}

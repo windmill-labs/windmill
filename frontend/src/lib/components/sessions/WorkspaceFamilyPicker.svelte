@@ -61,6 +61,7 @@
 		// consumer differentiate "staged for first send" vs. "will be
 		// created immediately" semantics.
 		createForkCaption = '',
+		confirmForkLabel = 'Set as target',
 		// Forwarded to the dropdown trigger wrapper — e.g. `min-w-0` so the
 		// trigger can shrink and its label truncate inside a narrow container.
 		class: triggerClass = undefined,
@@ -73,6 +74,9 @@
 		// WorkspaceScopeHeader), so the superadmin lookup isn't duplicated. Omitted
 		// by standalone consumers, which then resolve it themselves.
 		forkableWorkspaces: forkableWorkspacesProp,
+		// Narrow the list to this workspace and its direct forks, and fork only from it —
+		// for moving something into a fork of where it is, rather than anywhere in the family.
+		forksOf,
 		trigger
 	}: {
 		selectedId?: string
@@ -82,10 +86,12 @@
 		onRequestCreateFork?: () => void
 		allowCreateFork?: boolean
 		createForkCaption?: string
+		confirmForkLabel?: string
 		class?: string
 		settingsHref?: string
 		settingsLabel?: string
 		forkableWorkspaces?: UserWorkspace[]
+		forksOf?: string
 		trigger: Snippet<[{ open: boolean }]>
 	} = $props()
 
@@ -100,8 +106,18 @@
 		enabled: () => forkableWorkspacesProp === undefined
 	})
 	const forkableWorkspaces = $derived(forkableWorkspacesProp ?? ownForkable.current)
-	const root = $derived(findWorkspaceRoot(effectiveId, forkableWorkspaces))
-	const forks = $derived(root ? findWorkspaceDescendants(root.id, forkableWorkspaces) : [])
+	const root = $derived(
+		forksOf
+			? forkableWorkspaces.find((w) => w.id === forksOf)
+			: findWorkspaceRoot(effectiveId, forkableWorkspaces)
+	)
+	const forks = $derived(
+		forksOf
+			? forkableWorkspaces.filter((w) => w.parent_workspace_id === forksOf)
+			: root
+				? findWorkspaceDescendants(root.id, forkableWorkspaces)
+				: []
+	)
 
 	// The family's canonical dev workspace, if any — still used for gating (a forking-locked root can be
 	// forked via its dev) and as a selectable base with a "dev" badge.
@@ -110,11 +126,13 @@
 	)
 	// Base a new fork gets by default: the dev workspace when the selection sits in its subtree, the
 	// family root otherwise.
-	const defaultForkBase = $derived(findDefaultForkBase(effectiveId, forkableWorkspaces))
+	const defaultForkBase = $derived(
+		forksOf ? root : findDefaultForkBase(effectiveId, forkableWorkspaces)
+	)
 	const createForkLabel = 'Create new fork…'
 	// Candidate bases ("targets") for a new fork: the root plus every fork/dev in the family, so a fork
 	// can itself be the base — i.e. a fork of a fork. Root first, matching the list order below.
-	const baseOptions = $derived(root ? [root, ...forks] : [])
+	const baseOptions = $derived(root ? (forksOf ? [root] : [root, ...forks]) : [])
 	// Options for the base-branch <Select>. The nesting (fork of a fork) is rendered via the Select's
 	// per-item `startSnippet` as a depth-based spacer, so the label text itself stays clean.
 	const baseItems = $derived(
@@ -135,7 +153,7 @@
 	// Extra left padding (on top of the row's base px-3) to nest a workspace one step per depth level,
 	// matching the sidebar menu's `depth * 16px`.
 	function indentStyle(id: string): string | undefined {
-		const depth = familyDepths.get(id) ?? 0
+		const depth = forksOf ? 1 : (familyDepths.get(id) ?? 0)
 		return depth > 0 ? `padding-left: ${12 + depth * 16}px` : undefined
 	}
 
@@ -165,18 +183,25 @@
 	// whether a dev workspace exists to steer to — being deploy-locked is the gate, not dev presence.
 	// Roots with no rules resolve `canDeployRoot` to true, so ordinary families aren't affected. Kept
 	// disabled while either fetch is in flight (both default to the conservative locked state).
+	// In `forksOf` mode the top row is where the consumer already is, so there is nothing to gate.
 	const rootDisabled = $derived(
-		rootRulesetsResource.loading || rootUserInfoResource.loading || !canDeployRoot
+		!forksOf && (rootRulesetsResource.loading || rootUserInfoResource.loading || !canDeployRoot)
 	)
 
 	// Structural gate: hidden in the admins workspace, or when the user can't fork; on cloud, forking
 	// is premium-only (backend caps it per paid seat). DisableWorkspaceForking on the active workspace
 	// (a locked prod) doesn't apply when there's a dev to fork from instead — the dev isn't locked, and
 	// devOfRoot only resolves when the user is a member of it.
+	// In `forksOf` mode the fork is always based on that workspace, so only its own rule counts.
 	const forksGateOpen = $derived(
 		(!isCloudHosted() || $maybePremium) &&
-			$workspaceStore !== 'admins' &&
-			(canCreateFork($userStore) || !!devOfRoot)
+			(forksOf
+				? forksOf !== 'admins' &&
+					!rootRulesetsResource.loading &&
+					!rootUserInfoResource.loading &&
+					(!isRuleActiveInRulesets(rootRulesets, 'DisableWorkspaceForking') ||
+						canUserBypassRuleKindInRulesets(rootRulesets, 'DisableWorkspaceForking', rootUserInfo))
+				: $workspaceStore !== 'admins' && (canCreateFork($userStore) || !!devOfRoot))
 	)
 	// A fork is a new workspace, so it's subject to the community-edition cap on
 	// the number of non-'admins' workspaces (backend _check_nb_of_workspaces,
@@ -415,7 +440,7 @@
 							<Building size={14} class="shrink-0 text-tertiary" />
 							<span class="truncate">{root.name}</span>
 							<span class="text-2xs text-tertiary shrink-0 ml-auto"
-								>{rootDisabled ? 'locked' : 'root'}</span
+								>{rootDisabled ? 'locked' : forksOf ? 'current' : 'root'}</span
 							>
 							{#if isSelected(root.id) && !pendingFork}
 								<Check size={14} class="shrink-0 text-accent" />
@@ -543,7 +568,7 @@
 								disabled={!newForkId.trim() || !!forkIdError || staging}
 								on:click={() => void stageNewFork()}
 							>
-								Set as target
+								{confirmForkLabel}
 							</Button>
 						</div>
 					</div>

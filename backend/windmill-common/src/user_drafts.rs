@@ -645,6 +645,81 @@ pub async fn delete_own_draft_for_path(
     Ok(())
 }
 
+/// Copy drafts from `source` into its fork `target`, returning the `(kind, path)` of each row
+/// copied. With `items = None` this is the fork-time clone: every row of `email` plus the legacy
+/// NULL-email row. With `items`, only `email`'s own rows at those `(kind, path)` pairs.
+///
+/// No authorization here. The caller MUST have checked that `target` is a fork of `source`, that
+/// the credential behind `email` may act on `target`, and that it may write each copied path
+/// there. Secret values are copied as encrypted, so the two workspaces must share a key.
+///
+/// A plain INSERT: the caller guarantees the target holds none of the copied rows (an empty
+/// fork, or a conflict check under the same transaction), else `draft_pkey_with_user` aborts it.
+/// `created_at` is preserved so the per-tab `last_sync` baseline the editor reads lines up with
+/// the source's timeline — otherwise the first save from an open editor would trip the conflict
+/// modal on every copied draft.
+pub async fn copy_drafts_to_workspace(
+    conn: &mut sqlx::PgConnection,
+    source: &str,
+    target: &str,
+    email: &str,
+    items: Option<&[(UserDraftItemKind, String)]>,
+) -> Result<Vec<(UserDraftItemKind, String)>> {
+    let (kinds, paths): (Option<Vec<&str>>, Option<Vec<&str>>) = match items {
+        Some(items) => (
+            Some(items.iter().map(|(k, _)| k.as_str()).collect()),
+            Some(items.iter().map(|(_, p)| p.as_str()).collect()),
+        ),
+        None => (None, None),
+    };
+    // A script/flow draft carries the principal in its value, and deploying it in the target
+    // would send a pair naming somebody who may not be a member there. Stripped rather than
+    // filtered: the address the draft still carries re-derives the target's own principal at
+    // deploy time, which is the more accurate answer of the two.
+    let rows = sqlx::query!(
+        // A script hash is content-addressed and shared between a workspace and its forks, so
+        // a script draft's base still names a version the target can have. Flow and app ids
+        // are minted per workspace, so those drafts arrive with no base (staleness falls back
+        // to the timestamps), lineage field included, or the next autosave would re-derive the
+        // source id.
+        //
+        // `clean` is `strip_json_nul`'s parity rule in SQL, so a pre-sanitizer U+0000 escape
+        // cannot abort the copy on `to_jsonb` or arrive with its principal unstripped: escaped
+        // backslashes park on chr(1) (lossless, a `json` value's text cannot hold a raw control
+        // byte) so only a real NUL is removed, and chr(92) spells the backslash so no escape
+        // sequence reaches this source file.
+        r#"INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)
+         SELECT $2, path, typ,
+                to_json(
+                    CASE WHEN typ IN ('script', 'flow') THEN clean - 'on_behalf_of' ELSE clean END
+                    - CASE WHEN typ = 'flow' THEN 'version_id'
+                           WHEN typ IN ('app', 'raw_app') THEN 'parent_version'
+                           ELSE '' END
+                ),
+                created_at, email,
+                CASE WHEN typ = 'script' THEN base END
+         FROM (
+             SELECT d.path, d.typ, d.created_at, d.email, d.base,
+                    replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)), chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean
+             FROM draft d
+             WHERE d.workspace_id = $1
+               AND CASE WHEN $4::text[] IS NULL THEN d.email = $3 OR d.email IS NULL
+                        ELSE d.email = $3
+                             AND (d.typ::text, d.path) IN (SELECT * FROM unnest($4::text[], $5::text[]))
+                   END
+         ) s
+         RETURNING typ AS "typ: UserDraftItemKind", path"#,
+        source,
+        target,
+        email,
+        kinds.as_deref() as Option<&[&str]>,
+        paths.as_deref() as Option<&[&str]>,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.typ, r.path)).collect())
+}
+
 /// Carry every draft at `old_path` over to `new_path` when an item MOVES
 /// (rename or relocation). A draft is bound to its item by nothing but the path
 /// string, so without this a move detaches every draft on the item. No owner
