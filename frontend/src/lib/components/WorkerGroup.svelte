@@ -1250,6 +1250,8 @@
 								const inheritsTags =
 									config != undefined &&
 									config.worker_tags == undefined &&
+									config.dedicated_worker == undefined &&
+									config.dedicated_workers == undefined &&
 									nconfig.worker_tags?.length === 0
 								await ConfigService.updateConfig({
 									name: 'worker__' + name,
