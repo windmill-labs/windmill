@@ -10973,6 +10973,13 @@ paths:
                                               script, subflow, loop, or branch
                                             properties: *ref_87
                                             required: *ref_88
+                                        default_summary:
+                                          type: string
+                                          description: >-
+                                            Display name of the default branch, e.g.
+                                            'On success' when this branchone handles
+                                            the errors of the step before it.
+                                            Display only.
                                         type:
                                           type: string
                                           enum:
@@ -37172,6 +37179,11 @@ components:
             description: A single step in a flow. Can be a script, subflow, loop, or branch
             properties: *ref_87
             required: *ref_88
+        default_summary:
+          type: string
+          description: >-
+            Display name of the default branch, e.g. 'On success' when this
+            branchone handles the errors of the step before it. Display only.
         type:
           type: string
           enum:

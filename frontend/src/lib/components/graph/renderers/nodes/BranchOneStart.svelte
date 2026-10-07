@@ -29,6 +29,7 @@
 		<VirtualItem
 			label={data.label}
 			preLabel={data.preLabel}
+			tone={data.tone}
 			selectable
 			selected={selectionManager && selectionManager.isNodeSelected(id)}
 			borderState={borderStatus}

@@ -6,6 +6,7 @@ import type { History } from '$lib/history.svelte'
 import { push } from '$lib/history.svelte'
 import { dfs } from './dfs'
 import { findModuleInFlow } from './flowTree'
+import { errorCaseBranch, errorCaseIndex, guardedStepOf } from './errorHandling'
 
 type BranchList = Array<{ summary?: string; expr?: string; modules: FlowModule[] }>
 
@@ -15,14 +16,20 @@ type Ctx = {
 	history: History<ExtendedOpenFlow>
 }
 
-/** Append an empty branch to a branchone/branchall step. */
+/** Append an empty branch to a branchone/branchall step. On a step's error handler, add an
+ *  error case before its catch-all instead: first match wins, so one after it never runs. */
 export function addBranch(moduleId: string, { flowStore, history }: Omit<Ctx, 'flowStateStore'>) {
 	push(history, flowStore.val)
 	const module = findModuleInFlow(flowStore.val.value, moduleId)
 	if (!module) throw new Error(`Node ${moduleId} not found`)
 
 	if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-		module.value.branches.push({ summary: '', expr: 'false', modules: [] })
+		const guardedId = guardedStepOf(flowStore.val.value, moduleId)
+		if (guardedId) {
+			module.value.branches.splice(errorCaseIndex(module, guardedId), 0, errorCaseBranch(guardedId))
+		} else {
+			module.value.branches.push({ summary: '', expr: 'false', modules: [] })
+		}
 	}
 }
 

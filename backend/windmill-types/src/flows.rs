@@ -1080,6 +1080,9 @@ pub enum FlowModuleValue {
         default: Vec<FlowModule>,
         #[serde(skip_serializing_if = "Option::is_none")]
         default_node: Option<FlowNodeId>,
+        /// Display name of the default branch. Never read by the worker.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        default_summary: Option<String>,
     },
     BranchAll {
         branches: Vec<Branch>,
@@ -1177,6 +1180,7 @@ struct UntaggedFlowModuleValue {
     is_trigger: Option<bool>,
     id: Option<FlowNodeId>,
     default_node: Option<FlowNodeId>,
+    default_summary: Option<String>,
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<AgentTool>>,
@@ -1243,6 +1247,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .default
                     .ok_or_else(|| serde::de::Error::missing_field("default"))?,
                 default_node: untagged.default_node,
+                default_summary: untagged.default_summary,
             }),
             "branchall" => Ok(FlowModuleValue::BranchAll {
                 branches: untagged
@@ -1413,6 +1418,29 @@ mod tests {
         let output = serde_json::to_string(&val).unwrap();
         assert!(!output.contains("notes"));
         assert!(!output.contains("groups"));
+    }
+
+    #[test]
+    fn branchone_default_summary_round_trips() {
+        // FlowModuleValue goes through the untagged fallback deserializer, which rebuilds each
+        // variant field by field: a field it does not copy is dropped on the next save.
+        let input = json!({
+            "modules": [{
+                "id": "b",
+                "value": {
+                    "type": "branchone",
+                    "default_summary": "On success",
+                    "default": [],
+                    "branches": [{"summary": "On error", "expr": "!!results.a.error", "modules": []}]
+                }
+            }]
+        });
+        let val: FlowValue = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&val).unwrap();
+        assert_eq!(
+            output["modules"][0]["value"]["default_summary"],
+            "On success"
+        );
     }
 
     #[test]

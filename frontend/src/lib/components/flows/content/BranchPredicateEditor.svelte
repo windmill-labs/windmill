@@ -2,6 +2,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
 	import { getStepPropPicker } from '../previousResults'
+	import { withErrorShape } from '../errorHandling'
 	import type { FlowEditorContext } from '../types'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import PredicateGen from '$lib/components/copilot/PredicateGen.svelte'
@@ -18,9 +19,11 @@
 		parentModule: FlowModule
 		previousModule: FlowModule | undefined
 		enableAi?: boolean
+		/** The step whose errors this branch's branchone handles, if any. */
+		guardedId?: string
 	}
 
-	let { branch, parentModule, previousModule, enableAi = false }: Props = $props()
+	let { branch, parentModule, previousModule, enableAi = false, guardedId }: Props = $props()
 
 	let editor: SimpleEditor | undefined = $state(undefined)
 
@@ -40,7 +43,9 @@
 			parentModule.id,
 			flowStore.val,
 			previewArgs.val,
-			false
+			false,
+			// The guarded step's preview is usually a success, which has no `error` to complete.
+			guardedId ? (priorIds) => withErrorShape(priorIds, guardedId) : undefined
 		)
 	)
 </script>

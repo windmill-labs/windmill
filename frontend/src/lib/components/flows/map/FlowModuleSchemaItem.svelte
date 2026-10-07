@@ -2,10 +2,21 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import Popover from '$lib/components/Popover.svelte'
+	import MeltPopover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { classNames, type Item, type StateStore } from '$lib/utils'
-	import { EllipsisVertical, Pin, X, Play, Loader2, TriangleAlert, Maximize2 } from 'lucide-svelte'
+	import {
+		EllipsisVertical,
+		Pin,
+		X,
+		Play,
+		Loader2,
+		TriangleAlert,
+		Maximize2,
+		ShieldAlert
+	} from 'lucide-svelte'
 	import type { StepSettingView } from '../flowStepSettings'
+	import ErrorHandlingShortcut from '../content/ErrorHandlingShortcut.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
@@ -36,6 +47,8 @@
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import MoveHandleButton from '$lib/components/graph/MoveHandleButton.svelte'
 	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { suggestsErrorHandling } from '../errorHandling'
+	import { addErrorHandling } from '../errorHandlingInsert'
 
 	const operatorBuilderFlows = useOperatorBuilderFlows()
 
@@ -137,6 +150,9 @@
 	// A script step is tested as a script preview, which operators are refused: running the
 	// deployed runnable is left to "Test flow".
 	let builderCannotTestStep = $derived($operatorBuilderFlows && mod?.value.type === 'script')
+	let suggestErrorHandling = $derived(
+		nodeState === 'Failure' && !!id && !!flowStore && suggestsErrorHandling(flowStore.val.value, id)
+	)
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let hover = $state(false)
@@ -294,6 +310,10 @@
 					{#snippet text()}
 						{s.tooltip}
 						<span class={s.summary.mono ? 'font-mono' : ''}>· {s.summary.text}</span>
+						<!-- The badge only shows while continue on error is configured. -->
+						{#if s.key === 'error-handling' && id && deletable}
+							<ErrorHandlingShortcut stepId={id} continueOnError class="mt-2" />
+						{/if}
 					{/snippet}
 				</Popover>
 			{/each}
@@ -364,6 +384,7 @@
 								(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
 							initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
 							bind:this={outputPickerInner}
+							footer={deletable && suggestErrorHandling ? errorHandlingHint : undefined}
 						/>
 					{/snippet}
 				</OutputPicker>
@@ -511,6 +532,37 @@
 		</div>
 	{/if}
 </div>
+
+{#snippet errorHandlingHint()}
+	{#if id && flowEditorContext}
+		<!-- The melt popover marks its content `data-popover`, which the Out panel it sits in
+		     counts as inside: any other popup closes the panel on pointerdown, before its click. -->
+		<MeltPopover openOnHover debounceDelay={150}>
+			{#snippet trigger()}
+				<span class="text-secondary hover:text-primary underline decoration-dotted">
+					Handle this error?
+				</span>
+			{/snippet}
+			{#snippet content()}
+				<div class="flex flex-col items-start gap-2 p-3 max-w-xs text-xs text-primary">
+					<span>
+						This step failed and stopped the flow. Handle its error to continue on an On error path
+						instead.
+					</span>
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: ShieldAlert }}
+						title="Turn on Continue on error and add a branch after this step with an On success path and an On error path."
+						onClick={() => addErrorHandling(flowEditorContext, id)}
+					>
+						Add error handling
+					</Button>
+				</div>
+			{/snippet}
+		</MeltPopover>
+	{/if}
+{/snippet}
 
 {#snippet buttonMaximizeSubflow()}
 	<div class="absolute -translate-y-[100%] top-2 right-12 h-7 p-1">

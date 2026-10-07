@@ -191,7 +191,7 @@ pub async fn resolve_module(
         ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. } => {
             resolve_modules(db, workspace_id, modules, modules_node.take(), with_code).await?;
         }
-        BranchOne { branches, default, default_node } => {
+        BranchOne { branches, default, default_node, .. } => {
             resolve_modules(db, workspace_id, default, default_node.take(), with_code).await?;
             for branch in branches {
                 resolve_modules(
@@ -333,7 +333,7 @@ fn check_module_value_is_composition_only(
                 check_module_is_composition_only(module, refs)?;
             }
         }
-        FlowModuleValue::BranchOne { branches, default, default_node } => {
+        FlowModuleValue::BranchOne { branches, default, default_node, .. } => {
             refuse_node(default_node)?;
             for module in default {
                 check_module_is_composition_only(module, refs)?;
