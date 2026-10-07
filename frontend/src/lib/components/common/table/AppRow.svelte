@@ -118,14 +118,15 @@
 	{depth}
 	{rowSelection}
 >
-	{#snippet badges()}
+	{#snippet tagBadges()}
 		{#if app.execution_mode == 'anonymous'}
 			<Badge small icon={{ icon: Eye }}>Public</Badge>
 		{/if}
 		{#if !app.raw_app}
 			<Badge small title="Low-code app">Legacy</Badge>
 		{/if}
-		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
+	{/snippet}
+	{#snippet draftBadge()}
 		<DraftBadge
 			is_draft={app.is_draft}
 			draft_only={app.draft_only}
@@ -136,6 +137,11 @@
 			path={app.path}
 			onMigrated={() => dispatch('change')}
 		/>
+	{/snippet}
+	{#snippet sharedBadge()}
+		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
+	{/snippet}
+	{#snippet labelBadges()}
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each app.labels.slice(0, 3) as label}
@@ -164,8 +170,9 @@
 						<Button
 							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
 							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							variant="default"
-							wrapperClasses="w-16"
+							variant="accent"
+							wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible"
+							unifiedSize="sm"
 							startIcon={{ icon: Pen }}
 							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
 						>
@@ -179,6 +186,8 @@
 			{/if}
 		</span>
 		<Dropdown
+			size="sm"
+			fixedHeight={false}
 			aiId={`app-row-dropdown-${app.summary?.length > 0 ? app.summary : app.path}`}
 			aiDescription={`Open dropdown for app ${app.summary?.length > 0 ? app.summary : app.path} options`}
 			items={async () => {

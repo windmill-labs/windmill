@@ -128,8 +128,8 @@
 					: 'rounded-md px-2 py-0.5',
 			verySmall ? 'px-0.5 py-0.5' : '',
 			'flex flex-row gap-1 items-center justify-center',
-			classNames,
-			compact ? 'text-3xs px-1 py-0 gap-0.5' : ''
+			compact ? 'text-2xs px-1.5 py-0.5 gap-1' : '',
+			classNames
 		)
 	)
 	const handleHide = () => (hidden = !hidden)
@@ -151,7 +151,7 @@
 		role={clickable ? 'button' : undefined}
 	>
 		{#if icon?.icon && icon.position === 'left'}
-			<icon.icon size={compact ? 10 : 12} />
+			<icon.icon size={12} />
 		{/if}
 		{#if compact}
 			<!-- `contents` keeps the children in the badge's flex layout; only the
@@ -163,7 +163,7 @@
 			{@render children?.()}
 		{/if}
 		{#if icon?.icon && icon.position === 'right'}
-			<icon.icon size={compact ? 10 : 12} />
+			<icon.icon size={12} />
 		{/if}
 		{#if dismissable}
 			<button onclick={handleHide}>

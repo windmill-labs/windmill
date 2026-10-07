@@ -155,11 +155,12 @@
 	{rowSelection}
 	titleBadge={flow.chat_input_enabled ? chatBadge : undefined}
 >
-	{#snippet badges()}
+	{#snippet tagBadges()}
 		{#if flow.archived}
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
-		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
+	{/snippet}
+	{#snippet draftBadge()}
 		<DraftBadge
 			is_draft={flow.is_draft}
 			draft_only={flow.draft_only}
@@ -170,6 +171,11 @@
 			path={flow.path}
 			onMigrated={() => dispatch('change')}
 		/>
+	{/snippet}
+	{#snippet sharedBadge()}
+		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
+	{/snippet}
+	{#snippet labelBadges()}
 		{#if flow.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each flow.labels.slice(0, 3) as label}
@@ -195,10 +201,10 @@
 			{#if !hideForOperator && showEditButton && flow.canWrite && !flow.archived}
 				<div>
 					<Button
-						variant="default"
-						wrapperClasses="w-16"
+						variant="accent"
+						wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible"
 						startIcon={{ icon: Pen }}
-						unifiedSize="md"
+						unifiedSize="sm"
 						href="{base}/flows/edit/{flow.path}"
 						aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 						aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
@@ -214,6 +220,8 @@
 		</span>
 
 		<Dropdown
+			size="sm"
+			fixedHeight={false}
 			aiId={`flow-row-dropdown-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 			aiDescription={`Open dropdown for flow ${flow.summary?.length > 0 ? flow.summary : flow.path} options`}
 			items={async () => {

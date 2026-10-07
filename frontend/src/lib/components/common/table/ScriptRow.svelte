@@ -172,10 +172,12 @@
 	{depth}
 	{rowSelection}
 >
-	{#snippet badges()}
+	{#snippet languageBadge()}
 		{#if script.language}
 			<LanguageIcon lang={script.language} width={14} height={14} />
 		{/if}
+	{/snippet}
+	{#snippet tagBadges()}
 		{#if script.lock_error_logs}
 			<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>
 		{/if}
@@ -210,7 +212,11 @@
 				>{script.kind === 'failure' ? 'Error handler' : capitalize(script.kind)}</Badge
 			>
 		{/if}
+	{/snippet}
+	{#snippet sharedBadge()}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
+	{/snippet}
+	{#snippet draftBadge()}
 		<DraftBadge
 			is_draft={script.is_draft}
 			draft_only={script.draft_only}
@@ -221,6 +227,8 @@
 			path={script.path}
 			onMigrated={() => dispatch('change')}
 		/>
+	{/snippet}
+	{#snippet labelBadges()}
 		{#if script.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each script.labels.slice(0, 3) as label}
@@ -257,10 +265,10 @@
 							<Button
 								aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
 								aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
-								variant="default"
-								wrapperClasses="w-16"
+								variant="accent"
+								wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible"
 								startIcon={{ icon: Pen }}
-								unifiedSize="md"
+								unifiedSize="sm"
 								href="{base}/scripts/edit/{script.path}"
 							>
 								Edit
@@ -274,6 +282,8 @@
 			{/if}
 		</span>
 		<Dropdown
+			size="sm"
+			fixedHeight={false}
 			aiId={`script-row-dropdown-${script.summary?.length > 0 ? script.summary : script.path}`}
 			aiDescription={`Open dropdown for script ${script.summary?.length > 0 ? script.summary : script.path} options`}
 			items={async () => {

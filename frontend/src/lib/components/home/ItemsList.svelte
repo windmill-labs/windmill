@@ -65,6 +65,8 @@
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
 	import { HomeActivity, setHomeActivity } from './homeActivity.svelte'
+	import { HOME_TABLE_BADGE_GRID, HOME_TABLE_GRID, setHomeTable } from './homeTable'
+	import Checkbox from '../common/checkbox/Checkbox.svelte'
 
 	const operatorBuilderFlows = useOperatorBuilderFlows()
 
@@ -1871,6 +1873,7 @@
 	// Latest runs and attached triggers, fetched in batches for the rows on screen.
 	const homeActivity = new HomeActivity(() => $workspaceStore)
 	setHomeActivity(homeActivity)
+	setHomeTable()
 	$effect(() => {
 		$workspaceStore
 		untrack(() => homeActivity.reset())
@@ -2140,45 +2143,49 @@
 				</div>
 			{/if}
 		{:else if treeView}
-			<!-- Remount the tree on a MODE change only (treeKey = view/owner/search/label):
+			<div class="border rounded-md bg-surface-tertiary">
+				{@render tableHeader()}
+				<!-- Remount the tree on a MODE change only (treeKey = view/owner/search/label):
 			     expanded folders (their `opened` state is local to each TreeView) collapse
 			     and re-load fresh for the new mode. An in-place order/archive/library/kind
 			     change keeps treeKey stable, so folders stay open and refresh via
 			     reloadItems instead (see loadOwnerItems). -->
-			{#key treeKey}
-				<TreeViewRoot
-					items={treeSource}
-					{collapseAll}
-					sortCompare={compareItems}
-					groupDesc={sortOrder === 'name_desc'}
-					hasMoreServer={treeGlobalHasMore}
-					onLoadMore={fetchMoreServer}
-					pipelineFolders={visiblePipelineFolders}
-					allFolders={treeInjectFolders}
-					allUsers={treeInjectUsers}
-					ownerCounts={!searching && labelFilter == undefined ? ownerCounts : undefined}
-					selfUsername={$userStore?.username}
-					groupOtherUsers={treeLazyMode}
-					ownerLoad={treeLazyMode ? ownerLoad : undefined}
-					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
-					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
-					isSearching={filter !== ''}
-					on:scriptChanged={reloadItemsAndCounts}
-					on:flowChanged={reloadItemsAndCounts}
-					on:appChanged={reloadItemsAndCounts}
-					on:rawAppChanged={reloadItemsAndCounts}
-					on:reload={reloadItemsAndCounts}
-					{showCode}
-					showEditButton={showEditButtons}
-				/>
-			{/key}
+				{#key treeKey}
+					<TreeViewRoot
+						items={treeSource}
+						{collapseAll}
+						sortCompare={compareItems}
+						groupDesc={sortOrder === 'name_desc'}
+						hasMoreServer={treeGlobalHasMore}
+						onLoadMore={fetchMoreServer}
+						pipelineFolders={visiblePipelineFolders}
+						allFolders={treeInjectFolders}
+						allUsers={treeInjectUsers}
+						ownerCounts={!searching && labelFilter == undefined ? ownerCounts : undefined}
+						selfUsername={$userStore?.username}
+						groupOtherUsers={treeLazyMode}
+						ownerLoad={treeLazyMode ? ownerLoad : undefined}
+						onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
+						onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
+						isSearching={filter !== ''}
+						on:scriptChanged={reloadItemsAndCounts}
+						on:flowChanged={reloadItemsAndCounts}
+						on:appChanged={reloadItemsAndCounts}
+						on:rawAppChanged={reloadItemsAndCounts}
+						on:reload={reloadItemsAndCounts}
+						{showCode}
+						showEditButton={showEditButtons}
+					/>
+				{/key}
+			</div>
 		{:else}
 			<div class="border rounded-md bg-surface-tertiary" class:wm-imported={justImported}>
+				{@render tableHeader()}
 				{#if filter === ''}
 					{#each [...visiblePipelineFolders].sort() as folder (folder)}
 						<a
 							href="{base}/pipeline/{encodeURIComponent(folder)}"
-							class="w-full inline-flex items-center gap-4 px-4 py-3 border-b last:border-b-0 hover:bg-surface-hover transition-colors text-sm first-of-type:rounded-t-md"
+							class="w-full inline-flex items-center gap-4 px-3 py-2 rounded-md hover:bg-surface-hover transition-colors text-sm"
 						>
 							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
 							<span class="text-xs font-medium text-emphasis truncate">Pipeline · f/{folder}</span>
@@ -2236,6 +2243,29 @@
 		{/if}
 	</div>
 </CenteredPage>
+
+{#snippet tableHeader()}
+	<div class="{HOME_TABLE_GRID} px-3 py-1.5 border-b text-2xs font-medium text-secondary">
+		<div class="flex items-center">
+			{#if homeSelection.available}
+				{@const state = homeSelection.renderedSelection}
+				<Checkbox
+					checked={state === 'all'}
+					indeterminate={state === 'some'}
+					title={state === 'all' ? 'Deselect all' : 'Select all'}
+					onChange={() => homeSelection.toggleAllRendered()}
+				/>
+			{/if}
+		</div>
+		<div>Name</div>
+		<div class="hidden lg:grid {HOME_TABLE_BADGE_GRID}">
+			<div>Labels</div>
+		</div>
+		<div class="hidden lg:block text-center">Runs</div>
+		<div class="hidden lg:block">Triggers</div>
+		<div></div>
+	</div>
+{/snippet}
 
 {#if homeSelection.active && $workspaceStore}
 	<BulkActionsBar

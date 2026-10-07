@@ -33363,6 +33363,12 @@ components:
               mode:
                 type: string
                 enum: [enabled, disabled, suspended]
+              schedule:
+                description: the cron expression, for a schedule only
+                type: string
+              timezone:
+                description: the schedule's timezone, for a schedule only
+                type: string
 
     TriggersCount:
       type: object

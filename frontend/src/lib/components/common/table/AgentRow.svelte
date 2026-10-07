@@ -70,8 +70,7 @@
 	canFavorite={false}
 	{depth}
 >
-	{#snippet badges()}
-		<SharedBadge canWrite={agent.canWrite} extraPerms={agent.extra_perms} />
+	{#snippet draftBadge()}
 		<DraftBadge
 			is_draft={agent.is_draft}
 			draft_only={agent.draft_only}
@@ -81,6 +80,11 @@
 			path={agent.path}
 			onMigrated={() => dispatch('change')}
 		/>
+	{/snippet}
+	{#snippet sharedBadge()}
+		<SharedBadge canWrite={agent.canWrite} extraPerms={agent.extra_perms} />
+	{/snippet}
+	{#snippet labelBadges()}
 		<InheritedLabels labels={agent.inherited_labels} />
 	{/snippet}
 
@@ -88,10 +92,10 @@
 		{#if agent.canWrite}
 			<span class="hidden md:inline-flex">
 				<Button
-					variant="default"
-					wrapperClasses="w-16"
+					variant="accent"
+					wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible"
 					startIcon={{ icon: Pen }}
-					unifiedSize="md"
+					unifiedSize="sm"
 					href={editHref}
 				>
 					Edit
@@ -99,6 +103,8 @@
 			</span>
 		{/if}
 		<Dropdown
+			size="sm"
+			fixedHeight={false}
 			items={async () =>
 				agentMenuItems({
 					deployUiSettings: await getDeployUiSettings(),

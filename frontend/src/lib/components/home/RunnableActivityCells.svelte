@@ -3,6 +3,7 @@
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { triggerDisplayNamesMap, triggerIconMapMono } from '$lib/components/triggers/utils'
 	import { displayDate } from '$lib/utils'
+	import { describeSchedule } from '$lib/utils/describeCron'
 	import { twMerge } from 'tailwind-merge'
 	import { getHomeActivity, type ActivityKind } from './homeActivity.svelte'
 
@@ -32,6 +33,17 @@
 		triggers.length > MAX_TRIGGER_ICONS ? triggers.slice(0, MAX_TRIGGER_ICONS - 1) : triggers
 	)
 	let hiddenTriggers = $derived(triggers.slice(visibleTriggers.length))
+	// A runnable whose only trigger is a schedule shows its cadence instead of an icon.
+	let loneSchedule = $derived(
+		triggers.length === 1 && triggers[0].kind === 'schedule' && triggers[0].schedule
+			? triggers[0]
+			: undefined
+	)
+	let loneScheduleText = $derived(
+		loneSchedule?.schedule
+			? (describeSchedule(loneSchedule.schedule, loneSchedule.timezone) ?? loneSchedule.schedule)
+			: undefined
+	)
 
 	type RunStatus = (typeof runs)[number]['status']
 
@@ -59,35 +71,7 @@
 </script>
 
 {#if homeActivity}
-	<div class="hidden lg:flex items-center justify-end gap-0.5 w-[4.5rem] shrink-0">
-		{#each visibleTriggers as trigger (trigger.kind + trigger.path)}
-			<Tooltip>
-				{@render triggerChip(trigger.kind, trigger.mode)}
-				{#snippet text()}
-					{@render triggerLine(trigger)}
-				{/snippet}
-			</Tooltip>
-		{/each}
-		{#if hiddenTriggers.length > 0}
-			<Tooltip>
-				<div
-					class="h-5 min-w-5 px-1 rounded-md bg-surface-secondary text-3xs font-semibold text-secondary center-center"
-				>
-					+{hiddenTriggers.length}
-				</div>
-				{#snippet text()}
-					<div class="flex flex-col gap-1">
-						<span class="font-semibold">{triggers.length} triggers</span>
-						{#each triggers as trigger (trigger.kind + trigger.path)}
-							{@render triggerLine(trigger)}
-						{/each}
-					</div>
-				{/snippet}
-			</Tooltip>
-		{/if}
-	</div>
-
-	<div class="hidden lg:flex w-5 shrink-0 justify-center ml-1.5">
+	<div class="relative z-[1] hidden lg:flex w-5 shrink-0 justify-center">
 		{#if kind}
 			<Tooltip>
 				<a
@@ -124,6 +108,51 @@
 			</Tooltip>
 		{/if}
 	</div>
+
+	<div class="relative z-[1] hidden lg:flex items-center justify-start gap-0.5 w-44 min-w-0 shrink-0">
+		{#if loneSchedule}
+			<Tooltip class="min-w-0">
+				<div
+					class={twMerge(
+						'h-5 px-1.5 rounded-md bg-surface-secondary text-secondary text-2xs flex items-center gap-1 min-w-0',
+						loneSchedule.mode === 'enabled' ? '' : 'opacity-50'
+					)}
+				>
+					{@render triggerIconOnly('schedule')}
+					<span class="truncate">{loneScheduleText}</span>
+				</div>
+				{#snippet text()}
+					{@render triggerLine(loneSchedule)}
+				{/snippet}
+			</Tooltip>
+		{:else}
+			{#each visibleTriggers as trigger (trigger.kind + trigger.path)}
+				<Tooltip>
+					{@render triggerChip(trigger.kind, trigger.mode)}
+					{#snippet text()}
+						{@render triggerLine(trigger)}
+					{/snippet}
+				</Tooltip>
+			{/each}
+			{#if hiddenTriggers.length > 0}
+				<Tooltip>
+					<div
+						class="h-5 min-w-5 px-1 rounded-md bg-surface-secondary text-3xs font-semibold text-secondary center-center"
+					>
+						+{hiddenTriggers.length}
+					</div>
+					{#snippet text()}
+						<div class="flex flex-col gap-1">
+							<span class="font-semibold">{triggers.length} triggers</span>
+							{#each triggers as trigger (trigger.kind + trigger.path)}
+								{@render triggerLine(trigger)}
+							{/each}
+						</div>
+					{/snippet}
+				</Tooltip>
+			{/if}
+		{/if}
+	</div>
 {/if}
 
 {#snippet triggerChip(kind: string, mode: string)}
@@ -140,6 +169,13 @@
 			<span class="text-3xs font-semibold">{kind.slice(0, 1).toUpperCase()}</span>
 		{/if}
 	</div>
+{/snippet}
+
+{#snippet triggerIconOnly(kind: string)}
+	{@const Icon = triggerIcon(kind)}
+	{#if Icon}
+		<Icon size={12} />
+	{/if}
 {/snippet}
 
 {#snippet triggerLine(trigger: { kind: string; path: string; mode: string })}

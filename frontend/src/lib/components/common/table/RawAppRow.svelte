@@ -43,11 +43,13 @@
 	canFavorite={true}
 	{depth}
 >
-	{#snippet badges()}
+	{#snippet sharedBadge()}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 	{/snippet}
 	{#snippet actions()}
 		<Dropdown
+			size="sm"
+			fixedHeight={false}
 			items={async () => {
 				let { path } = app
 

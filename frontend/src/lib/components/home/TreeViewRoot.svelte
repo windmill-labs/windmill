@@ -277,11 +277,8 @@
 		<div class="text-xs font-normal text-hint">No items</div>
 	</div>
 {:else}
-	<!-- Every row draws its own border-b, so the last one would double the frame's bottom border.
-	     Pulling the content 1px down puts that border under the frame, where overflow-hidden
-	     clips it, whichever row (collapsed owner, leaf, expanded subtree) ends the list. -->
-	<div class="border rounded-md bg-surface-tertiary overflow-hidden">
-		<div class="-mb-px">
+	<div>
+		<div>
 			{#each rows.slice(0, nbDisplayed) as row (row.kind === 'otherUsers' ? 'other_users' : 'folderName' in row.node ? `f__${row.node.folderName}` : 'username' in row.node ? `u__${row.node.username}` : `i__${row.node.type}__${row.node.path}`)}
 				{#if row.kind === 'otherUsers'}
 					<!-- Same shape as an owner row, so it reads as part of the tree. It only reveals
@@ -290,7 +287,7 @@
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						onclick={toggleOtherUsers}
-						class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
+						class="px-3 py-2 rounded-md hover:bg-surface-hover w-full flex flex-row items-center justify-between cursor-pointer"
 					>
 						<div class="flex flex-row items-center gap-4">
 							<Users size={16} class="text-secondary" />
@@ -324,7 +321,7 @@
 						{/each}
 						{#if nbOtherUsersDisplayed < otherUsers.length}
 							<div
-								class="pl-8 pr-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+								class="pl-8 pr-4 py-2 flex flex-row items-center justify-between gap-4"
 							>
 								<span class="text-xs text-secondary">
 									Showing {nbOtherUsersDisplayed} of {otherUsers.length} users
@@ -352,7 +349,7 @@
 			     has to read as part of the list to be noticed at all. -->
 				<div
 					bind:this={footerEl}
-					class="px-4 py-3 flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+					class="px-3 py-2 flex flex-row items-center justify-between gap-4"
 				>
 					<span class="text-xs text-secondary">
 						{#if nbDisplayed < rows.length}

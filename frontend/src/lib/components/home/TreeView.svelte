@@ -7,6 +7,7 @@
 	import Item from './Item.svelte'
 	import { countLeaves, type FolderItem, type ItemType, type UserItem } from './treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
+	import { isHomeTable } from './homeTable'
 	import { pluralize } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { Button } from '$lib/components/common'
@@ -71,6 +72,9 @@
 		indent = 0,
 		leaf
 	}: Props = $props()
+
+	// The home table draws no separators between its rows.
+	const separator = isHomeTable() ? 'rounded-md hover:bg-surface-hover' : 'border-b'
 
 	let visualDepth = $derived(depth + indent)
 
@@ -264,7 +268,7 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			onclick={toggleOwner}
-			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
+			class="px-4 py-2 {separator} w-full flex flex-row items-center justify-between cursor-pointer"
 		>
 			<div
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
@@ -321,7 +325,7 @@
 					     it under the same folder; py-2 was visibly shorter. -->
 						<a
 							href="{base}/pipeline/{encodeURIComponent(item.folderName)}"
-							class="flex items-center gap-4 px-4 py-3 border-b text-sm hover:bg-surface-hover transition-colors"
+							class="flex items-center gap-4 px-4 py-3 {separator} text-sm hover:bg-surface-hover transition-colors"
 							style="padding-left: {(visualDepth + 1) * 16}px;"
 						>
 							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
@@ -353,7 +357,7 @@
 					{/each}
 					{#if effectiveMax < item.items.length}
 						<div
-							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+							class="px-4 py-2 {separator} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							style="padding-left: {(visualDepth + 1) * 16}px;"
 						>
 							<!-- Rows, not items: this slices the node's own entries, where a subfolder
@@ -390,7 +394,7 @@
 						     is the point: without them this reads as an optional extra rather than
 						     as rows still missing. -->
 							<div
-								class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+								class="px-4 py-2 {separator} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 								style="padding-left: {(visualDepth + 1) * 16}px;"
 							>
 								<span class="text-xs text-secondary">

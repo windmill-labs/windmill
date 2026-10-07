@@ -1130,6 +1130,11 @@ struct AttachedTrigger {
     path: String,
     /// `enabled` | `disabled` | `suspended`
     mode: String,
+    /// A schedule's cron expression and timezone; absent for every other kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schedule: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timezone: Option<String>,
 }
 
 #[derive(Serialize, Default)]
@@ -1189,30 +1194,31 @@ async fn get_runnables_activity(
          ORDER BY j.created_at DESC"
     );
 
-    let branch = |table: &str, kind: &str, mode: &str| {
+    const NO_CRON: &str = "NULL::text AS schedule, NULL::text AS timezone";
+    let branch = |table: &str, kind: &str, mode: &str, cron: &str| {
         format!(
-            "SELECT '{kind}' AS kind, path, script_path, is_flow, {mode} AS mode FROM {table} \
+            "SELECT '{kind}' AS kind, path, script_path, is_flow, {mode} AS mode, {cron} FROM {table} \
              WHERE workspace_id = $1 AND script_path = ANY($2)"
         )
     };
     let trigger_mode = "mode::text";
     let bool_mode = "CASE WHEN enabled THEN 'enabled' ELSE 'disabled' END";
     let branches = [
-        branch("schedule", "schedule", bool_mode),
-        branch("http_trigger", "http", trigger_mode),
-        branch("websocket_trigger", "websocket", trigger_mode),
-        branch("kafka_trigger", "kafka", trigger_mode),
-        branch("nats_trigger", "nats", trigger_mode),
-        branch("postgres_trigger", "postgres", trigger_mode),
-        branch("mqtt_trigger", "mqtt", trigger_mode),
-        branch("amqp_trigger", "amqp", trigger_mode),
-        branch("sqs_trigger", "sqs", trigger_mode),
-        branch("gcp_trigger", "gcp", trigger_mode),
-        branch("azure_trigger", "azure", trigger_mode),
-        branch("email_trigger", "email", trigger_mode),
+        branch("schedule", "schedule", bool_mode, "schedule, timezone"),
+        branch("http_trigger", "http", trigger_mode, NO_CRON),
+        branch("websocket_trigger", "websocket", trigger_mode, NO_CRON),
+        branch("kafka_trigger", "kafka", trigger_mode, NO_CRON),
+        branch("nats_trigger", "nats", trigger_mode, NO_CRON),
+        branch("postgres_trigger", "postgres", trigger_mode, NO_CRON),
+        branch("mqtt_trigger", "mqtt", trigger_mode, NO_CRON),
+        branch("amqp_trigger", "amqp", trigger_mode, NO_CRON),
+        branch("sqs_trigger", "sqs", trigger_mode, NO_CRON),
+        branch("gcp_trigger", "gcp", trigger_mode, NO_CRON),
+        branch("azure_trigger", "azure", trigger_mode, NO_CRON),
+        branch("email_trigger", "email", trigger_mode, NO_CRON),
         format!(
             "SELECT service_name::text AS kind, COALESCE(NULLIF(summary, ''), external_id) AS path, \
-                    script_path, is_flow, {bool_mode} AS mode FROM native_trigger \
+                    script_path, is_flow, {bool_mode} AS mode, {NO_CRON} FROM native_trigger \
              WHERE workspace_id = $1 AND script_path = ANY($2)"
         ),
     ];

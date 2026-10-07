@@ -236,7 +236,7 @@
 			{/if}
 		</span>
 	{:else}
-		<Badge small color="indigo" class="gap-0.5">
+		<Badge small color="indigo" class="gap-0.5 px-1 py-0">
 			{draft_only ? 'Draft only' : 'Draft'}
 		</Badge>
 	{/if}
