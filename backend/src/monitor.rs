@@ -5679,8 +5679,13 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty());
 
+        // Pausing or resuming must not restart the workers, dedicated ones included: a reload
+        // whose only difference is the flag skips every restart below.
+        let only_pause_changed = wc.paused != config.paused
+            && WorkerConfig { paused: wc.paused, ..config.clone() } == **wc;
+
         if **wc != config || has_dedicated {
-            if kill_if_change {
+            if kill_if_change && !only_pause_changed {
                 if has_dedicated
                     || wc.dedicated_worker != config.dedicated_worker
                     || wc.dedicated_workers != config.dedicated_workers
