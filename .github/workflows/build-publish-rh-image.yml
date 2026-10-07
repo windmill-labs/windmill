@@ -56,11 +56,13 @@ jobs:
           cp ./docker/RHEL9/Dockerfile ./Dockerfile
 
       - name: Build and push EE (multi-arch)
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: true
           build-args: |
             features=ee_rhel
             WM_BUILD_VERSION=${{ github.sha }}
@@ -72,6 +74,12 @@ jobs:
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+      - name: Sign and attest image
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-rhel9
+          digest: ${{ steps.docker_build.outputs.digest }}
 
       - name: Install crane
         uses: imjasonh/setup-crane@v0.4

@@ -53,13 +53,21 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: true
           file: "./docker/DockerfileExtra"
           tags: |
             ${{ steps.meta.outputs.tags }}
           labels: |
             ${{ steps.meta.outputs.labels }}
+
+      - name: Sign and attest image
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-extra
+          digest: ${{ steps.docker_build.outputs.digest }}

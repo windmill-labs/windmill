@@ -58,11 +58,13 @@ jobs:
           cp ./docker/RHEL8/Dockerfile ./Dockerfile
 
       - name: Build and push publicly ee amd64
+        id: docker_build_amd64
         uses: depot/build-push-action@v1
         with:
           context: .
           platforms: linux/amd64
           push: true
+          sbom: true
           build-args: |
             features=ee_rhel
             WM_BUILD_VERSION=${{ github.sha }}
@@ -75,12 +77,20 @@ jobs:
             ${{ steps.meta-ee-public.outputs.labels }}-amd64
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
+      - name: Sign and attest amd64 image
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-rhel8
+          digest: ${{ steps.docker_build_amd64.outputs.digest }}
+
       - name: Build and push publicly ee arm64
+        id: docker_build_arm64
         uses: depot/build-push-action@v1
         with:
           context: .
           platforms: linux/arm64
           push: true
+          sbom: true
           build-args: |
             features=ee_rhel
             WM_BUILD_VERSION=${{ github.sha }}
@@ -92,6 +102,12 @@ jobs:
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}-arm64
             org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+      - name: Sign and attest arm64 image
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-rhel8
+          digest: ${{ steps.docker_build_arm64.outputs.digest }}
 
       - uses: shrink/actions-docker-extract@v3
         id: extract-ee-amd64

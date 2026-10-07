@@ -61,11 +61,13 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Build and push publicly
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: true
           build-args: |
             features=ce_rpi
             WM_BUILD_VERSION=${{ github.sha }}
@@ -75,3 +77,9 @@ jobs:
           labels: |
             ${{ steps.meta-public.outputs.labels }}
             org.opencontainers.image.licenses=AGPLv3
+
+      - name: Sign and attest image
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          digest: ${{ steps.docker_build.outputs.digest }}
