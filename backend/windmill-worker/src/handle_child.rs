@@ -318,9 +318,10 @@ pub async fn handle_child(
 
         // Resolves once the process is reaped, to the last signal it was sent, or to `None`
         // when the kill could not be confirmed. SIGINT and SIGTERM are only sent where the
-        // sends below are compiled in.
-        let unix_signal =
-            |s: &'static str| cfg!(any(target_os = "linux", target_os = "macos")).then_some(s);
+        // sends below are compiled in: elsewhere an exit during their wait is unsignaled.
+        let unix_signal = |s: &'static str| {
+            if cfg!(any(target_os = "linux", target_os = "macos")) { s } else { "none" }
+        };
         let kill = async {
             #[allow(unused_variables)]
             if let Some(id) = child.id() {
@@ -336,7 +337,7 @@ pub async fn handle_child(
                     }
                     if child.try_wait().is_ok_and(|x| x.is_some()) {
                         set_reason.await;
-                        return Ok(unix_signal("SIGINT"));
+                        return Ok(Some(unix_signal("SIGINT")));
                     }
                 }
                 if sigterm {
@@ -351,7 +352,7 @@ pub async fn handle_child(
                     }
                     if child.try_wait().is_ok_and(|x| x.is_some()) {
                         set_reason.await;
-                        return Ok(unix_signal("SIGTERM"));
+                        return Ok(Some(unix_signal("SIGTERM")));
                     }
                 }
             }
@@ -1023,8 +1024,7 @@ where
 
     let conn = conn.clone();
     // No tick at t=0: a job that finishes within the first interval issues none of the
-    // ping/metric statements below. Cancels are picked up by the next job ping, or on an
-    // agent worker by the next cancel check, every 2 s for the whole run. Memory is still
+    // ping/metric statements below. Cancels are picked up by the next job ping. Memory is still
     // sampled at start, without SQL: it is the only `mem_peak` reading a short job gets,
     // and the completed job row reports it.
     let mut interval = interval_at(Instant::now() + update_job_interval, update_job_interval);
