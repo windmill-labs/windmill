@@ -187,16 +187,24 @@
 	)
 	/** Resolved when the button is used, not when it is drawn. */
 	async function openPublicUrl() {
+		// The tab is opened inside the click itself and filled once the secret arrives. Safari only
+		// lets a gesture open the tab it opens synchronously, so opening it after the await is
+		// blocked there — silently, since a blocked popup reports nothing.
+		const tab = window.open('about:blank', '_blank')
 		try {
 			const secret = await AppService.getPublicSecretOfApp({ workspace, path })
 			if (!secret) {
+				tab?.close()
 				sendUserToast('This app has no public url', true)
 				return
 			}
 			// Built from this viewer's workspace rather than the navigation one, like everything
 			// else here: the two differ inside a session's preview panel.
-			window.open(`${window.location.origin}${base}/public/${workspace}/${secret}`, '_blank')
+			const url = `${window.location.origin}${base}/public/${workspace}/${secret}`
+			if (tab) tab.location.href = url
+			else sendUserToast('Allow pop-ups for this site to open the app’s public url', true)
 		} catch (e: any) {
+			tab?.close()
 			sendUserToast('Could not open the public url: ' + (e?.body ?? e?.message ?? e), true)
 		}
 	}
