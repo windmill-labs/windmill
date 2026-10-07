@@ -2609,6 +2609,12 @@ pub async fn handle_python_reqs(
         job_id
     );
 
+    let overrides_index = || {
+        crate::workspace_overrides_registry(w_id, &["pip_index_url", "pip_extra_index_url"])
+    };
+    // Registry settings reload under running jobs. Checked on both sides of reading the
+    // index URLs, so an override dropped in between still scopes the install that uses it.
+    let overrode_index = overrides_index().await;
     let pip_indexes = (
         read_ee_registry_with_workspace_override(
             PIP_EXTRA_INDEX_URL.read().await.clone(),
@@ -2648,10 +2654,7 @@ pub async fn handle_python_reqs(
         }
     }
 
-    let index_scope =
-        crate::workspace_overrides_registry(w_id, &["pip_index_url", "pip_extra_index_url"])
-            .await
-            .then_some(w_id);
+    let index_scope = (overrode_index || overrides_index().await).then_some(w_id);
 
     // Cached paths
     let mut req_with_penv: Vec<(PyLockEntry, String)> = vec![];
