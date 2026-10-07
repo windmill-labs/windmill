@@ -270,7 +270,6 @@
 			<div data-row-actions class="flex gap-2 items-center">
 				{@render actions?.()}
 			</div>
-			{@render favorite()}
 		</div>
 	</div>
 {:else}
@@ -396,6 +395,23 @@
 	{/if}
 {/snippet}
 
+{#snippet inlineFavorite()}
+	{#if kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow'}
+		<div class="relative z-[1] flex items-center shrink-0 -my-1 text-secondary">
+			{#if canFavorite}
+				<Star {kind} {path} {workspaceId} {summary} size={12} yellowWhenStarred revealOnRowHover />
+			{:else}
+				<span
+					class="p-1 opacity-20 invisible group-hover/row:visible"
+					title="Deploy it to add it to favorites"
+				>
+					<StarIcon size={12} />
+				</span>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet rowContent(withIcon: boolean, linked: boolean, inlineBadges = true)}
 	{#if withIcon}
 		<div class="shrink">
@@ -424,6 +440,9 @@
 			{#if !inlineBadges && draftBadge}
 				<!-- The home table keeps the draft marker on the title line. -->
 				<div class="relative z-[1] flex items-center shrink-0">{@render draftBadge()}</div>
+			{/if}
+			{#if homeTable}
+				{@render inlineFavorite()}
 			{/if}
 			{#if inlineBadges && (badges || languageBadge || tagBadges || draftBadge || sharedBadge || labelBadges)}
 				<div class="relative z-[1] hidden lg:flex flex-row gap-1 items-center shrink-0">

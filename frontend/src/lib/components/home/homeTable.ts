@@ -7,7 +7,7 @@ import { getContext, setContext } from 'svelte'
  * triggers and runs cells are hidden, and the template drops them too.
  */
 export const HOME_TABLE_GRID =
-	'grid items-center gap-x-5 grid-cols-[1rem_minmax(0,1fr)_9rem] lg:grid-cols-[1rem_minmax(0,2fr)_minmax(0,1.5fr)_1.25rem_11rem_9rem]'
+	'grid items-center gap-x-5 grid-cols-[1rem_minmax(0,1fr)_6.5rem] lg:grid-cols-[1rem_minmax(0,2fr)_minmax(0,1.5fr)_1.25rem_11rem_6.5rem]'
 
 /** Sub-columns of the badges area: labels · language · type tags · shared. */
 export const HOME_TABLE_BADGE_GRID =

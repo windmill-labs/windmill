@@ -10,9 +10,21 @@
 		summary?: string
 		workspaceId?: string
 		size?: number
+		/** Starred items show in yellow. */
+		yellowWhenStarred?: boolean
+		/** Hidden until the surrounding `group/row` is hovered or focused, unless starred. */
+		revealOnRowHover?: boolean
 	}
 
-	let { path, kind, workspaceId, summary, size = 16 }: Props = $props()
+	let {
+		path,
+		kind,
+		workspaceId,
+		summary,
+		size = 16,
+		yellowWhenStarred = false,
+		revealOnRowHover = false
+	}: Props = $props()
 
 	let buttonHover = $state(false)
 	let starred = $derived(favoriteManager.isStarred(path, kind))
@@ -28,7 +40,13 @@
 	onclick={preventDefault(onClick)}
 	onmouseenter={() => (buttonHover = true)}
 	onmouseleave={() => (buttonHover = false)}
-	class="p-1"
+	class={[
+		'p-1',
+		starred && yellowWhenStarred && 'text-yellow-500',
+		!starred &&
+			revealOnRowHover &&
+			'invisible group-hover/row:visible group-focus-within/row:visible group-data-[row-keyboard-selected=true]/row:visible'
+	]}
 >
 	{#if starred}
 		{#if buttonHover}
