@@ -21,6 +21,7 @@
 		onNavigate,
 		isActiveSession = true,
 		isActiveTab = true,
+		newRawApp = false,
 		isNew = undefined
 	}: {
 		runtime: SessionRuntime
@@ -44,6 +45,9 @@
 		 * tab must not, else chat actions resolve to the wrong item's path.
 		 */
 		isActiveTab?: boolean
+		/** A raw app the new-app builder just started: when nothing exists at `path` yet
+		 * the editor opens on the starter template. */
+		newRawApp?: boolean
 		/** Whether the item is still the template a new-item builder started it on. */
 		isNew?: () => boolean
 	} = $props()
@@ -74,7 +78,7 @@
 	function triggerLoad(): Promise<void> {
 		if (kind === 'flow') return runtime.loadFlow(workspaceId, path)
 		if (kind === 'script') return runtime.loadScript(workspaceId, path)
-		return runtime.loadRawApp(workspaceId, path)
+		return runtime.loadRawApp(workspaceId, path, false, false, newRawApp)
 	}
 
 	function buildCodec(): DraftSyncCodec<any> {

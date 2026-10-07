@@ -7,6 +7,7 @@ import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManage
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
+	ApiError,
 	AppService,
 	FlowService,
 	ScriptService,
@@ -27,10 +28,12 @@ type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScrip
 type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-import { userWorkspaces, workspaceStore } from '$lib/stores'
+import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
+import { random_adj } from '$lib/components/random_positive_adjetive'
 import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-import { emptySchema, type StateStore } from '$lib/utils'
+import { emptySchema, userPathPrefix, type StateStore } from '$lib/utils'
 import {
 	localRunEnded,
 	localRunStarted,
@@ -230,7 +233,10 @@ export interface SessionRuntime {
 		workspace: string,
 		path: string,
 		force?: boolean,
-		deployedOnly?: boolean
+		deployedOnly?: boolean,
+		/** Open the starter template when nothing exists at `path` yet: a new app whose
+		 * setup has not been confirmed. Held in the cell only, nothing is saved. */
+		seedIfMissing?: boolean
 	): Promise<void>
 	/** Register a mounted raw-app preview's log requester, keyed by app path, like
 	 * `registerDomRequester`: build state is per editor, so reads route to the app edited. */
@@ -821,7 +827,13 @@ function createRuntime(session: Session): SessionRuntime {
 
 		rawAppCell,
 
-		async loadRawApp(workspace: string, path: string, force = false, deployedOnly = false) {
+		async loadRawApp(
+			workspace: string,
+			path: string,
+			force = false,
+			deployedOnly = false,
+			seedIfMissing = false
+		) {
 			const { slot, store, saved } = rawAppCell(path)
 			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
 			// See loadScript: forced reload remounts via the render gate.
@@ -951,6 +963,28 @@ function createRuntime(session: Session): SessionRuntime {
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace
 			} catch (err) {
+				if (seedIfMissing && !deployedOnly && err instanceof ApiError && err.status === 404) {
+					const user = get(userStore)
+					saved.val = undefined
+					store.val = {
+						files: { ...react19Template },
+						runnables: structuredClone(STARTER_RUNNABLES),
+						data: { ...DEFAULT_DATA },
+						policy: {
+							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
+							on_behalf_of_email: user?.email,
+							execution_mode: 'publisher'
+						},
+						summary: '',
+						path,
+						// The name a deploy lands on, as the full-page editor suggests one: without
+						// it the app would deploy under its `draft_<uuid>` storage path.
+						draft_path: `${userPathPrefix(user?.username)}${random_adj()}_app`
+					}
+					slot.loadedPath = path
+					slot.loadedWorkspace = workspace
+					return
+				}
 				console.error('Failed to load raw app', err)
 				slot.notFound = true
 			} finally {

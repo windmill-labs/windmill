@@ -1,10 +1,22 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
+	import { base } from '$lib/base'
+	import { goto } from '$lib/navigation'
+	import { sendUserToast } from '$lib/toast'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import RawAppTemplatePicker, {
+		type RawAppBuildMode,
+		type RawAppTemplatePickerResult
+	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
+	import { runtimeRawAppToDraft } from './appDraftCodec'
+	import { withWorkspaceParam } from './sessionMode.svelte'
+	import { deleteSession } from './sessionState.svelte'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
-	import { FRAMEWORK_TEMPLATES } from '$lib/components/raw_apps/templates'
+	import { FRAMEWORK_TEMPLATES, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -53,6 +65,55 @@
 		})
 	})
 	let diffDrawer: DiffDrawer | undefined = $state()
+
+	// A new app arrives here before anything is saved, on the starter template: its setup
+	// is asked over the session it will be built in. Once saved it has been set up, which
+	// is also what a reload sees.
+	let setupSettled = $state(false)
+	const awaitingSetup = $derived(
+		newRawApp &&
+			!setupSettled &&
+			isActiveSession &&
+			active &&
+			cell.slot.loadedPath === path &&
+			!!cell.store.val &&
+			!cell.saved.val
+	)
+
+	async function onSetup(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
+		setupSettled = true
+		const val = cell.store.val
+		if (!val) return
+		const setUp = {
+			...val,
+			files: { ...result.files },
+			runnables: { ...result.runnables, ...structuredClone(STARTER_RUNNABLES) },
+			data: result.data,
+			summary: result.summary,
+			policy: result.policy
+		}
+		cell.store.val = setUp
+		// Saved now rather than on the autosave debounce: both ways out read it back by path.
+		const key = { workspace: workspaceId, itemKind: 'raw_app' as const, path }
+		UserDraft.save('raw_app', path, runtimeRawAppToDraft(setUp), { workspace: workspaceId })
+		await tick()
+		await UserDraftDbSyncer.flush(key)
+		await UserDraft.forcePersist('raw_app', path, { workspace: workspaceId })
+		const saved = UserDraftDbSyncer.getState(key)
+		if (saved.state === 'failed') {
+			sendUserToast(`Could not save the app: ${saved.failureMessage ?? 'unknown error'}`, true)
+			return
+		}
+		if (mode === 'code') {
+			// The session was opened for this app alone; with nothing said in it, it goes.
+			const unused = runtime.manager.displayMessages.length === 0
+			await goto(withWorkspaceParam(`${base}/apps_raw/edit/${path}`, workspaceId))
+			if (unused) deleteSession(runtime.sessionId)
+			return
+		}
+		// Remounts the editor so the preview builds the picked template.
+		await runtime.loadRawApp(workspaceId, path, true)
+	}
 
 	// Path typed in the editor header, surfaced when it differs from the stored
 	// path. Mirror it into the runtime draft as `draft_path` so the rename
@@ -249,6 +310,7 @@
 	{onNavigate}
 	{isActiveSession}
 	isActiveTab={active}
+	{newRawApp}
 	isNew={() => untouchedTemplate}
 	effectivePath={() =>
 		// A raw app's typed rename lives in `draft_path` (`val.path` is the storage
@@ -257,6 +319,10 @@
 		(cell.store.val?.draft_path || cell.store.val?.path) ?? path}
 >
 	{#snippet editor()}
+		<RawAppTemplatePicker
+			bind:open={() => awaitingSetup, (open) => (setupSettled = !open)}
+			onStart={onSetup}
+		/>
 		{#if cell.store.val}
 			<!-- newApp: a draft-only app (no_deployed=true) has a truthy synthesized
 			     savedApp but no deployed row, so it must deploy via createApp — keying
