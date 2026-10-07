@@ -176,24 +176,12 @@
 	// Being cancelled is an outcome like any other, and it is the one the card has to say out
 	// loud: nothing came back, so no other tab can carry it.
 	const outcomeTab = $derived(
-		failed
-			? 'Error'
-			: message.ranElsewhere
-				? 'Handed off'
-				: canceled
-					? ran
-						? 'Cancelled'
-						: 'Not run'
-					: 'Result'
+		failed ? 'Error' : canceled ? (ran ? 'Cancelled' : 'Not run') : 'Result'
 	)
-	// What the tool call ended as, which for a handover is not a cancellation: the job exists,
-	// it is just not this call's to report — the page the reader ran it from has it.
 	const cancelReason = $derived(
-		message.ranElsewhere
-			? `This ${runnableKind} was run from its own page, so this call started no job.`
-			: ran
-				? `This run was cancelled while the ${runnableKind} was running.`
-				: `This run was cancelled before the ${runnableKind} started.`
+		ran
+			? `This run was cancelled while the ${runnableKind} was running.`
+			: `This run was cancelled before the ${runnableKind} started.`
 	)
 	// Streaming opens the tab early: the result is already arriving, and one that appeared
 	// only at the end would hide the thing the user is waiting to read.
@@ -381,11 +369,7 @@
 	// How long it took, which is the one thing the colour cannot say. A run that never started
 	// has no time to give, so its outcome takes the slot — as a word, never "Not run", which
 	// stutters against the "Run <name>" label beside it.
-	// A call the reader settled by running the item on its own page is a decline to this tool
-	// and a run to them: "Cancelled" would say the opposite of what they just watched happen.
-	const outcome = $derived(
-		failed ? 'Failed' : message.ranElsewhere ? 'Handed off' : canceled ? 'Cancelled' : 'Done'
-	)
+	const outcome = $derived(failed ? 'Failed' : canceled ? 'Cancelled' : 'Done')
 	const statusTime = $derived(running ? elapsed : duration || outcome)
 
 	// What the preview button opens changes with the card: the form while the call is still
@@ -409,13 +393,16 @@
 				? ('run' as const)
 				: undefined
 	)
+	// A conversational flow's page has no run form, so opening it is all it can offer: the
+	// run stays on this card, where there is one to confirm.
+	const carries = $derived(asDeployedPage && !runForm?.conversational)
 	const previewTitle = $derived(
 		previewTarget === 'form'
 			? `Open this form in the preview panel: ${path}`
 			: previewTarget === 'deployed'
-				? // Not "and its run form": a chat-enabled flow's deployed page is a conversation,
-					// and nothing here can tell one from an ordinary flow.
-					`Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and confirm this run there: ${path}`
+				? carries
+					? `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and confirm this run there: ${path}`
+					: `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'}: ${path}`
 				: aiChatManager.openRunInPreview
 					? `Open this run in the preview panel: ${path || runnableName}`
 					: `Open this run in a new tab: ${path || runnableName}`
@@ -425,8 +412,10 @@
 		const label = runnableName
 		// The panel now shows what this card was showing, so the card folds away rather than
 		// holding a second copy open in the transcript. Through `toggled`, so it reads as an
-		// ordinary collapse the reader can undo.
-		if (previewTarget === 'deployed') toggled = { id: message.tool_call_id, open: false }
+		// ordinary collapse the reader can undo. Only when the page is taking the run: a page
+		// opened to look at leaves the form here, and folding it away would hide the only
+		// place this call can still be confirmed.
+		if (carries) toggled = { id: message.tool_call_id, open: false }
 		if (previewTarget === 'form') {
 			aiChatManager.openRunForm?.({ toolCallId: message.tool_call_id, label })
 			return
@@ -437,7 +426,7 @@
 				kind: runnableKind === 'flow' ? 'flow' : 'script',
 				path,
 				summary: label,
-				args: aiChatManager.runFormDraft(message.tool_call_id, runForm!).args ?? {}
+				carries
 			})
 			return
 		}
@@ -683,9 +672,7 @@
 										<p class="text-2xs font-medium leading-4 text-secondary">{cancelReason}</p>
 										{#if !ran}
 											<p class="text-2xs leading-4 text-tertiary">
-												{message.ranElsewhere
-													? 'The inputs it was opened with are on the Inputs tab.'
-													: 'The inputs it would have run with are on the Inputs tab.'}
+												The inputs it would have run with are on the Inputs tab.
 											</p>
 										{/if}
 									</div>

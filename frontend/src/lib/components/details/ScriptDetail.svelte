@@ -445,7 +445,7 @@
 		if (!pendingRun || !runForm) return
 		if (seededCallId === pendingRun.toolCallId) return
 		seededCallId = pendingRun.toolCallId
-		runForm.setArgs(pendingRun.args)
+		runForm.setArgs(pendingRun.args ?? {})
 	})
 
 	// Read once on purpose: these args seed the form, so tracking the fragment would

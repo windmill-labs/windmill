@@ -571,6 +571,10 @@ export type RunFormDisplay = {
 	/** What is being run, for the noun the card says it in.
 	 * Absent on cards recorded before flows had a form, which were all scripts. */
 	runnableKind?: 'script' | 'flow'
+	/** The deployed page of this item is a conversation, not a run form — a chat-enabled
+	 * flow. Its page can be opened to look at, but it has no form to confirm this call on, so
+	 * the card keeps the run. */
+	conversational?: boolean
 	/** Of whatever version is about to run: the deployed script, or the draft a test
 	 * previews. Only the rendered form reads it, so it is dropped once one of the flags
 	 * below unmounts that form: kept, every settled card would carry a copy of the schema
@@ -687,10 +691,6 @@ export type ToolDisplayMessage = {
 	/** The user declined: the reject button, a Stop, or a posture switch. Set only there, so
 	 * a decision is distinguishable from every other way a call errors. */
 	declinedByUser?: boolean
-	/** The user settled the call by running the item themselves, elsewhere. Still a decline —
-	 * this tool started nothing — but the run happened, so the card must not call it
-	 * cancelled. */
-	ranElsewhere?: boolean
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -1431,12 +1431,6 @@ export interface ToolCallbacks {
 	 * over. The mirror of `markRunFormStarted`, and the only way a surface that confirmed the
 	 * run can tell that it is over — the call settles with neither a job nor a cancellation. */
 	markRunFormEnded?: (toolId: string) => void
-	/** Why a parked form settled without submitting, when it was not a refusal: a chat flow's
-	 * deployed page has no Run button, so sending the proposed message in its own composer is
-	 * what settles the call — and telling the model it was cancelled would have it report that
-	 * nothing ran. Read once, right after `requestRunArgs` resolves undefined; nothing here
-	 * means the user cancelled. */
-	runFormDeclineReason?: (toolId: string) => string | undefined
 	/** Records a workspace item the tool call created/edited/deleted, by its
 	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
 	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */

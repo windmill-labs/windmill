@@ -94,6 +94,15 @@
 			? (new URL(tab.url, 'http://x').searchParams.get('version') ?? undefined)
 			: undefined
 	)
+	// The chat tool call this tab was opened to answer, read the same way and for the same
+	// reason. Re-pointing the tab rebuilds its url without it, so a tab sent anywhere else —
+	// another item, another version — stops carrying the call rather than answering it from a
+	// page it was never confirmed against.
+	const pendingRunId = $derived(
+		slot.kind === 'viewer'
+			? (new URL(tab.url, 'http://x').searchParams.get('pending_run') ?? undefined)
+			: undefined
+	)
 
 	// The path an editor reports is its deployed one, which a staged rename can make
 	// differ from this tab's — so the view opens on what actually exists.
@@ -389,6 +398,7 @@
 						kind={itemKind}
 						path={itemPath}
 						version={pinnedVersion}
+						{pendingRunId}
 						{workspaceId}
 						tabId={tab.id}
 						container={overlayHostEl}

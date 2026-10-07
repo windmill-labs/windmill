@@ -6090,6 +6090,8 @@ type FormRunSpec = {
 	label?: string
 	/** Whether the bypass posture may answer this form with what it opened with. */
 	autoAcceptable?: boolean
+	/** Whether this item's deployed page is a conversation rather than a run form. */
+	conversational?: boolean
 	background?: boolean
 	detachAfterMs?: number
 	startJob: (submitted: Record<string, any>) => Promise<string>
@@ -6173,6 +6175,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		summary: spec.summary || undefined,
 		kind: spec.kind,
 		runnableKind: spec.contextName,
+		conversational: spec.conversational || undefined,
 		schema: autoAccepted ? undefined : schema,
 		code: autoAccepted ? undefined : spec.code,
 		lang: autoAccepted ? undefined : spec.lang,
@@ -6203,20 +6206,14 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		? await toolCallbacks.requestRunArgs(toolId, form, { autoAccepted })
 		: proposed
 	if (!submitted) {
-		// A page that settled the call by running the item its own way says so; without one
-		// this was a refusal.
-		const handled = toolCallbacks.runFormDeclineReason?.(toolId)
 		toolCallbacks.setToolStatus(toolId, {
-			content: handled ?? `Run of "${spec.path}" cancelled by user`,
+			content: `Run of "${spec.path}" cancelled by user`,
 			isLoading: false,
 			isStreamingArguments: false,
-			error: handled ? 'Handled by user' : 'Cancelled by user',
-			declinedByUser: true,
-			ranElsewhere: !!handled
+			error: 'Cancelled by user',
+			declinedByUser: true
 		})
-		return handled
-			? `${handled} Do not call ${spec.toolName} again unless the user asks for it.`
-			: runFormCancelled(spec.toolName, noun)
+		return runFormCancelled(spec.toolName, noun)
 	}
 
 	const blockedBeforeRun = blockedByPlanMode()
@@ -6377,6 +6374,8 @@ async function runDeployedFlow(
 			schema: (flow.schema as Record<string, any>) ?? {},
 			summary: flow.summary,
 			kind: 'run',
+			// Its deployed page is a conversation with no run form, so the card keeps this run.
+			conversational: flow.value?.chat_input_enabled ?? false,
 			// No code/lang: the dynamic-option pickers come from the deployed flow, not an inline copy.
 			schemaNoun: 'deployed',
 			toolName: 'run_flow',
@@ -6391,6 +6390,11 @@ async function runDeployedFlow(
 					workspace,
 					path: args.path,
 					requestBody: submitted,
+					// A chat-enabled flow is refused without one, and it names a conversation rather
+					// than being a flow argument, so nothing in `args` could carry it. A fresh id:
+					// this run is its own conversation on the flow's page, not a turn appended to
+					// one someone is reading there.
+					memoryId: chatMemoryId(flow.value),
 					// As the flow's own run page does: the form fills the main input schema, and a
 					// preprocessor would take these arguments for a webhook body and hand the flow
 					// its own output instead.

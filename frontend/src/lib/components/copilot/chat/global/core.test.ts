@@ -5396,35 +5396,26 @@ describe('global AI tools', () => {
 		expect(markRunFormEnded).toHaveBeenCalledWith(expect.any(String))
 	})
 
-	// A page that settled the call by running the item its own way — a chat flow, whose page is
-	// a conversation with no Run button — is not a refusal. Told it was cancelled, the model
-	// reports that nothing ran while the run is in that conversation.
-	it('run_flow reports the run when a page settled the call instead of refusing it', async () => {
+	// A chat-enabled flow's deployed page is a conversation with no run form, so it is opened
+	// to look at and the card keeps the run. The card reads this off the form rather than
+	// fetching the flow again.
+	it('run_flow marks a chat-enabled flow as conversational on its form', async () => {
 		vi.mocked(FlowService.getFlowByPath).mockResolvedValue({
 			path: 'f/flows/chat',
-			schema: { properties: { user_message: { type: 'string' } } }
+			schema: { properties: { user_message: { type: 'string' } } },
+			value: { modules: [], chat_input_enabled: true }
 		} as any)
 
 		const statuses: any[] = []
-		const reason = 'The user ran "f/flows/chat" themselves by sending the message.'
-		const answer = await callGlobalTool(
-			'run_flow',
-			{ path: 'f/flows/chat', args: { user_message: 'hi' } },
-			{
-				...toolCallbacks,
-				setToolStatus: (_toolId: string, status: any) => statuses.push(status),
-				requestRunArgs: async () => undefined,
-				runFormDeclineReason: () => reason
-			}
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_flow',
+				{ path: 'f/flows/chat', args: { user_message: 'hi' } },
+				{ ...toolCallbacks, setToolStatus: (_id: string, s: any) => statuses.push(s) }
+			)
 		)
 
-		expect(JobService.runFlowByPath).not.toHaveBeenCalled()
-		expect(answer).toContain(reason)
-		const settled = statuses.at(-1)
-		expect(settled.content).toBe(reason)
-		// Both: the call did start nothing, and the card must still not call that a cancellation.
-		expect(settled.declinedByUser).toBe(true)
-		expect(settled.ranElsewhere).toBe(true)
+		expect(statuses.find((s) => s.runForm)?.runForm?.conversational).toBe(true)
 	})
 
 	// The posture answers wherever it is set, form or no form: what it answers is consent, and a

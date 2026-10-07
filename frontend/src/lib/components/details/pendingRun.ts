@@ -13,8 +13,10 @@ export type PendingRun = {
 	 * mount: a tab already showing this item is reused for the next request, so a latch that
 	 * only remembered "seeded" would leave the previous call's arguments on screen. */
 	toolCallId: string
-	/** What the model proposed, already narrowed to the deployed schema by the tool. */
-	args: Record<string, any>
+	/** What the model proposed, already narrowed to the deployed schema by the tool. The
+	 * draft the card edits, not a copy of it, so the two surfaces fill one set of arguments.
+	 * Gone once the call stops waiting, which a page mid-press outlives. */
+	args: Record<string, any> | undefined
 	/** Take the call, before the form mints a `password` field into an ephemeral workspace
 	 * variable. False means this press runs nothing: plan mode is on, or a press is already
 	 * in flight. Both have to be answered here rather than in {@link submit}, which the form

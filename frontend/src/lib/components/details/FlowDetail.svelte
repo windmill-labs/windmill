@@ -323,10 +323,6 @@
 		conversationId: string,
 		additionalInputs?: Record<string, any>
 	): Promise<string> {
-		// Read before the two round trips below, so what this send settles is the call it was
-		// sent for: another request for this flow can arrive while the job is starting, and
-		// the one that lands later must not be told a message it never proposed was sent.
-		const call = pendingRun
 		// A chat flow's inputs reach the job straight from the composer, with no RunForm in
 		// between to mint a secret as it is typed — so this is the only place a value the
 		// schema marks `password` can become a reference. Without it the literal is stored in
@@ -344,12 +340,6 @@
 			requestBody,
 			skipPreprocessor: true
 		})
-		// The reader ran the flow themselves, which is what the parked call was asking for.
-		// Settle it rather than leaving it waiting on a Run button this page never shows;
-		// submitting instead would have the tool start a second job for the same request.
-		call?.decline(
-			`The user ran "${path}" themselves by sending the message in the flow's own chat, so this call did not start a job. The run is in that conversation.`
-		)
 		return run
 	}
 
@@ -401,51 +391,12 @@
 	// Seeded once per call rather than once per mount: a tab already showing this item is
 	// reused for the next request, so a latch on "seeded" would leave the previous call's
 	// arguments on screen.
-	//
-	// A chat flow has no run form to fill: its page is a conversation, so the proposed
-	// `user_message` goes into the composer for the reader to edit and send, and sending it
-	// settles the call — `runFlowForChat` says so. The composer mounts a flush or two after
-	// the panel, so the effect waits on `composerReady` rather than latching into a void.
-	let flowChat: FlowChat | undefined = $state()
 	let seededCallId: string | undefined = undefined
 	$effect(() => {
-		if (!pendingRun || seededCallId === pendingRun.toolCallId) return
-		if (chatInputEnabled) {
-			if (!flowChat?.composerReady()) return
-			seededCallId = pendingRun.toolCallId
-			// A chat flow's schema can declare more than `user_message`, and a message sent
-			// without the rest would run on saved values or schema defaults — a different run
-			// from the one proposed. These land whether or not the message does.
-			const { user_message: message, ...inputs } = pendingRun.args ?? {}
-			// Minted before they are applied, not only before the run: the composer's inputs
-			// are saved to localStorage as soon as the reader touches any of them, so a
-			// `password` the model proposed as a literal would be written there in the clear.
-			//
-			// The message waits on the same round trip even though it needs nothing from it:
-			// a composer filled ahead of the inputs can be sent ahead of them, and that run
-			// would carry whatever the inputs were before — saved values or schema defaults,
-			// not the proposal the reader just agreed to send.
-			const chat = flowChat
-			const seeding = pendingRun.toolCallId
-			processSecretArgs(inputs, flow?.schema as Schema | undefined, workspace)
-				.then((minted) => {
-					// Only for the call the page is still carrying. Minting outlives the proposal
-					// that started it: the reader can refuse it, and the next request for this flow
-					// can be adopted and seed the same composer meanwhile. Either way these are the
-					// arguments of a proposal that is no longer on screen.
-					if (pendingRun?.toolCallId !== seeding) return
-					chat.applyInputs(minted)
-					// A composer already holding a draft declines, and the message is then dropped
-					// rather than held: injecting it whenever the reader happens to clear their
-					// draft would put words in the box long after they were proposed. The strip
-					// above it still says what was asked for.
-					if (typeof message === 'string' && message) chat.offerMessage(message)
-				})
-				.catch((e) => sendUserToast('Failed to process sensitive args: ' + e, true))
-		} else if (runForm) {
-			seededCallId = pendingRun.toolCallId
-			runForm.setArgs(pendingRun.args)
-		}
+		if (!pendingRun || !runForm) return
+		if (seededCallId === pendingRun.toolCallId) return
+		seededCallId = pendingRun.toolCallId
+		runForm.setArgs(pendingRun.args ?? {})
 	})
 
 	// The dev workspace's editor is not one the session panel can host, so from a preview tab
@@ -908,7 +859,6 @@
 						{#if chatInputEnabled}
 							<!-- Chat Layout with Sidebar -->
 							<FlowChat
-								bind:this={flowChat}
 								onRunFlow={runFlowForChat}
 								{deploymentInProgress}
 								path={flow?.path ?? ''}
@@ -917,16 +867,7 @@
 								flowModules={flow?.value?.modules}
 								wideLayout
 								frame="none"
-							>
-								{#snippet inputPreface()}
-									{#if pendingRun}
-										<InputSelectedBadge
-											inputSelected="pending_run"
-											onReject={() => pendingRun.decline()}
-										/>
-									{/if}
-								{/snippet}
-							</FlowChat>
+							/>
 						{:else}
 							{@const hasSchema =
 								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}

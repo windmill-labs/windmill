@@ -28,6 +28,7 @@
 		kind,
 		path,
 		version,
+		pendingRunId,
 		workspaceId,
 		tabId,
 		container,
@@ -42,6 +43,8 @@
 		path: string
 		/** Deployed version this tab is pinned to, from its URL's `?version=`. */
 		version?: string
+		/** The chat tool call this tab was opened to answer, from its URL's `?pending_run=`. */
+		pendingRunId?: string
 		workspaceId: string
 		/** Whether this side is the one on screen. Hidden sides stay mounted, so this gates
 		 * the window-level keyboard handler — several instances listen on the window. */
@@ -77,11 +80,11 @@
 	// rather than on the card. Read live from the runtime, so it disappears the moment the
 	// call settles — by Run, by Cancel, by a stopped turn or by this tab closing.
 	//
-	// Never on a version: the tool starts its job by path, so it would run the deployed
-	// version while this page shows the one the reader pinned. Picking a version hands the
-	// page back to itself — its own Run executes what is on screen — and the card takes its
-	// form back, which is the only place the call can still be confirmed as proposed.
-	const pendingRun = $derived(version ? undefined : runtime.pendingRunFor(kind, path))
+	// Named by this tab's own url rather than looked up by item, so only the tab opened for
+	// the call carries it. A tab re-pointed anywhere — another version of this item included
+	// — loses the name and hands the call back to the card, which is where it can still be
+	// confirmed as proposed.
+	const pendingRun = $derived(pendingRunId ? runtime.pendingRunFor(pendingRunId) : undefined)
 
 	/** Refetch the deployed item. The host calls this for the reload signals that reach a
 	 * tab from outside it; nothing about becoming visible triggers it, so a form the reader

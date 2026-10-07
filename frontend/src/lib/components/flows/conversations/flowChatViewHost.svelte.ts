@@ -570,10 +570,7 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	}
 	// Typed off the interface: a Svelte component's own type resolves differently
 	// across import specifiers, and the two would then not be assignable.
-	// Reactive, because a caller offering a message has to wait for it: the composer mounts a
-	// flush or two after the panel does, and a reader of this field inside an effect must be
-	// woken when it lands rather than deciding once that there was nowhere to put the message.
-	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] = $state(null)
+	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] = null
 	setAiChatInput: ChatViewHost['setAiChatInput'] = (aiChatInput) =>
 		// Called from the composer's mount effect, and taking what a turn handed back reads the
 		// draft it writes: tracked, that would rerun the effect and hand it back again.
@@ -581,22 +578,6 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 			this.#aiChatInput = aiChatInput
 			this.#takeReturned()
 		})
-
-	/** Whether a composer is mounted and listening for this conversation. Apart from
-	 * `offerMessage`'s own answer because the two mean different things to a caller: not ready
-	 * is worth waiting for, a composer that declined is not. */
-	get composerReady(): boolean {
-		return !!this.#aiChatInput && !this.#disposed
-	}
-
-	/** Put a message in the composer showing this conversation, for the reader to edit and
-	 * send — a chat flow's page has no run form to fill, so this is where a chat tool's
-	 * proposed `user_message` lands. Declines when the composer already holds a draft, so it
-	 * never overwrites what the reader was typing. */
-	offerMessage(text: string): boolean {
-		if (!this.#aiChatInput || this.#disposed) return false
-		return this.#aiChatInput.restoreInstructions(text)
-	}
 
 	/** Whether a composer showing this conversation holds something not sent — text, an
 	 * attachment, a file still being read. Its panel stays mounted for as long as one does:

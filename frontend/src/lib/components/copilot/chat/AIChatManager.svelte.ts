@@ -570,16 +570,18 @@ export class AIChatManager implements ChatViewHost {
 	 * chat card holds. Unset outside a session: a chat-bound form has nowhere else to go,
 	 * so the card hides the control rather than offering a tab that cannot run. */
 	openRunForm?: (a: { toolCallId: string; label: string }) => void
-	/** A DEPLOYED run's form can be confirmed on the item's own page instead of on the card:
-	 * the page takes over this call, so its Run hands the arguments back here and the tool
-	 * still owns the run. Set only where that page can be shown — a session's preview panel —
-	 * so the card hides the control elsewhere. */
+	/** Show a DEPLOYED run's item on its own page. With `carries`, that page is handed this
+	 * call: it shows the same form, and Run there answers the call rather than starting a job
+	 * of its own, so the tool still owns the run. Without it the page is only opened to look
+	 * at — a conversational flow's page has no form to confirm on — and the card keeps the
+	 * run. Set only where that page can be shown, a session's preview panel, so the card
+	 * hides the control elsewhere. */
 	openRunOnDeployedPage?: (a: {
 		toolCallId: string
 		kind: 'script' | 'flow'
 		path: string
 		summary: string
-		args: Record<string, any>
+		carries: boolean
 	}) => boolean
 	closeRunForm?: (toolCallId: string) => void
 	/** Hands that tab from the form to the run it just started, in place: the tab keeps its
@@ -2108,24 +2110,12 @@ export class AIChatManager implements ChatViewHost {
 		return true
 	}
 
-	/** Set by the settler, read once by the waiting tool. Not on the display message: that is
-	 * what the reader sees, and this is what the model is told. */
-	#runFormDeclineReasons = new Map<string, string>()
+	/** The arguments a parked form is waiting on, for a surface showing that form outside the
+	 * card. The draft itself, not a copy: the card and the page edit one set of arguments. */
+	pendingRunFormArgs = (toolId: string): Record<string, any> | undefined =>
+		this.#runForms.get(toolId)?.draft?.args
 
-	runFormDeclineReason = (toolId: string): string | undefined => {
-		const reason = this.#runFormDeclineReasons.get(toolId)
-		this.#runFormDeclineReasons.delete(toolId)
-		return reason
-	}
-
-	/**
-	 * `reason` replaces what the model is told, for the ways out that are not a plain refusal:
-	 * a chat flow's page has no Run button to confirm on, so sending the message there starts
-	 * the run and settles this call — telling the model it was "cancelled" would have it
-	 * report that nothing ran.
-	 */
-	handleRunFormCancel = (toolId: string, reason?: string) => {
-		if (reason) this.#runFormDeclineReasons.set(toolId, reason)
+	handleRunFormCancel = (toolId: string) => {
 		// The card's own copy is settled here rather than only in the tool's fn, which a form
 		// restored from history no longer has: Cancel is that card's one way out, and while it
 		// stays active the whole session reads as needs-confirmation (getSessionChatStatus asks
@@ -2133,8 +2123,8 @@ export class AIChatManager implements ChatViewHost {
 		// alone unmounts the form but leaves the card shimmering.
 		this.#settleRunForm(toolId, undefined, (runForm) => ({
 			isLoading: false,
-			error: reason ? 'Handled by user' : 'Cancelled by user',
-			content: reason ?? `Run of "${runForm.path}" cancelled by user`
+			error: 'Cancelled by user',
+			content: `Run of "${runForm.path}" cancelled by user`
 		}))
 	}
 
@@ -4180,7 +4170,6 @@ export class AIChatManager implements ChatViewHost {
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
 					markRunFormEnded: this.markRunFormEnded,
-					runFormDeclineReason: this.runFormDeclineReason,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
 					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),
