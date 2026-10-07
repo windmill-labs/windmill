@@ -62,7 +62,6 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
-	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -278,17 +277,6 @@
 		return header?.openDiffDrawer()
 	}
 
-	/** Hand this app off to a fresh AI session, seeding `seedPrompt` and sending
-	 * it on arrival. Exposed for the template picker's "Start in AI session": the
-	 * route owns the prompt, but the draft persistence the preview depends on
-	 * lives here. False when there is no path to open yet, so the caller can fall
-	 * back rather than swallow the click. */
-	export async function openInSession(seedPrompt: string): Promise<boolean> {
-		if (!sessionOpen) return false
-		await openSourceInSession(sessionOpen, { seedPrompt, autoSend: true })
-		return true
-	}
-
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
 	let dataTableWhitelist = $derived(buildDataTableWhitelist(dataTableRefsObjects))
@@ -382,6 +370,30 @@
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 	const PREVIEW_SHELL_URL = '/ui_builder/app-preview.html'
+	// The served shell is `CSP: sandbox` (opaque origin), but the editor reads the
+	// preview's DOM and feeds it builds as a same-origin document, so it loads a
+	// per-mount blob: copy instead — the same split as `unsandboxedRawAppHtml`, and
+	// like it with no `<base>`, so the app resolves URLs as it will once deployed.
+	let previewShellUrl: string | undefined = $state(undefined)
+	onMount(() => {
+		let url: string | undefined
+		let destroyed = false
+		fetch(PREVIEW_SHELL_URL)
+			.then((res) => {
+				if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+				return res.text()
+			})
+			.then((html) => {
+				if (destroyed) return
+				url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+				previewShellUrl = url
+			})
+			.catch((e) => sendUserToast(`Could not load the app preview: ${e}`, true))
+		return () => {
+			destroyed = true
+			if (url) URL.revokeObjectURL(url)
+		}
+	})
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
 	let lastBuild: { css: string; js: string } | undefined = undefined
@@ -1550,15 +1562,15 @@
 	 * realm, so only a reload drops the old bundle's timers, listeners and the
 	 * token its client captured at module load. */
 	function restartPreviewRealm() {
-		if (!lastBuild) return // nothing running yet
+		if (!lastBuild || !previewShellUrl) return // nothing running yet
 		previewIframeLoaded = false
-		if (previewIframe) previewIframe.src = PREVIEW_SHELL_URL
+		if (previewIframe) previewIframe.src = previewShellUrl
 		if (externalPreviewWindow && !externalPreviewWindow.closed) {
 			externalPreviewReady = false
 			// User app code can navigate this window elsewhere, which makes its
 			// location cross-origin and unreachable — that document holds no token.
 			try {
-				externalPreviewWindow.location.replace(PREVIEW_SHELL_URL)
+				externalPreviewWindow.location.replace(previewShellUrl)
 			} catch (_) {}
 		}
 	}
@@ -1671,7 +1683,11 @@
 		}
 		// Scope the window name per app path so two open editors don't fight over
 		// (or take over / close) one shared OS-level preview window.
-		const win = window.open(PREVIEW_SHELL_URL, `windmillRawAppPreview:${encodeURIComponent(path)}`)
+		if (!previewShellUrl) {
+			sendUserToast('The app preview is not available', true)
+			return
+		}
+		const win = window.open(previewShellUrl, `windmillRawAppPreview:${encodeURIComponent(path)}`)
 		if (!win) {
 			sendUserToast('Could not open the preview window (popup blocked?)', true)
 			return
@@ -2003,8 +2019,8 @@
 		return () => restores.forEach((r) => r())
 	}
 
-	// Capture the live preview as a PNG data URL. The preview iframe
-	// (/ui_builder/app-preview.html) is same-origin with no sandbox, so its rendered
+	// Capture the live preview as a PNG data URL. The preview iframe (the blob: copy
+	// of the shell) is same-origin with no sandbox, so its rendered
 	// document is reachable and can be serialized from here. There is no native
 	// element-screenshot API; modern-screenshot reconstructs the DOM into an SVG
 	// foreignObject, so a WebGL canvas is only captured when its context was created
@@ -2722,12 +2738,16 @@
 										</div>
 									{/snippet}
 								</DraggableTabs>
-								<iframe
-									bind:this={previewIframe}
-									title="App preview"
-									src={PREVIEW_SHELL_URL}
-									class="w-full flex-1 block"
-								></iframe>
+								<!-- Not mounted before the shell is: a src-less iframe fires `load`
+								     for about:blank, which would mark the preview ready. -->
+								{#if previewShellUrl}
+									<iframe
+										bind:this={previewIframe}
+										title="App preview"
+										src={previewShellUrl}
+										class="w-full flex-1 block"
+									></iframe>
+								{/if}
 								{#if buildError}
 									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
 									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->

@@ -52,6 +52,32 @@ Symbols, not line numbers, are cited: they drift less.
   with that reader's permissions, outside the folder too. `ai_skill` bodies are likewise in play
   for every reader until turned off. The resource ACL is the only control, so granting write on a
   folder grants that influence.
+- **Restricted job tokens** (`job_token_scopes` on scripts and flows): a job's effective scopes
+  are stored on its `job_perms` row at push and minted into its token
+  (`create_token_for_owner`); an empty set is minted as `NO_API_ACCESS_SCOPE`, since
+  `scopes: Some([])` reads as unscoped. Every `push` takes a `scope_ceiling`, and the job gets the
+  ceiling ∩ the target's own setting: flow steps take their flow job's, agent tools their agent's,
+  WAC children their parent's, retries the run they replace, and API pushes the calling job's
+  (`caller_scope_ceiling`) — a scoped user or webhook token caps nothing. The row is swept once a
+  job leaves the queue, so a restart of a completed flow takes the flow's current setting. Schedules,
+  triggers and error/success handlers start from the target's own setting. A restricted token
+  keeps only the runtime routes about its own job (`is_own_job_runtime_route`) and the reads of
+  its own flow run (`flow_run_read_route_job`, checked against its lineage: the orchestrator
+  evaluates a step's `results.x` with the token of the step that just finished). That lineage is
+  trusted, so a restricted job token, even an admin's, can only place a job it starts in its own
+  run (`unclaimable_run_lineage`); a route that
+  authenticates a token itself instead of through the route layer must call
+  `check_job_token_scope`. A restricted job never runs on a dedicated worker, which uses its own
+  unscoped token for every job. `$var:`/`$res:` args are resolved through the API with the job's
+  own token, so they need read scopes. A deploy that omits the setting keeps the deployed value
+  and `null` clears it, so an unaware client cannot drop a restriction; setting one is refused
+  until every worker supports it, since an older worker mints without it. The OIDC
+  `job_token_scopes` claim is the presented token's scopes, not the runnable's setting, so a
+  verifier sees what the job could reach and a token minted without the restriction shows as
+  unrestricted. The setting belongs to
+  the deployed version: an older script hash run by hash runs with that version's setting (a
+  restricted caller still caps it). Write scopes on scripts, flows, schedules or triggers let a
+  job escape its restriction.
 - **A remote deploy token is a credential for another instance**, held per account and workspace
   (`remote_deploy_token`, encrypted under the workspace key, re-keyed by `set_encryption_key`).
   Its `email` references `password(email)` with `ON DELETE/UPDATE CASCADE`, so whatever deletes or

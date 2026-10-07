@@ -357,6 +357,8 @@ fn check_module_value_is_composition_only(
                 }
             }
         }
+        // Runs no code: it sends its inputs to the decision model.
+        FlowModuleValue::AIDecision { tag, .. } => push_tag(tag),
     }
     Ok(())
 }

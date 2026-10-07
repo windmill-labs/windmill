@@ -193,12 +193,17 @@ lazy_static! {
                 ScopeOption {
                     value: "jobs:read".to_string(),
                     label: "Read".to_string(),
-                    requires_resource_path: false,
+                    requires_resource_path: true,
                 },
                 ScopeOption {
                     value: "jobs:write".to_string(),
                     label: "Write".to_string(),
                     requires_resource_path: false,
+                },
+                ScopeOption {
+                    value: "jobs:cancel".to_string(),
+                    label: "Cancel".to_string(),
+                    requires_resource_path: true,
                 },
                 ScopeOption {
                     value: "jobs:run:scripts".to_string(),

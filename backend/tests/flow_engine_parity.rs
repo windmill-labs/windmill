@@ -50,6 +50,7 @@ fn flow_module(id: &str, value: FlowModuleValue) -> FlowModule {
         apply_preprocessor: None,
         pass_flow_input_directly: None,
         debouncing: None,
+        job_token_scopes: None,
     }
 }
 
@@ -2974,6 +2975,7 @@ async fn test_flow_env_marks_sub_flows_only_without_ancestor_env(
                 apply_preprocessor: false,
                 version,
                 labels: None,
+                job_token_scopes: None,
             })
             .run_until_complete(&db, false, port)
             .await;

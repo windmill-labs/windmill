@@ -172,6 +172,7 @@
 	// asynchronously, and a value read after `getScriptByHash` resolves can land before that
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it. A hub script is never writable.
+	const promptForAi = $derived((script?.schema?.prompt_for_ai as string | undefined) ?? '')
 	const can_write = $derived(
 		!isHubScript &&
 			!!script &&
@@ -1107,15 +1108,20 @@
 								</div>
 							{/if}
 
-							{#if script?.schema?.prompt_for_ai !== undefined}
-								<AIFormAssistant
-									instructions={script.schema?.prompt_for_ai as string}
-									onEditInstructions={() => {
-										onNavigate(`/scripts/edit/${script?.path}?metadata_open=true`)
-									}}
-									runnableType="script"
-									path={script?.path}
-								/>
+							{#snippet aiAssistant()}
+								{#if Object.keys(script?.schema?.properties ?? {}).length > 0}
+									<AIFormAssistant
+										instructions={promptForAi}
+										onEditInstructions={can_write && !actingUser?.operator
+											? () => onNavigate(`/scripts/edit/${script?.path}?metadata_open=true`)
+											: undefined}
+										runnableType="script"
+										path={script?.path}
+									/>
+								{/if}
+							{/snippet}
+							{#if promptForAi}
+								{@render aiAssistant()}
 							{/if}
 
 							{#if pendingRun}
@@ -1142,6 +1148,7 @@
 								schedulable={!pendingRun}
 								bind:this={runForm}
 								{jsonView}
+								actions={promptForAi ? undefined : aiAssistant}
 							/>
 						</div>
 

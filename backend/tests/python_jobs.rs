@@ -496,6 +496,28 @@ async def main(x: int):
         );
     }
 
+    // `hasattr` does not swallow the KeyError this `__getattr__` raises; released
+    // `wmill` clients ship an `S3Object` built this way.
+    #[test]
+    fn test_python_execd_result_with_keyerror_getattr() {
+        let script = r#"
+class AttrDict(dict):
+    def __getattr__(self, attr):
+        return self[attr]
+
+def main(x: str):
+    return AttrDict(s3=x)
+"#;
+        let results = run_py_raw_protocol_test(
+            &[("f/test/attr_dict", script)],
+            vec![ProtocolCmd::Execd { args: serde_json::json!({"x": "a/b.txt"}) }],
+        );
+        assert_eq!(
+            results,
+            vec![DedicatedWorkerResult::Success(serde_json::json!({"s3": "a/b.txt"}))]
+        );
+    }
+
     // ==================== Argument Transformation Tests ====================
 
     #[test]
@@ -1278,6 +1300,7 @@ async fn test_python_wac_v2_with_preprocessor(db: Pool<Postgres>) -> anyhow::Res
                     debouncing_settings:
                         windmill_common::runnable_settings::DebouncingSettings::default(),
                     labels: None,
+                    job_token_scopes: None,
                 })
                 .arg("who", json!("alice"))
                 .arg("count", json!(7))

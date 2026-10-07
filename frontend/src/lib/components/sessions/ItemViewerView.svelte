@@ -7,7 +7,7 @@
 	 * is caught here and turned into a move inside the preview panel, so nothing takes
 	 * the browser out of the session.
 	 */
-	import { untrack } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import { base } from '$lib/base'
 	import ScriptDetail from '$lib/components/details/ScriptDetail.svelte'
 	import FlowDetail from '$lib/components/details/FlowDetail.svelte'
@@ -47,6 +47,13 @@
 		 * the window-level keyboard handler — several instances listen on the window. */
 		active?: boolean
 	} = $props()
+
+	// Mounted in the preview panel, outside the chat's own subtree, as PageItemEditorView is:
+	// the detail pages' AI entry points would otherwise offer a session from inside one.
+	setContext(
+		'aiChatManager',
+		untrack(() => runtime.manager)
+	)
 
 	// This reads the deployed version over the API rather than from the editor cell the
 	// chat mutates, so it is the one preview kind that does not self-sync (the invariant

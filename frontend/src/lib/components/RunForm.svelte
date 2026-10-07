@@ -165,8 +165,8 @@
 		 * form is embedded in a page that is not the runnable's own — an AI session preview
 		 * tab — since there the fragment would land on an unrelated URL. */
 		syncArgsToUrl?: boolean
-		/** Controls beside the Run button of a form that cannot schedule, in the row a
-		 *  schedulable one gives its Advanced options. */
+		/** Controls beside the Run button: left of Advanced on a schedulable form, in
+		 *  Advanced's place on one that cannot schedule. */
 		actions?: import('svelte').Snippet
 	}
 
@@ -419,6 +419,7 @@
 						{/snippet}
 					</Popover>
 				</div>
+				{@render actions?.()}
 			</div>
 			{@render unparseableError()}
 			{#if overrideTag}
