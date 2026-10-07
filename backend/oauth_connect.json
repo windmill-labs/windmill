@@ -181,7 +181,9 @@
     "scope_options": [
       { "value": "https://www.googleapis.com/auth/documents", "label": "Read, edit, create and delete documents" },
       { "value": "https://www.googleapis.com/auth/documents.readonly", "label": "Read documents" },
-      { "value": "https://www.googleapis.com/auth/drive.file", "label": "Only files created or opened with this connection" }
+      { "value": "https://www.googleapis.com/auth/drive.file", "label": "Only files created or opened with this connection" },
+      { "value": "https://www.googleapis.com/auth/drive.readonly", "label": "Read, export and search all Drive files and comments" },
+      { "value": "https://www.googleapis.com/auth/drive", "label": "Read, edit, create and delete all Drive files" }
     ],
     "extra_params": {
       "access_type": "offline",

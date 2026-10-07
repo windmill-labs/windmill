@@ -1,6 +1,7 @@
 // This is Monaco's advanced diff engine; it supplies the same multi-line inner ranges.
 import { DefaultLinesDiffComputer } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/defaultLinesDiffComputer/defaultLinesDiffComputer'
 import type { ToolCodeDiff, ToolDisplayMessage } from './shared'
+import { appFileEditorLang } from './appFileEditorLang'
 
 // Builds a diff from a call's own arguments, for the moments the saved `codeDiff` does not
 // exist: while the arguments stream, when the call failed, and for transcripts saved before
@@ -44,30 +45,6 @@ const ARGS_DIFF_BY_TOOL: Record<string, (params: unknown) => ToolCodeDiff | unde
 			diff && { ...diff, lang: appFileEditorLang(language === 'python3' ? 'main.py' : 'main.ts') }
 		)
 	}
-}
-
-const LANGUAGE_BY_APP_FILE_EXTENSION: Record<string, string> = {
-	ts: 'typescript',
-	tsx: 'typescript',
-	mts: 'typescript',
-	js: 'javascript',
-	jsx: 'javascript',
-	mjs: 'javascript',
-	py: 'python',
-	css: 'css',
-	html: 'xml',
-	svelte: 'xml',
-	vue: 'xml',
-	json: 'json',
-	yaml: 'yaml',
-	yml: 'yaml'
-}
-
-// A raw app's backend runnables are named `backend/<key>/main.ts|py`, so their extension
-// picks the language like any frontend file's.
-export function appFileEditorLang(filePath: string | undefined): string {
-	const extension = filePath?.split('/').pop()?.split('.').slice(1).pop()?.toLowerCase()
-	return (extension && LANGUAGE_BY_APP_FILE_EXTENSION[extension]) ?? 'plaintext'
 }
 
 function argumentString(params: unknown, key: string): string | undefined {

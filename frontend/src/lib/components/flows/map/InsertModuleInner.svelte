@@ -253,7 +253,7 @@
 					/>
 					{#if !nestedAgent}
 						<TopLevelNode
-							label="AI decision"
+							label="AI Decision"
 							chevron={false}
 							onSelect={() => {
 								dispatch('pickAiDecisionTool')
@@ -338,7 +338,7 @@
 							}}
 						/>
 						<TopLevelNode
-							label="AI decision"
+							label="AI Decision"
 							onSelect={() => {
 								dispatch('close')
 								dispatch('new', { kind: 'aidecision' })

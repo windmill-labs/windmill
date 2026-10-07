@@ -1068,12 +1068,87 @@ pub async fn start_child_process(
     Ok(child)
 }
 
+/// Which limit a resolved job timeout comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimeoutSource {
+    /// The timeout set on the script or the flow step.
+    Custom,
+    /// What is left of a wall clock that the phases of one job spend down together.
+    RemainingBudget,
+    /// The instance `job_default_timeout` setting.
+    InstanceDefault,
+    /// The instance ceiling (`TIMEOUT`), which no other timeout can exceed.
+    InstanceMax,
+}
+
+impl TimeoutSource {
+    /// How to name a limit of `secs` seconds in a message shown to the job's author.
+    pub fn describe(&self, secs: u64) -> String {
+        match self {
+            TimeoutSource::Custom => {
+                format!("the {secs}s custom timeout set on the script or flow step")
+            }
+            TimeoutSource::RemainingBudget => format!(
+                "the {secs}s left of the job's timeout, which its phases share"
+            ),
+            TimeoutSource::InstanceDefault => format!(
+                "the {secs}s instance default timeout (instance setting 'Default timeout'); set a longer custom timeout on the script or flow step to raise it"
+            ),
+            TimeoutSource::InstanceMax => format!(
+                "the {secs}s instance maximum job duration (TIMEOUT env variable of the worker), which no custom or default timeout can exceed"
+            ),
+        }
+    }
+}
+
+lazy_static! {
+    static ref RUNNING_JOB_CUSTOM_TIMEOUTS: std::sync::Mutex<HashMap<Uuid, Option<i32>>> =
+        std::sync::Mutex::new(HashMap::new());
+}
+
+/// Makes a running job's custom timeout visible to the phases that are not handed it (dependency
+/// resolution, install, build), for as long as the guard lives.
+pub struct RunningJobCustomTimeout(Uuid);
+
+impl RunningJobCustomTimeout {
+    pub fn register(job_id: Uuid, custom_timeout_secs: Option<i32>) -> Self {
+        if let Ok(mut m) = RUNNING_JOB_CUSTOM_TIMEOUTS.lock() {
+            m.insert(
+                job_id,
+                windmill_common::runnable_settings::none_if_non_positive(custom_timeout_secs),
+            );
+        }
+        Self(job_id)
+    }
+}
+
+impl Drop for RunningJobCustomTimeout {
+    fn drop(&mut self) {
+        if let Ok(mut m) = RUNNING_JOB_CUSTOM_TIMEOUTS.lock() {
+            m.remove(&self.0);
+        }
+    }
+}
+
+/// `None` when the job is not registered, `Some(None)` when it runs without a custom timeout.
+fn registered_custom_timeout(job_id: Uuid) -> Option<Option<i32>> {
+    RUNNING_JOB_CUSTOM_TIMEOUTS
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&job_id).copied())
+}
+
+/// Resolves the time limit of one phase of a job and where that limit comes from.
+///
+/// A phase called without a custom timeout runs under the instance default. A job's custom
+/// timeout may only lengthen such a phase, never shorten it: a short run timeout must not kill
+/// a dependency install that the instance default allows.
 pub async fn resolve_job_timeout(
     _conn: &Connection,
     _w_id: &str,
-    _job_id: Uuid,
+    job_id: Uuid,
     custom_timeout_secs: Option<i32>,
-) -> (Duration, Option<String>, bool) {
+) -> (Duration, Option<String>, TimeoutSource) {
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "cloud")]
     let cloud_premium_workspace =
@@ -1091,6 +1166,7 @@ pub async fn resolve_job_timeout(
 
     let global_max_timeout_duration =
         Duration::from_secs(max_job_duration_secs(cloud_premium_workspace));
+    let max_secs = global_max_timeout_duration.as_secs();
 
     // A `custom_timeout_secs <= 0` is not a 0-second limit but "unset": fall through to the
     // default/global-max timeout instead of killing the job immediately.
@@ -1098,31 +1174,92 @@ pub async fn resolve_job_timeout(
         Some(timeout_secs)
             if Duration::from_secs(timeout_secs as u64) < global_max_timeout_duration =>
         {
-            (Duration::from_secs(timeout_secs as u64), warn_msg, true)
+            // A phase handed anything but the job's own custom timeout was handed the rest of a
+            // shared wall clock, whatever limit that clock was started from.
+            let source =
+                if registered_custom_timeout(job_id).is_none_or(|t| t == Some(timeout_secs)) {
+                    TimeoutSource::Custom
+                } else {
+                    TimeoutSource::RemainingBudget
+                };
+            (Duration::from_secs(timeout_secs as u64), warn_msg, source)
         }
         Some(timeout_secs) => {
-            warn_msg = Some(format!("WARNING: Custom job timeout of {timeout_secs} seconds was greater than the maximum timeout. It will be ignored and the max timeout will be used instead"));
+            warn_msg = Some(format!("WARNING: Custom job timeout of {timeout_secs} seconds was greater than the instance maximum job duration of {max_secs} seconds (TIMEOUT env variable of the worker). It will be ignored and the max timeout will be used instead"));
             tracing::warn!(warn_msg);
-            (global_max_timeout_duration, warn_msg, false)
+            (
+                global_max_timeout_duration,
+                warn_msg,
+                TimeoutSource::InstanceMax,
+            )
         }
         None => {
             // fallback to default timeout or max if not set
-            let default_timeout = match JOB_DEFAULT_TIMEOUT.read().await.clone() {
-                None => global_max_timeout_duration,
+            let (default_timeout, source) = match JOB_DEFAULT_TIMEOUT.read().await.clone() {
+                None => (global_max_timeout_duration, TimeoutSource::InstanceMax),
                 Some(default_timeout_secs)
                     if Duration::from_secs(default_timeout_secs as u64)
                         < global_max_timeout_duration =>
                 {
-                    Duration::from_secs(default_timeout_secs as u64)
+                    (
+                        Duration::from_secs(default_timeout_secs as u64),
+                        TimeoutSource::InstanceDefault,
+                    )
                 }
                 Some(default_timeout_secs) => {
-                    warn_msg = Some(format!("WARNING: Default job timeout of {default_timeout_secs} seconds was greater than the maximum timeout. It will be ignored and the global max timeout will be used instead"));
+                    warn_msg = Some(format!("WARNING: Default job timeout of {default_timeout_secs} seconds was greater than the instance maximum job duration of {max_secs} seconds (TIMEOUT env variable of the worker). It will be ignored and the max timeout will be used instead"));
                     tracing::warn!(warn_msg);
-                    global_max_timeout_duration
+                    (global_max_timeout_duration, TimeoutSource::InstanceMax)
                 }
             };
-            (default_timeout, warn_msg, false)
+            let job_custom_timeout = registered_custom_timeout(job_id)
+                .flatten()
+                .map(|secs| Duration::from_secs(secs as u64));
+            let (timeout, source) = lengthen_with_job_custom_timeout(
+                default_timeout,
+                source,
+                job_custom_timeout,
+                global_max_timeout_duration,
+            );
+            (timeout, warn_msg, source)
         }
+    }
+}
+
+fn lengthen_with_job_custom_timeout(
+    phase_timeout: Duration,
+    phase_source: TimeoutSource,
+    job_custom_timeout: Option<Duration>,
+    max_timeout: Duration,
+) -> (Duration, TimeoutSource) {
+    match job_custom_timeout {
+        Some(custom) if custom > phase_timeout && custom < max_timeout => {
+            (custom, TimeoutSource::Custom)
+        }
+        Some(custom) if custom > phase_timeout => (max_timeout, TimeoutSource::InstanceMax),
+        _ => (phase_timeout, phase_source),
+    }
+}
+
+#[cfg(test)]
+mod job_timeout_tests {
+    use super::{lengthen_with_job_custom_timeout, TimeoutSource};
+    use std::time::Duration;
+
+    // A phase that is not handed the job's custom timeout (dependency install, build) runs under
+    // the instance default. The custom timeout may extend it up to the instance max, but a
+    // shorter one must leave it alone.
+    #[test]
+    fn job_custom_timeout_only_lengthens_a_setup_phase() {
+        let s = Duration::from_secs;
+        let default = (s(120), TimeoutSource::InstanceDefault);
+        let resolve = |custom: Option<u64>| {
+            lengthen_with_job_custom_timeout(default.0, default.1, custom.map(s), s(600))
+        };
+        assert_eq!(resolve(None), default);
+        assert_eq!(resolve(Some(240)), (s(240), TimeoutSource::Custom));
+        assert_eq!(resolve(Some(30)), default);
+        assert_eq!(resolve(Some(900)), (s(600), TimeoutSource::InstanceMax));
     }
 }
 
@@ -1517,6 +1654,10 @@ async fn hash_args(
     #[allow(unused)] ignore_s3_path: bool,
 ) {
     if let Some(Json(hm)) = v {
+        // Resolving an AWS OIDC storage mints a token for the job, so each storage is
+        // resolved once however many arguments point into it.
+        #[cfg(feature = "parquet")]
+        let mut storages: HashMap<Option<String>, Option<ObjectStoreResource>> = HashMap::new();
         for k in hm.keys().sorted() {
             hasher.update(k.as_bytes());
             let arg_value = hm.get(k).unwrap();
@@ -1524,18 +1665,21 @@ async fn hash_args(
             #[cfg(feature = "parquet")]
             let etag = match serde_json::from_str::<S3Object>(arg_value.get()).ok() {
                 Some(s3_object) => {
-                    let s3_resource = get_workspace_s3_resource_path(
-                        db,
-                        client,
-                        workspace_id,
-                        s3_object.storage.as_ref(),
-                        job_id,
-                    )
-                    .await
-                    .ok()
-                    .flatten();
-                    match s3_resource {
-                        Some(s3_resource) => get_etag_or_empty(&s3_resource, s3_object).await,
+                    if !storages.contains_key(&s3_object.storage) {
+                        let s3_resource = get_workspace_s3_resource_path(
+                            db,
+                            client,
+                            workspace_id,
+                            s3_object.storage.as_ref(),
+                            job_id,
+                        )
+                        .await
+                        .ok()
+                        .flatten();
+                        storages.insert(s3_object.storage.clone(), s3_resource);
+                    }
+                    match storages.get(&s3_object.storage).and_then(Option::as_ref) {
+                        Some(s3_resource) => get_etag_or_empty(s3_resource, s3_object).await,
                         None => None,
                     }
                 }

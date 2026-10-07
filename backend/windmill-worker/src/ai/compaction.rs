@@ -651,6 +651,7 @@ async fn summarize_prefix(
             .query_builder
             .parse_streaming_response(resp, StreamEventProcessor::new_silent().boxed_sink())
             .await?
+            .without_nul()
     };
 
     match parsed {

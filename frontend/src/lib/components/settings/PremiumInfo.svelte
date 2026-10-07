@@ -37,6 +37,7 @@
 				usedSeats: number
 				owner: string
 				is_past_due: boolean
+				is_canceled?: boolean
 				max_tolerated_executions?: number
 		  }
 		| undefined = $state(undefined)
@@ -164,11 +165,19 @@
 	<div class="flex flex-col gap-1">
 		<SettingsPageHeader
 			title={premiumInfo?.premium && plan
-				? `Plan: ${capitalize(plan)} plan${plan === 'team' ? ' (usage-based)' : ''}`
+				? plan === 'team_canceled'
+					? 'Plan: Team plan (canceled)'
+					: `Plan: ${capitalize(plan)} plan${plan === 'team' ? ' (usage-based)' : ''}`
 				: 'Plan: Free plan'}
 			class="mb-0"
 		/>
-		{#if premiumInfo?.status === 'past_due'}
+		{#if premiumInfo?.is_canceled}
+			<p class="text-base">
+				Your final invoice has been sent. The team plan stays active until the end of the month, up
+				to the {premiumInfo.max_tolerated_executions?.toLocaleString('en-US')} executions paid for,
+				then this workspace moves to the free plan.
+			</p>
+		{:else if premiumInfo?.status === 'past_due'}
 			<p class="text-red-500 text-base">
 				{#if premiumInfo.max_tolerated_executions === undefined || premiumInfo.usage > premiumInfo.max_tolerated_executions}
 					Your last invoice is unpaid, you cannot run any more jobs. Please update your payment

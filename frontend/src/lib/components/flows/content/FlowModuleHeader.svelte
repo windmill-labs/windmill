@@ -82,13 +82,15 @@
 			tag={module.value.tag}
 			on:change={(e) => dispatch('tagChange', e.detail)}
 		/>
-		<Button
-			unifiedSize="sm"
-			variant="subtle"
-			startIcon={{ icon: Save }}
-			on:click={() => dispatch('createScriptFromInlineScript')}
-			iconOnly={true}
-			title="Save to workspace"
-		/>
+		{#if customUi?.saveToWorkspace != false && customUi?.editorBar?.saveToWorkspace != false}
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				startIcon={{ icon: Save }}
+				on:click={() => dispatch('createScriptFromInlineScript')}
+				iconOnly={true}
+				title="Save to workspace"
+			/>
+		{/if}
 	{/if}
 </div>

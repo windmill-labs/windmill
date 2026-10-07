@@ -116,7 +116,9 @@ function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined 
 	if (message.needsConfirmation || message.blockedByPlanMode) return undefined
 	if (message.heldForFolderInstructions) return undefined
 	if (message.runForm || message.inspectedRun || message.userQuestion) return undefined
-	if (message.codeDiff || message.imageUrl || message.webSearchSources) return undefined
+	// An app edit's diff covers one file of many, so it stays a row inside the app's group.
+	if (message.codeDiff && EDIT_TOOLS[message.toolName] !== 'app') return undefined
+	if (message.imageUrl || message.webSearchSources) return undefined
 	if (!message.error && webSearchResultOf(message.result)) return undefined
 	// The user's own refusal is a decision, not a failure to fold away.
 	if (message.declinedByUser) return undefined

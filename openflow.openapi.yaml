@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.824.0
+  version: 1.826.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -1231,9 +1231,9 @@ components:
     AiDecision:
       type: object
       description: |
-        AI decision step: one call to a decision model (TypeSafe's Jev, or Cloudflare's
-        Jev-compatible Clef) that answers typed questions about a state with calibrated
-        probabilities, instead of generating text.
+        AI decision step: one call to a decision model (TypeSafe's Jev, Cloudflare's
+        Jev-compatible Clef, or OpenAI's Decisions API) that answers typed questions about a
+        state with calibrated probabilities, instead of generating text.
         Prefer it over an AI agent to classify, route, score or check something: it is fast,
         cheap and its answers are structured. Its result is { output: { <question name>: answer },
         model, usage }, so a later step reads e.g. results.<id>.output.intent.choice. To route on
@@ -1245,8 +1245,8 @@ components:
           type: object
           description: Input parameters for the decision mapped to their values
           properties:
-            # A provider config whose kind is 'typesafe' (model 'jev-latest' unless pinned) or
-            # 'cloudflare' (model 'clef' or 'clef-flash').
+            # A provider config whose kind is 'typesafe' (model 'jev-latest' unless pinned),
+            # 'cloudflare' (model 'clef' or 'clef-flash') or 'openai' (model 'gpt-6-luna').
             provider:
               $ref: '#/components/schemas/ProviderTransform'
             state:

@@ -77,6 +77,9 @@ pub fn add_root_flow_job_to_otlp(_queued_job: &QueuedJob, _success: bool) {}
 pub fn otel_incr_queue_push_count() {}
 
 #[cfg(not(feature = "private"))]
+pub fn otel_incr_oidc_signature_count(_caller: &'static str) {}
+
+#[cfg(not(feature = "private"))]
 pub fn otel_incr_queue_delete_count() {}
 
 #[cfg(not(feature = "private"))]
@@ -90,6 +93,9 @@ pub fn otel_incr_zombie_delete_count(_count: u64) {}
 
 #[cfg(not(feature = "private"))]
 pub fn otel_set_queue_count(_tag: &str, _count: i64) {}
+
+#[cfg(not(feature = "private"))]
+pub fn otel_set_queue_delay(_tag: &str, _delay_secs: f64) {}
 
 #[cfg(not(feature = "private"))]
 pub fn otel_set_queue_running_count(_tag: &str, _count: i64) {}
