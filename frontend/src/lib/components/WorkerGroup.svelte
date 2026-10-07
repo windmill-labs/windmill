@@ -1245,13 +1245,12 @@
 									}
 								})
 
-								// A saved config without tags inherits them from the worker's environment, and
+								// A group without saved tags inherits them from the worker's environment, and
 								// an explicit empty list would override that: only send one the user asked for.
 								const inheritsTags =
-									config != undefined &&
-									config.worker_tags == undefined &&
-									config.dedicated_worker == undefined &&
-									config.dedicated_workers == undefined &&
+									config?.worker_tags == undefined &&
+									config?.dedicated_worker == undefined &&
+									config?.dedicated_workers == undefined &&
 									nconfig.worker_tags?.length === 0
 								await ConfigService.updateConfig({
 									name: 'worker__' + name,
