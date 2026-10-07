@@ -15372,6 +15372,7 @@ dependencies = [
  "uuid",
  "windmill-api-auth",
  "windmill-api-sse",
+ "windmill-audit",
  "windmill-common",
  "windmill-queue",
 ]
@@ -15617,6 +15618,7 @@ dependencies = [
  "sql-builder",
  "sqlx",
  "tracing",
+ "tracing-subscriber",
  "windmill-common",
 ]
 
