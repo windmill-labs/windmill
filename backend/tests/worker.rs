@@ -4708,25 +4708,28 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let run = |skip_failures: bool| {
+    let failing_loop = |skip_failures: bool| {
+        json!({
+            "id": "loop",
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "static", "value": [1, 2, 3] },
+                "skip_failures": skip_failures,
+                "modules": [{
+                    "id": "a",
+                    "value": {
+                        "input_transforms": {},
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main() { throw new Error('boom'); }",
+                    },
+                }],
+            },
+        })
+    };
+    let run = |loop_step: serde_json::Value| {
         let flow: FlowValue = serde_json::from_value(json!({
-            "modules": [{
-                "id": "loop",
-                "value": {
-                    "type": "forloopflow",
-                    "iterator": { "type": "static", "value": [1, 2, 3] },
-                    "skip_failures": skip_failures,
-                    "modules": [{
-                        "id": "a",
-                        "value": {
-                            "input_transforms": {},
-                            "type": "rawscript",
-                            "language": "deno",
-                            "content": "export function main() { throw new Error('boom'); }",
-                        },
-                    }],
-                },
-            }, {
+            "modules": [loop_step, {
                 "id": "b",
                 "value": {
                     "input_transforms": {},
@@ -4756,10 +4759,23 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
         .fetch_one(&db)
     };
 
-    let stopped = run(false).await;
+    let stopped = run(failing_loop(false)).await;
     let stopped_handler_runs = handler_runs().await?;
-    let skipping = run(true).await;
+    let skipping = run(failing_loop(true)).await;
     let skipping_handler_runs = handler_runs().await? - stopped_handler_runs;
+    // A parallel node counts its iterations' stored status: an iteration that ended on a
+    // recovered failure must still be stored as failed there.
+    let parallel = run(json!({
+        "id": "par",
+        "value": {
+            "type": "forloopflow",
+            "iterator": { "type": "static", "value": [1, 2] },
+            "parallel": true,
+            "skip_failures": false,
+            "modules": [failing_loop(false)],
+        },
+    }))
+    .await;
 
     server.close().await.unwrap();
 
@@ -4777,6 +4793,11 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
         "a loop that skips failures runs every iteration and the following step"
     );
     assert_eq!(skipping_handler_runs, 3);
+
+    assert!(
+        !parallel.json_result().unwrap().to_string().contains("ran_b"),
+        "the parallel loop fails as without recovery, so the step after it must not run"
+    );
     Ok(())
 }
 

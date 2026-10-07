@@ -297,8 +297,8 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     stop_early_override: Option<bool>,
     has_triggered_error_handler: bool,
     /// The failed child's error handler returned `recover: true`. The parent still handles the
-    /// failure as it would any other, so the same steps run; only if that failure ends the
-    /// parent does the parent end as a success.
+    /// failure as it would any other, so the same steps run; only a root flow that this failure
+    /// ends turns green.
     recovered_by_child: bool,
 }
 
@@ -1836,6 +1836,11 @@ pub async fn update_flow_status_after_job_completion_internal(
         };
 
         let failure_step_recovers = is_failure_step && result_has_recover_true(nresult.clone());
+        // An error this flow raises on its own (a stop predicate's error message) is a new
+        // failure that no error handler recovered.
+        if stop_early_err_msg.is_some() {
+            recovered_by_child = false;
+        }
 
         let chat_ai_info = ChatAiInfo {
             chat_input_enabled: old_status.chat_input_enabled.unwrap_or(false),
@@ -1859,6 +1864,10 @@ pub async fn update_flow_status_after_job_completion_internal(
 
     let flow_job = Arc::new(flow_job);
 
+    // An inner flow that ends on a recovered failure stays failed, as parents read their
+    // children's stored status (a parallel node counts its iterations' statuses), so only the
+    // root flow turns green.
+    let ends_root = !(flow_job.is_flow_step() && flow_job.parent_job.is_some());
     let done = if !should_continue_flow {
         {
             let logs = if flow_job.is_canceled() {
@@ -1867,7 +1876,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 format!("Flow job stopped early because of a stop early predicate returning true\n")
             } else if is_failure_step {
                 format!("Flow job completed with error, and error handler was triggered.\nIt completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, failure_step_recovers)
-            } else if !success && recovered_by_child {
+            } else if !success && recovered_by_child && ends_root {
                 format!("Flow job completed with success: the step that failed had its error recovered by the error handler (recover: true)\n")
             } else {
                 format!(
@@ -2068,7 +2077,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             let success = if is_failure_step {
                 success && failure_step_recovers
             } else {
-                success || recovered_by_child
+                success || (recovered_by_child && ends_root)
             };
 
             add_time!(bench, "flow status update 1");
