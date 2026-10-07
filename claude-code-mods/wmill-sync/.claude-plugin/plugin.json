@@ -1,0 +1,14 @@
+{
+  "name": "wmill-sync",
+  "version": "0.1.0",
+  "description": "Shows what differs between this wmill project and its Windmill workspace, with one-press push and pull",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "wmillPath": {
+      "type": "string",
+      "title": "wmill executable",
+      "description": "Path to the wmill CLI when it is not on the PATH Claude Code runs with",
+      "default": "wmill"
+    }
+  }
+}
