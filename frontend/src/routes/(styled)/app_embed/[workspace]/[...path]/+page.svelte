@@ -89,6 +89,7 @@
 		<PublicApp
 			{app}
 			{workspace}
+			user={$userStore}
 			{notExists}
 			{noPermission}
 			jwtError={false}
