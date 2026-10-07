@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Run dbt projects as a first-class Windmill runtime',
+		href: 'https://www.windmill.dev/changelog/dbt-runtime',
+		date: '2026-08-01'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
