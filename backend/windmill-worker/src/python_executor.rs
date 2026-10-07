@@ -2113,29 +2113,42 @@ async fn get_venv_install_lock(venv_p: &str) -> Arc<tokio::sync::Mutex<()>> {
         .clone()
 }
 
-/// Cache directory name of one lockfile entry, also the name of its object-store tarball.
+/// Cache location of one lockfile entry as `(group, name)`: the directory is
+/// `<cache root>/<group>/<name>`, and its object-store tarball is filed the same way.
 ///
 /// The directory is shared by every workspace on the worker, and by every worker through
-/// the object store, so its name has to determine its content. A hash-pinned entry is named
-/// after its hashes, and only an install verified against them writes there. An unpinned
-/// entry is only as trustworthy as the index it came from: `unpinned_scope` keeps a
+/// the object store, so its location has to determine its content. A hash-pinned entry is
+/// named after its hashes, and only an install verified against them writes there. An
+/// unpinned entry is only as trustworthy as the index it came from: `unpinned_scope` keeps a
 /// workspace that overrides the instance index out of the name the others share.
-fn py_cache_dir_name(entry: &PyLockEntry, unpinned_scope: Option<&str>) -> String {
+///
+/// Pinned entries get a group of their own because an unpinned requirement can spell any
+/// directory name, including a pinned one.
+fn py_cache_location(
+    py_version: &PyV,
+    entry: &PyLockEntry,
+    unpinned_scope: Option<&str>,
+) -> (String, String) {
+    let group = py_version.to_cache_dir_top_level(false);
     let req = entry.requirement.as_str();
     let name = req.replace(' ', "").replace('/', "").replace(':', "");
     if !entry.hashes.is_empty() {
         let hashes = entry.hashes.iter().sorted().dedup().join(" ");
-        return format!("{name}-h{}", &calculate_hash(&hashes)[..32]);
+        return (
+            format!("{group}_pinned"),
+            format!("{name}-h{}", &calculate_hash(&hashes)[..32]),
+        );
     }
-    // Dropping `/` and `:` maps distinct URLs to one name (`h.com/ab.whl`, `h.co/mab.whl`).
-    let name = if req.contains(['/', ':']) {
+    // Dropping `/` and `:` maps distinct URLs to one name (`h.com/ab.whl`, `h.co/mab.whl`),
+    // and a bare `..` would name the cache root itself.
+    let name = if req.contains(['/', ':']) || name.trim_matches('.').is_empty() {
         format!("{name}-r{}", &calculate_hash(req)[..16])
     } else {
         name
     };
     match unpinned_scope {
-        Some(w_id) => format!("{name}-ws-{w_id}"),
-        None => name,
+        Some(w_id) => (group, format!("{name}-ws-{w_id}")),
+        None => (group, name),
     }
 }
 
@@ -2646,9 +2659,11 @@ pub async fn handle_python_reqs(
     let mut in_cache = vec![];
     for entry in &requirements {
         let req = entry.requirement.as_str();
-        let py_prefix = &py_version.to_cache_dir(false);
-
-        let venv_p = format!("{py_prefix}/{}", py_cache_dir_name(entry, unpinned_scope));
+        let (group, name) = py_cache_location(&py_version, entry, unpinned_scope);
+        let venv_p = format!(
+            "{}{group}/{name}",
+            *windmill_common::worker::ROOT_CACHE_DIR
+        );
         if metadata(venv_p.clone() + "/.valid.windmill").await.is_ok() {
             // The .valid.windmill marker is written once at creation time, after
             // verify_wheel_record passes on the install/pull paths. It is an empty
@@ -3030,7 +3045,7 @@ pub async fn handle_python_reqs(
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(Error::from(anyhow::anyhow!("S3 pull was canceled"))),
-                        pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level(false), None, false) => {
+                        pull = pull_from_tar(os, venv_p.clone(), py_cache_location(&py_version, &entry, None).0, None, false) => {
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
@@ -3272,7 +3287,7 @@ pub async fn handle_python_reqs(
                 // Send to upload channel for sequential processing
                 let upload_task = PiptarUploadTask {
                     venv_path: venv_p.clone(),
-                    cache_dir: py_version.to_cache_dir_top_level(false),
+                    cache_dir: py_cache_location(&py_version, &entry, None).0,
                 };
 
                 if let Err(e) = PIPTAR_UPLOAD_CHANNEL.send(upload_task) {
@@ -3742,36 +3757,37 @@ mod tests {
     }
 
     #[test]
-    fn test_py_cache_dir_name() {
+    fn test_py_cache_location() {
         let entry = |requirement: &str, hashes: &[&str]| PyLockEntry {
             requirement: requirement.to_string(),
             hashes: hashes.iter().map(|h| h.to_string()).collect(),
         };
-        let name = |e: &PyLockEntry, scope| py_cache_dir_name(e, scope);
+        let py = PyV::from(PyVAlias::Py312);
+        let loc = |e: &PyLockEntry, scope| py_cache_location(&py, e, scope);
 
         // A pinned entry is named after its set of hashes, whatever the workspace.
         let pinned = entry("tiny==0.1.3", &["sha256:aa", "sha256:bb"]);
         assert_eq!(
-            name(&pinned, None),
-            name(
-                &entry("tiny==0.1.3", &["sha256:bb", "sha256:aa"]),
-                Some("ws")
-            )
+            loc(&pinned, None),
+            loc(&entry("tiny==0.1.3", &["sha256:bb", "sha256:aa"]), Some("ws"))
         );
-        assert_ne!(
-            name(&pinned, None),
-            name(&entry("tiny==0.1.3", &["sha256:aa"]), None)
-        );
-        assert_ne!(name(&pinned, None), "tiny==0.1.3");
+        assert_ne!(loc(&pinned, None), loc(&entry("tiny==0.1.3", &["sha256:aa"]), None));
 
         // An unpinned one keeps the shared name only on the instance index.
         let unpinned = entry("tiny==0.1.3", &[]);
-        assert_eq!(name(&unpinned, None), "tiny==0.1.3");
-        assert_eq!(name(&unpinned, Some("ws")), "tiny==0.1.3-ws-ws");
+        assert_eq!(loc(&unpinned, None).1, "tiny==0.1.3");
+        assert_eq!(loc(&unpinned, Some("ws")).1, "tiny==0.1.3-ws-ws");
 
+        // An unpinned requirement spelling a pinned entry's name lands elsewhere.
+        let (pinned_group, pinned_name) = loc(&pinned, None);
+        let (group, name) = loc(&entry(&pinned_name, &[]), None);
+        assert_eq!(name, pinned_name);
+        assert_ne!(group, pinned_group);
+
+        assert_ne!(loc(&entry("..", &[]), None).1, "..");
         assert_ne!(
-            name(&entry("p @ https://h.com/ab.whl", &[]), None),
-            name(&entry("p @ https://h.co/mab.whl", &[]), None)
+            loc(&entry("p @ https://h.com/ab.whl", &[]), None),
+            loc(&entry("p @ https://h.co/mab.whl", &[]), None)
         );
     }
 
