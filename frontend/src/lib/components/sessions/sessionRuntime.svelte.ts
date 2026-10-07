@@ -601,6 +601,10 @@ function createRuntime(session: Session): SessionRuntime {
 		return {
 			toolCallId,
 			args: manager.pendingRunFormArgs(toolCallId),
+			// Read here rather than on the page, so the page's own `$derived` rebuilds when the
+			// posture changes while its form sits open.
+			planModeActive: manager.planModeActive,
+			handBack: (args) => manager.setRunFormArgs(toolCallId, args),
 			// Both guards belong ahead of the form's own `processSecretArgs`, which writes
 			// ephemeral variables to the workspace: plan mode can be switched on while the form
 			// sits here, and a second press would mint a second set of them.

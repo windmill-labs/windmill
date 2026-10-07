@@ -2110,10 +2110,17 @@ export class AIChatManager implements ChatViewHost {
 		return true
 	}
 
-	/** The arguments a parked form is waiting on, for a surface showing that form outside the
-	 * card. The draft itself, not a copy: the card and the page edit one set of arguments. */
+	/** What a parked form is waiting on, for a surface showing that form outside the card. */
 	pendingRunFormArgs = (toolId: string): Record<string, any> | undefined =>
 		this.#runForms.get(toolId)?.draft?.args
+
+	/** Take over what the form is waiting on, for a surface handing the call back with what
+	 * the reader typed into it. A snapshot for the same reason the draft is one: these are
+	 * `$state` proxies off another component, and the draft must not alias them. */
+	setRunFormArgs = (toolId: string, args: Record<string, any>) => {
+		const entry = this.#runForms.get(toolId)
+		if (entry) entry.draft.args = ($state.snapshot(args) ?? {}) as Record<string, any>
+	}
 
 	handleRunFormCancel = (toolId: string) => {
 		// The card's own copy is settled here rather than only in the tool's fn, which a form

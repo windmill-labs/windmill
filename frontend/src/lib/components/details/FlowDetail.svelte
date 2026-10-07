@@ -399,6 +399,16 @@
 		runForm.setArgs(pendingRun.args ?? {})
 	})
 
+	// The form here is a copy, so what the reader typed into it would be lost when the call
+	// goes back to the card — the card would then offer, and run, the arguments this page
+	// opened with. Written on the way out rather than per keystroke: one hand-back, whether
+	// the tab closed, was re-pointed, or the reader picked a version.
+	$effect(() => {
+		const call = pendingRun
+		if (!call) return
+		return () => call.handBack(args ?? {})
+	})
+
 	// The dev workspace's editor is not one the session panel can host, so from a preview tab
 	// it opens in a new browser tab, as the session editors' own entry does.
 	function editInFork(e: Event | undefined, itemPath: string) {
@@ -936,6 +946,7 @@
 									runnable={flow}
 									{runAction}
 									claimRun={pendingRun}
+									noHelperScript={pendingRun?.planModeActive}
 									bind:args
 									schedulable={!pendingRun}
 									bind:this={runForm}

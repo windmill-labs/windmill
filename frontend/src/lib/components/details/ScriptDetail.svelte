@@ -448,6 +448,16 @@
 		runForm.setArgs(pendingRun.args ?? {})
 	})
 
+	// The form here is a copy, so what the reader typed into it would be lost when the call
+	// goes back to the card — the card would then offer, and run, the arguments this page
+	// opened with. Written on the way out rather than per keystroke: one hand-back, whether
+	// the tab closed, was re-pointed, or the reader picked a version.
+	$effect(() => {
+		const call = pendingRun
+		if (!call) return
+		return () => call.handBack(args ?? {})
+	})
+
 	// Read once on purpose: these args seed the form, so tracking the fragment would
 	// overwrite what the user has typed whenever it changes.
 	let hash = untrack(() => locationHash)
@@ -1144,6 +1154,7 @@
 								runnable={script}
 								{runAction}
 								claimRun={pendingRun}
+								noHelperScript={pendingRun?.planModeActive}
 								bind:args
 								schedulable={!pendingRun}
 								bind:this={runForm}

@@ -13,10 +13,16 @@ export type PendingRun = {
 	 * mount: a tab already showing this item is reused for the next request, so a latch that
 	 * only remembered "seeded" would leave the previous call's arguments on screen. */
 	toolCallId: string
-	/** What the model proposed, already narrowed to the deployed schema by the tool. The
-	 * draft the card edits, not a copy of it, so the two surfaces fill one set of arguments.
-	 * Gone once the call stops waiting, which a page mid-press outlives. */
+	/** What the form is waiting on: the model's proposal, or whatever the card was last left
+	 * holding. Gone once the call stops waiting, which a page mid-press outlives. */
 	args: Record<string, any> | undefined
+	/** Whether the chat is in plan mode, which promised no runs. The page is standing in for
+	 * a chat card, so it owes that promise too — and the dynamic-select helper runs its job on
+	 * mount, where nothing about confirming the run can gate it. */
+	planModeActive: boolean
+	/** Give the call back holding what the reader typed here, so the card they return to
+	 * offers those arguments rather than the ones this page opened with. */
+	handBack: (args: Record<string, any>) => void
 	/** Take the call, before the form mints a `password` field into an ephemeral workspace
 	 * variable. False means this press runs nothing: plan mode is on, or a press is already
 	 * in flight. Both have to be answered here rather than in {@link submit}, which the form
@@ -31,8 +37,6 @@ export type PendingRun = {
 	submit: (args: Record<string, any>) => boolean
 	/** Refuse the call, as the card's Cancel does. Not an undo of the prefill: there is
 	 * nothing to restore it to, and leaving the call parked with an emptied form would strand
-	 * the turn. `reason` is what the model is told instead of "cancelled" — for the page that
-	 * settles the call by running the item some other way, where reporting a refusal would
-	 * have the model say nothing ran. */
-	decline: (reason?: string) => void
+	 * the turn. */
+	decline: () => void
 }
