@@ -649,6 +649,10 @@ pub async fn delete_own_draft_for_path(
 /// copied. With `items = None` this is the fork-time clone: every row of `email` plus the legacy
 /// NULL-email row. With `items`, only `email`'s own rows at those `(kind, path)` pairs.
 ///
+/// No authorization here. The caller MUST have checked that `target` is a fork of `source`, that
+/// the credential behind `email` may act on `target`, and that it may write each copied path
+/// there. Secret values are copied as encrypted, so the two workspaces must share a key.
+///
 /// A plain INSERT: the caller guarantees the target holds none of the copied rows (an empty
 /// fork, or a conflict check under the same transaction), else `draft_pkey_with_user` aborts it.
 /// `created_at` is preserved so the per-tab `last_sync` baseline the editor reads lines up with

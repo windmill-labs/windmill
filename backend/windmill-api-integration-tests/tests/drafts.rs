@@ -345,6 +345,23 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
         { "kind": "script", "path": "u/test-user/b" }
     ]);
 
+    // A token bound to the source authenticates on its routes but must not write the fork.
+    sqlx::query(
+        "INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, workspace_id)
+         VALUES (encode(sha256('BOUND_TOKEN'::bytea), 'hex'), 'BOUND_TOK', 'BOUND_TOKEN', $1, 'bound', true, $2)",
+    )
+    .bind(me)
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    let r = client_for("BOUND_TOKEN")
+        .post(&transfer_url)
+        .json(&json!({ "target_workspace": fork, "items": items }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 403);
+    assert_eq!(fork_count("u/test-user/b").await?, 0);
+
     // `a` was cloned into the fork: the whole transfer is refused and nothing moves.
     let body: serde_json::Value = c
         .post(&transfer_url)

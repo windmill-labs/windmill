@@ -449,6 +449,7 @@
 				.catch((e) => console.error('Failed to persist the move note', e))
 			runtime?.manager.rebuildGlobalSystemMessage()
 			sendUserToast(`Session moved to ${req.targetName}`)
+			if (res.warning) sendUserToast(res.warning, true)
 		} finally {
 			moving = false
 			releaseAutoResume?.()

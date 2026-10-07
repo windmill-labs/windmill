@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM token WHERE token_hash = $1\n                 AND (expiration > NOW() OR expiration IS NULL)\n                 AND (workspace_id IS NULL OR workspace_id = $2))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "104a1aac6325f763f4ae8c42ad008f824419f2d2c161b1fd44844f0c6ff07d8c"
+}

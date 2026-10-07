@@ -12,7 +12,7 @@ import { materializeFork, moveSessionToWorkspace, type PendingFork } from './ses
 export type MoveTarget = { kind: 'existing'; id: string } | { kind: 'new'; fork: PendingFork }
 
 export type MoveSessionResult =
-	| { ok: true; forkId: string; copied: number; removed: number }
+	| { ok: true; forkId: string; copied: number; removed: number; warning?: string }
 	| { ok: false; error: string; conflicts?: DraftItemRef[] }
 
 /**
@@ -41,8 +41,9 @@ export async function flushPendingSaves(workspace: string): Promise<string | und
  * leaves it acting on the parent with its drafts intact.
  *
  * A new fork already receives every draft of the user through the fork clone, so only an
- * existing fork needs the copy. Retrying a failed new-fork move with the same `target` is
- * safe: `materializeFork` adopts the fork it created the first time.
+ * existing fork needs the copy. Once a new fork exists the move always completes: a retry
+ * would adopt that fork without cloning again, and then remove parent drafts saved after the
+ * clone. Removing the parent's copies is therefore best-effort there, reported as `warning`.
  */
 export async function moveSessionToFork(
 	sessionId: string,
@@ -64,19 +65,23 @@ export async function moveSessionToFork(
 	let forkId: string
 	let copied = 0
 	let removed = 0
+	let warning: string | undefined
 	try {
 		if (target.kind === 'new') {
 			const created = await materializeFork(target.fork)
 			if (!created) return { ok: false, error: 'Could not create the fork' }
-			if (opts.isBusy?.()) return busy
 			forkId = created
 			copied = opts.items.length
 			if (opts.removeFromParent && opts.items.length > 0) {
-				const res = await DraftService.transferDrafts({
-					workspace: parent,
-					requestBody: { items: opts.items, remove_from_source: true }
-				})
-				removed = res.removed.length
+				try {
+					const res = await DraftService.transferDrafts({
+						workspace: parent,
+						requestBody: { items: opts.items, remove_from_source: true }
+					})
+					removed = res.removed.length
+				} catch (e: any) {
+					warning = `The drafts are in the fork but could not be removed from ${parent}: ${e?.body ?? e?.message ?? e}`
+				}
 			}
 		} else {
 			forkId = target.id
@@ -104,7 +109,7 @@ export async function moveSessionToFork(
 		return { ok: false, error: String(e?.body ?? e?.message ?? e) }
 	}
 
-	if (opts.removeFromParent) {
+	if (removed > 0) {
 		for (const it of opts.items) UserDraft.forgetLocal(it.kind, it.path, { workspace: parent })
 	}
 	await moveSessionToWorkspace(sessionId, forkId)
@@ -117,5 +122,5 @@ export async function moveSessionToFork(
 		entityId: sessionId,
 		workspace: forkId
 	})
-	return { ok: true, forkId, copied, removed }
+	return { ok: true, forkId, copied, removed, warning }
 }

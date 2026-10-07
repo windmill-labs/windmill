@@ -961,6 +961,7 @@ pub struct TransferDraftsResponse {
 /// in the target.
 async fn transfer_drafts(
     authed: ApiAuthed,
+    tokened: crate::auth::Tokened,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
@@ -990,6 +991,32 @@ async fn transfer_drafts(
                 "{target} is not a fork of {w_id}"
             )));
         }
+        // Authentication checked the token against `w_id` only. A token bound to that
+        // workspace, or a job token (not in `token`), must not reach into the fork.
+        let token_valid_for_target = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM token WHERE token_hash = $1
+                 AND (expiration > NOW() OR expiration IS NULL)
+                 AND (workspace_id IS NULL OR workspace_id = $2))",
+            windmill_common::auth::hash_token(&tokened.token),
+            target,
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+        if !token_valid_for_target {
+            return Err(Error::PermissionDenied(format!(
+                "this token cannot act on {target}"
+            )));
+        }
+        // Secret variable drafts hold values encrypted with the source workspace's key.
+        if items.iter().any(|(k, _)| *k == UserDraftItemKind::Variable)
+            && windmill_common::variables::get_workspace_key(&w_id, &db).await?
+                != windmill_common::variables::get_workspace_key(target, &db).await?
+        {
+            return Err(Error::BadRequest(format!(
+                "{target} has a different encryption key than {w_id}, so variable drafts cannot be copied to it"
+            )));
+        }
         // `authed` speaks for this workspace only; the copy writes into the fork, so its
         // rights there are loaded separately. A non-member gets an empty authed, not an error.
         let target_authed =
@@ -1012,6 +1039,19 @@ async fn transfer_drafts(
     }
 
     let mut tx = db.begin().await?;
+    // Holds off a concurrent save of these rows, so the version removed below is the one copied.
+    sqlx::query!(
+        r#"SELECT 1 AS "one" FROM draft
+           WHERE workspace_id = $1 AND email = $2
+             AND (typ::text, path) IN (SELECT * FROM unnest($3::text[], $4::text[]))
+           FOR UPDATE"#,
+        &w_id,
+        &authed.email,
+        &kinds as &[&str],
+        &paths as &[&str],
+    )
+    .fetch_all(&mut *tx)
+    .await?;
     let mut copied = vec![];
     if let Some(target) = req.target_workspace.as_deref() {
         let conflicts = sqlx::query!(
