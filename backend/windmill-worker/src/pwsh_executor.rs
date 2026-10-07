@@ -658,17 +658,10 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     write_file(job_dir, "main.ps1", content.as_str())?;
 
-    // The worker reads job output as UTF-8, while pwsh writes it in the console code
-    // page, which on Windows is not UTF-8 (e.g. CP850). main.ps1 runs in this
-    // process, so this covers its output too.
-    let utf8_output = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n\
-    $OutputEncoding = [Console]::OutputEncoding\n";
-
     let has_common_params = !ps_preferences.is_empty();
     let wrapper_content = if has_common_params {
         format!(
-            "{utf8_output}\
-    $ErrorActionPreference = 'Stop'\n\
+            "$ErrorActionPreference = 'Stop'\n\
     $pipe = New-TemporaryFile\n\
     ./main.ps1 {pwsh_args} 4>verbose.log 5>debug.log 2>&1 | Tee-Object -FilePath $pipe\n\
     Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
@@ -679,8 +672,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         )
     } else {
         format!(
-            "{utf8_output}\
-    $ErrorActionPreference = 'Stop'\n\
+            "$ErrorActionPreference = 'Stop'\n\
     $pipe = New-TemporaryFile\n\
     ./main.ps1 {pwsh_args} 2>&1 | Tee-Object -FilePath $pipe\n\
     Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
