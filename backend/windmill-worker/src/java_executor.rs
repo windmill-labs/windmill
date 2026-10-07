@@ -607,12 +607,8 @@ async fn compile<'a>(
         job,
         conn,
         job_dir,
-        client,
-        envs,
-        base_internal_url,
         inner_content,
         requirements_o,
-        parent_runnable_path,
         modules,
         ..
     }: &mut JobHandlerInput<'a>,
@@ -636,8 +632,6 @@ async fn compile<'a>(
         );
         crate::worker::artifact_cache_name(base, modules)
     }
-    let reserved_variables =
-        get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
     let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
     let mut hash = compute_hash(inner_content, *requirements_o, *modules);
     hash.push_str(&ws_suffix);
@@ -674,13 +668,12 @@ async fn compile<'a>(
             } else {
                 JAVAC_PATH.as_str()
             });
+            // javac runs annotation processors found in the dependency jars, and the compiled
+            // output is cached across jobs: no job env or reserved variable (WM_TOKEN) goes here.
             cmd.env_clear()
                 .current_dir(job_dir.to_owned())
                 .env("PATH", PATH_ENV.as_str())
                 .env("HOME", &*JAVA_HOME_DIR)
-                .env("BASE_INTERNAL_URL", base_internal_url)
-                .envs(envs)
-                .envs(reserved_variables)
                 .envs(PROXY_ENVS.clone())
                 .args(&[
                     "-classpath",
