@@ -390,10 +390,18 @@
 
 	// The form here is a copy, so what the reader typed into it would be lost when the call
 	// goes back to the card — the card would then offer, and run, the arguments this page
-	// opened with. Written on the way out rather than per keystroke: every way the page stops
-	// carrying a call and still holds edits destroys it, since the tab either closes or
-	// changes url, and `loadKey` remounts on that.
-	onDestroy(() => pendingRun?.handBack(args ?? {}))
+	// opened with. Written on the way out rather than per keystroke.
+	//
+	// Destroy covers the ways out that carry edits: the tab closes, or its url changes and
+	// `loadKey` remounts. Not the next call re-pointing this same tab, which swaps the form
+	// under a page that stays mounted; that page's edits are its own and go no further.
+	//
+	// Only once a form has held them. `args` is undefined until `RunForm` initialises, so a
+	// tab closed while the item is still being fetched would otherwise hand the card an empty
+	// object and wipe the proposal it is still parked on.
+	onDestroy(() => {
+		if (args !== undefined) pendingRun?.handBack(args)
+	})
 
 	// The dev workspace's editor is not one the session panel can host, so from a preview tab
 	// it opens in a new browser tab, as the session editors' own entry does.
