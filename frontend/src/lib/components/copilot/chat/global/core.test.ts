@@ -5569,6 +5569,67 @@ describe('global AI tools', () => {
 		).resolves.toBe(code)
 	})
 
+	// A tool awaits other work between the dispatch resolving its target and its write —
+	// `write_flow` waits on the provider catalog. If the user edits an inline script and saves
+	// in that window, restoring an `inline_script.<id>` placeholder from anything the dispatch
+	// read would put the old body back.
+	it('restores an inline script from the current draft, not the one resolution saw', async () => {
+		const path = 'u/admin/draft_inline_race'
+		const flowWith = (code: string) => ({
+			path,
+			draft_path: 'f/team/raced_flow',
+			summary: 'Raced',
+			value: {
+				modules: [
+					{
+						id: 'call_api',
+						value: { type: 'rawscript', language: 'bun', content: code, input_transforms: {} }
+					}
+				]
+			}
+		})
+		seedBackendDraft('flow', path, flowWith('export async function main() { return 1 }'), {
+			workspace: WORKSPACE
+		})
+
+		const args = {
+			path,
+			summary: 'Reordered',
+			modules: JSON.stringify([
+				{
+					id: 'call_api',
+					value: {
+						type: 'rawscript',
+						language: 'bun',
+						content: 'inline_script.call_api',
+						input_transforms: {}
+					}
+				}
+			])
+		}
+		const tool = getGlobalTool('write_flow')
+		const target = await tool.draftTarget?.({ args, workspace: WORKSPACE })
+
+		// The user saves a new body while the tool is still awaiting.
+		seedBackendDraft('flow', path, flowWith('export async function main() { return 2 }'), {
+			workspace: WORKSPACE
+		})
+
+		await tool.fn({
+			args,
+			workspace: WORKSPACE,
+			helpers: {},
+			toolCallbacks,
+			toolId: 'test-race',
+			target
+		})
+
+		const saved = getBackendDraft<any>('flow', path, { workspace: WORKSPACE })
+		expect(saved?.value?.modules?.[0]?.value?.content).toBe(
+			'export async function main() { return 2 }'
+		)
+	})
+
 	it('writes flows with flow-mode arguments and reads compact flow value', async () => {
 		const writeResult = JSON.parse(
 			await callGlobalTool('write_flow', {

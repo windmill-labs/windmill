@@ -248,6 +248,7 @@ import {
 	itemKindFor,
 	chosenDraftName,
 	listGlobalDrafts,
+	liveGlobalDraftDisplayPath,
 	liveGlobalDraftStoragePath,
 	type DraftTarget,
 	readGlobalDraftValue,
@@ -4808,14 +4809,16 @@ function draftTarget(
 /** The name the addressed draft deploys under, known before the write from the value the
  * dispatch already read. Falls back to the addressed path when no draft was found there. */
 function addressedDisplayPath(
+	workspace: string,
 	target: ResolvedDraftTarget,
 	type: WorkspaceItemType,
 	triggerKind?: TriggerKind
 ): string {
-	const itemKind = itemKindFor(type, triggerKind)
-	const name =
-		itemKind && target.value !== undefined ? chosenDraftName(itemKind, target.value) : undefined
-	return name ?? target.path
+	// From the open editor, which holds the freshest name and answers without a request. A
+	// draft no editor holds falls back to the path the call named; the write's own result
+	// names it properly once the value has been read.
+	const live = liveGlobalDraftDisplayPath(workspace, type, target.storagePath, triggerKind)
+	return live === target.storagePath ? target.path : live
 }
 
 /** The draft this call addresses. Failing here beats writing to a path that was never
@@ -5521,7 +5524,7 @@ async function writeDraft<T, A>(
 ): Promise<string> {
 	const { workspace } = ctx
 	const target = draftTargetOf(ctx)
-	startDraftWrite(ctx, type, addressedDisplayPath(target, type, opts.triggerKind))
+	startDraftWrite(ctx, type, addressedDisplayPath(workspace, target, type, opts.triggerKind))
 
 	const existingDraft = await readGlobalDraftValue<T>(workspace, type, target, {
 		triggerKind: opts.triggerKind
@@ -7006,7 +7009,7 @@ async function writeAppFile(
 	assertNotGeneratedAppFile(target.filePath)
 
 	const draft = draftTargetOf(ctx)
-	const appName = addressedDisplayPath(draft, 'app')
+	const appName = addressedDisplayPath(workspace, draft, 'app')
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Writing ${target.filePath} to app "${appName}"...`
 	})
@@ -7040,7 +7043,7 @@ async function deleteAppFile(
 	assertNotGeneratedAppFile(target.filePath)
 
 	const draft = draftTargetOf(ctx)
-	const appName = addressedDisplayPath(draft, 'app')
+	const appName = addressedDisplayPath(workspace, draft, 'app')
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deleting ${target.filePath} from app "${appName}"...`
 	})
@@ -7087,7 +7090,7 @@ async function patchAppFile(
 	}
 
 	const draft = draftTargetOf(ctx)
-	const appName = addressedDisplayPath(draft, 'app')
+	const appName = addressedDisplayPath(workspace, draft, 'app')
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Patching ${target.filePath} in app "${appName}"...`
 	})
@@ -7162,7 +7165,7 @@ async function writeAppRunnable(
 	const { workspace, toolId, toolCallbacks } = ctx
 	const { key, runnable: input } = args
 	const target = draftTargetOf(ctx)
-	const appName = addressedDisplayPath(target, 'app')
+	const appName = addressedDisplayPath(workspace, target, 'app')
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Writing runnable "${key}" to app "${appName}"...`
 	})
@@ -7308,7 +7311,7 @@ async function deleteAppRunnable(
 	const { workspace, toolId, toolCallbacks } = ctx
 	const { key } = args
 	const target = draftTargetOf(ctx)
-	const appName = addressedDisplayPath(target, 'app')
+	const appName = addressedDisplayPath(workspace, target, 'app')
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removing runnable "${key}" from app "${appName}"...`
 	})
@@ -8598,7 +8601,6 @@ async function deployDraft(
 		// The shared deployer deploys at the path inside the draft and doesn't report it
 		// back, so read it here — post-flush, since a rename may have been parked. This is
 		// where a draft-only or renamed item lands, and what the callbacks below must name.
-		// Read after the flush above, which may have persisted a rename parked in the editor.
 		deployedPath =
 			chosenDraftName(type, await readGlobalDraftValue(workspace, type, target)) ?? storagePath
 		const result = await deployDraftToWorkspace(type, storagePath, workspace, {

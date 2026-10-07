@@ -1227,10 +1227,6 @@ export type ResolvedDraftTarget = {
 	/** The path the call named. What the model and the user see, so messages quote this. */
 	path: string
 	storagePath: string
-	/** The draft's value when resolving it already read one, so the body does not refetch. */
-	value?: unknown
-	/** Whether `value` reflects a read: `undefined` then means no draft, not "not looked". */
-	fetched: boolean
 }
 
 export interface Tool<T> {
