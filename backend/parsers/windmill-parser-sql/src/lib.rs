@@ -1040,11 +1040,13 @@ pub fn parse_duckdb_typ(typ: &str) -> Typ {
 
 pub fn parse_snowflake_typ(typ: &str) -> Typ {
     match typ {
-        "varchar" => Typ::Str(None),
-        "binary" => Typ::Bytes,
-        "date" | "time" | "timestamp" => Typ::Datetime,
-        "int" => Typ::Int,
-        "float" => Typ::Float,
+        "varchar" | "text" | "string" | "char" | "character" => Typ::Str(None),
+        "binary" | "varbinary" => Typ::Bytes,
+        "date" | "time" | "datetime" | "timestamp" | "timestamp_ntz" | "timestamp_ltz"
+        | "timestamp_tz" => Typ::Datetime,
+        "int" | "integer" | "bigint" | "smallint" | "tinyint" | "byteint" => Typ::Int,
+        "float" | "float4" | "float8" | "double" | "double precision" | "real" | "number"
+        | "decimal" | "numeric" => Typ::Float,
         "boolean" => Typ::Bool,
         "s3object" => Typ::Resource("S3Object".to_string()),
         _ => Typ::Str(None),

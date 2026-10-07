@@ -124,7 +124,7 @@ pub enum AIProvider {
     #[serde(rename = "aws_bedrock")]
     AWSBedrock,
     /// TypeSafe's Jev decision model. It answers typed questions rather than chatting, so only
-    /// an AI decision runs it (`run_systemone`), never the agent loop.
+    /// an AI decision runs it (`run_decision`), never the agent loop.
     TypeSafe,
     /// Cloudflare Workers AI, for its Jev-compatible decision models (Clef). Decisions only, as
     /// for TypeSafe; its base URL comes from the resource's account id.
@@ -150,6 +150,12 @@ impl AIProvider {
     /// A provider that answers decisions (typed questions) and serves no chat.
     pub fn is_decision_provider(&self) -> bool {
         matches!(self, AIProvider::TypeSafe | AIProvider::Cloudflare)
+    }
+
+    /// A provider an AI decision runs on: the decision providers, and OpenAI, whose Decisions
+    /// API sits next to its chat routes on the same resource.
+    pub fn runs_decisions(&self) -> bool {
+        self.is_decision_provider() || matches!(self, AIProvider::OpenAI)
     }
 
     /// Get the base URL for the AI provider
