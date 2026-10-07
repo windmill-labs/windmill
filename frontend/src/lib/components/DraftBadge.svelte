@@ -237,9 +237,6 @@
 		</span>
 	{:else}
 		<Badge small color="indigo" class="gap-0.5">
-			{#if orderedUsers.length > 0}
-				{@render circleStack()}
-			{/if}
 			{draft_only ? 'Draft only' : 'Draft'}
 		</Badge>
 	{/if}

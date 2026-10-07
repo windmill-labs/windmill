@@ -173,6 +173,9 @@
 	{rowSelection}
 >
 	{#snippet badges()}
+		{#if script.language}
+			<LanguageIcon lang={script.language} width={14} height={14} />
+		{/if}
 		{#if script.lock_error_logs}
 			<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>
 		{/if}
@@ -185,7 +188,7 @@
 			<NoMainFuncBadge />
 		{/if}
 		{#if script.auto_kind === 'wac'}
-			<Popover notClickable>
+			<Popover notClickable class="inline-flex items-center">
 				{#snippet text()}
 					Workflow-as-Code
 				{/snippet}
@@ -193,7 +196,7 @@
 			</Popover>
 		{/if}
 		{#if script.auto_kind === 'test'}
-			<Popover notClickable>
+			<Popover notClickable class="inline-flex items-center">
 				{#snippet text()}
 					CI test script
 				{/snippet}
@@ -237,13 +240,10 @@
 			</div>
 		{/if}
 		<InheritedLabels labels={script.inherited_labels} />
-		<div class="w-5 center-center">
-			<LanguageIcon lang={script.language} width={16} height={16} />
-		</div>
 	{/snippet}
 
 	{#snippet actions()}
-		<span class="hidden md:inline-flex gap-x-1">
+		<span class="hidden md:inline-flex gap-x-2">
 			{#if !$userStore?.operator}
 				{#if showEditButton}
 					{#if script.use_codebase}

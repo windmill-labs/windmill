@@ -157,7 +157,7 @@
 		<InheritedLabels labels={app.inherited_labels} />
 	{/snippet}
 	{#snippet actions()}
-		<span class="hidden md:inline-flex gap-x-1">
+		<span class="hidden md:inline-flex gap-x-2">
 			{#if !$userStore?.operator}
 				{#if showEditButton && app.canWrite}
 					<div>

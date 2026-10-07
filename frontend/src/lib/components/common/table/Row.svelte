@@ -10,6 +10,7 @@
 	import Checkbox from '../checkbox/Checkbox.svelte'
 	import type { RowSelection } from './rowSelection'
 	import RunnableActivityCells from '$lib/components/home/RunnableActivityCells.svelte'
+	import { setCompactBadges } from '../badge/density'
 
 	interface Props {
 		marked: string | undefined
@@ -118,6 +119,8 @@
 					?.split('/')
 					?.slice(-1)?.[0]) ?? ''
 
+	setCompactBadges()
+
 	let rowEl: HTMLDivElement | undefined = $state()
 	$effect(() => {
 		if (keyboardSelected) {
@@ -181,7 +184,7 @@
 	data-row-selection-key={rowSelection?.key}
 	data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 	class={twMerge(
-		'group/row relative w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-3 border-b last:border-b-0',
+		'group/row relative w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b pl-4 pr-1 py-3 border-b last:border-b-0',
 		depth > 0 ? '!rounded-none' : '',
 		disabled ? 'opacity-25' : 'hover:bg-surface-hover',
 		clickToSelect || inSelectionMode ? 'cursor-pointer select-none' : '',
@@ -246,30 +249,22 @@
 		</div>
 	{/if}
 
+	<!-- The link covers the whole row rather than wrapping the title, so the
+	     badges on the title line can hold their own popovers and buttons. -->
 	{#if href && !inSelectionMode}
 		<a
 			{href}
-			class="min-w-0 hover:underline decoration-gray-400 inline-flex items-center gap-4 after:absolute after:inset-0 after:content-['']"
-		>
-			{@render rowContent(!rowSelection)}
-		</a>
-	{:else}
-		{@render rowContent(!rowSelection)}
+			aria-label={!summary || summary.length == 0 ? displayPath : summary}
+			class="absolute inset-0"
+		></a>
 	{/if}
-
-	{#if badges}
-		<div class="relative z-[1] hidden lg:flex flex-row gap-1.5 items-center">
-			{@render badges?.()}
-		</div>
-	{/if}
-
-	<div class="grow"></div>
+	{@render rowContent(!rowSelection, !!href && !inSelectionMode)}
 
 	{#if errorHandlerMuted}
 		<BellOff class="w-8 opacity-60" size={12} fill="currentcolor" />
 	{/if}
 
-	<div class="relative z-[1] flex items-center gap-1.5 shrink-0">
+	<div class="relative z-[1] flex items-center gap-3 shrink-0">
 		{#if kind == 'script' || kind == 'flow' || kind == 'app' || kind == 'raw_app' || kind == 'agent'}
 			<RunnableActivityCells
 				kind={kind == 'script' || kind == 'flow' ? kind : undefined}
@@ -291,33 +286,41 @@
 			<div class="w-7"></div>
 		{/if}
 
-		<div data-row-actions class="flex gap-1 items-center justify-end pr-2">
+		<div data-row-actions class="flex gap-2 items-center justify-end">
 			{@render actions?.()}
 		</div>
 	</div>
 </div>
 
-{#snippet rowContent(withIcon: boolean)}
+{#snippet rowContent(withIcon: boolean, linked: boolean)}
 	{#if withIcon}
 		<div class="shrink">
 			<RowIcon {kind} {triggerKind} />
 		</div>
 	{/if}
-	<div class="min-w-0">
-		<div
-			class={twMerge(
-				'text-emphasis flex-wrap text-left text-xs font-semibold',
-				titleBadge ? 'inline-flex items-center gap-2' : ''
-			)}
-		>
-			{#if customSummary}
-				{@render customSummary?.()}
-			{:else if marked}
-				{@html marked}
-			{:else}
-				{!summary || summary.length == 0 ? displayPath : summary}
+	<div class="min-w-0 grow">
+		<div class="flex items-center gap-1.5 min-w-0">
+			<div
+				class={twMerge(
+					'text-emphasis flex-wrap text-left text-xs font-semibold min-w-0',
+					titleBadge ? 'inline-flex items-center gap-2' : '',
+					linked ? 'group-hover/row:underline decoration-gray-400' : ''
+				)}
+			>
+				{#if customSummary}
+					{@render customSummary?.()}
+				{:else if marked}
+					{@html marked}
+				{:else}
+					{!summary || summary.length == 0 ? displayPath : summary}
+				{/if}
+				{@render titleBadge?.()}
+			</div>
+			{#if badges}
+				<div class="relative z-[1] hidden lg:flex flex-row gap-1 items-center shrink-0">
+					{@render badges()}
+				</div>
 			{/if}
-			{@render titleBadge?.()}
 		</div>
 		<div class="text-hint text-3xs truncate text-left font-normal" title={path}>
 			{#if pathDisplay}
