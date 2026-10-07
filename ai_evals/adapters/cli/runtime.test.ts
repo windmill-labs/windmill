@@ -158,5 +158,6 @@ describe("getFirstMutationToolIndex", () => {
         bash("ls && wmill generate-metadata"),
       ])
     ).toBe(1);
+    expect(getFirstMutationToolIndex([bash("cd f\nwmill sync push")])).toBe(0);
   });
 });

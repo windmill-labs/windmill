@@ -100,7 +100,7 @@ Notes:
   Codex runs with a throwaway `HOME`, so your own `~/.codex` config and skills stay out of the run. It has no
   Skill tool: it finds `.agents/skills` on its own and loads a skill by reading its `SKILL.md`, so the trace
   records any command that touches `.agents/skills/<name>/SKILL.md` as a `Skill` call to `<name>`, just
-  before that command. Its shell commands are recorded as `Bash` and its patches as `Edit`, so the
+  before that command, or just after it when the command mutates something before reading the skill. Its shell commands are recorded as `Bash` and its patches as `Edit`, so the
   `invokes skill … before first mutation` checks compare the same things for both agents. Codex has no
   turn cap; a run stops at `maxTurns` rounds of tool calls (parallel calls count once) and fails, as a
   Claude Code run does at its cap.

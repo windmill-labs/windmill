@@ -29,7 +29,7 @@ interface CodexEvent {
   error?: { message?: string };
 }
 
-const SKILL_FILE_PATTERN = /\.agents\/skills\/([^/\s'"`]+)\/SKILL\.md/g;
+const SKILL_FILE_PATTERN = /\.agents\/skills\/([^/\s'"`*?[]+)\/SKILL\.md/g;
 
 // Drives `codex exec` and maps its events onto the Claude Code tool vocabulary
 // the validators read: shell commands become `Bash`, patches `Edit`, and
@@ -53,6 +53,7 @@ export async function runCodex(
   };
   const messages: string[] = [];
   let failure: string | null = null;
+  let lastError: string | null = null;
   let stderr = "";
 
   try {
@@ -81,6 +82,12 @@ export async function runCodex(
         stdio: ["pipe", "pipe", "pipe"],
       }
     );
+    // Without this, a missing `codex` binary leaves the stdout loop waiting forever.
+    await new Promise<void>((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    child.stdin.on("error", () => {});
     child.stdin.end(prompt);
     child.stderr.on("data", (chunk) => {
       stderr = (stderr + chunk).slice(-4000);
@@ -92,6 +99,10 @@ export async function runCodex(
 
     // Codex has no turn cap. A turn starts when the agent issues tool calls with
     // none in flight, so parallel calls count once, as they do for Claude Code.
+    // Claude Code's cap includes the final reply, so the maxTurns-th tool round is
+    // already over it.
+    // ponytail: parallel calls that finish before the next one starts count as
+    // separate turns; count model calls if Codex ever reports them.
     let turns = 0;
     let inFlight = 0;
     let capped = false;
@@ -108,7 +119,7 @@ export async function runCodex(
           turns += 1;
         }
         inFlight += 1;
-        if (turns > maxTurns && !capped) {
+        if (turns >= maxTurns && !capped) {
           capped = true;
           child.kill("SIGTERM");
         }
@@ -126,8 +137,11 @@ export async function runCodex(
         const prompt = event.usage.input_tokens ?? 0;
         const completion = event.usage.output_tokens ?? 0;
         result.tokenUsage = { prompt, completion, total: prompt + completion };
-      } else if (event.type === "turn.failed" || event.type === "error") {
-        failure = event.error?.message ?? event.message ?? JSON.stringify(event);
+      } else if (event.type === "turn.failed") {
+        failure = event.error?.message ?? JSON.stringify(event);
+      } else if (event.type === "error") {
+        // Also sent for retries Codex recovers from ("Reconnecting... 1/5").
+        lastError = event.message ?? JSON.stringify(event);
       }
     }
 
@@ -140,7 +154,7 @@ export async function runCodex(
       throw new Error(`codex: reached maximum number of turns (${maxTurns})`);
     }
     if (code !== 0) {
-      throw new Error(`codex exited with ${code}: ${stderr.trim()}`);
+      throw new Error(`codex exited with ${code}: ${lastError ?? stderr.trim()}`);
     }
   } finally {
     await rm(home, { recursive: true, force: true });
@@ -155,10 +169,23 @@ export function toToolInvocations(item: CodexItem): CliToolInvocation[] {
 
   if (item.type === "command_execution" && typeof item.command === "string") {
     const command = unwrapShellCommand(item.command);
-    const skills = [...new Set([...command.matchAll(SKILL_FILE_PATTERN)].map((match) => match[1]!))];
+    // A skill read counts as preceding the command only when nothing before it in
+    // the command mutates; otherwise `printf x > f && cat SKILL.md` would pass a
+    // skill-before-first-mutation check.
+    const before: string[] = [];
+    const after: string[] = [];
+    for (const match of command.matchAll(SKILL_FILE_PATTERN)) {
+      const skill = match[1]!;
+      if (before.includes(skill) || after.includes(skill)) {
+        continue;
+      }
+      (isLikelyMutatingBashCommand(command.slice(0, match.index)) ? after : before).push(skill);
+    }
+    const skillCall = (skill: string) => ({ tool: "Skill", input: { skill }, timestamp });
     return [
-      ...skills.map((skill) => ({ tool: "Skill", input: { skill }, timestamp })),
+      ...before.map(skillCall),
       { tool: "Bash", input: { command }, timestamp },
+      ...after.map(skillCall),
     ];
   }
 
@@ -173,7 +200,7 @@ export function toToolInvocations(item: CodexItem): CliToolInvocation[] {
 // Codex reports commands as run through the user's login shell, e.g.
 // `/usr/bin/zsh -lc 'cat SKILL.md'`.
 export function unwrapShellCommand(command: string): string {
-  const match = command.match(/^\S*\/(?:ba|z)?sh -l?c (['"])([\s\S]*)\1$/);
+  const match = command.match(/^(?:\S*\/)?(?:ba|z)?sh -l?c (['"])([\s\S]*)\1$/);
   if (!match) {
     return command;
   }
@@ -181,6 +208,17 @@ export function unwrapShellCommand(command: string): string {
   return match[1] === "'"
     ? body.replaceAll(`'\\''`, "'").replaceAll(`'"'"'`, "'")
     : body.replace(/\\(["\\$`])/g, "$1");
+}
+
+export function isLikelyMutatingBashCommand(command: string): boolean {
+  return (
+    /\b(?:mkdir|touch|rm|mv|cp|install|tee)\b/.test(command) ||
+    /\b(?:cat|echo|printf)\b.*(?:>|>>|\|\s*tee\b)/.test(command) ||
+    /\bsed\s+-i\b/.test(command) ||
+    /\bperl\s+-pi\b/.test(command) ||
+    // In command position only: `cat AGENTS.wmill.md` is a read.
+    /(?:^|[;&|(]|\b(?:then|do|xargs)\s)\s*wmill(?:\s|$)/m.test(command)
+  );
 }
 
 function isToolItem(item: CodexItem): boolean {

@@ -7,7 +7,7 @@ import {
   resolveEvalModel,
   type CliEvalModelConfig,
 } from "../../core/models";
-import { runCodex, type AgentRunResult } from "./codex";
+import { isLikelyMutatingBashCommand, runCodex, type AgentRunResult } from "./codex";
 export { formatCliRunModelLabel } from "../../core/models";
 import type {
   BenchmarkTokenUsage,
@@ -196,6 +196,27 @@ export async function runPromptAndCapture(
   };
 }
 
+// Only the endpoint's own key may reach it: a missing key or a Claude token in the
+// environment would make Claude Code send the user's Claude credentials there.
+function endpointEnv(
+  endpoint: NonNullable<CliEvalModelConfig["anthropicEndpoint"]>,
+  model: string,
+  env: Record<string, string>
+): Record<string, string> {
+  const key = env[endpoint.apiKeyEnv];
+  if (!key) {
+    throw new Error(`${endpoint.apiKeyEnv} is not set`);
+  }
+  const { ANTHROPIC_AUTH_TOKEN: _token, CLAUDE_CODE_OAUTH_TOKEN: _oauth, ...rest } = env;
+  return {
+    ...rest,
+    ANTHROPIC_BASE_URL: endpoint.baseUrl,
+    ANTHROPIC_API_KEY: key,
+    // Claude Code's background calls default to Haiku, which the endpoint does not serve.
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: model,
+  };
+}
+
 async function runClaudeCode(
   prompt: string,
   cwd: string,
@@ -218,15 +239,7 @@ async function runClaudeCode(
     maxTurns,
     settingSources: ["project"],
     allowedTools: ["Skill", "Read", "Glob", "Grep", "Bash", "Write", "Edit"],
-    env: endpoint
-      ? {
-          ...env,
-          ANTHROPIC_BASE_URL: endpoint.baseUrl,
-          ANTHROPIC_API_KEY: env[endpoint.apiKeyEnv] ?? "",
-          // Claude Code's background calls default to Haiku, which the endpoint does not serve.
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: modelConfig.model,
-        }
-      : env,
+    env: endpoint ? endpointEnv(endpoint, modelConfig.model, env) : env,
   };
 
   for await (const message of query({ prompt, options })) {
@@ -550,17 +563,6 @@ export function getFirstMutationToolIndex(toolsUsed: ToolInvocation[]): number |
   }
 
   return null;
-}
-
-function isLikelyMutatingBashCommand(command: string): boolean {
-  return (
-    /\b(?:mkdir|touch|rm|mv|cp|install|tee)\b/.test(command) ||
-    /\b(?:cat|echo|printf)\b.*(?:>|>>|\|\s*tee\b)/.test(command) ||
-    /\bsed\s+-i\b/.test(command) ||
-    /\bperl\s+-pi\b/.test(command) ||
-    // In command position only: `cat AGENTS.wmill.md` is a read.
-    /(?:^|[;&|(]|\b(?:then|do|xargs)\s)\s*wmill(?:\s|$)/.test(command)
-  );
 }
 
 function pushUnique(values: string[], value: string): void {
