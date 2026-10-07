@@ -1102,8 +1102,8 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
 
 /// Child output is not guaranteed to be UTF-8 (e.g. pwsh on Windows writes in the
 /// console code page), so decode lossily: a strict decode errors out and ends log
-/// capture for the rest of the job. Strips a trailing `\r` like `lines()` did.
-fn decode_output_line(mut segment: Vec<u8>) -> String {
+/// capture for the rest of the job. Strips a trailing `\r` so CRLF output doesn't keep it.
+pub(crate) fn decode_output_line(mut segment: Vec<u8>) -> String {
     if segment.last() == Some(&b'\r') {
         segment.pop();
     }
@@ -1158,8 +1158,8 @@ mod tests {
         assert!(matches!(left.remaining_secs(), Some(s) if (118..=120).contains(&s)));
     }
 
-    // "Prüfe" in CP850/1252 is not UTF-8. A strict decode used to error on that
-    // line and stop log capture, dropping every line after it.
+    // "Prüfe" in CP850/1252 is not UTF-8. A strict decode errors on that line and
+    // would stop log capture, dropping every line after it.
     #[tokio::test]
     async fn a_non_utf8_line_is_decoded_lossily_and_later_lines_still_arrive() {
         let output: &[u8] =
