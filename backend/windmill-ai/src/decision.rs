@@ -215,8 +215,7 @@ fn openai_input(state: &Value) -> Value {
 }
 
 /// The questions as OpenAI's Decisions API takes them: a list naming each question, with a
-/// `noul` asked as its `predicate`. A choice or level is described by its own name when the step
-/// gives it no description, since OpenAI documents a description on every one.
+/// `noul` asked as its `predicate` and each score level as a label.
 fn openai_questions(questions: &Map<String, Value>) -> Result<Vec<Value>> {
     let text = |v: &Value| match v {
         Value::String(s) => s.clone(),
@@ -227,9 +226,6 @@ fn openai_questions(questions: &Map<String, Value>) -> Result<Vec<Value>> {
         None | Some(Value::Null) => None,
         Some(Value::String(d)) if d.trim().is_empty() => None,
         Some(d) => Some(text(d)),
-    };
-    let described = |name: &str, description: &Value| {
-        stated(Some(description)).unwrap_or_else(|| name.to_string())
     };
     questions
         .iter()
@@ -248,8 +244,9 @@ fn openai_questions(questions: &Map<String, Value>) -> Result<Vec<Value>> {
                             ))
                         })?
                         .iter()
-                        .map(|(value, d)| {
-                            serde_json::json!({"value": value, "description": described(value, d)})
+                        .map(|(value, d)| match stated(Some(d)) {
+                            Some(d) => serde_json::json!({"value": value, "description": d}),
+                            None => serde_json::json!({"value": value}),
                         })
                         .collect();
                     asked.insert("choices".to_string(), Value::Array(choices));
@@ -265,10 +262,7 @@ fn openai_questions(questions: &Map<String, Value>) -> Result<Vec<Value>> {
                             ))
                         })?
                         .iter()
-                        .map(|level| {
-                            let label = text(level);
-                            serde_json::json!({"label": label, "description": label})
-                        })
+                        .map(|level| serde_json::json!({"label": text(level)}))
                         .collect();
                     asked.insert("levels".to_string(), Value::Array(levels));
                     "score"
@@ -458,11 +452,11 @@ mod tests {
             json!([
                 {"choices": [
                     {"value": "refund", "description": "{\"when\":\"paid\"}"},
-                    {"value": "bug", "description": "bug"}
+                    {"value": "bug"}
                 ], "type": "choice", "name": "intent", "instructions": "Why?"},
                 {"levels": [
-                    {"label": "Can wait", "description": "Can wait"},
-                    {"label": "Now", "description": "Now"}
+                    {"label": "Can wait"},
+                    {"label": "Now"}
                 ], "type": "score", "name": "urgency", "instructions": "How urgent?"},
                 {"type": "predicate", "name": "angry", "instructions": "Angry?\nYes: Insults"}
             ])
