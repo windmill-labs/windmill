@@ -403,10 +403,21 @@
 	// goes back to the card — the card would then offer, and run, the arguments this page
 	// opened with. Written on the way out rather than per keystroke: one hand-back, whether
 	// the tab closed, was re-pointed, or the reader picked a version.
+	//
+	// Keyed on the call rather than the object naming it, which is rebuilt whenever the draft
+	// or the posture changes: this must not re-run on either, since its own write to that
+	// draft would be what re-ran it.
 	$effect(() => {
-		const call = pendingRun
-		if (!call) return
-		return () => call.handBack(args ?? {})
+		const id = pendingRun?.toolCallId
+		if (!id) return
+		const call = untrack(() => pendingRun)
+		return () =>
+			untrack(() => {
+				// Only what this call's own form held. The next call for this item re-points the
+				// same tab without remounting, and its seeding may land first — handing this one
+				// the arguments of a proposal that was never on screen for it.
+				if (seededCallId === id) call?.handBack(args ?? {})
+			})
 	})
 
 	// The dev workspace's editor is not one the session panel can host, so from a preview tab
@@ -946,7 +957,7 @@
 									runnable={flow}
 									{runAction}
 									claimRun={pendingRun}
-									noHelperScript={pendingRun?.planModeActive}
+									argsReadonly={pendingRun?.planModeActive}
 									bind:args
 									schedulable={!pendingRun}
 									bind:this={runForm}

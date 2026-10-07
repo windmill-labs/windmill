@@ -146,10 +146,12 @@
 		 * if the press then ends before `runAction`, so a guard that counts presses can stop
 		 * counting this one. */
 		claimRun?: { claim: () => boolean; release: () => void }
-		/** Withhold the dynamic-select helper, which runs the `dynselect-` entrypoint on mount
-		 * rather than on Run. For a form standing in for a chat call while plan mode is on:
-		 * nothing about pressing Run gates it, and plan mode promised no runs. */
-		noHelperScript?: boolean
+		/** Take no writes from the reader: no edits, and no dynamic-select helper. Both write
+		 * before Run is ever pressed — a `password` field mints an ephemeral variable as it is
+		 * typed, and the helper runs the `dynselect-` entrypoint when the field mounts — so
+		 * nothing about gating Run can stop them. For a form standing in for a chat card while
+		 * plan mode is on, which promised neither. */
+		argsReadonly?: boolean
 		buttonText?: string
 		schedulable?: boolean
 		detailed?: boolean
@@ -178,7 +180,7 @@
 		runnable,
 		runAction,
 		claimRun = undefined,
-		noHelperScript = false,
+		argsReadonly = false,
 		buttonText = 'Run',
 		schedulable = true,
 		detailed = true,
@@ -369,13 +371,14 @@
 			{#key reloadArgs}
 				<div bind:clientHeight={schemaHeight}>
 					<SchemaForm
-						helperScript={noHelperScript
+						helperScript={argsReadonly
 							? undefined
 							: {
 									source: 'deployed',
 									path: runnable.path!,
 									runnable_kind: runnable.hash ? 'script' : 'flow'
 								}}
+						disabled={argsReadonly}
 						prettifyHeader
 						{noVariablePicker}
 						{autofocus}
