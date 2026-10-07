@@ -29,7 +29,7 @@ use crate::db::{ApiAuthed, DB};
 use crate::jobs::{handle_chat_conversation_messages, set_flow_memory_id, RunJobQuery};
 
 /// The id the agent's step carries in the run, as the editor's chat names it. A token scoped to
-/// `jobs:run:agents:<path>` reads its runs back by it (`require_job_within_run_scope`).
+/// `jobs:run:agents:<path>` reads its runs back by it (`require_job_within_read_scope`).
 const AGENT_NODE_ID: &str = "__wm_agent_root";
 
 /// A turn of the agent's chat when `memory_id` names a conversation, a single run otherwise.
@@ -84,6 +84,7 @@ pub(crate) async fn run_agent(
     )?;
 
     let push_authed = authed.clone().into();
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, mut tx) = push(
         &db,
         PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
@@ -118,6 +119,7 @@ pub(crate) async fn run_agent(
         None,
         authed.trigger_or_fallback(None),
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
 

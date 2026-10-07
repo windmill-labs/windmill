@@ -246,6 +246,12 @@ struct AIStandardResource {
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     headers: HashMap<String, String>,
+    /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    token: Option<String>,
+    /// The account of a `cloudflare` resource, which its Workers AI URL is built from.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    account_id: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -293,10 +299,21 @@ async fn resolve_provider_credentials(
             // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
             let base_url = if matches!(provider, AIProvider::AWSBedrock) {
                 String::new()
+            } else if *provider == AIProvider::Cloudflare && resource.base_url.is_none() {
+                let account_id = if let Some(account_id) = resource.account_id {
+                    Some(resolve_var(account_id, db, w_id, user_db.as_ref(), authed).await?)
+                } else {
+                    None
+                };
+                windmill_ai::ai_providers::cloudflare_workers_ai_base_url(account_id.as_deref())?
             } else {
                 provider.get_base_url(resource.base_url, db).await?
             };
-            let api_key = if let Some(api_key) = resource.api_key {
+            let api_key = match provider {
+                AIProvider::Cloudflare => resource.api_key.or(resource.token),
+                _ => resource.api_key,
+            };
+            let api_key = if let Some(api_key) = api_key {
                 Some(resolve_var(api_key, db, w_id, user_db.as_ref(), authed).await?)
             } else {
                 None
@@ -486,9 +503,10 @@ async fn assume_bedrock_role(
 ) -> Result<windmill_ai::ai_bedrock::AssumedRoleCredentials> {
     #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
     {
-        use windmill_common::oidc_oss::{generate_id_token, WorkspaceClaim};
+        use windmill_common::oidc_oss::{generate_id_token, OidcCaller, WorkspaceClaim};
 
         let id_token = generate_id_token(
+            OidcCaller::Bedrock,
             Some(db),
             WorkspaceClaim { workspace: w_id.to_string() },
             windmill_ai::ai_bedrock::AWS_OIDC_AUDIENCE,
@@ -1062,6 +1080,16 @@ where
     }
 }
 
+/// Paths of every `$var:` reference found anywhere in a resource value.
+fn var_references(value: &serde_json::Value) -> Vec<&str> {
+    match value {
+        serde_json::Value::String(s) => s.strip_prefix("$var:").into_iter().collect(),
+        serde_json::Value::Array(items) => items.iter().flat_map(var_references).collect(),
+        serde_json::Value::Object(fields) => fields.values().flat_map(var_references).collect(),
+        _ => vec![],
+    }
+}
+
 async fn global_proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1220,7 +1248,37 @@ async fn proxy(
     // Set when serving the request through Windmill's free AI tier (the lent key). Holds
     // the per-user concurrency lock and drives response metering.
     let mut free_lease: Option<crate::ai_free_tier_oss::FreeTierLease> = None;
+    // An unsaved resource value (percent-encoded JSON), so a resource can be tested
+    // before it is stored. `$var:` references resolve as the caller, and since the
+    // caller also picks the base URL they are sent to, a scoped token needs the same
+    // scopes as storing the resource and reading each variable would.
+    let inline_resource = headers
+        .get("X-Resource-Value")
+        .map(|v| {
+            let invalid = |e: String| Error::BadRequest(format!("Invalid X-Resource-Value: {e}"));
+            let decoded = urlencoding::decode(v.to_str().unwrap_or(""))
+                .map_err(|e| invalid(e.to_string()))?;
+            let value = serde_json::from_str::<serde_json::Value>(&decoded)
+                .map_err(|e| invalid(e.to_string()))?;
+            check_scopes(&authed, || "resources:write".to_string())?;
+            for path in var_references(&value) {
+                check_scopes(&authed, || format!("variables:read:{path}"))?;
+            }
+            serde_json::from_value::<AIResource>(value).map_err(|e| invalid(e.to_string()))
+        })
+        .transpose()?;
+
     let mut credentials = 'cred: {
+        if let Some(resource) = inline_resource {
+            break 'cred resolve_provider_credentials(
+                &provider,
+                &db,
+                &w_id,
+                resource,
+                Some(&authed),
+            )
+            .await?;
+        }
         match workspace_cache {
             Some(request_cache)
                 if !request_cache.is_expired() && forced_resource_path.is_none() =>

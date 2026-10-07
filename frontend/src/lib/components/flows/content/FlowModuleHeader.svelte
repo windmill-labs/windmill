@@ -3,7 +3,6 @@
 	import { type FlowModule } from '$lib/gen'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pen, RefreshCcw, Save } from 'lucide-svelte'
-	import DropdownV2 from '../../DropdownV2.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { sendUserToast } from '$lib/utils'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -63,7 +62,7 @@
 		/>
 	{/if}
 
-	{#if module.value.type === 'aiagent' && customUi?.tagEdit != false}
+	{#if (module.value.type === 'aiagent' || module.value.type === 'aidecision') && customUi?.tagEdit != false}
 		<FlowModuleWorkerTagSelect
 			isPreprocessor={false}
 			placeholder={customUi?.tagSelectPlaceholder}
@@ -83,16 +82,15 @@
 			tag={module.value.tag}
 			on:change={(e) => dispatch('tagChange', e.detail)}
 		/>
-		<DropdownV2
-			size="sm"
-			placement="bottom-end"
-			items={[
-				{
-					displayName: 'Save to workspace',
-					icon: Save,
-					action: () => dispatch('createScriptFromInlineScript')
-				}
-			]}
-		/>
+		{#if customUi?.saveToWorkspace != false && customUi?.editorBar?.saveToWorkspace != false}
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				startIcon={{ icon: Save }}
+				on:click={() => dispatch('createScriptFromInlineScript')}
+				iconOnly={true}
+				title="Save to workspace"
+			/>
+		{/if}
 	{/if}
 </div>

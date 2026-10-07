@@ -2,7 +2,8 @@
   "github": {
     "auth_url": "https://github.com/login/oauth/authorize",
     "token_url": "https://github.com/login/oauth/access_token",
-    "scopes": ["workflow", "repo"]
+    "scopes": ["workflow", "repo"],
+    "scope_options": ["repo", "workflow", "gist", "read:org"]
   },
   "gitlab": {
     "auth_url": "https://gitlab.com/oauth/authorize",
@@ -43,6 +44,52 @@
       "mpim:read",
       "files:read"
     ],
+    "scope_options": [
+      { "value": "chat:write", "label": "Send messages as the app" },
+      { "value": "chat:write.public", "label": "Send messages to public channels the app is not in" },
+      { "value": "channels:join", "label": "Join public channels" },
+      { "value": "files:write", "label": "Upload, edit and delete files" },
+      { "value": "users:read", "label": "View people in the workspace" },
+      { "value": "users:read.email", "label": "View people's email addresses" },
+      { "value": "channels:read", "label": "View basic information about public channels" },
+      { "value": "channels:history", "label": "Read messages in public channels the app is in" },
+      { "value": "reactions:write", "label": "Add emoji reactions" },
+      { "value": "channels:manage", "label": "Create, archive and manage public channels, invite members, set topics" },
+      { "value": "groups:write", "label": "Create and manage private channels the app is in" },
+      { "value": "usergroups:write", "label": "Edit user groups (workspace settings often block bots)" },
+      { "value": "files:read", "label": "Read and download files shared where the app is a member" },
+      { "value": "groups:read", "label": "List private channels the app is in" },
+      { "value": "im:read", "label": "List the app's direct messages" },
+      { "value": "mpim:read", "label": "List the app's group direct messages" },
+      { "value": "usergroups:read", "label": "List user groups" },
+      { "value": "emoji:read", "label": "List custom emojis" }
+    ],
+    "user_scope_options": [
+      { "value": "channels:history", "label": "Read messages in public channels" },
+      { "value": "groups:history", "label": "Read messages in your private channels" },
+      { "value": "im:history", "label": "Read your direct messages" },
+      { "value": "mpim:history", "label": "Read your group direct messages" },
+      { "value": "search:read", "label": "Search messages and files" },
+      { "value": "users:read", "label": "View people in the workspace" },
+      { "value": "chat:write", "label": "Send messages as you" },
+      { "value": "users:read.email", "label": "View people's email addresses" },
+      { "value": "channels:read", "label": "View basic information about public channels" },
+      { "value": "groups:read", "label": "View basic information about your private channels" },
+      { "value": "im:read", "label": "View basic information about your direct messages" },
+      { "value": "mpim:read", "label": "View basic information about your group direct messages" },
+      { "value": "files:read", "label": "View files shared in your conversations" },
+      { "value": "reactions:write", "label": "Add emoji reactions" },
+      { "value": "channels:write", "label": "Create, archive and manage public channels" },
+      { "value": "channels:write.invites", "label": "Invite members to public channels" },
+      { "value": "channels:write.topic", "label": "Set public channel topics" },
+      { "value": "groups:write", "label": "Create and manage private channels" },
+      { "value": "users.profile:write", "label": "Set your status and edit your profile" },
+      { "value": "reminders:write", "label": "Create reminders for yourself" },
+      { "value": "usergroups:write", "label": "Edit user groups" },
+      { "value": "files:write", "label": "Upload and delete files as yourself" },
+      { "value": "usergroups:read", "label": "List user groups" },
+      { "value": "emoji:read", "label": "List custom emojis" }
+    ],
     "token_response_path": "authed_user"
   },
   "supabase_wizard": {
@@ -56,7 +103,8 @@
     "scopes": ["https://www.googleapis.com/auth/spreadsheets"],
     "scope_options": [
       { "value": "https://www.googleapis.com/auth/spreadsheets", "label": "Read, edit, create and delete spreadsheets" },
-      { "value": "https://www.googleapis.com/auth/spreadsheets.readonly", "label": "Read spreadsheets" }
+      { "value": "https://www.googleapis.com/auth/spreadsheets.readonly", "label": "Read spreadsheets" },
+      { "value": "https://www.googleapis.com/auth/drive.metadata.readonly", "label": "List and search your spreadsheets in Drive" }
     ],
     "extra_params": {
       "access_type": "offline",
@@ -100,6 +148,9 @@
     "scope_options": [
       { "value": "https://www.googleapis.com/auth/calendar.events", "label": "Read and edit events on all calendars" },
       { "value": "https://www.googleapis.com/auth/calendar.events.readonly", "label": "Read events on all calendars" },
+      { "value": "https://www.googleapis.com/auth/calendar.calendarlist.readonly", "label": "See the list of calendars you're subscribed to" },
+      { "value": "https://www.googleapis.com/auth/calendar.calendars.readonly", "label": "Read calendar properties (title, timezone)" },
+      { "value": "https://www.googleapis.com/auth/calendar.freebusy", "label": "See your availability (free/busy)" },
       { "value": "https://www.googleapis.com/auth/calendar.readonly", "label": "Read all calendars and events" },
       { "value": "https://www.googleapis.com/auth/calendar", "label": "Read, edit, share and delete all calendars" }
     ],
@@ -130,7 +181,9 @@
     "scope_options": [
       { "value": "https://www.googleapis.com/auth/documents", "label": "Read, edit, create and delete documents" },
       { "value": "https://www.googleapis.com/auth/documents.readonly", "label": "Read documents" },
-      { "value": "https://www.googleapis.com/auth/drive.file", "label": "Only files created or opened with this connection" }
+      { "value": "https://www.googleapis.com/auth/drive.file", "label": "Only files created or opened with this connection" },
+      { "value": "https://www.googleapis.com/auth/drive.readonly", "label": "Read, export and search all Drive files and comments" },
+      { "value": "https://www.googleapis.com/auth/drive", "label": "Read, edit, create and delete all Drive files" }
     ],
     "extra_params": {
       "access_type": "offline",
@@ -185,7 +238,8 @@
       { "value": "https://www.googleapis.com/auth/admin.directory.group.readonly", "label": "Read groups" },
       { "value": "https://www.googleapis.com/auth/admin.directory.orgunit", "label": "Read and manage organizational units" },
       { "value": "https://www.googleapis.com/auth/admin.directory.orgunit.readonly", "label": "Read organizational units" },
-      { "value": "https://www.googleapis.com/auth/admin.directory.user.security", "label": "Manage user security settings" }
+      { "value": "https://www.googleapis.com/auth/admin.directory.user.security", "label": "Manage user security settings" },
+      { "value": "https://www.googleapis.com/auth/admin.reports.audit.readonly", "label": "Read audit logs (login, admin, Drive, token activity)" }
     ],
     "extra_params": {
       "access_type": "offline",
@@ -198,6 +252,14 @@
     "scopes": [],
     "extra_params": {
       "type": "web_server"
+    }
+  },
+  "notion": {
+    "auth_url": "https://api.notion.com/v1/oauth/authorize",
+    "token_url": "https://api.notion.com/v1/oauth/token",
+    "scopes": [],
+    "extra_params": {
+      "owner": "user"
     }
   },
   "linkedin": {

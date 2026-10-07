@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.820.0
+  version: 1.825.0
   title: Windmill API
 
   contact:
@@ -4492,6 +4492,12 @@ paths:
                     description: >-
                       Omitted when the seats counted are another workspace's, as they are for a
                       fork resolving to its billing root.
+                  service_accounts:
+                    type: integer
+                    description: >-
+                      Enabled service accounts, half a seat each like operators. Omitted when the
+                      seats counted are another workspace's, as they are for a fork resolving to
+                      its billing root.
                   seats:
                     type: integer
                 required:
@@ -4529,6 +4535,9 @@ paths:
                     type: string
                   is_past_due:
                     type: boolean
+                  is_canceled:
+                    type: boolean
+                    description: the team plan was canceled this month; it stays premium until the month ends, capped at max_tolerated_executions
                   max_tolerated_executions:
                     type: number
                 required:
@@ -16527,6 +16536,31 @@ paths:
                 required:
                   - database_length
 
+  /w/{workspace}/jobs/oldest:
+    get:
+      summary: get the creation date of the oldest job
+      operationId: getOldestJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: all_workspaces
+          description: consider jobs from all workspaces (only valid if request come from the `admins` workspace)
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: creation date of the oldest job, absent when there is none
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created_at:
+                    type: string
+                    format: date-time
+
   /w/{workspace}/jobs/completed/count:
     get:
       summary: get completed count
@@ -28478,6 +28512,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/AiTransform"
     ProviderConfig:
       $ref: "../../openflow.openapi.yaml#/components/schemas/ProviderConfig"
+    ProviderTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/ProviderTransform"
     MemoryConfig:
       $ref: "../../openflow.openapi.yaml#/components/schemas/MemoryConfig"
     FlowModuleValue:
@@ -28498,6 +28534,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/BranchAll"
     AiAgent:
       $ref: "../../openflow.openapi.yaml#/components/schemas/AiAgent"
+    AiDecision:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/AiDecision"
     Identity:
       $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
     FlowStatus:
@@ -29462,6 +29500,8 @@ components:
           togetherai,
           aws_bedrock,
           customai,
+          typesafe,
+          cloudflare,
         ]
 
     GitSyncObjectType:
@@ -30150,6 +30190,12 @@ components:
           items:
             type: string
           default: []
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job."
         inherited_labels:
           type: array
           items:
@@ -30307,6 +30353,12 @@ components:
           type: array
           items:
             type: string
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
         skip_draft_deletion:
           type: boolean
           description: "When true (set by the CLI / git sync), deploying this script does not delete an existing user draft at the same path."
@@ -36165,6 +36217,12 @@ components:
           items:
             type: string
           default: []
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job."
         inherited_labels:
           type: array
           items:
@@ -36211,6 +36269,12 @@ components:
               type: array
               items:
                 type: string
+            job_token_scopes:
+              type: array
+              nullable: true
+              items:
+                type: string
+              description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
           required:
             - path
     # Like OpenFlowWPath but `path` is optional: on update the flow is identified by
@@ -36247,6 +36311,12 @@ components:
               type: array
               items:
                 type: string
+            job_token_scopes:
+              type: array
+              nullable: true
+              items:
+                type: string
+              description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
 
     FlowPreview:
       type: object

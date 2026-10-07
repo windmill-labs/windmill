@@ -10,6 +10,8 @@ import {
 	getAiProxyBaseURL,
 	getProviderAndCompletionConfig,
 	providerSupportsWebSearch,
+	testedCredentialHeaders,
+	usesGlobalAiProxy,
 	workspaceAIClients
 } from '../lib'
 import { applyReasoningToConfig } from '../reasoningRegistry'
@@ -326,6 +328,7 @@ export async function* getOpenAIResponsesCompletionStream(
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
 		reasoningEffort?: string
+		maxTokensCap?: number
 	}
 ): AsyncGenerator<OpenAI.Chat.Completions.ChatCompletionChunk> {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -333,6 +336,7 @@ export async function* getOpenAIResponsesCompletionStream(
 		stream: true,
 		tools,
 		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap,
 		reasoningEffort: options?.reasoningEffort
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
@@ -378,6 +382,20 @@ export async function* getOpenAIResponsesCompletionStream(
 							content: event.delta || ''
 						},
 						finish_reason: null
+					}
+				]
+			} as OpenAI.Chat.Completions.ChatCompletionChunk
+		} else if (event.type === 'response.completed' || event.type === 'response.incomplete') {
+			yield {
+				id: 'chatcmpl-' + Date.now(),
+				object: 'chat.completion.chunk',
+				created: Date.now(),
+				model: responsesConfig.model,
+				choices: [
+					{
+						index: 0,
+						delta: {},
+						finish_reason: event.type === 'response.completed' ? 'stop' : 'length'
 					}
 				]
 			} as OpenAI.Chat.Completions.ChatCompletionChunk
@@ -624,6 +642,7 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 		apiKey?: string
 		workspace?: string
 		resourcePath?: string
+		resourceValue?: Record<string, any>
 		forceModelProvider?: AIProviderModel
 		maxTokensCap?: number
 	}
@@ -645,23 +664,12 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 	} = {
 		signal: abortController.signal,
 		headers: {
-			'X-Provider': provider
+			'X-Provider': provider,
+			...testedCredentialHeaders(options ?? {})
 		}
 	}
 
-	if (options?.resourcePath) {
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-Resource-Path': options.resourcePath
-		}
-	} else if (options?.apiKey) {
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-API-Key': options.apiKey
-		}
-	}
-
-	const openaiClient = options?.apiKey
+	const openaiClient = usesGlobalAiProxy(options ?? {})
 		? createOpenAIProxyClient(getAiProxyBaseURL())
 		: options?.workspace
 			? workspaceAIClients.createOpenaiClient(options.workspace)

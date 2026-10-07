@@ -49,7 +49,7 @@ use futures::{
     stream, StreamExt,
 };
 
-use crate::common::{resolve_job_timeout, OccupancyMetrics, StreamNotifier};
+use crate::common::{resolve_job_timeout, OccupancyMetrics, StreamNotifier, TimeoutSource};
 use crate::job_logger::{append_job_logs, append_result_stream, append_with_limit, strip_nul};
 use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
@@ -181,7 +181,7 @@ pub async fn handle_child(
 
     enum KillReason {
         TooManyLogs,
-        Timeout { is_job_specific: bool },
+        Timeout { phase: String, source: TimeoutSource, secs: u64 },
         Cancelled(Option<CanceledBy>),
         AlreadyCompleted,
     }
@@ -190,11 +190,9 @@ pub async fn handle_child(
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             match self {
                 KillReason::TooManyLogs => f.write_str("too many logs (max size: 2MB)"),
-                KillReason::Timeout { is_job_specific } => f.write_str(if *is_job_specific {
-                    "timeout after exceeding job-specific duration limit"
-                } else {
-                    "timeout after exceeding instance-wide job duration limit"
-                }),
+                KillReason::Timeout { phase, source, secs } => {
+                    write!(f, "timeout: `{phase}` exceeded {}", source.describe(*secs))
+                }
                 KillReason::Cancelled(canceled_by) => {
                     let mut reason = "cancelled".to_string();
                     if let Some(canceled_by) = canceled_by {
@@ -212,7 +210,7 @@ pub async fn handle_child(
         }
     }
 
-    let (timeout_duration, timeout_warn_msg, is_job_specific) =
+    let (timeout_duration, timeout_warn_msg, timeout_source) =
         resolve_job_timeout(&conn, w_id, job_id, custom_timeout).await;
     if let Some(msg) = timeout_warn_msg {
         append_logs(&job_id, w_id, msg.as_str(), conn).await;
@@ -224,7 +222,11 @@ pub async fn handle_child(
             biased;
             result = Box::into_pin(child.wait()) => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
-            _ = sleep(timeout_duration) => KillReason::Timeout { is_job_specific },
+            _ = sleep(timeout_duration) => KillReason::Timeout {
+                phase: child_name.to_string(),
+                source: timeout_source,
+                secs: timeout_duration.as_secs(),
+            },
             ex = update_job, if job_id != Uuid::nil() => match ex {
                 UpdateJobPollingExit::Done(canceled_by) => KillReason::Cancelled(canceled_by),
                 UpdateJobPollingExit::AlreadyCompleted => KillReason::AlreadyCompleted,
@@ -233,17 +235,16 @@ pub async fn handle_child(
         tx.send(()).expect("rx should never be dropped");
         drop(tx);
 
+        let timeout_reason = format!(
+            "`{child_name}` exceeded {}",
+            timeout_source.describe(timeout_duration.as_secs())
+        );
         let set_reason = async {
             if matches!(kill_reason, KillReason::Timeout { .. }) {
                 match conn {
                     Connection::Sql(db) => {
-                        if let Err(err) = set_job_cancelled_query(
-                            job_id,
-                            db,
-                            "timeout",
-                            &format!("duration > {}", timeout_duration.as_secs()),
-                        )
-                        .await
+                        if let Err(err) =
+                            set_job_cancelled_query(job_id, db, "timeout", &timeout_reason).await
                         {
                             tracing::error!(%job_id, %err, "error setting cancelation reason for job {job_id}: {err}");
                         }
@@ -255,7 +256,7 @@ pub async fn handle_child(
                                 None,
                                 &JobCancelled {
                                     canceled_by: "timeout".to_string(),
-                                    reason: format!("duration > {}", timeout_duration.as_secs()),
+                                    reason: timeout_reason.clone(),
                                 },
                             )
                             .await

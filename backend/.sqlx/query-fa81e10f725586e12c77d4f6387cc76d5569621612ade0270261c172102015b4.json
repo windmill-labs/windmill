@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM flow_conversation_message m\n         USING flow_conversation c\n         WHERE m.conversation_id = c.id AND c.workspace_id = $1\n           AND COALESCE(m.turn_job_id, m.job_id) = ANY($2)\n         RETURNING m.conversation_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "conversation_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fa81e10f725586e12c77d4f6387cc76d5569621612ade0270261c172102015b4"
+}
