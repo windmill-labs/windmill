@@ -473,12 +473,12 @@
 	/** The arriving strip fades in over the expansion; the leaving one goes quickly, so the two
 	 *  are never both legible at once — they stand in different places, and a slow dissolve would
 	 *  read as two tab rows rather than one changing place. */
-	function stripArrive() {
+	function stripArrive(_node: HTMLElement) {
 		return reducedMotion.val
 			? { duration: 0 }
 			: { duration: 180, delay: 60, easing: cubicOut, css: (t: number) => `opacity: ${t}` }
 	}
-	function stripLeave() {
+	function stripLeave(_node: HTMLElement) {
 		return reducedMotion.val
 			? { duration: 0 }
 			: { duration: 80, easing: cubicOut, css: (t: number) => `opacity: ${t}` }
@@ -1134,12 +1134,14 @@
 						<!-- The band floats over this column too in full screen (it holds the tab strip
 						     there), so the panel clears it with the same offset the chat column uses. -->
 						<div
-							bind:clientWidth={() => previewWidth,
-							(w) => {
-								previewWidth = w
-								if (!fullscreen && !panesAnimating && contentWidth > 0)
-									panelShare = w / contentWidth
-							}}
+							bind:clientWidth={
+								() => previewWidth,
+								(w) => {
+									previewWidth = w
+									if (!fullscreen && !panesAnimating && contentWidth > 0)
+										panelShare = w / contentWidth
+								}
+							}
 							class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0 pt-11' : 'p-2 pl-0'}"
 						>
 							<!-- The action controls float over the tab strip, so the strip has to reserve
