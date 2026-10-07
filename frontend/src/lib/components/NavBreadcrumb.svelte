@@ -25,6 +25,7 @@ not this component) — so the lead can run the whole line.
 	import { base } from '$lib/base'
 	import { twMerge } from 'tailwind-merge'
 	import { Badge } from '$lib/components/common'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import DevWorkspaceBadge from './DevWorkspaceBadge.svelte'
 	import { page } from '$app/state'
@@ -371,12 +372,17 @@ not this component) — so the lead can run the whole line.
 				{/if}
 			</div>
 		{:else if item.kind}
+			<!-- The path is on its way: a page registers its kind as soon as it mounts and fills the
+			     path once it has loaded one. Naming the kind here reads as the answer and then jumps
+			     when the real path replaces it, so hold its place instead. The width is a plausible
+			     path's, which is what keeps the trail from shifting when it lands. -->
 			<span
 				class={twMerge(SEGMENT, 'hover:bg-transparent', itemIsLast ? LAST : LEAD)}
-				aria-current="page"
+				aria-label="Loading {KIND_LABEL_LOWER[item.kind]} path"
+				aria-busy="true"
 			>
 				{@render itemKindIcon()}
-				<span class="truncate">{KIND_LABEL_LOWER[item.kind]}</span>
+				<Skeleton layout={[[{ h: 0.75, w: 100, minW: 96 }]]} class="w-24" />
 			</span>
 		{/if}
 	{:else if section?.kind}
