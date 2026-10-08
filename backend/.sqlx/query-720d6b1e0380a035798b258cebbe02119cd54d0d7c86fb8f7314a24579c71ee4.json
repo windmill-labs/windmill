@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT wp.draining FROM v2_job_queue q JOIN worker_ping wp ON wp.worker = q.worker\n        WHERE q.id = $1 AND q.workspace_id = $2",
+  "query": "SELECT wp.draining FROM v2_job_queue q JOIN worker_ping wp ON wp.worker = q.worker\n            WHERE q.id = $1 AND q.workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       false
     ]
   },
-  "hash": "b48507f385b2d1f8662dc089fc696e86426c4ee9bd61d0606d574fa3d082ce14"
+  "hash": "720d6b1e0380a035798b258cebbe02119cd54d0d7c86fb8f7314a24579c71ee4"
 }

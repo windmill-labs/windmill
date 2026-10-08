@@ -825,10 +825,9 @@ class Windmill:
         Returns:
             True if the worker running the job is draining
         """
-        workspace = get_workspace()
         job_id = job_id or os.environ.get("WM_JOB_ID")
 
-        return self.get(f"/w/{workspace}/jobs/worker_is_draining/{job_id}").json()
+        return self.get(f"/w/{self.workspace}/jobs/worker_is_draining/{job_id}").json()
 
     def set_flow_user_state(self, key: str, value: Any) -> None:
         """Set the user state of a flow at a given key"""
