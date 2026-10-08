@@ -24,6 +24,9 @@ export type PageHeaderItem = {
 /** A page with no item of its own, such as a list: the breadcrumb is the section alone. */
 export type PageHeaderSection = {
 	label: string
+	/** The page the section belongs to, when the section is one pane of it — a settings page's
+	 *  active tab. Drawn as a lead segment before `label`. */
+	parent?: string
 	/** Rendered in place of `label` when the name is itself a control, such as an editable title. */
 	content?: Snippet
 	/** Scopes the segment's picker, when the section maps to a kind of item. */
