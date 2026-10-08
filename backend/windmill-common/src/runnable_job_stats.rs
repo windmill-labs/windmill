@@ -105,6 +105,25 @@ pub fn accumulate_runnable_job_stats(
         .add_job(duration_ms, mem_peak, cpu_time_ms);
 }
 
+/// Counts CPU time spent on a job that is not completing: a suspended workflow-as-code
+/// round replays its finished steps for free when it resumes, so the time they took
+/// would otherwise never reach the rollup.
+pub fn accumulate_runnable_cpu_time(
+    workspace_id: &str,
+    kind: JobKind,
+    runnable_path: Option<&str>,
+    worker_group: &str,
+    cpu_time_ms: i64,
+) {
+    let key = (
+        get_current_hour(),
+        workspace_id.to_string(),
+        stats_path(kind, runnable_path).to_string(),
+        worker_group.to_string(),
+    );
+    STATS.lock().unwrap().entry(key).or_default().total_cpu_ms += cpu_time_ms.max(0);
+}
+
 pub async fn flush_runnable_job_stats(db: &Pool<Postgres>) -> Result<(), sqlx::Error> {
     let drained: Vec<(StatsKey, RunnableStats)> = {
         let mut stats = STATS.lock().unwrap();

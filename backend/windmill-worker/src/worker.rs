@@ -5133,6 +5133,16 @@ pub async fn handle_queued_job(
             .is_err_and(|err| matches!(err, &Error::WacSuspended(_)))
         {
             // WAC v2 job suspended while waiting for child jobs — don't complete it
+            // Only a worker with a database connection flushes the rollup.
+            if let (Some(cpu_time_ms), Connection::Sql(_)) = (cpu_time_ms, conn) {
+                windmill_common::runnable_job_stats::accumulate_runnable_cpu_time(
+                    &cjob.workspace_id,
+                    cjob.kind,
+                    cjob.runnable_path.as_deref(),
+                    &WORKER_GROUP,
+                    cpu_time_ms,
+                );
+            }
             return Ok(JobOutcome::Completed);
         }
         crate::resource_metrics::record_job_memory_peak(&cjob.tag, mem_peak);
