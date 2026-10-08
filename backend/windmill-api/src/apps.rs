@@ -2377,12 +2377,22 @@ fn checked_policy_runnable_paths(policy: &Policy) -> Result<Vec<(bool, String)>>
     }
     // `execute_component` looks up `{component}:{path}` with an unrestricted component, so every
     // colon is a possible split (`a:b:script/x` resolves for `component = "a:b"`): check every
-    // suffix that parses as a runnable.
-    Ok(policy
-        .triggerables
-        .iter()
-        .flat_map(|t| t.keys())
-        .chain(policy.triggerables_v2.iter().flat_map(|t| t.keys()))
+    // suffix that parses as a runnable. That copies a key once per colon, so bound the key first:
+    // a 255-char path plus a component name is far below the cap.
+    const MAX_KEY_LEN: usize = 512;
+    let keys = || {
+        policy
+            .triggerables
+            .iter()
+            .flat_map(|t| t.keys())
+            .chain(policy.triggerables_v2.iter().flat_map(|t| t.keys()))
+    };
+    if keys().any(|k| k.len() > MAX_KEY_LEN) {
+        return Err(Error::BadRequest(format!(
+            "App policy triggerable keys must be at most {MAX_KEY_LEN} bytes"
+        )));
+    }
+    Ok(keys()
         .flat_map(|key| {
             std::iter::once(key.as_str())
                 .chain(key.match_indices(':').map(|(i, _)| &key[i + 1..]))

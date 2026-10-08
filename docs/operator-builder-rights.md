@@ -124,6 +124,10 @@ autosave. `Viewer` mode is refused in a draft as on deploy: the deploy panel sho
 members-only, so an admin deploying the draft would publish it unawares. The builder's editor
 switches it to `Publisher` on load, since that panel offers no way out of it.
 
+Reading a triggerable key at every colon copies it once per colon, so the check refuses a key
+over 512 bytes before splitting: a quadratic walk otherwise lets a sub-megabyte key allocate
+gigabytes. A 255-character path plus a component name stays well under it.
+
 ## Billing
 
 An operator of a builder workspace consumes a full author seat. This is the one place that reads
