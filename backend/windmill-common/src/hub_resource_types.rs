@@ -215,21 +215,21 @@ pub struct SyncOutcome {
     pub source: SyncSource,
     /// Every type the source listed, changed or not.
     pub listed: Vec<String>,
-    pub synced: usize,
+    /// The types this sync created or updated.
+    pub changed: Vec<String>,
 }
 
 impl SyncOutcome {
     pub fn summary(&self) -> String {
-        let unchanged = self.listed.len() - self.synced;
+        let synced = self.changed.len();
+        let unchanged = self.listed.len() - synced;
         match self.source {
-            SyncSource::Hub => format!(
-                "Synced {} resource types from the hub ({unchanged} unchanged)",
-                self.synced
-            ),
+            SyncSource::Hub => {
+                format!("Synced {synced} resource types from the hub ({unchanged} unchanged)")
+            }
             SyncSource::ImageCache => format!(
-                "Synced {} resource types from the image's cache, the hub being unavailable \
-                 ({unchanged} unchanged)",
-                self.synced
+                "Synced {synced} resource types from the image's cache, the hub being unavailable \
+                 ({unchanged} unchanged)"
             ),
         }
     }
@@ -263,7 +263,7 @@ async fn apply(db: &DB, source: SyncSource, types: &[HubResourceType]) -> Result
     )
     .collect();
 
-    let mut synced = 0;
+    let mut changed = vec![];
     for rt in types {
         let current = stored.get(&rt.name);
         let target = target_row(rt, current);
@@ -287,10 +287,10 @@ async fn apply(db: &DB, source: SyncSource, types: &[HubResourceType]) -> Result
         .bind(&target.display_name)
         .execute(db)
         .await?;
-        synced += 1;
+        changed.push(rt.name.clone());
     }
 
-    Ok(SyncOutcome { source, listed: types.iter().map(|rt| rt.name.clone()).collect(), synced })
+    Ok(SyncOutcome { source, listed: types.iter().map(|rt| rt.name.clone()).collect(), changed })
 }
 
 #[derive(Deserialize, Default)]
@@ -458,7 +458,10 @@ async fn sync_if_due(db: &DB) -> Result<()> {
     // applied at boot (`SYNC_CACHED_RT`) or on demand instead.
     if due {
         match sync_from_hub(db).await {
-            Ok(outcome) => tracing::info!("{}", outcome.summary()),
+            Ok(outcome) if outcome.changed.is_empty() => tracing::info!("{}", outcome.summary()),
+            Ok(outcome) => {
+                tracing::info!("{}: {}", outcome.summary(), outcome.changed.join(", "))
+            }
             Err(e) => tracing::warn!("Hub resource type sync failed, retrying in an hour: {e}"),
         }
     }

@@ -31710,6 +31710,7 @@ components:
             - "resource_types.create"
             - "resource_types.update"
             - "resource_types.delete"
+            - "resource_types.sync"
             - "schedule.create"
             - "schedule.setenabled"
             - "schedule.edit"

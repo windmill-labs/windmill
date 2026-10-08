@@ -2591,6 +2591,24 @@ async fn sync_cached_resource_types(
 
     let outcome = hub_resource_types::sync(&db).await?;
 
+    if !outcome.changed.is_empty() {
+        let source = match outcome.source {
+            SyncSource::Hub => "hub",
+            SyncSource::ImageCache => "image_cache",
+        };
+        let changed = outcome.changed.join(", ");
+        audit_log(
+            &db,
+            &authed,
+            "resource_types.sync",
+            ActionKind::Update,
+            "admins",
+            None,
+            Some([("source", source), ("changed", changed.as_str())].into()),
+        )
+        .await?;
+    }
+
     // If a specific type was requested and is still absent after syncing, surface an
     // explicit not-found instead of a silent "Synced 0". Word it by source so the
     // cache-fallback path does not claim it checked the hub.
