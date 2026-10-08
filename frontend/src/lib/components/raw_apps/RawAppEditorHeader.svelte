@@ -368,9 +368,9 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
-		const deployedPolicy = await policyWithTriggerables()
 		try {
 			const { js, css } = await getBundle()
+			const deployedPolicy = await policyWithTriggerables()
 			await AppService.createAppRaw({
 				workspace: opWorkspace!,
 				formData: {
