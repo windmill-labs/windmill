@@ -2390,6 +2390,7 @@ pub(crate) fn refuse_hub_runnables(referenced: &[(bool, String)]) -> Result<()> 
 /// RLS on this transaction is the check; refusing `Viewer` above is what makes it exhaustive.
 async fn validate_operator_composed_app(
     authed: &ApiAuthed,
+    db: &DB,
     user_db: &UserDB,
     w_id: &str,
     raw_app: bool,
@@ -2397,11 +2398,12 @@ async fn validate_operator_composed_app(
     policy: Option<&mut Policy>,
 ) -> Result<()> {
     let referenced = check_operator_composed_app(raw_app, value, policy)?;
-    require_runnables_readable(authed, user_db, w_id, referenced).await
+    require_runnables_readable(authed, db, user_db, w_id, referenced).await
 }
 
 pub(crate) async fn require_runnables_readable(
     authed: &ApiAuthed,
+    db: &DB,
     user_db: &UserDB,
     w_id: &str,
     referenced: Vec<(bool, String)>,
@@ -2417,16 +2419,25 @@ pub(crate) async fn require_runnables_readable(
                 w_id,
                 path,
             )
+            .fetch_one(&mut *tx)
+            .await?
+            .unwrap_or(false)
         } else {
-            sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2)",
-                w_id,
-                path,
-            )
-        }
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(false);
+            // Each script version carries its own grants, and a path reused after its versions
+            // were archived starts with none. Check the version a run would pick, found without
+            // RLS, not whichever version the caller happens to see.
+            match windmill_common::get_latest_script_hash(db, &path, w_id).await? {
+                Some(hash) => sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND hash = $2)",
+                    w_id,
+                    hash,
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                .unwrap_or(false),
+                None => false,
+            }
+        };
         if !readable {
             return Err(Error::PermissionDenied(format!(
                 "{} {path} does not exist or is not readable by you",
@@ -2701,6 +2712,7 @@ async fn create_app_internal<'a>(
     if authed.is_operator {
         validate_operator_composed_app(
             &authed,
+            &db,
             &user_db,
             w_id,
             raw_app,
@@ -3715,6 +3727,7 @@ async fn update_app_internal<'a>(
         ns.allow_kind_change = None;
         validate_operator_composed_app(
             &authed,
+            &db,
             &user_db,
             w_id,
             raw_app,

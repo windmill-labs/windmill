@@ -530,7 +530,8 @@ async fn update_draft(
             referenced.sort();
             referenced.dedup();
             crate::apps::refuse_hub_runnables(&referenced)?;
-            crate::apps::require_runnables_readable(&authed, &user_db, &w_id, referenced).await?;
+            crate::apps::require_runnables_readable(&authed, &db, &user_db, &w_id, referenced)
+                .await?;
         }
     }
 

@@ -63,7 +63,9 @@ too: a developer who loads a builder's draft in the editor runs its code as them
 
 The same reasoning applies to a builder-authored app, with one extra step. `execute_component`
 resolves the runnable it runs on the root handle, so `validate_operator_composed_app` checks every
-referenced path under the caller's RLS and refuses hub ones. But it has to check **two** surfaces,
+referenced path under the caller's RLS and refuses hub ones. For a script it checks the version a
+run would pick: grants are per version, and a path reused after its versions were archived starts
+with none while the archived ones keep theirs. But it has to check **two** surfaces,
 because they are not the same list: the policy's `script/<path>` and `flow/<path>` triggerables,
 and the `runnableByPath` entries in the app value, which is what the deployed bundle resolves a
 `runnable_id` against and sends.

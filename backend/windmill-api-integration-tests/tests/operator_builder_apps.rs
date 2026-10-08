@@ -98,6 +98,16 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
     add_script(&db, 4241, "u/operator/some_script", "operator").await?;
     // `permissions_test` gives the operator fixture no rights on `u/alice/**`.
     add_script(&db, 4243, "u/alice/private", "alice").await?;
+    // A version shared with the operator, then archived, and a newer one at the same path that is
+    // not: the newer one is what runs.
+    add_script(&db, 4244, "u/alice/reused", "alice").await?;
+    sqlx::query(
+        "UPDATE script SET archived = true, extra_perms = '{\"u/operator\": false}',
+             created_at = now() - interval '1 day' WHERE hash = 4244",
+    )
+    .execute(&db)
+    .await?;
+    add_script(&db, 4245, "u/alice/reused", "alice").await?;
 
     set_builder(&db, false, false).await?;
     let resp = c
@@ -346,6 +356,11 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
             403,
         ),
         (
+            json!({"r": {"type": "runnableByPath", "runType": "script", "path": "u/alice/reused"}}),
+            json!({"sandbox": true}),
+            403,
+        ),
+        (
             json!({"r": {"type": "path", "runType": "hubscript", "path": "hub/1/x/y"}}),
             json!({"sandbox": true}),
             403,
@@ -365,6 +380,14 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
             json!({"sandbox": true, "triggerables": {"x:script/u/alice/private": {}}}),
             403,
         ),
+        (
+            json!({}),
+            json!({"sandbox": true, "triggerables_v2": {
+                "x:script/u/alice/private": {"static_inputs": {}, "one_of_inputs": {}},
+                "y:rawscript/abc": {"static_inputs": {}, "one_of_inputs": {}}
+            }}),
+            200,
+        ),
     ] {
         let resp = c
             .post(format!("{api}/drafts/update/raw_app/u/operator/d1"))
@@ -380,14 +403,6 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
             expected,
             "raw app draft {runnables} {policy}: {}",
             resp.text().await?
-        (
-            json!({}),
-            json!({"sandbox": true, "triggerables_v2": {
-                "x:script/u/alice/private": {"static_inputs": {}, "one_of_inputs": {}},
-                "y:rawscript/abc": {"static_inputs": {}, "one_of_inputs": {}}
-            }}),
-            200,
-        ),
         );
     }
 
