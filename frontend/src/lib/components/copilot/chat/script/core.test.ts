@@ -22,7 +22,9 @@ describe('searchResourceTypes', () => {
 		[['ai_skill', 'ai_instruction'], true],
 		[Array.from({ length: 30 }, (_, i) => `type_${i}`), false]
 	])('notes only an instance that never synced with the hub (%#)', async (names, noted) => {
-		vi.spyOn(ResourceService, 'queryResourceTypes').mockResolvedValue([])
+		vi.spyOn(ResourceService, 'queryResourceTypes').mockResolvedValue([
+			{ name: 'ai_skill', score: 0.8 }
+		])
 		vi.spyOn(ResourceService, 'listResourceTypeNames').mockResolvedValue(names)
 
 		const { note } = await searchResourceTypes('stripe', 'ws', 5)

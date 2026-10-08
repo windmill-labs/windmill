@@ -72,18 +72,21 @@ export function formatResourceTypes(
 // so fewer than this means the instance never synced with the hub.
 const UNSYNCED_RESOURCE_TYPE_COUNT = 20
 
-/** When nothing matches, a note says whether the instance seems never to have synced with the hub. */
+/**
+ * The note on an unsynced instance cannot wait for an empty result: the similarity search
+ * still returns the nearest of the few types there are (the instance's own `ai_skill` scores
+ * about 0.8 for "confluence").
+ */
 export async function searchResourceTypes(
 	query: string,
 	workspace: string,
 	limit: number
 ): Promise<{ resourceTypes: Pick<ResourceType, 'name' | 'schema'>[]; note?: string }> {
-	const resourceTypes = await ResourceService.queryResourceTypes({ workspace, text: query, limit })
-	if (resourceTypes.length > 0) {
-		return { resourceTypes }
-	}
-	const count = new Set(await ResourceService.listResourceTypeNames({ workspace }).catch(() => []))
-		.size
+	const [resourceTypes, names] = await Promise.all([
+		ResourceService.queryResourceTypes({ workspace, text: query, limit }),
+		ResourceService.listResourceTypeNames({ workspace }).catch(() => [])
+	])
+	const count = new Set(names).size
 	return {
 		resourceTypes,
 		note:
