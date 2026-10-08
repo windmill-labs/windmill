@@ -228,7 +228,6 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hiddenIfNull: true,
-			hideInQuickSetup: true,
 			error:
 				'API base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, no shell metacharacters, and no trailing slash',
 			isValid: isValidWebhookBaseUrl
