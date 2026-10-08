@@ -73,64 +73,44 @@ export function formatResourceTypes(
 const UNSYNCED_RESOURCE_TYPE_COUNT = 20
 
 /**
- * Similarity matches, led by any resource type the query names exactly: the similarity index
- * is rebuilt from the table once a day, and builds without embeddings have no index at all.
+ * When the similarity search finds nothing, the instance's type names come back instead: the
+ * index is rebuilt from the table once a day and builds without embeddings have none, so an
+ * empty search does not mean no type fits. A query that is a type's name gets its schema.
  */
 export async function searchResourceTypes(
 	query: string,
 	workspace: string,
 	limit: number
 ): Promise<{ resourceTypes: Pick<ResourceType, 'name' | 'schema'>[]; note?: string }> {
-	let similarityFailed = false
-	const [similar, names] = await Promise.all([
-		ResourceService.queryResourceTypes({ workspace, text: query, limit }).catch(() => {
-			similarityFailed = true
-			return []
-		}),
-		ResourceService.listResourceTypeNames({ workspace })
-			.then((listed) => new Set(listed))
-			.catch(() => undefined)
-	])
-
-	const normalized = query.trim().toLowerCase()
-	const words = normalized.split(/[^a-z0-9_]+/).filter((word) => word.length > 0)
-	const candidates = new Set([normalized.replace(/[\s-]+/g, '_'), ...words])
-	const exact = await Promise.all(
-		[...candidates]
-			.filter((name) => names?.has(name))
-			.slice(0, limit)
-			.map(
-				(name) =>
-					similar.find((rt) => rt.name === name) ??
-					ResourceService.getResourceType({ workspace, path: name }).catch(() => undefined)
-			)
+	const similar = await ResourceService.queryResourceTypes({ workspace, text: query, limit }).catch(
+		() => []
 	)
-	const named = exact.flatMap((rt) => (rt ? [{ name: rt.name, schema: rt.schema }] : []))
-	const resourceTypes = [
-		...named,
-		...similar.filter((rt) => !named.some((n) => n.name === rt.name))
-	].slice(0, limit)
+	if (similar.length > 0) {
+		return { resourceTypes: similar }
+	}
 
-	// Without the similarity search, an empty result says nothing about whether a type exists,
-	// so the model gets the names close to its query rather than concluding there is none.
-	const related =
-		similarityFailed && names
-			? [...names]
-					.filter((name) =>
-						words.some((word) => word.length >= 3 && (name.includes(word) || word.includes(name)))
-					)
-					.slice(0, 30)
-			: []
-	const notes = [
-		similarityFailed && names
-			? `The similarity search is unavailable on this instance, so only a type named in the query can be found. ${related.length > 0 ? `Resource types whose names share a word with the query: ${related.join(', ')}.` : "Search again with the service's name."}`
-			: undefined,
-		names && names.size < UNSYNCED_RESOURCE_TYPE_COUNT
-			? `Only ${names.size} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. ${HUB_SYNC_INSTRUCTIONS}`
-			: undefined
-	].filter((note) => note !== undefined)
+	const names = [
+		...new Set(await ResourceService.listResourceTypeNames({ workspace }).catch(() => []))
+	]
+	const name = query.trim().toLowerCase()
+	const named = names.includes(name)
+		? await ResourceService.getResourceType({ workspace, path: name }).catch(() => undefined)
+		: undefined
+	if (named) {
+		return { resourceTypes: [{ name: named.name, schema: named.schema }] }
+	}
+	if (names.length === 0) {
+		return { resourceTypes: [] }
+	}
 
-	return { resourceTypes, note: notes.length > 0 ? notes.join('\n\n') : undefined }
+	const unsynced =
+		names.length < UNSYNCED_RESOURCE_TYPE_COUNT
+			? `\n\nOnly ${names.length} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. ${HUB_SYNC_INSTRUCTIONS}`
+			: ''
+	return {
+		resourceTypes: [],
+		note: `The resource types on this instance are: ${names.join(', ')}. Search again with one of these names to get its schema.${unsynced}`
+	}
 }
 
 export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
