@@ -2706,6 +2706,9 @@ export class AIChatManager implements ChatViewHost {
 
 	enableBrowserTools = () => {
 		this.browserTools = true
+		// Yolo here also clicks and types on the user's page, so it is chosen in the panel, never
+		// inherited from the setting saved by a chat elsewhere. Not persisted, so that setting stays.
+		if (this.autonomyMode === AIAutonomyMode.YOLO) this.autonomyMode = AIAutonomyMode.DEFAULT
 		// The side panel renders no preview pane: forms stay inline and runs open in a new
 		// tab, as in the docked chat.
 		this.openRunInPreview = undefined

@@ -28,7 +28,7 @@ icon to open the panel.
 - Reading and screenshots run without asking. Each click, type and navigation waits for the
   chat's own approval card, which lives in Windmill's frame where the page cannot reach it.
   The chat's Yolo mode skips the card, and its warning says pages can try to steer it.
-- Approval runs in two steps. When the card opens, the extension pins the target (tab,
+- Approval runs in two steps. Before the card opens, the extension pins the target (tab,
   document and element, the element held in the extension's isolated world) and describes
   it for the card. After approval it acts only on that target, and refuses if the tab is no
   longer active, the page navigated or reloaded, or the element changed.
