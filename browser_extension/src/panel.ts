@@ -56,7 +56,7 @@ async function run(call: Call, gen: number): Promise<unknown> {
 			return chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 })
 		case 'click':
 		case 'type': {
-			// The described element is tagged, and only that node is acted on after Allow.
+			// Only the element described for the approval is acted on after Allow.
 			const nonce = crypto.randomUUID()
 			const [label, documentId] = await exec({ tabId }, pageAction, ['describe', call.args, nonce])
 			const submit = call.tool === 'type' && call.args.submit ? ' and submit' : ''
@@ -67,7 +67,7 @@ async function run(call: Call, gen: number): Promise<unknown> {
 				tab,
 				gen
 			)
-			await stillApproved(tab)
+			await stillApproved(tab, documentId)
 			const target = { tabId, documentIds: [documentId] }
 			const [result] = await exec(target, pageAction, [call.tool, call.args, nonce]).catch(
 				(e: Error) => {
@@ -81,8 +81,13 @@ async function run(call: Call, gen: number): Promise<unknown> {
 			if (url.protocol !== 'https:' && url.protocol !== 'http:') {
 				throw new Error('Only http(s) URLs can be opened')
 			}
+			// A page the extension cannot script (a browser page) is pinned by its URL alone.
+			const documentId = await exec({ tabId }, () => ({ result: null }), []).then(
+				([, id]) => id,
+				() => undefined
+			)
 			await confirmAction(`Open ${url.href}`, tab, gen)
-			await stillApproved(tab)
+			await stillApproved(tab, documentId)
 			await chrome.tabs.update(tabId, { url: url.href })
 			return `Navigating to ${url.href}`
 		}
@@ -107,14 +112,20 @@ async function exec<A extends any[]>(
 
 const PAGE_CHANGED = 'The page changed while waiting for approval. Read it again.'
 
-/** An approval holds only for the page it named, while that page is still the active tab.
- * The URL stands in for the page here; click and type are also pinned to its document. */
-async function stillApproved(tab: chrome.tabs.Tab) {
+/** An approval holds only for the document it named, while its tab is still the active one. */
+async function stillApproved(tab: chrome.tabs.Tab, documentId: string | undefined) {
 	const [current] = await chrome.tabs.query({ active: true, windowId: tab.windowId })
 	if (current?.id !== tab.id) {
 		throw new Error('The user switched tabs while the approval was pending. Ask again.')
 	}
 	if (current.url !== tab.url) throw new Error(PAGE_CHANGED)
+	if (documentId) {
+		await exec({ tabId: tab.id!, documentIds: [documentId] }, () => ({ result: null }), []).catch(
+			() => {
+				throw new Error(PAGE_CHANGED)
+			}
+		)
+	}
 }
 
 let confirmQueue: Promise<unknown> = Promise.resolve()
@@ -155,10 +166,15 @@ function confirmAction(text: string, tab: chrome.tabs.Tab, gen: number): Promise
 function readPage(maxChars: number) {
 	document.querySelectorAll('[data-wm-ref]').forEach((el) => el.removeAttribute('data-wm-ref'))
 	const elements: string[] = []
-	const candidates = document.querySelectorAll<HTMLElement>(
-		'a[href], button, input, textarea, select, [role=button], [role=link], [contenteditable=true]'
+	// Fields first: on a page with hundreds of links (a mail inbox) the cap would otherwise
+	// drop a compose box rendered at the end of the document.
+	const fields = document.querySelectorAll<HTMLElement>(
+		'input:not([type=hidden]), textarea, select, [contenteditable]:not([contenteditable=false]), [role=textbox]'
 	)
-	for (const el of candidates) {
+	const others = document.querySelectorAll<HTMLElement>(
+		'a[href], button, [role=button], [role=link]'
+	)
+	for (const el of new Set([...fields, ...others])) {
 		if (elements.length >= 300) break
 		const rect = el.getBoundingClientRect()
 		if (!rect.width || !rect.height || getComputedStyle(el).visibility === 'hidden') continue
@@ -195,27 +211,13 @@ function pageAction(
 	a: { ref?: number; selector?: string; text?: string; submit?: boolean },
 	nonce: string
 ) {
-	let el: HTMLElement | null = null
-	try {
-		el =
-			action !== 'describe'
-				? document.querySelector(`[data-wm-approved="${nonce}"]`)
-				: a.ref !== undefined
-					? document.querySelector(`[data-wm-ref="${Number(a.ref)}"]`)
-					: a.selector
-						? document.querySelector(a.selector)
-						: null
-	} catch {
-		return { error: `Invalid selector ${a.selector}` }
-	}
-	if (!el && action !== 'describe') {
-		return { error: 'The element changed while waiting for approval. Read the page again.' }
-	}
-	if (!el) return { error: 'Element not found. Read the page again for fresh element numbers.' }
-	el.removeAttribute('data-wm-approved')
-	const input = el as HTMLInputElement
-	if (action === 'describe') {
-		el.setAttribute('data-wm-approved', nonce)
+	// Kept in the extension's isolated world, which the page's own scripts can neither read
+	// nor alter, so the page cannot move an approval onto another element.
+	const approved: Map<string, { el: HTMLElement; label: string }> = ((
+		globalThis as any
+	).__wmApproved ??= new Map())
+	const describe = (el: HTMLElement) => {
+		const input = el as HTMLInputElement
 		const label = (
 			el.getAttribute('aria-label') ||
 			el.innerText ||
@@ -226,8 +228,32 @@ function pageAction(
 			.trim()
 			.replace(/\s+/g, ' ')
 			.slice(0, 80)
-		return { result: `<${el.tagName.toLowerCase()}> "${label}"` }
+		return `<${el.tagName.toLowerCase()}> "${label}"`
 	}
+	if (action === 'describe') {
+		let el: HTMLElement | null = null
+		try {
+			el =
+				a.ref !== undefined
+					? document.querySelector(`[data-wm-ref="${Number(a.ref)}"]`)
+					: a.selector
+						? document.querySelector(a.selector)
+						: null
+		} catch {
+			return { error: `Invalid selector ${a.selector}` }
+		}
+		if (!el) return { error: 'Element not found. Read the page again for fresh element numbers.' }
+		const label = describe(el)
+		approved.set(nonce, { el, label })
+		return { result: label }
+	}
+	const entry = approved.get(nonce)
+	approved.delete(nonce)
+	// Re-described, so an element re-rendered in place into something else is not acted on.
+	if (!entry || !entry.el.isConnected || describe(entry.el) !== entry.label) {
+		return { error: 'The element changed while waiting for approval. Read the page again.' }
+	}
+	const el = entry.el
 	el.scrollIntoView({ block: 'center' })
 	if (action === 'click') {
 		el.click()
@@ -245,7 +271,7 @@ function pageAction(
 		return { error: 'That element is not a text field' }
 	}
 	if (a.submit) {
-		const form = input.form
+		const form = (el as HTMLInputElement).form
 		if (form) form.requestSubmit()
 		else el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
 	}
