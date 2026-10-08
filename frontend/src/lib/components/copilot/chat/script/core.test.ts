@@ -49,6 +49,23 @@ describe('searchResourceTypes', () => {
 
 		expect(resourceTypes).toEqual([])
 		expect(note).toContain('postgresql')
+		expect(note).not.toContain('type_0')
+	})
+
+	it('keeps every type the query names ahead of the other matches', async () => {
+		vi.spyOn(ResourceService, 'queryResourceTypes').mockResolvedValue(
+			['a', 'b', 'c', 'd', 'stripe'].map((name) => ({ name, score: 0.8 }))
+		)
+		vi.spyOn(ResourceService, 'listResourceTypeNames').mockResolvedValue([
+			...syncedNames,
+			'stripe',
+			'github'
+		])
+		vi.spyOn(ResourceService, 'getResourceType').mockResolvedValue({ name: 'github', schema: {} })
+
+		const { resourceTypes } = await searchResourceTypes('stripe github', 'ws', 5)
+
+		expect(resourceTypes.map((rt) => rt.name)).toEqual(['stripe', 'github', 'a', 'b', 'c'])
 	})
 
 	it('notes an instance that never synced with the hub', async () => {
