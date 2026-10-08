@@ -5,6 +5,7 @@
 	import { Button } from '$lib/components/common'
 	import { page } from '$app/stores'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
+	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -73,6 +74,8 @@
 	})
 </script>
 
+<!-- This page skips the logged layout, which is what normally loads the API base url. -->
+<InstanceUiSync />
 <UserSettings
 	bind:this={userSettings}
 	on:tokenCreated={(e) => {

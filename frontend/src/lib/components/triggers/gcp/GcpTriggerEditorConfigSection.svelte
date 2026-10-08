@@ -28,22 +28,16 @@
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 
-	// Declared before `DEFAULT_PUSH_CONFIG` / the `base_endpoint` prop default,
-	// which call `getBaseUrl()` (a `wsId` reader) during component init.
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 	const wsId = $derived($operatingWorkspace)
+	const base_endpoint = $derived(`${apiBaseUrl()}/api/gcp/w/${wsId!}`)
 
 	let topic_items: string[] = $state([])
 	let subscription_items: string[] = $state([])
 	let loadingTopic = $state(false)
 	let loadingSubscription = $state(false)
-
-	const DEFAULT_PUSH_CONFIG: PushConfig = {
-		audience: getBaseUrl(),
-		authenticate: false
-	}
 
 	async function loadAllPubSubTopicsFromProject() {
 		// Listing is admin-only under application default credentials, and a non-admin viewing an
@@ -117,7 +111,6 @@
 		delivery_type?: DeliveryType | undefined
 		delivery_config: PushConfig | undefined
 		subscription_mode?: SubscriptionMode
-		base_endpoint?: string
 		path?: string
 		showTestingBadge?: boolean
 		cloud_subscription_id?: string
@@ -139,7 +132,6 @@
 		delivery_type = $bindable('pull'),
 		delivery_config = $bindable(),
 		subscription_mode = $bindable('create_update'),
-		base_endpoint = $bindable(getBaseUrl()),
 		auto_acknowledge_msg = $bindable(true),
 		ack_deadline = $bindable(),
 		path = '',
@@ -199,17 +191,9 @@
 		if (!delivery_type) {
 			delivery_type = 'pull'
 		} else if (delivery_type === 'push' && !delivery_config) {
-			delivery_config = DEFAULT_PUSH_CONFIG
+			delivery_config = { audience: base_endpoint, authenticate: false }
 		}
 	})
-	function getBaseUrl() {
-		return `${apiBaseUrl()}/api/gcp/w/${wsId!}`
-	}
-
-	$effect(() => {
-		!base_endpoint && (base_endpoint = getBaseUrl())
-	})
-
 	$effect(() => {
 		if (emptyStringTrimmed(subscription_id) && !emptyStringTrimmed(path)) {
 			subscription_id = `windmill-${wsId!}-${path.replaceAll('/', '_')}`

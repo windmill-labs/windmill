@@ -175,8 +175,7 @@ export function isValidWebhookBaseUrl(value: unknown): boolean {
 	return (
 		(url.protocol === 'http:' || url.protocol === 'https:') &&
 		url.host !== '' &&
-		// Userinfo would end up in the per-repository receiver stored in workspace
-		// settings, which workspace admins can read.
+		// Userinfo would end up in URLs that users who are not instance admins can read.
 		url.username === '' &&
 		url.password === '' &&
 		// Tested on the raw string, not `url.search`/`url.hash`: those are `''` for a

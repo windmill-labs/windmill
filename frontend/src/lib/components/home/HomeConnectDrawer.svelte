@@ -15,7 +15,7 @@
 	let selectedTab: ConnectTab = $state('cli')
 	let openVersion = $state(0)
 
-	const origin = $derived(typeof window === 'undefined' ? '' : apiBaseUrl())
+	const origin = $derived(typeof window === 'undefined' ? '' : `${apiBaseUrl()}/`)
 	const workspaceId = $derived($workspaceStore ?? '<workspace>')
 	const cliCommands = $derived(`npm install -g windmill-cli
 wmill workspace add ${workspaceId} ${workspaceId} ${origin}

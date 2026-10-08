@@ -40,7 +40,7 @@ buttons — the setup dialog puts them in its own footer, the standalone modal i
 	let showCliInstructions = $state(false)
 	const cliInstructions = $derived(`# Setup (only needed if local folder not initialized yet)
 npm install -g windmill-cli
-wmill workspace add ${$workspaceStore} ${$workspaceStore} ${apiBaseUrl()}
+wmill workspace add ${$workspaceStore} ${$workspaceStore} ${apiBaseUrl()}/
 wmill init --workspace ${$workspaceStore} --repository ${gitRepoResourcePath}
 
 # Pull workspace content to git repository
