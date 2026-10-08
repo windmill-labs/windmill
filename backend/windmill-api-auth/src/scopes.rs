@@ -862,7 +862,8 @@ fn scope_grants_access(
 /// from its own super-admin gate, these among them, so each is already readable by every
 /// authenticated user; each is here because the CLI reads it from a job:
 /// `automate_username_creation` before creating a user during a git-sync push, `uid` and
-/// `hub_base_url` when `u/admin/hub_sync` pulls resource types from the Hub. The other
+/// `hub_base_url` when a job runs `wmill hub pull`, as an edited copy of the retired
+/// `u/admin/hub_sync` still does (servers sync resource types themselves). The other
 /// ungated keys have no such caller, so they stay confined — being ungated earns a key
 /// nothing on its own. Listing a gated key earns it nothing either: `require_super_admin`
 /// refuses every job token, so `hub_api_secret`, which that pull reads for a private Hub,

@@ -22,7 +22,7 @@ use crate::{
     global_settings::{
         load_value_from_global_settings, DISABLE_HUB_SETTING, HUB_RESOURCE_TYPE_SYNC_STATE_SETTING,
     },
-    utils::{get_license_id_or_uid, HTTP_CLIENT, HUB_API_SECRET},
+    utils::{get_license_id_or_uid, HTTP_CLIENT_PERMISSIVE, HUB_API_SECRET},
     worker::HUB_RT_CACHE_DIR,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
 };
@@ -85,7 +85,9 @@ pub async fn fetch(
     api_secret: Option<&str>,
     uid: Option<&str>,
 ) -> Result<Vec<HubResourceType>> {
-    let mut request = HTTP_CLIENT
+    // Permissive, so `ACCEPT_INVALID_CERTS` lets the sync reach a private hub behind a
+    // self-signed certificate.
+    let mut request = HTTP_CLIENT_PERMISSIVE
         .get(format!("{hub_base_url}/resource_types/list"))
         .header("Accept", "application/json");
     if let Some(uid) = uid {
