@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { JobService, SettingService, WorkspaceService, type AIConfig } from '$lib/gen'
+	import { SettingService, WorkspaceService, type AIConfig } from '$lib/gen'
 	import { setCopilotInfo } from '$lib/aiStore'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
@@ -80,20 +80,15 @@
 		hubSyncStatus = 'loading'
 		hubSyncMessage = ''
 		try {
-			await JobService.runWaitResultScriptByPath({
-				workspace: 'admins',
-				path: 'u/admin/hub_sync',
-				requestBody: {}
-			})
+			const res = await fetch('/api/settings/sync_cached_resource_types', { method: 'POST' })
+			if (!res.ok) {
+				const body = await res.text()
+				throw new Error(body || res.statusText)
+			}
+			hubSyncMessage = await res.text()
 			hubSyncStatus = 'success'
-			hubSyncMessage = 'Resource types synced from hub successfully'
 		} catch (e: any) {
-			hubSyncMessage =
-				e?.body?.error?.message ||
-				e?.body?.message ||
-				(typeof e?.body === 'string' ? e.body : null) ||
-				e?.message ||
-				'Failed to sync from hub'
+			hubSyncMessage = e?.message ?? 'Failed to sync from hub'
 			hubSyncStatus = 'error'
 		}
 	}

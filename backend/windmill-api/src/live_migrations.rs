@@ -160,7 +160,11 @@ async fn run_background_migrations(db: &DB) -> Result<(), Error> {
         return Ok(());
     }
 
-    for step in [AUDIT_OPERATION_INDEX, RETIRE_LEGACY_AUDIT] {
+    for step in [
+        RETIRE_LEGACY_HUB_SYNC,
+        AUDIT_OPERATION_INDEX,
+        RETIRE_LEGACY_AUDIT,
+    ] {
         if background_migration_done(&mut conn, step).await? {
             continue;
         }
@@ -171,6 +175,7 @@ async fn run_background_migrations(db: &DB) -> Result<(), Error> {
             let run = match step {
                 AUDIT_OPERATION_INDEX => create_audit_operation_index(&mut conn).await,
                 RETIRE_LEGACY_AUDIT => retire_legacy_audit_table(&mut conn).await,
+                RETIRE_LEGACY_HUB_SYNC => retire_legacy_hub_sync(&mut conn).await,
                 _ => unreachable!("background migration {step} has no step function"),
             };
             match run {
@@ -192,6 +197,7 @@ async fn run_background_migrations(db: &DB) -> Result<(), Error> {
 
 const AUDIT_OPERATION_INDEX: &str = "audit_partitioned_workspace_operation_index";
 const RETIRE_LEGACY_AUDIT: &str = "retire_legacy_audit_table";
+const RETIRE_LEGACY_HUB_SYNC: &str = "retire_legacy_hub_sync_script";
 
 // Short on purpose: a statement waiting for its lock is also a wait for every audit insert
 // queued behind it.
@@ -371,6 +377,53 @@ async fn retire_legacy_audit_table(conn: &mut PgConnection) -> Result<(), Error>
     Ok(())
 }
 
+/// The hash the migrations gave `u/admin/hub_sync`; they rewrote its content in place.
+const LEGACY_HUB_SYNC_HASH: i64 = -28028598712388162;
+
+/// `u/admin/hub_sync` and the schedules running it synced resource types before servers did
+/// it themselves (`windmill_common::hub_resource_types`). Retired only while the script is
+/// still the version Windmill created: a copy someone edited is theirs to keep running.
+async fn retire_legacy_hub_sync(conn: &mut PgConnection) -> Result<(), Error> {
+    let mut tx = conn.begin().await?;
+    let latest: Option<i64> = sqlx::query_scalar(
+        "SELECT hash FROM script
+         WHERE workspace_id = 'admins' AND path = 'u/admin/hub_sync' AND archived = false
+         ORDER BY created_at DESC LIMIT 1",
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if latest != Some(LEGACY_HUB_SYNC_HASH) {
+        return Ok(());
+    }
+
+    let schedules: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT path, jsonb_build_object('row', to_jsonb(s)) FROM schedule s
+         WHERE workspace_id = 'admins' AND script_path = 'u/admin/hub_sync' AND NOT is_flow",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    for (path, row) in schedules {
+        windmill_queue::schedule::clear_schedule(&mut tx, &path, "admins").await?;
+        sqlx::query("DELETE FROM schedule WHERE workspace_id = 'admins' AND path = $1")
+            .bind(&path)
+            .execute(&mut *tx)
+            .await?;
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx, "admins", "schedule", &path, row, "system",
+        )
+        .await?;
+        tracing::info!("Deleted schedule {path}: the server now syncs resource types itself");
+    }
+    sqlx::query(
+        "UPDATE script SET archived = true WHERE workspace_id = 'admins' AND path = 'u/admin/hub_sync'",
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    tracing::info!("Archived u/admin/hub_sync: the server now syncs resource types itself");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,6 +463,40 @@ mod tests {
         .fetch_one(&db)
         .await?;
         assert_eq!(seen, 2);
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn retire_legacy_hub_sync_spares_an_edited_script(db: DB) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO schedule (workspace_id, path, edited_by, email, permissioned_as, schedule, timezone, script_path, is_flow)
+             VALUES ('admins', 'g/all/hub_sync', 'admin', 'admin@windmill.dev', 'u/admin', '0 0 0 * * *', 'Etc/UTC', 'u/admin/hub_sync', false)",
+        )
+        .execute(&db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO script (workspace_id, hash, path, content, created_by, language, summary, description, schema, lock, created_at)
+             SELECT workspace_id, 42, path, content || '// edited', 'admin', language, summary, description, schema, lock, now() + interval '1 minute'
+             FROM script WHERE workspace_id = 'admins' AND path = 'u/admin/hub_sync'",
+        )
+        .execute(&db)
+        .await?;
+        let schedules_and_live_versions = || {
+            sqlx::query_as::<_, (i64, i64)>(
+                "SELECT (SELECT count(*) FROM schedule WHERE workspace_id = 'admins'),
+                        (SELECT count(*) FROM script WHERE path = 'u/admin/hub_sync' AND NOT archived)",
+            )
+            .fetch_one(&db)
+        };
+
+        retire_legacy_hub_sync(&mut *db.acquire().await?).await?;
+        assert_eq!(schedules_and_live_versions().await?, (1, 2));
+
+        sqlx::query("DELETE FROM script WHERE hash = 42")
+            .execute(&db)
+            .await?;
+        retire_legacy_hub_sync(&mut *db.acquire().await?).await?;
+        assert_eq!(schedules_and_live_versions().await?, (0, 0));
         Ok(())
     }
 }
