@@ -3731,7 +3731,10 @@ pub async fn handle_wac_v2_output(
             // status row, the order every child completion takes.
             let segment_ms = sqlx::query_scalar!(
                 "WITH prev AS (SELECT started_at FROM v2_job_queue WHERE id = $1)
-                 UPDATE v2_job_queue q SET running = false, started_at = null
+                 UPDATE v2_job_queue q SET running = false, started_at = null,
+                     extras = CASE WHEN q.started_at IS NULL OR q.extras ? 'wac_first_started_at' THEN q.extras
+                         ELSE jsonb_set(COALESCE(q.extras, '{}'::jsonb), '{wac_first_started_at}', to_jsonb(q.started_at))
+                     END
                  FROM prev WHERE q.id = $1
                  RETURNING (extract(epoch FROM now() - prev.started_at) * 1000)::bigint",
                 job.id,
