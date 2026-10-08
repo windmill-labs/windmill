@@ -104,9 +104,12 @@ lazy_static::lazy_static! {
 pub trait SSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error>;
 
-    /// Whether the stream delivered the event that ends a complete response. A stream
-    /// that closes without it was cut off, and what it carried is not the answer.
+    /// Whether the stream delivered the event that ends a complete response.
     fn is_complete(&self) -> bool;
+
+    /// Whether a stream that closes cleanly without its final event was cut off, so what it
+    /// carried is not the answer. Only true where the provider always sends that event.
+    const REQUIRES_FINAL_EVENT: bool = true;
 
     async fn parse_events(&mut self, response: Response) -> Result<(), Error> {
         let mut stream = response.bytes_stream().eventsource();
@@ -152,7 +155,10 @@ pub trait SSEParser {
         }
 
         if !self.is_complete() {
-            return Err(truncated_stream_error());
+            if Self::REQUIRES_FINAL_EVENT {
+                return Err(truncated_stream_error());
+            }
+            tracing::warn!("AI provider stream ended without its final event");
         }
         Ok(())
     }
@@ -189,6 +195,10 @@ impl OpenAISSEParser {
 }
 
 impl SSEParser for OpenAISSEParser {
+    // Some OpenAI-compatible servers send neither `[DONE]` nor a `finish_reason`, so a clean
+    // close there can be a whole answer. A cut connection still fails as a transport error.
+    const REQUIRES_FINAL_EVENT: bool = false;
+
     fn is_complete(&self) -> bool {
         self.complete
     }
@@ -1236,13 +1246,12 @@ mod tests {
         .await
         .unwrap();
 
-        // Not every OpenAI-compatible gateway sends `[DONE]`.
+        // Not every OpenAI-compatible server sends `[DONE]` or a `finish_reason`.
         let mut openai = OpenAISSEParser::new(Box::new(NoopSink));
         openai
-            .parse_events(sse_response(vec![Ok(concat!(
+            .parse_events(sse_response(vec![Ok(
                 "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n",
-                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
-            ))]))
+            )]))
             .await
             .unwrap();
         assert_eq!(openai.accumulated_content, "Hi");
