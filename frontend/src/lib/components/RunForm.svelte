@@ -66,10 +66,9 @@
 	}
 
 	export async function setArgs(nargs: Record<string, any>) {
-		// Only when this form is the one offering them: taking them aside is what lets the
-		// section edit them, and a form without that section has nowhere to put them back
-		// from. It does not keep them — `SchemaForm` holds `args` to the keys the schema
-		// declares — so a form that hides the section neither offers these nor carries them.
+		// Only when the section is offered: taking them aside is what lets it edit them. A form
+		// without it neither offers these nor carries them — `SchemaForm` holds `args` to the
+		// keys the schema declares.
 		const { scriptArgs, commonParams } = showPsCommonParams
 			? extractPsCommonParams(nargs)
 			: { scriptArgs: nargs, commonParams: {} }
@@ -90,10 +89,9 @@
 		if (blockedByUnparseable) {
 			return
 		}
-		// Both captured for the whole press, never read again after the await below: they stand
-		// for whatever the press was started against — a chat tool call waiting on this form —
-		// and that can settle and be replaced mid-press. A press that picked up the replacement
-		// would run it without its reader ever confirming it, and would release its guard.
+		// Captured for the whole press: what they stand for — a chat tool call waiting on this
+		// form — can settle and be replaced across the await below, and a press that picked up
+		// the replacement would run it without its reader ever confirming it.
 		const claim = claimRun
 		const action = runAction
 		if (claim && !claim.claim()) return
@@ -147,19 +145,16 @@
 			invisible_to_owner: boolean | undefined,
 			overrideTag: string | undefined
 		) => void
-		/** Asked before anything is written, for a `runAction` whose own guards must beat
-		 * `processSecretArgs` to the workspace: false abandons the press. `release` is called
-		 * if the press then ends before `runAction`, so a guard that counts presses can stop
-		 * counting this one. */
+		/** Asked before anything is written, for a `runAction` whose guards must beat
+		 * `processSecretArgs` to the workspace: false abandons the press. `release` follows a
+		 * press that then ends before `runAction`. */
 		claimRun?: { claim: () => boolean; release: () => void }
 		/** Whether the PowerShell common-parameter section is offered. Off for a form standing
 		 * in for a chat card, which carries arguments and nothing else. */
 		commonParams?: boolean
-		/** Take no writes from the reader: no edits, and no dynamic-select helper. Both write
-		 * before Run is ever pressed — a `password` field mints an ephemeral variable as it is
-		 * typed, and the helper runs the `dynselect-` entrypoint when the field mounts — so
-		 * nothing about gating Run can stop them. For a form standing in for a chat card while
-		 * plan mode is on, which promised neither. */
+		/** Take no writes from the reader: no edits, no dynamic-select helper. Both write before
+		 * Run is pressed — a `password` mints as it is typed, the helper runs on mount — so
+		 * gating Run cannot stop them. For a form under plan mode, which promised neither. */
 		argsReadonly?: boolean
 		buttonText?: string
 		schedulable?: boolean
@@ -210,8 +205,7 @@
 	}: Props = $props()
 
 	// Kept out while the form stands in for a chat card: a call carries arguments and nothing
-	// else, so these would be chosen here and then dropped when the run is confirmed anywhere
-	// else — the same reason scheduling and the tag override are hidden.
+	// else, so these would be chosen here and dropped if the run is confirmed on the card.
 	let showPsCommonParams = $derived(
 		commonParams &&
 			runnable?.language === 'powershell' &&

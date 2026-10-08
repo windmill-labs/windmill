@@ -595,9 +595,7 @@ function createRuntime(session: Session): SessionRuntime {
 			// Only persist a real width; undefined means "never resized" (defaults to 50).
 			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
-		// Nothing to do here for a call a page was carrying: closing that tab is not a refusal,
-		// and the card it came from still has the form. The call simply goes back to being
-		// confirmable there.
+		// Closing a tab that carried a call is not a refusal: the card still has the form.
 		onTabsChanged: pruneEditorCells,
 		onTabOpened: logTabUsage
 	})
@@ -609,15 +607,10 @@ function createRuntime(session: Session): SessionRuntime {
 	 * the id the tab carries rather than from state of our own, so there is nothing to keep in
 	 * step: the tab names the call, and the manager says whether it is still waiting. */
 	function pendingRunFor(toolCallId: string): PendingRun | undefined {
-		// Whether the call is still waiting is the manager's to answer. Asking it here rather
-		// than dropping state from each way a call can end is what covers the ways that reach
-		// no hook at all — a submit whose job never started, because the server refused it or
-		// plan mode blocked it after the arguments were already handed over.
-		//
-		// A press already handed over counts as waiting: the call stops being pending the
-		// instant Run is pressed, well before its job exists, and a page that went back to
-		// running on its own in that gap would start a second job for the same request on a
-		// second press.
+		// Asked of the manager rather than tracked here, which covers the ends that reach no
+		// hook — a submit whose job never started. A press counts as waiting: the call stops
+		// being pending the instant Run is pressed, and a page that went back to running on
+		// its own in that gap would start a second job on a second press.
 		if (!manager.isRunFormPending(toolCallId) && !heldPresses.has(toolCallId)) return undefined
 		return {
 			toolCallId,
@@ -626,9 +619,9 @@ function createRuntime(session: Session): SessionRuntime {
 			// Read here rather than on the page, so the page's own `$derived` rebuilds when the
 			// posture changes while its form sits open.
 			planModeActive: manager.planModeActive,
-			// Both guards belong ahead of the form's own `processSecretArgs`, which writes
-			// ephemeral variables to the workspace: plan mode can be switched on while the form
-			// sits here, and a second press would mint a second set of them.
+			// Ahead of the form's `processSecretArgs`, which writes ephemeral variables: plan
+			// mode can be switched on while the form sits here, and a second press would mint
+			// a second set.
 			claim: () => {
 				if (manager.planModeActive) {
 					sendUserToast(PLAN_MODE_MESSAGES.runFormRefused, true)
@@ -666,14 +659,11 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.openRunForm = ({ toolCallId, label }) => {
 		previewTabs.open({ type: 'runform', toolCallId, label })
 	}
-	// The reader asked, from the card, to confirm a DEPLOYED run on the item's own page rather
-	// than on the card's form. The page takes over the parked call: its Run hands the
-	// arguments back, so the tool still owns the run and the card still gets its logs.
+	// Show a deployed run on the item's own page. With `carries`, that page answers the call:
+	// its Run hands the arguments back, so the tool still owns the run.
 	manager.openRunOnDeployedPage = ({ toolCallId, kind, path, summary, carries }) => {
-		// Through the shared adapter rather than building the item here: a session target
-		// spells a code-based app `raw_app` and a workspace item spells it `app` with a
-		// flag, and one place should know that. A script and a flow both resolve to an item,
-		// so this guard is the adapter's contract rather than a case that happens.
+		// Through the shared adapter: a session target spells a code-based app `raw_app` and a
+		// workspace item spells it `app` with a flag, and one place should know that.
 		const target = previewTargetForSessionTarget(kind, path)
 		if (target?.type !== 'item') return false
 		const viewTarget = {
@@ -682,9 +672,8 @@ function createRuntime(session: Session): SessionRuntime {
 			mode: 'view' as const,
 			pendingRunId: carries ? toolCallId : undefined
 		}
-		// Re-pointed rather than merely focused, because the url is what hands the tab the
-		// call: a tab already on this item is showing whatever version the reader last chose,
-		// and re-pointing both drops that pin and writes the call onto the tab.
+		// Re-pointed rather than focused: the url is what hands the tab the call, and
+		// rebuilding it also drops whatever version the reader had pinned.
 		const open = previewTabs.tabs.find((t) => {
 			const slot = resolvePreviewTab(t.url)
 			return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
@@ -702,10 +691,8 @@ function createRuntime(session: Session): SessionRuntime {
 		return true
 	}
 	manager.closeRunForm = (toolCallId) => {
-		// A page carrying the call outlives it — it is still the item's deployed page — so
-		// nothing closes there; it stops carrying the call because the call stops being
-		// pending, which `pendingRunFor` reads. Only the chat's own form tab, which is the
-		// call and nothing else, goes with it.
+		// A page carrying the call outlives it, and stops carrying it because the call stops
+		// being pending. Only the chat's own form tab, which is the call, goes with it.
 		heldPresses.delete(toolCallId)
 		previewTabs.closeRunForm(toolCallId)
 	}
@@ -721,10 +708,8 @@ function createRuntime(session: Session): SessionRuntime {
 	// away from is unmounted but still open, and the card must keep its form hidden until it
 	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
 	// to `tabs` through it, and the runtime is not inside an effect root to push from.
-	// A deployed page carrying the call counts: its form is this call's form, so the card must
-	// not mount a second one there either. Both surfaces answer the same question of the tab
-	// list — which tab, if any, is this call's — so a tab closed or re-pointed hands the form
-	// back to the card by the same fact that stops the page showing it.
+	// A page carrying the call counts: its form is this call's, so the card must not mount a
+	// second one. Both read the same fact, so a tab closed or re-pointed hands the form back.
 	manager.isRunFormInPreview = (toolCallId) =>
 		previewTabs.tabs.some(
 			(t) =>

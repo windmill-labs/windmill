@@ -1,44 +1,27 @@
 /**
- * A chat tool call parked on a deployed item's run form, when the reader chose to confirm it
- * on the item's own page instead of on the card. The page seeds its form from `args` and
- * routes Run to `submit` rather than starting a job of its own — the tool starts the job when
- * the call resumes, so a page that also ran would start a second one for the same request.
+ * A chat tool call parked on a run form, shown on the item's deployed page instead of on the
+ * card. The page's form edits this call's arguments and its Run answers the call; the tool
+ * starts the job, so a page that also ran would start a second one for the same request.
  *
- * The page is the card's form, relocated. That is why it cannot offer what the card cannot:
- * the call carries arguments and nothing else, so scheduling, tag override and
- * invisible-to-owner are hidden while it is adopted. They come back the moment it is not.
+ * The call carries arguments and nothing else, which is why the page hides what it cannot
+ * carry while it holds one: scheduling, tag override, PowerShell common parameters.
  */
 export type PendingRun = {
-	/** Which call is waiting. The page seeds its form once per call rather than once per
-	 * mount: a tab already showing this item is reused for the next request, so a latch that
-	 * only remembered "seeded" would leave the previous call's arguments on screen. */
 	toolCallId: string
-	/** What the form is waiting on — the model's proposal, then whatever has been typed into
-	 * it since, on either surface. The card's own draft, not a copy: a form bound to it edits
-	 * the one set of arguments this call will run with, so there is nothing to carry back when
-	 * the page goes away. Gone once the call stops waiting, which a page mid-press outlives. */
+	/** The card's own draft, not a copy, so both forms edit one set of arguments. Gone once
+	 * the call stops waiting, which a page mid-press outlives. */
 	draftArgs: Record<string, any> | undefined
-	/** Replace them wholesale. Binding writes through here only when something hands the form
-	 * a new object; ordinary editing mutates {@link draftArgs} in place. */
 	setDraftArgs: (args: Record<string, any>) => void
-	/** Whether the chat is in plan mode, which promised no runs. The page is standing in for
-	 * a chat card, so it owes that promise too — and the dynamic-select helper runs its job on
-	 * mount, where nothing about confirming the run can gate it. */
+	/** Plan mode promised no runs, and the dynamic-select helper and `password` fields write
+	 * on mount and on keystroke — where nothing about confirming the run can gate them. */
 	planModeActive: boolean
-	/** Take the call, before the form mints a `password` field into an ephemeral workspace
-	 * variable. False means this press runs nothing: plan mode is on, or a press is already
-	 * in flight. Both have to be answered here rather than in {@link submit}, which the form
-	 * only reaches after it has written those variables. */
+	/** Before the form mints a `password` into a workspace variable: false means this press
+	 * writes nothing. Not in {@link submit}, which the form reaches only after minting. */
 	claim: () => boolean
-	/** Give the call back when a claimed press ends without reaching {@link submit}, so the
-	 * next one is not refused as a double press. */
+	/** For a claimed press that ends before {@link submit}, so the next is not refused. */
 	release: () => void
-	/** Hand the form's current arguments to the waiting call. False when it is no longer
-	 * waiting — a stopped turn, or a job that failed to start — so the page can say so
-	 * instead of leaving Run looking live. */
+	/** False when the call is no longer waiting — a stopped turn, or a job that failed to
+	 * start — so the page can say so instead of leaving Run looking live. */
 	submit: (args: Record<string, any>) => boolean
-	/** Refuse the call, as the card's Cancel does. Not an undo of the prefill: there is
-	 * nothing to restore it to, and leaving the call parked with an emptied form would strand
-	 * the turn. */
 	decline: () => void
 }
