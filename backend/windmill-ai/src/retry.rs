@@ -196,15 +196,23 @@ pub async fn send_with_retries(request: RequestBuilder) -> Result<Response, Erro
     }
 }
 
+/// The error for a provider request that failed before any response arrived. The request
+/// timeout is the caller's whole budget, so a timed-out call leaves no time for another
+/// attempt; a connect timeout has its own, shorter one.
+pub fn send_error(e: reqwest::Error, context: &str) -> Error {
+    let message = format!("{context}: {e}");
+    if e.is_builder() || (e.is_timeout() && !e.is_connect()) {
+        Error::AIError(message)
+    } else {
+        transient_error(message, None)
+    }
+}
+
 async fn send_once(request: RequestBuilder) -> Result<Response, Error> {
-    let response = request.send().await.map_err(|e| {
-        let message = format!("Failed to reach the AI provider: {e}");
-        if e.is_builder() || (e.is_timeout() && !e.is_connect()) {
-            Error::AIError(message)
-        } else {
-            transient_error(message, None)
-        }
-    })?;
+    let response = request
+        .send()
+        .await
+        .map_err(|e| send_error(e, "Failed to reach the AI provider"))?;
     let status = response.status();
     if status.is_client_error() || status.is_server_error() {
         let wait = retry_after(response.headers());

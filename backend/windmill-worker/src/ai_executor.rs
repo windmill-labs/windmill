@@ -44,8 +44,8 @@ use windmill_ai::{
     },
     query_builder::{BuildRequestArgs, ParsedResponse},
     retry::{
-        as_transient, into_final_error, is_transient_status, retry_after, transient_error, Backoff,
-        MAX_RETRIES,
+        as_transient, into_final_error, is_transient_status, retry_after, send_error,
+        transient_error, Backoff, MAX_RETRIES,
     },
     types::*,
     utils::{pinned_ai_client_for, should_use_structured_output_tool},
@@ -1826,19 +1826,10 @@ pub async fn run_agent(
                             query_builder.get_auth_headers(api_key, base_url, output_type),
                         );
 
-                        // The request timeout is the job's, so a timed-out call leaves no time
-                        // for another attempt. A connect timeout has its own, shorter budget.
                         let resp = build_http_request(&endpoint, &auth_headers, request_body)
                             .send()
                             .await
-                            .map_err(|e| {
-                                let message = format!("Failed to call API: {}", e);
-                                if e.is_builder() || (e.is_timeout() && !e.is_connect()) {
-                                    Error::AIError(message)
-                                } else {
-                                    transient_error(message, None)
-                                }
-                            })?;
+                            .map_err(|e| send_error(e, "Failed to call API"))?;
 
                         match resp.error_for_status_ref() {
                             Ok(_) => {
