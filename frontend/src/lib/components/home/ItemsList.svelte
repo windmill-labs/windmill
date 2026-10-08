@@ -1821,8 +1821,7 @@
 				homeSelection.active &&
 				selectedIndex >= 0 &&
 				selectedIndex < displayedItems.length &&
-				displayedItems[selectedIndex].type !== 'raw_app' &&
-				displayedItems[selectedIndex].type !== 'agent'
+				displayedItems[selectedIndex].type !== 'raw_app'
 			) {
 				e.preventDefault()
 				homeSelection.toggle(
