@@ -7,7 +7,7 @@
 	import Item from './Item.svelte'
 	import { countLeaves, type FolderItem, type ItemType, type UserItem } from './treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
-	import { isHomeTable } from './homeTable'
+	import { HOME_TABLE_ROW_SEPARATOR, isHomeTable } from './homeTable'
 	import { pluralize } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { Button } from '$lib/components/common'
@@ -74,7 +74,9 @@
 	}: Props = $props()
 
 	// The home table draws no separators between its rows.
-	const separator = isHomeTable() ? 'pl-5 rounded-md hover:bg-surface-hover' : 'border-b'
+	const separator = isHomeTable()
+		? `pl-5 hover:bg-surface-hover ${HOME_TABLE_ROW_SEPARATOR}`
+		: 'border-b'
 
 	let visualDepth = $derived(depth + indent)
 

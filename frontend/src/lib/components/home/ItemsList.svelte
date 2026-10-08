@@ -18,7 +18,9 @@
 	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
-	import { disableHubStore, userStore, workspaceStore } from '$lib/stores'
+	import { disableHubStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { editInForkAllowed } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
@@ -67,7 +69,13 @@
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
 	import { HomeActivity, setHomeActivity } from './homeActivity.svelte'
-	import { HOME_TABLE_BADGE_GRID, HOME_TABLE_GRID, setHomeTable } from './homeTable'
+	import {
+		HOME_TABLE_BADGE_GRID,
+		HOME_TABLE_GRID,
+		HOME_TABLE_ROW_SEPARATOR,
+		HOME_TABLE_WIDE_ACTIONS,
+		setHomeTable
+	} from './homeTable'
 	import Checkbox from '../common/checkbox/Checkbox.svelte'
 
 	const operatorBuilderFlows = useOperatorBuilderFlows()
@@ -1495,6 +1503,16 @@
 				)
 			: items
 	)
+	// A row the user cannot edit offers "Edit in fork", which needs a wider actions column.
+	let tableStyle = $derived(
+		!isCloudHosted() &&
+			editInForkAllowed($workspaceStore, $userWorkspaces) &&
+			((treeView ? treeSource : items) ?? []).some(
+				(it) => !showEditButtons || !('canWrite' in it) || !it.canWrite
+			)
+			? HOME_TABLE_WIDE_ACTIONS
+			: undefined
+	)
 	// Remount identity: only a *mode* change (workspace, selected owner, entering/leaving
 	// search, label filter) restructures the tree, so only those key the {#key} remount.
 	// A sort/archive/library/kind change keeps the same lazy tree and is applied in place
@@ -2111,7 +2129,7 @@
 				</div>
 			{/if}
 		{:else if treeView}
-			<div class="border rounded-md bg-surface-tertiary">
+			<div class="border rounded-md bg-surface-tertiary" style={tableStyle}>
 				{@render tableHeader()}
 				<!-- Remount the tree on a MODE change only (treeKey = view/owner/search/label):
 			     expanded folders (their `opened` state is local to each TreeView) collapse
@@ -2147,13 +2165,17 @@
 				{/key}
 			</div>
 		{:else}
-			<div class="border rounded-md bg-surface-tertiary" class:wm-imported={justImported}>
+			<div
+				class="border rounded-md bg-surface-tertiary"
+				class:wm-imported={justImported}
+				style={tableStyle}
+			>
 				{@render tableHeader()}
 				{#if filter === ''}
 					{#each [...visiblePipelineFolders].sort() as folder (folder)}
 						<a
 							href="{base}/pipeline/{encodeURIComponent(folder)}"
-							class="w-full inline-flex items-center gap-4 pl-5 pr-3 py-2 rounded-md hover:bg-surface-hover transition-colors text-sm"
+							class="w-full inline-flex items-center gap-4 pl-5 pr-3 py-2 {HOME_TABLE_ROW_SEPARATOR} hover:bg-surface-hover transition-colors text-sm"
 						>
 							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
 							<span class="text-xs font-medium text-emphasis truncate">Pipeline · f/{folder}</span>

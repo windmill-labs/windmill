@@ -7,11 +7,18 @@ import { getContext, setContext } from 'svelte'
  * triggers and runs cells are hidden, and the template drops them too.
  */
 export const HOME_TABLE_GRID =
-	'grid items-center gap-x-5 grid-cols-[1rem_minmax(0,1fr)_6.5rem] lg:grid-cols-[1rem_minmax(0,2fr)_minmax(0,1.5fr)_6rem_13rem_5rem_6.5rem]'
+	'grid items-center gap-x-5 grid-cols-[1rem_minmax(0,1fr)_var(--home-actions-w,6.5rem)] lg:grid-cols-[1rem_minmax(0,3fr)_minmax(0,1fr)_6rem_13rem_5rem_var(--home-actions-w,6.5rem)]'
+
+/** Actions column width when some row shows "Edit in fork" instead of Edit. */
+export const HOME_TABLE_WIDE_ACTIONS = '--home-actions-w: 12.5rem'
 
 /** Sub-columns of the badges area: labels · shared. */
 export const HOME_TABLE_BADGE_GRID =
 	'grid-cols-[minmax(0,1fr)_1.25rem] gap-x-2 items-center min-w-0'
+
+/** The faint line between home table rows; the last row in the box draws none. */
+export const HOME_TABLE_ROW_SEPARATOR =
+	'border-b border-gray-100 dark:border-gray-700/40 last:border-b-0'
 
 /** Shows a muted dash in a table cell that renders no element. */
 export const EMPTY_CELL_DASH =

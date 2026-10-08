@@ -31,11 +31,15 @@
 <!-- title on the wrapper, not on <Button>: Button renders its `title` prop only in the
      <button> branch, so the <a> branch taken here (href is set) would silently drop it.
      On the wrapper it also covers the icon and padding, not just the label text. -->
-<div title={label}>
+<!-- Like the row's Edit button: shown on hover, focus or keyboard selection. -->
+<div
+	title={label}
+	class="invisible group-hover/row:visible group-focus-within/row:visible group-data-[row-keyboard-selected=true]/row:visible"
+>
 	<Button
-		variant="subtle"
-		wrapperClasses="max-w-56"
-		unifiedSize="md"
+		variant="accent"
+		wrapperClasses="max-w-40"
+		unifiedSize="sm"
 		startIcon={{ icon: Pen }}
 		{href}
 		onClick={(e) => onEditInForkClick(e, itemType, path, { hasHref: true })}

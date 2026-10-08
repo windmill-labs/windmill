@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { HOME_TABLE_ROW_SEPARATOR } from './homeTable'
 	import { untrack, type Snippet } from 'svelte'
 	import TreeView from './TreeView.svelte'
 	import { countLeaves, groupItems, type ItemType, type UserItem } from './treeViewUtils'
@@ -287,7 +288,7 @@
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						onclick={toggleOtherUsers}
-						class="pl-5 pr-3 py-2 rounded-md hover:bg-surface-hover w-full flex flex-row items-center justify-between cursor-pointer"
+						class="pl-5 pr-3 py-2 hover:bg-surface-hover {HOME_TABLE_ROW_SEPARATOR} w-full flex flex-row items-center justify-between cursor-pointer"
 					>
 						<div class="flex flex-row items-center gap-4">
 							<Users size={16} class="text-secondary" />

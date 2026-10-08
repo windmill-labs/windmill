@@ -6,6 +6,9 @@
 	import { displayDate, formatCron } from '$lib/utils'
 	import { describeSchedule } from '$lib/utils/describeCron'
 	import { twMerge } from 'tailwind-merge'
+	import { ExternalLink } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import { workspaceStore } from '$lib/stores'
 	import { getHomeActivity, type ActivityKind } from './homeActivity.svelte'
 
 	interface Props {
@@ -88,10 +91,11 @@
 {#if homeActivity}
 	<div class="relative z-[1] hidden lg:flex items-center w-24 min-w-0 shrink-0 text-xs">
 		{#if lastRun}
-			<Tooltip class="min-w-0">
-				<a
-					href="{base}/runs/{path}"
-					class="flex items-center gap-1.5 min-w-0 text-secondary hover:text-primary"
+			<!-- The close delay lets the pointer cross into the popup to click a run. -->
+			<Tooltip class="min-w-0" closeDelay={150}>
+				<!-- Not a link: the popover's "View runs" and run entries are the ways in. -->
+				<span
+					class="flex items-center gap-1.5 min-w-0 text-secondary cursor-default"
 					aria-label="Latest runs"
 				>
 					<span class={twMerge('w-1.5 h-1.5 rounded-full shrink-0', statusClass[lastRun.status])}
@@ -103,16 +107,29 @@
 							<TimeAgo date={lastRun.created_at} compact /> ago
 						{/if}
 					</span>
-				</a>
+				</span>
 				{#snippet text()}
-					<div class="flex flex-col gap-1">
-						<span class="font-semibold">Latest {runs.length} runs</span>
+					<div class="flex flex-col gap-1 min-w-56">
+						<div class="flex items-center justify-between gap-4">
+							<span class="font-semibold">Latest {runs.length} runs</span>
+							<Button
+								variant="subtle"
+								unifiedSize="xs"
+								href="{base}/runs/{path}?workspace={$workspaceStore}"
+							>
+								View runs
+							</Button>
+						</div>
 						{#each runs as run (run.id)}
-							<div class="flex items-center gap-2">
+							<a
+								href="{base}/run/{run.id}?workspace={$workspaceStore}"
+								class="group/run -mx-1.5 px-1.5 py-0.5 rounded flex items-center gap-2 text-primary hover:bg-surface-hover"
+							>
 								<div class={twMerge('w-2 h-2 rounded-full', statusClass[run.status])}></div>
 								<span class="w-16">{statusLabel[run.status]}</span>
-								<span class="text-hint">{displayDate(run.created_at, true)}</span>
-							</div>
+								<span class="text-hint grow">{displayDate(run.created_at, true)}</span>
+								<ExternalLink size={12} class="text-hint group-hover/run:text-primary shrink-0" />
+							</a>
 						{/each}
 					</div>
 				{/snippet}

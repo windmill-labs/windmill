@@ -17,6 +17,7 @@
 		EMPTY_CELL_DASH,
 		HOME_TABLE_BADGE_GRID,
 		HOME_TABLE_GRID,
+		HOME_TABLE_ROW_SEPARATOR,
 		isHomeTable
 	} from '$lib/components/home/homeTable'
 
@@ -78,7 +79,8 @@
 		badges?: import('svelte').Snippet
 		/** Badge groups the home table gives a column each; elsewhere they render
 		 * inline, in this order, after `badges`. */
-		languageBadge?: import('svelte').Snippet
+		/** Appended to the path line, e.g. a script's language. */
+		pathSuffix?: string | undefined
 		tagBadges?: import('svelte').Snippet
 		draftBadge?: import('svelte').Snippet
 		sharedBadge?: import('svelte').Snippet
@@ -122,7 +124,7 @@
 		workspaceId,
 		depth = 0,
 		badges,
-		languageBadge,
+		pathSuffix = undefined,
 		tagBadges,
 		draftBadge,
 		sharedBadge,
@@ -206,7 +208,8 @@
 		data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 		class={twMerge(
 			HOME_TABLE_GRID,
-			'group/row relative w-full pl-5 pr-3 py-2.5 rounded-md',
+			'group/row relative w-full pl-5 pr-3 py-2.5',
+			HOME_TABLE_ROW_SEPARATOR,
 			disabled ? 'opacity-25' : 'hover:bg-surface-hover',
 			inSelectionMode ? 'cursor-pointer select-none' : '',
 			rowSelection?.selected
@@ -224,8 +227,12 @@
 				class="absolute inset-0"
 			></a>
 		{/if}
-		<!-- The kind icon, swapped for the checkbox on hover and in selection mode. -->
-		<div class="relative z-[1] w-4 h-4">
+		<!-- The kind icon, swapped for the checkbox on hover and in selection mode. In the
+		     tree it moves right by the same depth offset as the name, under its folder. -->
+		<div
+			class="relative z-[1] w-4 h-4"
+			style={depth > 0 ? `transform: translateX(${depth * 16}px);` : ''}
+		>
 			<div
 				class={twMerge(
 					'absolute inset-0',
@@ -425,8 +432,14 @@
 					'text-emphasis flex-wrap text-left text-xs min-w-0',
 					homeTable ? 'font-normal' : 'font-semibold',
 					titleBadge ? 'inline-flex items-center gap-2' : '',
+					homeTable && !titleBadge ? 'line-clamp-2 break-words' : '',
 					linked ? 'group-hover/row:underline decoration-gray-400' : ''
 				)}
+				title={homeTable && !customSummary
+					? !summary || summary.length == 0
+						? displayPath
+						: summary
+					: undefined}
 			>
 				{#if customSummary}
 					{@render customSummary?.()}
@@ -437,11 +450,6 @@
 				{/if}
 				{@render titleBadge?.()}
 			</div>
-			{#if !inlineBadges && languageBadge}
-				<div class="flex items-center shrink-0">
-					{@render languageBadge()}
-				</div>
-			{/if}
 			{#if !inlineBadges && tagBadges}
 				<div class="relative z-[1] flex items-center gap-1 shrink-0">{@render tagBadges()}</div>
 			{/if}
@@ -452,10 +460,9 @@
 			{#if homeTable}
 				{@render inlineFavorite()}
 			{/if}
-			{#if inlineBadges && (badges || languageBadge || tagBadges || draftBadge || sharedBadge || labelBadges)}
+			{#if inlineBadges && (badges || tagBadges || draftBadge || sharedBadge || labelBadges)}
 				<div class="relative z-[1] hidden lg:flex flex-row gap-1 items-center shrink-0">
 					{@render badges?.()}
-					{@render languageBadge?.()}
 					{@render tagBadges?.()}
 					{@render draftBadge?.()}
 					{@render sharedBadge?.()}
@@ -468,6 +475,9 @@
 				{@render pathDisplay()}
 			{:else}
 				{path}
+			{/if}
+			{#if pathSuffix}
+				<span class="opacity-75">· {pathSuffix}</span>
 			{/if}
 		</div>
 	</div>

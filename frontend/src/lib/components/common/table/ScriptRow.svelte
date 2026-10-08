@@ -29,7 +29,6 @@
 	import { isDeployable } from '$lib/utils_deployable'
 
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { LanguageIcon } from '../languageIcons'
 	import {
 		Archive,
 		Calendar,
@@ -52,7 +51,7 @@
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
 	import RowLabels from './RowLabels.svelte'
-	import { isHomeTable } from '$lib/components/home/homeTable'
+	import { defaultScriptLanguages } from '$lib/scripts'
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
@@ -104,7 +103,6 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-	const iconSize = isHomeTable() ? 12 : 14
 
 	async function archiveScript(path: string): Promise<void> {
 		await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
@@ -172,14 +170,12 @@
 	workspaceId={$workspaceStore ?? ''}
 	canFavorite={!script.draft_only}
 	editedAt={script.created_at}
+	pathSuffix={script.language
+		? (defaultScriptLanguages[script.language] ?? script.language)
+		: undefined}
 	{depth}
 	{rowSelection}
 >
-	{#snippet languageBadge()}
-		{#if script.language}
-			<LanguageIcon lang={script.language} width={iconSize} height={iconSize} />
-		{/if}
-	{/snippet}
 	{#snippet tagBadges()}
 		{#if script.lock_error_logs}
 			<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>
