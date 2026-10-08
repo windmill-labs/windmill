@@ -15,16 +15,20 @@
 	} from '$lib/components/sessions/sessionState.svelte'
 	import { getOrCreateRuntime } from '$lib/components/sessions/sessionRuntime.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { connectBrowserBridge } from '$lib/components/copilot/chat/global/browserTools'
+	import {
+		connectBrowserBridge,
+		extensionParentOrigin
+	} from '$lib/components/copilot/chat/global/browserTools'
+	import { goto } from '$lib/navigation'
 	import { userStore } from '$lib/stores'
 	import { base } from '$lib/base'
 
 	// The chat-only view the Windmill browser extension frames in its side panel. A session
-	// here runs exactly as on /sessions, minus the preview pane; the browser tools join its
-	// toolset once the extension answers the bridge handshake.
-
-	let bridgeConnected = $state(false)
-	connectBrowserBridge().then((connected) => (bridgeConnected = connected))
+	// here runs as on /sessions, minus the preview pane and plus the browser tools. Anywhere
+	// else it would offer neither, so it hands over to /sessions.
+	const inExtension = !!extensionParentOrigin()
+	if (inExtension) connectBrowserBridge()
+	else goto('/sessions', { replaceState: true })
 
 	let sessionId = $state<string | undefined>(undefined)
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
@@ -36,18 +40,13 @@
 
 	$effect(() => {
 		// A delete awaiting its fork's removal opens the fresh session itself (onNewSession).
-		if (!sessionState.hydrated || session || isTearingDownOpenSession()) return
+		if (!inExtension || !sessionState.hydrated || session || isTearingDownOpenSession()) return
 		untrack(() => open((findEmptyLandingSession() ?? createSession()).id))
 	})
 
 	$effect(() => {
 		if (!session) return
-		const connected = bridgeConnected
-		untrack(() => {
-			const manager = getOrCreateRuntime(session).manager
-			manager.detachPreview()
-			if (connected) manager.enableBrowserTools()
-		})
+		untrack(() => getOrCreateRuntime(session).manager.enableBrowserTools())
 	})
 
 	const recentSessions = $derived(

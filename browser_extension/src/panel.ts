@@ -54,16 +54,27 @@ async function run(call: Call, gen: number): Promise<unknown> {
 			return (await exec({ tabId }, readPage, [30_000]))[0]
 		case 'screenshot':
 			return chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 })
-		case 'click': {
-			const [label, documentId] = await exec({ tabId }, pageAction, ['describe', call.args])
-			await confirmAction(`Click ${label}`, tab, gen)
-			return execConfirmed(tabId, documentId, ['click', call.args])
-		}
+		case 'click':
 		case 'type': {
-			const [label, documentId] = await exec({ tabId }, pageAction, ['describe', call.args])
-			const submit = call.args.submit ? ' and submit' : ''
-			await confirmAction(`Type "${call.args.text}" into ${label}${submit}`, tab, gen)
-			return execConfirmed(tabId, documentId, ['type', call.args])
+			// The described element is tagged, and only that node is acted on after Allow.
+			const nonce = crypto.randomUUID()
+			const [label, documentId] = await exec({ tabId }, pageAction, ['describe', call.args, nonce])
+			const submit = call.tool === 'type' && call.args.submit ? ' and submit' : ''
+			await confirmAction(
+				call.tool === 'click'
+					? `Click ${label}`
+					: `Type "${call.args.text}" into ${label}${submit}`,
+				tab,
+				gen
+			)
+			await stillApproved(tab)
+			const target = { tabId, documentIds: [documentId] }
+			const [result] = await exec(target, pageAction, [call.tool, call.args, nonce]).catch(
+				(e: Error) => {
+					throw /No document with id/.test(e.message) ? new Error(PAGE_CHANGED) : e
+				}
+			)
+			return result
 		}
 		case 'navigate': {
 			const url = new URL(call.args.url)
@@ -71,6 +82,7 @@ async function run(call: Call, gen: number): Promise<unknown> {
 				throw new Error('Only http(s) URLs can be opened')
 			}
 			await confirmAction(`Open ${url.href}`, tab, gen)
+			await stillApproved(tab)
 			await chrome.tabs.update(tabId, { url: url.href })
 			return `Navigating to ${url.href}`
 		}
@@ -93,19 +105,16 @@ async function exec<A extends any[]>(
 	return [out.result, injection.documentId]
 }
 
-/** Pinned to the document the user confirmed: if the tab navigated meanwhile, this fails. */
-async function execConfirmed(
-	tabId: number,
-	documentId: string,
-	args: Parameters<typeof pageAction>
-): Promise<unknown> {
-	const target = { tabId, documentIds: [documentId] }
-	const [result] = await exec(target, pageAction, args).catch((e: Error) => {
-		throw /No document with id/.test(e.message)
-			? new Error('The page changed while waiting for approval. Read it again.')
-			: e
-	})
-	return result
+const PAGE_CHANGED = 'The page changed while waiting for approval. Read it again.'
+
+/** An approval holds only for the page it named, while that page is still the active tab.
+ * The URL stands in for the page here; click and type are also pinned to its document. */
+async function stillApproved(tab: chrome.tabs.Tab) {
+	const [current] = await chrome.tabs.query({ active: true, windowId: tab.windowId })
+	if (current?.id !== tab.id) {
+		throw new Error('The user switched tabs while the approval was pending. Ask again.')
+	}
+	if (current.url !== tab.url) throw new Error(PAGE_CHANGED)
 }
 
 let confirmQueue: Promise<unknown> = Promise.resolve()
@@ -182,22 +191,30 @@ function readPage(maxChars: number) {
 
 function pageAction(
 	action: 'describe' | 'click' | 'type',
-	a: { ref?: number; selector?: string; text?: string; submit?: boolean }
+	a: { ref?: number; selector?: string; text?: string; submit?: boolean },
+	nonce: string
 ) {
 	let el: HTMLElement | null = null
 	try {
 		el =
-			a.ref !== undefined
-				? document.querySelector(`[data-wm-ref="${Number(a.ref)}"]`)
-				: a.selector
-					? document.querySelector(a.selector)
-					: null
+			action !== 'describe'
+				? document.querySelector(`[data-wm-approved="${nonce}"]`)
+				: a.ref !== undefined
+					? document.querySelector(`[data-wm-ref="${Number(a.ref)}"]`)
+					: a.selector
+						? document.querySelector(a.selector)
+						: null
 	} catch {
 		return { error: `Invalid selector ${a.selector}` }
 	}
+	if (!el && action !== 'describe') {
+		return { error: 'The element changed while waiting for approval. Read the page again.' }
+	}
 	if (!el) return { error: 'Element not found. Read the page again for fresh element numbers.' }
+	el.removeAttribute('data-wm-approved')
 	const input = el as HTMLInputElement
 	if (action === 'describe') {
+		el.setAttribute('data-wm-approved', nonce)
 		const label = (
 			el.getAttribute('aria-label') ||
 			el.innerText ||

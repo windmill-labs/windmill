@@ -2706,9 +2706,10 @@ export class AIChatManager implements ChatViewHost {
 		}
 	}
 
-	/** For a host that renders no preview pane: forms stay inline and runs open in a new tab,
-	 * as in the docked chat. */
-	detachPreview = () => {
+	enableBrowserTools = () => {
+		this.browserTools = true
+		// The side panel renders no preview pane: forms stay inline and runs open in a new
+		// tab, as in the docked chat.
 		this.openRunInPreview = undefined
 		this.openRunForm = undefined
 		this.closeRunForm = undefined
@@ -2716,10 +2717,6 @@ export class AIChatManager implements ChatViewHost {
 		this.isRunFormInPreview = undefined
 		this.openArtifact = undefined
 		this.closeArtifact = undefined
-	}
-
-	enableBrowserTools = () => {
-		this.browserTools = true
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
