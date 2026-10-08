@@ -112,10 +112,10 @@ async fn wac_suspend_stands_down_for_a_cancel(db: Pool<Postgres>) -> anyhow::Res
 
 /// Each park clears `started_at`, so the completion would otherwise store only the last
 /// segment: a workflow that waited an hour on its tasks would read as a sub-second job that
-/// started an hour late. The completed row spans the workflow from its first start, while
-/// the duration handed back for metering stays the last segment.
+/// started an hour late. The completed row spans the workflow from its first start, and
+/// keeps the last segment aside: that is what is metered and what worker-time readers sum.
 #[sqlx::test]
-async fn wac_completion_spans_the_workflow_and_meters_the_last_segment(
+async fn wac_completion_spans_the_workflow_and_keeps_the_last_segment(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     let job_id = Uuid::new_v4();
@@ -156,7 +156,7 @@ async fn wac_completion_spans_the_workflow_and_meters_the_last_segment(
         .await?
         .unwrap();
     let result = serde_json::value::to_raw_value(&serde_json::json!("done"))?;
-    let (_, metered_ms) = windmill_queue::add_completed_job(
+    let (_, span) = windmill_queue::add_completed_job(
         &db,
         &job,
         true,
@@ -170,7 +170,6 @@ async fn wac_completion_spans_the_workflow_and_meters_the_last_segment(
         false,
     )
     .await?;
-    assert_eq!(metered_ms, 3000, "only the last segment is left to meter");
 
     let (started_ago_s, duration_ms, last_segment_ms): (f64, i64, Option<i64>) = sqlx::query_as(
         "SELECT extract(epoch FROM now() - started_at)::float8, duration_ms, \
@@ -189,6 +188,12 @@ async fn wac_completion_spans_the_workflow_and_meters_the_last_segment(
         "duration_ms must be the wall time since the first start, got {duration_ms}"
     );
     assert_eq!(last_segment_ms, Some(3000));
+    assert_eq!(
+        span.duration_ms, duration_ms,
+        "a flow records the step with the span the row holds"
+    );
+    assert!(span.outlasts_run(job.started_at));
+    assert_eq!(span.last_run_ms, 3000, "only the last segment is left to meter");
 
     Ok(())
 }

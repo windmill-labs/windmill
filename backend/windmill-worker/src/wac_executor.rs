@@ -115,7 +115,8 @@ pub enum WacPark {
 ///
 /// The first park keeps that first start in `extras.wac_first_started_at`, so the
 /// completed row can still say when the workflow began and how long it took overall
-/// (`Completion::execute`). The queue row's `started_at` stays per segment.
+/// (`Completion::execute`). The queue row's `started_at` stays per segment. The inline
+/// checkpoint requeue clears `started_at` on its own and keeps the first start the same way.
 ///
 /// Call it before any write to the parent's `v2_job_status` row in the same
 /// transaction: a child's completion locks the queue row and then the status row
