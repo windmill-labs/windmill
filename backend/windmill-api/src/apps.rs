@@ -2269,19 +2269,9 @@ async fn store_raw_app_file<'a>(
 
     Ok(())
 }
-/// The half of the builder-app check that needs no DB.
-///
-/// A raw app's behaviour lives in a bundle the browser built, which no server-side check can read,
-/// so isolation is what makes it safe to let an operator publish one: `sandbox` renders it in an
-/// opaque-origin iframe instead of handing it the viewer's Windmill session. Inline scripts are
-/// the low-code side's way of carrying code and must not appear either.
-///
-/// Returns every workspace runnable the app can end up invoking, as `(is_flow, path)`, for
-/// [`validate_operator_composed_app`] to authorize. That comes from two surfaces, not one: the
-/// policy's triggerables, and the value's path-referencing runnables (`type: "runnableByPath"` and
-/// the `type: "path"` the raw-app editor persists), which is what the deployed bundle resolves a
-/// `runnable_id` against and sends. An app with an empty triggerables map still reaches the
-/// second.
+/// The half of the builder-app check that needs no DB (see `docs/operator-builder-rights.md`).
+/// Returns every runnable the app can invoke, as `(is_flow, path)`, from both the policy's
+/// triggerables and the value's path runnables: they are not the same list.
 fn check_operator_composed_app(
     raw_app: bool,
     value: Option<&RawValue>,
@@ -2333,14 +2323,9 @@ fn check_operator_composed_app(
     }
     policy.sandbox = Some(true);
 
-    // In `Viewer` mode `execute_component` falls back to a default triggerable for any
-    // `script/`/`flow/` path, so the policy stops being the list of what the app may invoke, and
-    // the job runs as the *viewer*. A builder-authored app would then let an admin who merely
-    // opens it run anything in the workspace as themselves. `Publisher`, `Guest` and `Anonymous`
-    // have no such fallback, so the triggerables checked below are exhaustive for them.
-    // Read the *stated* mode, and pin an omitted one: `update_app_internal` resolves an unstated
-    // mode to the deployed app's, so a builder redeploying over an admin's viewer-mode app would
-    // otherwise inherit `Viewer` after this check has already passed on the default.
+    // Viewer mode would make the triggerables below non-exhaustive (see the docs). Pin an omitted
+    // mode: `update_app_internal` resolves it to the deployed app's, so a redeploy over an admin's
+    // viewer-mode app would otherwise inherit `Viewer` after this check passed.
     match policy.stated_execution_mode() {
         Some(ExecutionMode::Viewer) => {
             return Err(Error::PermissionDenied(
@@ -2352,12 +2337,9 @@ fn check_operator_composed_app(
         None => policy.set_execution_mode(ExecutionMode::Publisher),
     }
 
-    // The triggerables are the deployed app's authorization to invoke a runnable.
-    // `<component>:` prefixes the key when the app scopes it to one component, and
-    // `execute_component` looks up `format!("{component}:{path}")` with an unrestricted component
-    // string. So every colon in a key is a possible split, not just the first: `a:b:script/x`
-    // resolves for `component = "a:b"`. Take every suffix that parses as a runnable rather than
-    // guessing which one the request will use, or a key with two colons is validated as neither.
+    // `execute_component` looks up `{component}:{path}` with an unrestricted component, so every
+    // colon is a possible split (`a:b:script/x` resolves for `component = "a:b"`): check every
+    // suffix that parses as a runnable.
     referenced.extend(
         policy
             .triggerables
