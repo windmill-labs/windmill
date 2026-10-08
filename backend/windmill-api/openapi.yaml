@@ -13351,6 +13351,134 @@ paths:
                 items:
                   $ref: "#/components/schemas/FlowConversation"
 
+  /w/{workspace}/slack_agents/channels:
+    get:
+      summary: list the Slack channels whose default agent this workspace set
+      operationId: listSlackChannelAgents
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: channels and their default agent
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SlackChannelAgent"
+    post:
+      summary: make an agent the default in a Slack channel (admin only)
+      operationId: setSlackChannelAgent
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SlackChannelAgent"
+      responses:
+        "200":
+          description: default agent set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/slack_agents/channels/{channel_id}:
+    delete:
+      summary: remove a Slack channel's default agent (admin only)
+      operationId: removeSlackChannelAgent
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: channel_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: default agent removed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/slack_agents/available_channels:
+    get:
+      summary: list the connected Slack workspace's public channels (admin only)
+      operationId: listAvailableSlackChannels
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: cursor
+          description: the next_cursor of the previous page
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: a page of public channels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                  next_cursor:
+                    type: string
+                required:
+                  - channels
+
+  /w/{workspace}/slack_agents/agent_channels/{path}:
+    get:
+      summary: the Slack channels where an agent is the default, and whether Slack is connected
+      operationId: getAgentSlackChannels
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: the agent's Slack channels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slack_team_name:
+                    type: string
+                    description: the connected Slack workspace; absent when Slack is not connected
+                  signing_secret_set:
+                    type: boolean
+                    description: agents answer in Slack only when the instance sets SLACK_SIGNING_SECRET
+                  channels:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SlackChannelAgent"
+                required:
+                  - channels
+                  - signing_secret_set
+
   /w/{workspace}/flow_conversations/update/{conversation_id}:
     post:
       summary: rename flow conversation
@@ -29354,6 +29482,20 @@ components:
           description: Cells the baseline has no score for, so a column the baseline never ran shows as unscored rather than as a spurious difference.
         definition_changed:
           type: boolean
+
+    SlackChannelAgent:
+      type: object
+      properties:
+        channel_id:
+          type: string
+        channel_name:
+          type: string
+        agent_path:
+          type: string
+      required:
+        - channel_id
+        - channel_name
+        - agent_path
 
     FlowConversation:
       type: object

@@ -42,14 +42,28 @@ pub(crate) async fn run_agent(
     Query(run_query): Query<RunJobQuery>,
     Json(args): Json<HashMap<String, Box<RawValue>>>,
 ) -> Result<(StatusCode, String)> {
-    #[cfg(feature = "enterprise")]
-    crate::jobs::check_license_key_valid().await?;
-
     let path = path.to_path();
     check_scopes(&authed, || format!("jobs:run:agents:{path}"))?;
 
+    let uuid = run_agent_as(&authed, &db, &user_db, &w_id, path, &run_query, &args).await?;
+    Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+/// [`run_agent`] for a caller already authenticated, such as a Slack user matched to a member.
+pub(crate) async fn run_agent_as(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    path: &str,
+    run_query: &RunJobQuery,
+    args: &HashMap<String, Box<RawValue>>,
+) -> Result<uuid::Uuid> {
+    #[cfg(feature = "enterprise")]
+    crate::jobs::check_license_key_valid().await?;
+
     // Read through the caller's own permissions: reading the agent is what allows running it.
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let mut tx = user_db.clone().begin(authed).await?;
     let value = sqlx::query_scalar!(
         "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\"
          FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
@@ -84,17 +98,17 @@ pub(crate) async fn run_agent(
     )?;
 
     let push_authed = authed.clone().into();
-    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, mut tx) = push(
-        &db,
+        db,
         PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
-        &w_id,
+        w_id,
         JobPayload::RawFlow {
             value: flow_value,
             path: Some(run_path.clone()),
             restarted_from: None,
         },
-        PushArgs::from(&args),
+        PushArgs::from(args),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -123,27 +137,27 @@ pub(crate) async fn run_agent(
     )
     .await?;
 
-    if let Some(memory_id) = run_query.memory_key(&w_id, &run_path) {
+    if let Some(memory_id) = run_query.memory_key(w_id, &run_path) {
         set_flow_memory_id(&mut tx, uuid, memory_id).await?;
     }
     if chat {
         // A real conversation, not a test one: this is the agent as deployed, not a draft.
         handle_chat_conversation_messages(
             &mut tx,
-            &authed,
-            &w_id,
+            authed,
+            w_id,
             &run_path,
-            &run_query,
+            run_query,
             args.get("user_message"),
             uuid,
             false,
-            &args,
+            args,
         )
         .await?;
     }
     tx.commit().await?;
 
-    Ok((StatusCode::CREATED, uuid.to_string()))
+    Ok(uuid)
 }
 
 /// The agent as a one-step flow, validated by deserializing through `FlowValue` rather than
