@@ -34948,7 +34948,7 @@
           },
           "early_return": {
             "type": "string",
-            "description": "JavaScript expression to return early from the flow"
+            "description": "Id of the step whose result a sync webhook returns as soon as that step completes, while the rest of the flow keeps running. When the step does not run, the flow's final result is returned."
           },
           "chat_input_enabled": {
             "type": "boolean",
@@ -48161,7 +48161,7 @@
           },
           "early_return": {
             "type": "string",
-            "description": "JavaScript expression to return early from the flow"
+            "description": "Id of the step whose result a sync webhook returns as soon as that step completes, while the rest of the flow keeps running. When the step does not run, the flow's final result is returned."
           },
           "chat_input_enabled": {
             "type": "boolean",

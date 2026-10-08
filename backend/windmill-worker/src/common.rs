@@ -2101,7 +2101,7 @@ async fn check_if_last_step(
 }
 
 // Iterative implementation to avoid stack overflow from async_recursion
-// Checks if we're at last step in nested branches AND if any parent's flow_step_id matches early_return_id
+// True when the job is the early-return node, or the last step of branches to one that end in it
 async fn check_if_early_return_or_last_in_early_return_parent(
     db: &DB,
     mut next_parent: Option<Uuid>,
@@ -2111,11 +2111,7 @@ async fn check_if_early_return_or_last_in_early_return_parent(
 ) -> error::Result<bool> {
     let mut visited = HashSet::new();
     loop {
-        if step_id.is_none() {
-            return Ok(false);
-        }
-
-        let Some(parent_job) = next_parent else {
+        let (Some(step), Some(parent_job)) = (step_id.as_deref(), next_parent) else {
             return Ok(false);
         };
 
@@ -2124,23 +2120,47 @@ async fn check_if_early_return_or_last_in_early_return_parent(
             return Ok(false);
         }
 
-        // If the parent's flow_step_id matches early_return_id, we found it!
-        if step_id.as_deref() == Some(early_return_id) && parent_job == root_job {
-            return Ok(true);
-        } else {
-            let parent_info = get_job_info(db, parent_job).await?;
-            if let Some(step) = parent_info.step {
-                let step = Step::from_i32_and_len(step, parent_info.len.unwrap_or(0) as usize);
-                // we only continue if we are at the last step and the parent is a branch one
-                if step.is_last_step() && parent_info.is_branch_one.unwrap_or(false) {
-                    next_parent = parent_info.next_parent;
-                    step_id = parent_info.flow_step_id;
-                    continue;
-                }
-            }
+        if step == early_return_id {
+            return only_branch_one_up_to_root(db, parent_job, root_job).await;
+        }
+        if parent_job == root_job {
             return Ok(false);
         }
+
+        let parent_info = get_job_info(db, parent_job).await?;
+        if let Some(parent_step) = parent_info.step {
+            let parent_step =
+                Step::from_i32_and_len(parent_step, parent_info.len.unwrap_or(0) as usize);
+            // we only continue if we are at the last step and the parent is a branch one
+            if parent_step.is_last_step() && parent_info.is_branch_one.unwrap_or(false) {
+                next_parent = parent_info.next_parent;
+                step_id = parent_info.flow_step_id;
+                continue;
+            }
+        }
+        return Ok(false);
     }
+}
+
+// The early-return id is looked up on the root run, so a match deeper down only counts when the
+// node is reached through branches to one. A loop iteration or a subflow reusing the same id must
+// not take the stream.
+async fn only_branch_one_up_to_root(db: &DB, mut job: Uuid, root_job: Uuid) -> error::Result<bool> {
+    let mut visited = HashSet::new();
+    while job != root_job {
+        if !visited.insert(job) {
+            return Ok(false);
+        }
+        let info = get_job_info(db, job).await?;
+        if !info.is_branch_one.unwrap_or(false) {
+            return Ok(false);
+        }
+        let Some(parent) = info.next_parent else {
+            return Ok(false);
+        };
+        job = parent;
+    }
+    Ok(true)
 }
 
 impl StreamNotifier {

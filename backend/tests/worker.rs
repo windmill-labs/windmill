@@ -4698,6 +4698,91 @@ async fn test_run_wait_result_early_return_with_failure_module(
     Ok(())
 }
 
+/// An early-return node inside a branch to one resolves while the flow is still running when its
+/// branch is taken, and falls back to the flow's final result when it is not.
+#[cfg(all(feature = "deno_core", feature = "quickjs"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_run_wait_result_early_return_inside_branch_one(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let returns = |v: &str, sleep_ms: u64| {
+        json!({
+            "type": "rawscript",
+            "language": "deno",
+            "input_transforms": {},
+            "content": format!(
+                "export async function main() {{ await new Promise((r) => setTimeout(r, {sleep_ms})); return '{v}' }}"
+            ),
+        })
+    };
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "branchone",
+                    "branches": [{ "expr": "flow_input.take", "modules": [{ "id": "c", "value": returns("c", 0) }] }],
+                    "default": [],
+                },
+            },
+            { "id": "d", "value": returns("d", 3000) },
+        ],
+        "early_return": "c",
+    }))
+    .unwrap();
+
+    for (take, expected) in [(true, "c"), (false, "d")] {
+        let id = RunJob::from(JobPayload::RawFlow {
+            value: flow.clone(),
+            path: None,
+            restarted_from: None,
+        })
+        .arg("take", json!(take))
+        .push(&db)
+        .await;
+
+        // The completion check runs inside the worker's lifetime: the worker finishes `d` before
+        // quitting, so checking afterwards would always see the flow completed.
+        let (resp, flow_completed) = in_test_worker(
+            windmill_common::worker::Connection::Sql(db.clone()),
+            async {
+                let resp = windmill_api::jobs::run_wait_result(
+                    &db,
+                    id,
+                    "test-workspace",
+                    Some("c".to_string()),
+                    false,
+                    "test-user",
+                )
+                .await
+                .unwrap();
+                let completed: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1)",
+                )
+                .bind(id)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+                (resp, completed)
+            },
+            port,
+        )
+        .await;
+        // Only the taken branch returns before `d` finishes sleeping.
+        assert_eq!(flow_completed, !take, "take = {take}");
+
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await?;
+        let body: serde_json::Value = serde_json::from_slice(&bytes)?;
+        assert_eq!(json!(expected), body, "take = {take}");
+    }
+
+    Ok(())
+}
+
 /// `recover: true` from the error handler of a step that fails inside a loop turns the flow
 /// green, as it does for a top-level step, without changing which steps run: a loop that
 /// stops at a failed iteration still stops there, one that skips failures still carries on.

@@ -32,6 +32,7 @@
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { modulesWithRetryOrSleep, SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
+	import EarlyReturnPicker from './EarlyReturnPicker.svelte'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
@@ -388,23 +389,11 @@
 							}}
 						/>
 						{#if flowStore.val.value.early_return}
-							<div
-								class="max-w-[120px] flex flex-col mt-2 {flowStore.val.value.early_return
-									? ''
-									: 'bg-surface-secondary'}"
-								transition:slide={{ duration: 120 }}
-							>
-								<select
-									name="oauth_name"
-									id="oauth_name"
+							<div class="mt-2" transition:slide={{ duration: 120 }}>
+								<EarlyReturnPicker
+									modules={flowStore.val.value.modules ?? []}
 									bind:value={flowStore.val.value.early_return}
-									class="text-xs"
-								>
-									<option value={undefined}>Node's id</option>
-									{#each flowStore.val.value?.modules?.map((x) => x.id) as name}
-										<option value={name}>{name}</option>
-									{/each}
-								</select>
+								/>
 							</div>
 						{/if}
 					</div>
