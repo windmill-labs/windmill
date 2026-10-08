@@ -13,6 +13,16 @@
     - returns a plain greeting string
     - does not wrap the result in an object or array
 
+# An in-house API has no hub resource type: the connection still comes in as one resource, not
+# a token parameter or a variable read inside the code.
+- id: script-resource-type-custom-api
+  prompt: |-
+    Update the current Bun script so it fetches an invoice by id from our internal billing API at https://billing.acme.internal/api/v1. It authenticates with a bearer token.
+  initial: ai_evals/fixtures/frontend/script/initial/test1_empty_bun.json
+  judgeChecklist:
+    - the script takes the billing API's base URL and token together as one resource-typed parameter, not a plain string token or a variable read inside the code
+    - the script fetches an invoice by id with a bearer token
+
 - id: script-test2-create-current-script-schedule
   prompt: |-
     Update the current Bun script so it takes the existing `name` input and returns a plain greeting string like `Hello, Alice!`.

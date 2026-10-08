@@ -582,6 +582,15 @@ In the flow schema, set the property type to `"object"` with format `"resource-{
 }
 ```
 
+### When No Resource Type Fits
+
+A connection still comes in as one resource input, not as separate string inputs (a URL, a token) or a variable read inside a step: type the input `resource-<name>` with a resource type holding the service's connection fields, its secret in a variable the resource references.
+
+- If looking up resource types reports that the instance is missing the Windmill Hub's types, mention that a superadmin can sync them, since the hub has types for most services.
+- Otherwise, or when the user prefers it to syncing, propose the resource type and ask before creating it.
+- Where you have no way to create a resource type yourself, give the user the schema to add with **Add resource type** on the Resources page.
+- A plain variable is fine when the user asks for it.
+
 ### As Step Input (Static Reference)
 
 Reference a specific resource using `$res:` prefix:
