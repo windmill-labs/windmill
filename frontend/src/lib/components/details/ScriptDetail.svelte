@@ -838,6 +838,7 @@
 		{#snippet header({ wide }: { wide: boolean })}
 			<DetailPageHeader
 				{wide}
+				ownsPageHeader={!embedded}
 				{mainButtons}
 				menuItems={getMenuItems(script, deployUiSettings)}
 				bind:errorHandlerMuted={

@@ -37,8 +37,12 @@
 	import { FlaskConical } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	// Saving a capture config is a trigger write the server refuses to a withdrawn operator, so
+	// every capture kind locks here rather than each editor passing it down.
+	const triggerLock = useTriggerLock()
 
 	interface Props {
 		disabled?: boolean | undefined
@@ -289,7 +293,7 @@
 							<Button
 								size="xs"
 								on:click={() => dispatch('captureToggle', {})}
-								{disabled}
+								disabled={disabled || !!$triggerLock}
 								variant={captureInfo.active ? 'default' : 'accent-secondary'}
 								selected={captureInfo.active}
 								startIcon={captureInfo.active
@@ -327,12 +331,14 @@
 								<div
 									class={twMerge(
 										'absolute top-0 left-0 w-full text-center',
-										disabled === true ? 'text-red-600 dark:text-red-400' : ''
+										disabled === true && !$triggerLock ? 'text-red-600 dark:text-red-400' : ''
 									)}
 									in:fade={{ duration: 100, delay: 50 }}
 									out:fade={{ duration: 50 }}
 								>
-									{#if disabled === true}
+									{#if $triggerLock}
+										{$triggerLock}.
+									{:else if disabled === true}
 										Enter a valid configuration to start capturing.
 									{:else}
 										{@render description?.()}

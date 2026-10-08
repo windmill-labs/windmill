@@ -983,7 +983,14 @@ async fn get_raw_app_data(
             // the opaque, sandboxed wrapper (incl. under a cross-origin-isolated
             // / COEP `require-corp` embedder).
             .header("X-Content-Type-Options", "nosniff")
-            .header("Cross-Origin-Resource-Policy", "cross-origin");
+            .header("Cross-Origin-Resource-Policy", "cross-origin")
+            // The secret names one app version, whose bundle is written once at deploy,
+            // so the URL's content never changes. `private`: the URL is a capability, so
+            // shared caches must not keep serving it after the app is deleted.
+            .header(
+                http::header::CACHE_CONTROL,
+                "private, max-age=31536000, immutable",
+            );
         Ok(res.body(body).unwrap())
     } else {
         return Err(Error::NotFound("File not found".to_string()));

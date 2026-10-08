@@ -49,6 +49,7 @@ pub struct LogContext {
 
     // Worker / job span (windmill-worker/src/worker.rs)
     pub worker: Option<String>,
+    pub worker_group: Option<String>,
     pub hostname: Option<String>,
     pub tag: Option<String>,
     pub job_id: Option<String>,

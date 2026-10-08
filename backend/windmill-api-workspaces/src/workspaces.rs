@@ -10513,7 +10513,7 @@ async fn edit_workspace(
 pub(crate) async fn archive_workspace_impl(
     db: &DB,
     w_id: &str,
-    username: &str,
+    authed: &ApiAuthed,
     // When archiving a dev workspace, its parent prod. The pairing teardown (clear is_dev + drop the
     // prod's lock) is folded into the same transaction as `deleted = true` so it's atomic with the
     // archive — a later failure can't strand a half-archived dev that's still flagged/locked.
@@ -10627,7 +10627,7 @@ pub(crate) async fn archive_workspace_impl(
         let axum::Json(canceled_jobs) = windmill_api_jobs::cancel_jobs(
             jobs_to_cancel,
             db,
-            username,
+            authed,
             w_id,
             false, // force_cancel
         )
@@ -10687,7 +10687,7 @@ async fn archive_workspace(
     // dev workspace, which only applies to a workspace that is itself a dev (`dev_lock_parent`): a
     // root archived out from under its dev is the pre-existing shape and not this pairing's to police.
     let (schedules_count, canceled_count, deleted_tokens_count) =
-        archive_workspace_impl(&db, &w_id, &authed.username, dev_lock_parent.as_deref()).await?;
+        archive_workspace_impl(&db, &w_id, &authed, dev_lock_parent.as_deref()).await?;
 
     // Audit log
     let mut tx = db.begin().await?;

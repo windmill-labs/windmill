@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, untrack } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
@@ -537,24 +537,44 @@
 		}
 	})
 
-	function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
-		if (mode === 'ai' && prefersSessionHandoff($userStore?.operator) && $workspaceStore) {
-			// Nothing is written here: the session opens this path on the template in memory
-			// (`new_draft`) and saves it only once it changes.
-			const { datatable, roles } = result.data
-			const role = datatable ? roles?.[datatable] : undefined
-			void openEditorInSession({ kind: 'raw_app', path }, $workspaceStore, {
-				new_draft: 'true',
-				...(datatable ? { datatable } : {}),
-				...(role ? { datatable_role: role } : {})
-			})
-			return
+	async function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
+		const picked = {
+			files: { ...result.files },
+			runnables: { ...result.runnables, ...starterRunnables() },
+			data: result.data,
+			summary: '',
+			policy: result.policy
 		}
-		files = { ...result.files }
-		runnables = { ...result.runnables, ...starterRunnables() }
-		data = result.data
-		summary = result.summary
-		policy = result.policy
+		const workspace = $workspaceStore
+		if (mode === 'ai' && prefersSessionHandoff($userStore?.operator) && workspace) {
+			// The session loads the app by path, so the picked setup is saved before it
+			// opens. `new_draft` tells it the app is still the starter template.
+			try {
+				draftSync.draft = {
+					...picked,
+					...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+				} as RawAppDraft
+				// The autosave this write queues would otherwise land after the session has
+				// read the draft, leaving it a baseline older than the row.
+				await tick()
+				await UserDraftDbSyncer.flush({ workspace, itemKind: 'raw_app', path })
+				await UserDraft.forcePersist('raw_app', path, { workspace })
+				// A failed save is recorded, not thrown, and the session would open on nothing.
+				const saved = UserDraftDbSyncer.getState({ workspace, itemKind: 'raw_app', path })
+				if (saved.state === 'failed') {
+					throw new Error(saved.failureMessage ?? 'the app could not be saved')
+				}
+				await openEditorInSession({ kind: 'raw_app', path }, workspace, { new_draft: 'true' })
+				return
+			} catch (e) {
+				sendUserToast(`Could not open the AI session: ${e?.body ?? e?.message ?? e}`, true)
+			}
+		}
+		files = picked.files
+		runnables = picked.runnables
+		data = picked.data
+		summary = picked.summary
+		policy = picked.policy
 		// Remount RawAppEditor so the iframe picks up the new files.
 		redraw++
 		// Sync to aiChatManager so its prompts respect the picked data config.
@@ -621,9 +641,11 @@
 
 {#if files}
 	{#key redraw}
-		<div class="h-screen">
+		<div class="h-full">
 			<RawAppEditor
 				bind:this={rawAppEditor}
+				ownsPageHeader
+				onDetails={(e) => goto(`/apps_raw/get/${e.path}?workspace=${$workspaceStore}`)}
 				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()
 					goto(`/apps_raw/edit/${savedPath}`)

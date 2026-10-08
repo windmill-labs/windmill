@@ -69,7 +69,7 @@
 			iconOnly={isCollapsed}
 			tooltip={isCollapsed ? 'Workspace' : undefined}
 			size="sm"
-			class="w-full justify-center"
+			class="w-full justify-center whitespace-nowrap"
 			onActivate={onNavActivate}
 		/>
 		<ToggleButton
@@ -80,7 +80,7 @@
 			iconOnly={isCollapsed}
 			tooltip={isCollapsed ? 'AI Sessions (beta)' : undefined}
 			size="sm"
-			class="w-full justify-center"
+			class="w-full justify-center whitespace-nowrap"
 		/>
 	{/snippet}
 </ToggleButtonGroup>

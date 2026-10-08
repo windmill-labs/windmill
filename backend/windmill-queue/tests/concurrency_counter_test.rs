@@ -33,31 +33,18 @@ mod concurrency {
         .unwrap_or(0)
     }
 
-    /// Stress: N concurrent admit-attempts on a pre-existing key with limit
-    /// L < N. Asserts admitted count is exactly L (never over-admits) AND
-    /// that the row's job_uuids reflects exactly L entries.
+    /// Stress: N concurrent admit-attempts on a key with limit L < N. Asserts
+    /// admitted count is exactly L (never over-admits) AND that the row's
+    /// job_uuids reflects exactly L entries.
     ///
-    /// The row is pre-seeded with an empty `job_uuids` because there is a
-    /// known preexisting race when the `concurrency_counter` row does not
-    /// exist yet: `SELECT ... FOR UPDATE` on a missing row locks nothing,
-    /// so all concurrent transactions see `running=0` and all admit via
-    /// `INSERT ... ON CONFLICT DO UPDATE`. That race is inherited from
-    /// the legacy code path and is out of scope for this PR. This test
-    /// validates the property we *do* preserve: no over-admit once the
-    /// row exists.
+    /// The `concurrency_counter` row is deliberately absent at the start: the
+    /// monitor deletes empty rows while jobs for the key are still queued, so
+    /// the admit path has to serialize without a pre-existing row to lock.
     #[sqlx::test(migrations = "../migrations")]
     async fn stress_never_over_admits(db: Pool<Postgres>) {
         let key = "stress-never-over-admits".to_string();
         let limit: i32 = 5;
         let workers: usize = 50;
-
-        sqlx::query!(
-            "INSERT INTO concurrency_counter(concurrency_id, job_uuids) VALUES ($1, '{}'::jsonb)",
-            key,
-        )
-        .execute(&db)
-        .await
-        .expect("seed empty counter row");
 
         let mut tasks = Vec::with_capacity(workers);
         for _ in 0..workers {

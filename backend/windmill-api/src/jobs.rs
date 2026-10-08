@@ -4581,7 +4581,7 @@ async fn cancel_selection(
         let Json(mut w_cancelled) = cancel_jobs(
             ids,
             &db,
-            authed.username.as_str(),
+            &authed,
             workspace_id.as_str(),
             force_cancel,
         )
@@ -8542,6 +8542,11 @@ pub async fn stream_job(
     run_query: RunJobQuery,
     is_get: bool,
 ) -> error::Result<Response> {
+    if run_query.retry.is_some() {
+        return Err(error::Error::BadRequest(
+            "retry is only supported when running a script asynchronously".to_string(),
+        ));
+    }
     let args = if is_get {
         let payload_as_args = run_query.payload_as_args()?;
 
@@ -10498,26 +10503,29 @@ pub async fn run_job_by_hash_inner(
         )
     };
 
+    let job_payload = JobPayload::ScriptHash {
+        hash: ScriptHash(hash),
+        path: path,
+        concurrency_settings,
+        debouncing_settings,
+        cache_ttl,
+        cache_ignore_s3_path,
+        language,
+        dedicated_worker,
+        priority,
+        apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+            && has_preprocessor.unwrap_or(false),
+        labels,
+        job_token_scopes,
+    };
+    let job_payload = with_run_retry(&run_query, job_payload, &push_args, &tag)?;
+
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
         &w_id,
-        JobPayload::ScriptHash {
-            hash: ScriptHash(hash),
-            path: path,
-            concurrency_settings,
-            debouncing_settings,
-            cache_ttl,
-            cache_ignore_s3_path,
-            language,
-            dedicated_worker,
-            priority,
-            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
-                && has_preprocessor.unwrap_or(false),
-            labels,
-            job_token_scopes,
-        },
+        job_payload,
         push_args,
         authed.display_username(),
         email,

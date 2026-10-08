@@ -1,18 +1,23 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import { AppService, OpenAPI, type AppWithLastVersion } from '$lib/gen'
-	import { userStore } from '$lib/stores'
-
-	import { setLicense } from '$lib/enterpriseUtils'
-
-	import { getUserExt } from '$lib/user'
+	import { OpenAPI } from '$lib/gen/core/OpenAPI'
+	import type { GuestEntry } from '$lib/gen/types.gen'
+	import type { UserExt } from '$lib/stores'
 	import { page } from '$app/state'
 	import { base } from '$lib/base'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
+	import {
+		getLicenseOrUndefined,
+		getUserExtOrUndefined,
+		publicGet,
+		type PublicAppValue
+	} from '$lib/components/apps/editor/publicAppApi'
 
-	let app: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
+	let app: PublicAppValue | undefined = $state(undefined)
+	let user: UserExt | undefined = $state(undefined)
+	let license: string | undefined = $state(undefined)
 	let notExists = $state(false)
 	let noPermission = $state(false)
 	let jwtError = $state(false)
@@ -70,35 +75,21 @@
 		} else if (parsedSecret.jwt) {
 			OpenAPI.TOKEN = 'jwt_ext_' + parsedSecret.jwt
 		}
-		const headers: Record<string, string> = {}
-		if (typeof OpenAPI.TOKEN === 'string' && OpenAPI.TOKEN) {
-			headers['Authorization'] = `Bearer ${OpenAPI.TOKEN}`
-		}
 		const consent = opts?.sdkConsent ? '?sdk_consent=true' : ''
-		const res = await fetch(
-			`${OpenAPI.BASE}/w/${workspace}/apps_u/embed_token/${parsedSecret.secret}${consent}`,
-			{ headers }
-		)
-		if (!res.ok) {
-			const err: any = new Error('Failed to fetch embed token')
-			err.status = res.status
-			throw err
-		}
-		return await res.json()
+		return await publicGet(`/w/${workspace}/apps_u/embed_token/${parsedSecret.secret}${consent}`)
 	}
 
 	// Viewer side: load the app + user using the embed token handed to the iframe.
 	async function loadApp() {
+		// Neither waits on the other: `app.html` already requested both.
+		const userLoad = getUserExtOrUndefined(workspace)
+		const appLoad = publicGet<PublicAppValue>(
+			`/w/${workspace}/apps_u/public_app/${encodeURI(parsedSecret.secret)}`
+		)
+		appLoad.catch(() => {})
+		user = await userLoad
 		try {
-			userStore.set(await getUserExt(workspace))
-		} catch (e) {
-			console.warn('Anonymous user')
-		}
-		try {
-			app = await AppService.getPublicAppBySecret({
-				workspace,
-				path: parsedSecret.secret
-			})
+			app = await appLoad
 			noPermission = false
 			notExists = false
 		} catch (e) {
@@ -126,7 +117,9 @@
 		if (guestEntrySettled()) return
 		for (let attempt = 0; attempt < 3; attempt++) {
 			try {
-				const entry = await AppService.getGuestEntry({ workspace, path: parsedSecret.secret })
+				const entry = await publicGet<GuestEntry>(
+					`/w/${workspace}/apps_u/guest_entry/${encodeURI(parsedSecret.secret)}`
+				)
 				guestAppPath = `${workspace}/${entry.app_path}`
 				guestEntry = 'guest'
 				return
@@ -156,29 +149,36 @@
 	}
 
 	if (BROWSER) {
-		setLicense()
+		getLicenseOrUndefined().then((l) => (license = l))
 	}
 </script>
 
-<PublicAppFrame
-	{fetchEmbedToken}
-	{viewerUrl}
-	{guestAppPath}
-	{guestEntry}
-	onViewerReady={(_token, requestTokenRefresh) => {
-		refresh = requestTokenRefresh
-		loadApp()
-	}}
->
-	{#snippet viewer()}
-		<PublicApp
-			{app}
-			{workspace}
-			{notExists}
-			{noPermission}
-			{jwtError}
-			{guestAppPath}
-			onLoginSuccess={() => loadApp()}
-		></PublicApp>
-	{/snippet}
-</PublicAppFrame>
+<!-- The route is what gives the app a height: nothing above it has one (`app.html` wraps the
+     body in `display: contents`), and the viewer's own boxes are full-height. Styled
+     inline: a raw app renders here without app.css. -->
+<div style="height: 100vh; width: 100%">
+	<PublicAppFrame
+		{fetchEmbedToken}
+		{viewerUrl}
+		{guestAppPath}
+		{guestEntry}
+		onViewerReady={(_token, requestTokenRefresh) => {
+			refresh = requestTokenRefresh
+			loadApp()
+		}}
+	>
+		{#snippet viewer()}
+			<PublicApp
+				{app}
+				{workspace}
+				{user}
+				{license}
+				{notExists}
+				{noPermission}
+				{jwtError}
+				{guestAppPath}
+				onLoginSuccess={() => loadApp()}
+			></PublicApp>
+		{/snippet}
+	</PublicAppFrame>
+</div>

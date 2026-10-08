@@ -656,6 +656,7 @@
 	{#snippet header({ wide }: { wide: boolean })}
 		<DetailPageHeader
 			{wide}
+			ownsPageHeader={!embedded}
 			on:seeTriggers={() => {
 				detailLayout?.showTriggers()
 			}}
