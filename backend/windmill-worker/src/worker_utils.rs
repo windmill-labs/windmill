@@ -44,12 +44,19 @@ pub(crate) async fn update_worker_ping_full(
         (None, None)
     };
 
+    let occupancy = occupancy_metrics.update_occupancy_metrics();
+    crate::resource_metrics::record_worker_resources(
+        worker_name,
+        memory_usage,
+        wm_memory_usage,
+        Some(&occupancy),
+    );
     let OccupancyResult {
         occupancy_rate,
         occupancy_rate_15s,
         occupancy_rate_5m,
         occupancy_rate_30m,
-    } = occupancy_metrics.update_occupancy_metrics();
+    } = occupancy;
 
     let ping_start = std::time::Instant::now();
     if let Err(e) = (|| {
