@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { agentChatFlow, agentChatGap, agentChatPath } from './agentEditorChat'
+import { agentChatFlow, agentChatGap, agentChatPath, agentStepLabel } from './agentEditorChat'
 
 describe('agentChatPath', () => {
 	it('is a path no flow can take, so a same-path flow never shares its conversations', () => {
 		const flowPath = /^[ufg](\/[\w-]+){2,}$/
 		expect('f/support/agent').toMatch(flowPath)
 		expect(agentChatPath('f/support/agent')).not.toMatch(flowPath)
+	})
+})
+
+describe('agentStepLabel', () => {
+	it("names a run's agent step by the agent, a chat turn's included", () => {
+		expect(agentStepLabel('f/support/agent')).toBe('f/support/agent')
+		expect(agentStepLabel(agentChatPath('f/support/agent'))).toBe('f/support/agent')
+		expect(agentStepLabel(undefined)).toBe('AI Agent')
 	})
 })
 

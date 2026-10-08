@@ -45,10 +45,9 @@
 	// A raw app the listing returns is an `app` row carrying `raw_app`, and is
 	// selectable like any other app. The separate `raw_app` type is the legacy
 	// listing shape, which renders through RawAppRow — no selection control there,
-	// so it must not enter the selection either. An agent is a resource underneath,
-	// which none of the bulk actions handle.
+	// so it must not enter the selection either.
 	let bulkItem = $derived(
-		homeSelection?.available && item.type !== 'raw_app' && item.type !== 'agent'
+		homeSelection?.available && item.type !== 'raw_app'
 			? toBulkItem(item, $userStore, $workspaceStore)
 			: undefined
 	)
@@ -145,6 +144,7 @@
 		{depth}
 		bind:menuOpen
 		{keyboardSelected}
+		{rowSelection}
 	/>
 {/if}
 
