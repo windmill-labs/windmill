@@ -188,6 +188,7 @@ async fn match_resource_types_by_text(
 /// A word found in the name counts twice a word found in the description: names are what
 /// a query for a service spells out ("postgres" in `postgresql`, "sheets" in `gsheets`).
 fn text_match_score(words: &[String], name: &str, description: &str) -> f32 {
+    let name = name.to_lowercase();
     let description = description.to_lowercase();
     words
         .iter()
@@ -338,6 +339,19 @@ pub struct EmbeddingsDb {
     hub_resource_type_embeddings: Arc<HashMap<String, Vec<f32>>>,
     /// The `resource_types_fingerprint` the resource types collection was built from.
     resource_types_fingerprint: Option<String>,
+    /// See `ResourceTypeIndex::custom_vectors`.
+    custom_resource_type_vectors: Arc<HashMap<String, Vec<f32>>>,
+}
+
+/// A built resource types collection, with what a later refresh needs to tell it is stale and
+/// to reuse its vectors.
+#[cfg(feature = "embedding")]
+struct ResourceTypeIndex {
+    fingerprint: Option<String>,
+    embeddings: Vec<Embedding>,
+    /// Vectors of the types the hub has none for, by the `name;description` they embed: a
+    /// refresh runs the model only on types that are new or changed, not on every custom type.
+    custom_vectors: Arc<HashMap<String, Vec<f32>>>,
 }
 
 #[cfg(feature = "embedding")]
@@ -350,6 +364,7 @@ impl EmbeddingsDb {
             model_instance: model_instance.clone(),
             hub_resource_type_embeddings: Arc::new(HashMap::new()),
             resource_types_fingerprint: None,
+            custom_resource_type_vectors: Arc::new(HashMap::new()),
         };
 
         embeddings_db.fill_db(pg_db).await?;
@@ -480,30 +495,28 @@ impl EmbeddingsDb {
                 .collect(),
         );
 
-        let (fingerprint, embeddings) = resource_type_embeddings(
+        let index = resource_type_index(
             pg_db,
             &self.model_instance,
             &self.hub_resource_type_embeddings,
+            &self.custom_resource_type_vectors,
         )
         .await?;
-        self.replace_resource_types(fingerprint, embeddings)
+        self.replace_resource_types(index)
     }
 
-    fn replace_resource_types(
-        &mut self,
-        fingerprint: Option<String>,
-        embeddings: Vec<Embedding>,
-    ) -> Result<()> {
+    fn replace_resource_types(&mut self, index: ResourceTypeIndex) -> Result<()> {
         if self.db.get_collection("resource_types").is_some() {
             self.db.delete_collection("resource_types")?;
         }
         self.db
             .create_collection("resource_types".to_string(), 384, Distance::Cosine)?;
-        for embedding in embeddings {
+        for embedding in index.embeddings {
             self.db
                 .insert_into_collection("resource_types", embedding)?;
         }
-        self.resource_types_fingerprint = fingerprint;
+        self.resource_types_fingerprint = index.fingerprint;
+        self.custom_resource_type_vectors = index.custom_vectors;
         Ok(())
     }
 
@@ -672,11 +685,12 @@ async fn resource_types_fingerprint(pg_db: &Pool<Postgres>) -> Result<Option<Str
 /// The fingerprint is read before the rows: a write landing in between leaves it stale, so
 /// the next check indexes again rather than keeping an index that misses the write.
 #[cfg(feature = "embedding")]
-async fn resource_type_embeddings(
+async fn resource_type_index(
     pg_db: &Pool<Postgres>,
     model_instance: &Arc<ModelInstance>,
     hub_embeddings: &HashMap<String, Vec<f32>>,
-) -> Result<(Option<String>, Vec<Embedding>)> {
+    known_custom_vectors: &HashMap<String, Vec<f32>>,
+) -> Result<ResourceTypeIndex> {
     let fingerprint = resource_types_fingerprint(pg_db).await?;
     let resource_types: Vec<ResourceType> =
         sqlx::query_as!(ResourceType, "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name from resource_type ORDER BY name",)
@@ -684,6 +698,7 @@ async fn resource_type_embeddings(
             .await?;
 
     let mut embeddings = Vec::with_capacity(resource_types.len());
+    let mut custom_vectors = HashMap::new();
     for rt in resource_types {
         let mut hm = HashMap::new();
         hm.insert("name".to_string(), rt.name.clone());
@@ -695,14 +710,16 @@ async fn resource_type_embeddings(
         let vector = match hub_embeddings.get(&rt.name) {
             Some(vector) => vector.clone(),
             None => {
-                model_instance
-                    .clone()
-                    .create_embedding(&format!(
-                        "{};{}",
-                        rt.name,
-                        rt.description.unwrap_or_default()
-                    ))
-                    .await?
+                let text = format!("{};{}", rt.name, rt.description.unwrap_or_default());
+                let vector = match known_custom_vectors
+                    .get(&text)
+                    .or_else(|| custom_vectors.get(&text))
+                {
+                    Some(vector) => vector.clone(),
+                    None => model_instance.clone().create_embedding(&text).await?,
+                };
+                custom_vectors.insert(text, vector.clone());
+                vector
             }
         };
 
@@ -712,7 +729,7 @@ async fn resource_type_embeddings(
             metadata: Some(hm),
         });
     }
-    Ok((fingerprint, embeddings))
+    Ok(ResourceTypeIndex { fingerprint, embeddings, custom_vectors: Arc::new(custom_vectors) })
 }
 
 /// The full fill runs once a day, so a resource type created or synced in between would stay
@@ -720,17 +737,19 @@ async fn resource_type_embeddings(
 #[cfg(feature = "embedding")]
 pub async fn refresh_resource_type_embeddings(pg_db: &Pool<Postgres>) -> Result<()> {
     let fingerprint = resource_types_fingerprint(pg_db).await?;
-    let (model_instance, hub_embeddings) = match EMBEDDINGS_DB.read().await.as_ref() {
+    let (model_instance, hub_embeddings, custom_vectors) = match EMBEDDINGS_DB.read().await.as_ref()
+    {
         Some(db) if db.resource_types_fingerprint != fingerprint => (
             db.model_instance.clone(),
             db.hub_resource_type_embeddings.clone(),
+            db.custom_resource_type_vectors.clone(),
         ),
         _ => return Ok(()),
     };
-    let (fingerprint, embeddings) =
-        resource_type_embeddings(pg_db, &model_instance, &hub_embeddings).await?;
+    let index =
+        resource_type_index(pg_db, &model_instance, &hub_embeddings, &custom_vectors).await?;
     if let Some(db) = EMBEDDINGS_DB.write().await.as_mut() {
-        db.replace_resource_types(fingerprint, embeddings)?;
+        db.replace_resource_types(index)?;
     }
     Ok(())
 }
@@ -904,7 +923,7 @@ mod text_match_tests {
     fn ranks_a_name_match_above_a_description_match() {
         let words = vec!["postgres".to_string(), "database".to_string()];
         assert_eq!(
-            text_match_score(&words, "postgresql", "PostgreSQL connection"),
+            text_match_score(&words, "PostgreSQL", "PostgreSQL connection"),
             2.0
         );
         assert_eq!(
