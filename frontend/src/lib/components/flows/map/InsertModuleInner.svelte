@@ -117,17 +117,21 @@
 		logReusableAgentUsage('linked')
 		dispatch('new', { kind: 'aiagent', agentPath })
 	}
-	function newClaudeSandbox() {
+	function newAiSandbox(subkind: 'claudesandbox' | 'pisandbox') {
 		dispatch('close')
 		dispatch('new', {
 			kind: 'script',
 			inlineScript: {
 				language: 'bun',
 				kind: 'script',
-				subkind: 'claudesandbox'
+				subkind
 			}
 		})
 	}
+	const aiSandboxes = [
+		{ label: 'Claude Code', subkind: 'claudesandbox' },
+		{ label: 'Pi', subkind: 'pisandbox' }
+	] as const
 
 	// Rows of the AI panes in render order. FlowInputsQuick owns the keyboard index for the other
 	// panes and is unmounted while these render, so the two never fight over Enter or the arrows.
@@ -137,7 +141,7 @@
 			return [newBlankAgent, ...saved.map((a) => () => newLinkedAgent(a.path))]
 		}
 		if (selectedKind === 'aisandbox') {
-			return [newClaudeSandbox]
+			return aiSandboxes.map((s) => () => newAiSandbox(s.subkind))
 		}
 		return []
 	})
@@ -418,14 +422,16 @@
 			</div>
 		{:else if selectedKind === 'aisandbox'}
 			<div class="h-full overflow-auto grow min-w-0 p-2 gap-1 flex flex-col">
-				<TopLevelNode
-					label="Claude Code"
-					neutral
-					returnIcon
-					selected={aiSelected === 0}
-					onSelect={newClaudeSandbox}
-					onHover={() => (selectedByKeyboard = 0)}
-				/>
+				{#each aiSandboxes as sandbox, i (sandbox.subkind)}
+					<TopLevelNode
+						label={sandbox.label}
+						neutral
+						returnIcon
+						selected={aiSelected === i}
+						onSelect={() => newAiSandbox(sandbox.subkind)}
+						onHover={() => (selectedByKeyboard = i)}
+					/>
+				{/each}
 			</div>
 		{:else}
 			<FlowInputsQuick

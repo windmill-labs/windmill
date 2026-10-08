@@ -108,7 +108,7 @@ export async function pickFlow(
 export async function createInlineScriptModule(
 	language: RawScript['language'],
 	kind: Script['kind'],
-	subkind: 'pgsql' | 'flow' | 'claudesandbox' | undefined,
+	subkind: 'pgsql' | 'flow' | 'claudesandbox' | 'pisandbox' | undefined,
 	id: string,
 	summary?: string
 ): Promise<[FlowModule, FlowModuleState]> {
