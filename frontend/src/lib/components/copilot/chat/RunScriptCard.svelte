@@ -102,7 +102,10 @@
 						canceled ||
 						(chatJob !== undefined && ['success', 'failure', 'canceled'].includes(chatJob.status)))
 	)
-	const running = $derived(!pending && !settled)
+	// The form is answered but no job exists yet: the round trip that creates it, or a start
+	// that is about to fail. Saying Running here would claim a job before there is one.
+	const starting = $derived(!pending && !settled && !ran)
+	const running = $derived(!pending && !settled && ran)
 	// The job the card is about has not been read yet, or could not be: no pane has anything
 	// to show, but the call's own result still has.
 	const jobPending = $derived(Boolean(inspected) && !inspectedJob)
@@ -332,6 +335,9 @@
 	let now = $state(Date.now())
 	$effect(() => {
 		if (!running || !chatJob) return
+		// `now` last moved whenever the card mounted or a previous run stopped ticking, so the
+		// job's first frame would otherwise read as a negative elapsed time.
+		now = Date.now()
 		const timer = setInterval(() => (now = Date.now()), 500)
 		return () => clearInterval(timer)
 	})
@@ -370,7 +376,7 @@
 	// has no time to give, so its outcome takes the slot — as a word, never "Not run", which
 	// stutters against the "Run <name>" label beside it.
 	const outcome = $derived(failed ? 'Failed' : canceled ? 'Cancelled' : 'Done')
-	const statusTime = $derived(running ? elapsed : duration || outcome)
+	const statusTime = $derived(running ? elapsed : starting ? 'Starting' : duration || outcome)
 
 	// What the preview button opens changes with the card: the form while the call is still
 	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
