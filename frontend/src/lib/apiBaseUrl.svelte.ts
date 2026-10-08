@@ -4,12 +4,6 @@ import { instanceUi } from '$lib/instanceUi'
 
 const ui = fromStore(instanceUi)
 
-/** The `api_base_url` instance setting when it holds a URL, else `fallback`. */
-export function resolveApiBaseUrl(setting: unknown, fallback: string): string {
-	const configured = typeof setting === 'string' ? setting.trim() : ''
-	return configured || fallback
-}
-
 /**
  * Base of every URL shown for an external client to call (webhooks, HTTP routes, push
  * trigger endpoints, the CLI remote): the `api_base_url` instance setting, else the
@@ -22,5 +16,7 @@ export function resolveApiBaseUrl(setting: unknown, fallback: string): string {
  * template rather than caching the result.
  */
 export function apiBaseUrl(): string {
-	return resolveApiBaseUrl(ui.current?.api_base_url, `${window.location.origin}${base}`)
+	const setting = ui.current?.api_base_url
+	const configured = typeof setting === 'string' ? setting.trim() : ''
+	return configured || `${window.location.origin}${base}`
 }
