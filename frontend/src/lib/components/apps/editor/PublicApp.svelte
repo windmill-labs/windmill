@@ -1,28 +1,15 @@
 <script lang="ts">
 	import { applyDarkModeVariant } from '$lib/darkModeVariant'
-	import { enterpriseLicense, userStore, type UserExt } from '$lib/stores'
-	import { base } from '$app/paths'
-	import { page } from '$app/state'
-	import Login from '$lib/components/Login.svelte'
+	import type { UserExt } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
-	import { getContext, setContext } from 'svelte'
-	import {
-		EMBED_NAV_CONTEXT_KEY,
-		IS_APP_PUBLIC_CONTEXT_KEY,
-		type EditorBreakpoint,
-		type EmbedNav
-	} from '../types'
-	import { UserService, type AppWithLastVersion, type GlobalWhoamiResponse } from '$lib/gen'
-	import { urlParamsToObject } from '$lib/utils'
-	import { goto } from '$app/navigation'
-	import { loadAppPreview } from './loadAppPreview'
+	import { setContext } from 'svelte'
+	import { IS_APP_PUBLIC_CONTEXT_KEY } from '../types'
+	import type { AppWithLastVersion } from '$lib/gen/types.gen'
 	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
-	import { twMerge } from 'tailwind-merge'
-	import { writable } from 'svelte/store'
+	import { loadAppCss } from './publicAppApi'
 
 	let {
 		notExists,
@@ -33,6 +20,7 @@
 		app,
 		workspace,
 		user = undefined,
+		license = undefined,
 		inWorkspace = false,
 		hideRefreshBar = false,
 		syncHashToUrl = true
@@ -46,11 +34,13 @@
 		onLoginSuccess: () => void
 		app: (AppWithLastVersion & { value: any; workspace_id?: string }) | undefined
 		workspace: string | undefined
-		/** The viewer's membership in `workspace`, for the app's `ctx`. Without it `ctx` falls
-		 * back to `userStore`, which describes the workspace the page is navigated to — the
-		 * same one on every standalone viewer route, but not inside an AI session's preview
-		 * tab, where the app belongs to the session's workspace. */
+		/** The viewer's membership in `workspace`, for the app's `ctx`. Callers pass it
+		 * explicitly — `$userStore` describes the workspace the page is navigated to, which
+		 * is not the app's inside an AI session's preview tab. */
 		user?: UserExt | undefined
+		/** The instance license, which fades the "Powered by" badge and lets a low-code app's
+		 * custom CSS apply. */
+		license?: string | undefined
 		/**
 		 * In-workspace rendering (`/apps/get`, `/app_embed`): keep exact parity
 		 * with the pre-sandbox member viewer — no "Powered by Windmill" badge, no
@@ -65,22 +55,10 @@
 	// Use workspace from props or from app.workspace_id (for custom path responses)
 	let effectiveWorkspace = $derived(workspace ?? app?.workspace_id)
 
-	// `ctx.username` / `ctx.groups` are per-workspace, and they sit next to `ctx.workspace`
-	// in the same object, so they have to come from the same workspace it names.
-	let ctxUser = $derived(user ?? $userStore)
-
 	// On the public surfaces (untrusted distribution) runnable-authored html/svg needs
 	// the viewer's approval before it renders, unless the app sandbox isolates it. The
 	// in-workspace viewer renders it verbatim. See getAppMarkupTrust.
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, !inWorkspace)
-
-	// WIN-2006: inside the opaque viewer iframe, navigations to other routes
-	// (navbar "app" items) must happen on the TOP page — the iframe is cookieless,
-	// so navigating it would just show a login screen. PublicAppFrame provides the
-	// relay; outside the opaque viewer this is undefined and goto works directly.
-	const embedNav = getContext<EmbedNav | undefined>(EMBED_NAV_CONTEXT_KEY)
-
-	const breakpoint = writable<EditorBreakpoint>('lg')
 
 	const darkMode =
 		window.localStorage.getItem('dark-mode') ??
@@ -93,84 +71,46 @@
 	}
 	// This route bypasses the (root) layout, so restore the variant class too.
 	applyDarkModeVariant()
-
-	let globalUser = $state<GlobalWhoamiResponse | undefined>(undefined)
-	async function loadGlobalUser() {
-		try {
-			globalUser = await UserService.globalWhoami()
-		} catch (error) {
-			console.error(error)
-		}
-		// const user = await fetch('/api/global/user')
-		// console.log(user)
-	}
-
-	// Only the no-access page reads it, to tell a signed-in non-member which
-	// workspace the app belongs to.
-	$effect(() => {
-		if (noPermission && !guestAppPath && !$userStore && !globalUser) {
-			loadGlobalUser()
-		}
-	})
 </script>
 
+<!-- Only the raw-app branch is imported statically: everything else waits for app.css and
+     its own chunk, see publicAppApi.ts. -->
 {#if !inWorkspace}
-	<div
-		class="z-50 text-xs fixed bottom-1 right-2 {$enterpriseLicense && !isCloudHosted()
-			? 'transition-opacity delay-1000 duration-1000 opacity-20 hover:delay-0 hover:opacity-100'
-			: ''}"
-	>
-		<a href="https://windmill.dev" class="whitespace-nowrap text-primary inline-flex items-center"
-			>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
+	{#await loadAppCss() then}
+		<div
+			class="z-50 text-xs fixed bottom-1 right-2 {license && !isCloudHosted()
+				? 'transition-opacity delay-1000 duration-1000 opacity-20 hover:delay-0 hover:opacity-100'
+				: ''}"
 		>
-	</div>
+			<a href="https://windmill.dev" class="whitespace-nowrap text-primary inline-flex items-center"
+				>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
+			>
+		</div>
+	{/await}
 {/if}
 
-{#if notExists}
-	<div class="px-4 mt-20"
-		><Alert type="error" title="Not found"
-			>There was an error loading the app, is the url correct? <a href={base}>Go to Windmill</a>
-		</Alert></div
-	>
-{:else if noPermission}
-	{#if guestAppPath && !$userStore}
-		<div class="px-4 mt-20 w-full text-center font-bold text-xl"> Sign in to open this app </div>
-		<div class="text-center mt-8 text-sm text-primary">
-			You do not need a Windmill account. Signing in lets you open this app and nothing else.
-		</div>
-	{:else}
-		<div class="px-4 mt-20 w-full text-center font-bold text-xl">
-			This app requires read access
-		</div>
-		<div class="text-center mt-8 text-sm text-primary">
-			{#if $userStore}You are logged in but have no read access to this app{:else if globalUser && effectiveWorkspace}
-				You are logged in but are not a member of the workspace <span class="text-xl font-bold"
-					>{effectiveWorkspace}</span
-				> this app is part of
-			{:else}You must be logged in and have read access to this app{/if}</div
-		>
-	{/if}
-	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
-		{#if !jwtError}
-			<Login
-				{onLoginSuccess}
-				popup
-				guestApp={guestAppPath}
-				rd={page.url.pathname + page.url.search + page.url.hash}
-			/>
-		{/if}
-	</div>
+{#if notExists || noPermission}
+	{#await Promise.all([loadAppCss(), import('./PublicAppAccess.svelte')]) then [, { default: PublicAppAccess }]}
+		<PublicAppAccess
+			{notExists}
+			{jwtError}
+			{guestAppPath}
+			{user}
+			workspace={effectiveWorkspace}
+			{onLoginSuccess}
+		/>
+	{/await}
 {:else if app}
 	{#key app}
 		{#if app.raw_app && effectiveWorkspace}
-			<!-- The bundle's iframe is `h-full`, so every host has to give this box a height to
+			<!-- The bundle's iframe is full-height, so every host has to give this box a height to
 			     resolve against: in the workspace the layout hands one down, and the share, embed
 			     and custom-path routes floor themselves at the viewport. An iframe with no height
-			     above it falls back to 150px. -->
-			<div class="h-full w-full">
+			     above it falls back to 150px. Styled inline: app.css may not be loaded here. -->
+			<div style="height: 100%; width: 100%">
 				<RawAppPreview
 					workspace={effectiveWorkspace}
-					user={ctxUser}
+					{user}
 					secret={app.bundle_secret}
 					path={app.path}
 					runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
@@ -178,58 +118,28 @@
 				/>
 			</div>
 		{:else if app.raw_app && !effectiveWorkspace}
-			<div class="px-4 mt-20">
-				<Alert type="error" title="Configuration error">
-					Unable to load raw app: workspace information is missing.
-				</Alert>
-			</div>
+			{#await Promise.all([loadAppCss(), import('$lib/components/common/alert/Alert.svelte')]) then [, { default: Alert }]}
+				<div class="px-4 mt-20">
+					<Alert type="error" title="Configuration error">
+						Unable to load raw app: workspace information is missing.
+					</Alert>
+				</div>
+			{/await}
 		{:else}
-			<div
-				class={twMerge(
-					// `flex-col` matches the pre-sandbox in-workspace viewer exactly;
-					// the public viewer always used a plain `flex` wrapper. `min-h-full`, not
-					// `h-full`: the box has to reach the bottom of what the host gives it so the
-					// app's own background covers the window, and still grow with a grid taller
-					// than that. A viewport floor instead would overhang the page box by the
-					// height of the page header band.
-					inWorkspace ? 'min-h-full w-full flex flex-col' : 'min-h-full w-full flex',
-					app?.value?.['css']?.['app']?.['viewer']?.class,
-					'wm-app-viewer'
-				)}
-				style={app?.value?.['css']?.['app']?.['viewer']?.style}
-			>
-				{#await loadAppPreview()}
-					<Skeleton layout={[[4], 0.5, [50]]} />
-				{:then Module}
-					<Module.default
-						noBackend={false}
-						{hideRefreshBar}
-						context={{
-							email: ctxUser?.email,
-							name: ctxUser?.name,
-							groups: ctxUser?.groups,
-							username: ctxUser?.username,
-							query: urlParamsToObject(page.url.searchParams, { stripReserved: true }),
-							hash: page.url.hash.substring(1)
-						}}
-						workspace={effectiveWorkspace}
-						summary={app.summary}
-						app={app.value}
-						appPath={app.path}
-						{breakpoint}
-						policy={app.policy}
-						isEditor={false}
-						replaceStateFn={(path) => goto(path)}
-						gotoFn={(path, opt) => (embedNav ? embedNav.navigateTop(path) : goto(path, opt))}
-					/>
-				{:catch}
-					<div class="px-4 mt-20 w-full">
-						<Alert type="error" title="Could not load the app">Reload the page to try again.</Alert>
-					</div>
-				{/await}
-			</div>
+			{#await Promise.all([loadAppCss(), import('./PublicLowCodeApp.svelte')]) then [, { default: PublicLowCodeApp }]}
+				<PublicLowCodeApp
+					{app}
+					workspace={effectiveWorkspace}
+					{user}
+					{license}
+					{inWorkspace}
+					{hideRefreshBar}
+				/>
+			{/await}
 		{/if}
 	{/key}
 {:else}
-	<Skeleton layout={[[4], 0.5, [50]]} />
+	{#await loadAppCss() then}
+		<Skeleton layout={[[4], 0.5, [50]]} />
+	{/await}
 {/if}
