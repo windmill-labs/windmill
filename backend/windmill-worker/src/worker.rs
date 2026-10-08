@@ -5130,6 +5130,7 @@ pub async fn handle_queued_job(
             // WAC v2 job suspended while waiting for child jobs — don't complete it
             return Ok(JobOutcome::Completed);
         }
+        crate::resource_metrics::record_job_memory_peak(&cjob.tag, mem_peak);
         process_result(
             cjob,
             result.map(|x| Arc::new(x)),

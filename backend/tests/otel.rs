@@ -176,6 +176,10 @@ async fn test_all_metrics_e2e() {
     otel_set_worker_uptime("w-uptime", 3600.0);
     otel_set_health_status_phase("healthy");
     otel_set_health_db_unresponsive(true);
+    otel_set_worker_memory("w-res", "gpu", Some(512), Some(128), Some(1024));
+    otel_add_worker_cpu("w-res", "gpu", 1.5, 40, 7, 0.35);
+    otel_set_worker_occupancy_rate("w-res", "gpu", "5m", 0.25);
+    otel_record_job_memory_peak("python3", 100 * 1024 * 1024);
 
     // ── Histograms ──────────────────────────────────────────────────
 
@@ -189,7 +193,7 @@ async fn test_all_metrics_e2e() {
     let metrics = flush_and_get_metrics(&state);
     let names = metric_names(&metrics);
 
-    // ── Verify all 21 metric names are present ──────────────────────
+    // ── Verify all metric names are present ─────────────────────────
 
     let expected = [
         "windmill.queue.push_count",
@@ -213,6 +217,15 @@ async fn test_all_metrics_e2e() {
         "windmill.worker.uptime",
         "windmill.health.status",
         "windmill.health.db_unresponsive",
+        "windmill.worker.memory_usage",
+        "windmill.worker.windmill_memory_usage",
+        "windmill.worker.memory_limit",
+        "windmill.worker.cpu_usage",
+        "windmill.worker.cpu_periods",
+        "windmill.worker.cpu_throttled_periods",
+        "windmill.worker.cpu_throttled_time",
+        "windmill.worker.occupancy_rate",
+        "windmill.worker.job_memory_peak",
     ];
     for name in expected {
         assert!(
@@ -289,6 +302,18 @@ async fn test_all_metrics_e2e() {
         })
         .expect("worker.busy data point with worker=worker-test-1 not found");
     assert_eq!(dp.1, 1);
+
+    let m = find_metric(&metrics, "windmill.worker.memory_limit").unwrap();
+    let values = gauge_i64_values(m);
+    let dp = values
+        .iter()
+        .find(|(attrs, _)| {
+            attrs
+                .iter()
+                .any(|kv| kv.key.as_str() == "worker_group" && kv.value.as_str() == "gpu")
+        })
+        .expect("worker.memory_limit data point with worker_group=gpu not found");
+    assert_eq!(dp.1, 1024);
 
     let m = find_metric(&metrics, "windmill.db.pool.active").unwrap();
     assert_eq!(gauge_i64_values(m)[0].1, 5);
