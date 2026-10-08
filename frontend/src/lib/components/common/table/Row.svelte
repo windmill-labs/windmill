@@ -10,6 +10,8 @@
 	import Checkbox from '../checkbox/Checkbox.svelte'
 	import type { RowSelection } from './rowSelection'
 	import RunnableActivityCells from '$lib/components/home/RunnableActivityCells.svelte'
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
+	import { displayDate } from '$lib/utils'
 	import { setCompactBadges } from '../badge/density'
 	import {
 		EMPTY_CELL_DASH,
@@ -81,6 +83,8 @@
 		draftBadge?: import('svelte').Snippet
 		sharedBadge?: import('svelte').Snippet
 		labelBadges?: import('svelte').Snippet
+		/** When the item was last edited, for the home table's last edited column. */
+		editedAt?: string
 		actions?: import('svelte').Snippet
 		customSummary?: import('svelte').Snippet
 		/** Rendered inline right after the title, unlike `badges`, which sit in
@@ -123,6 +127,7 @@
 		draftBadge,
 		sharedBadge,
 		labelBadges,
+		editedAt,
 		actions,
 		customSummary,
 		titleBadge,
@@ -254,18 +259,19 @@
 			{/if}
 		</div>
 		<!-- Fixed sub-columns, so each badge group lines up across rows. -->
-		<div
-			class="relative z-[1] hidden lg:grid {HOME_TABLE_BADGE_GRID}"
-		>
+		<div class="relative z-[1] hidden lg:grid {HOME_TABLE_BADGE_GRID}">
 			<div class="flex flex-wrap items-center gap-1 min-w-0 {EMPTY_CELL_DASH}">
 				{@render badges?.()}
 				{@render labelBadges?.()}
 			</div>
-			<div class="flex items-center">{@render languageBadge?.()}</div>
-			<div class="flex flex-wrap items-center gap-1 min-w-0">{@render tagBadges?.()}</div>
 			<div class="flex items-center">{@render sharedBadge?.()}</div>
 		</div>
 		<RunnableActivityCells kind={kind == 'script' || kind == 'flow' ? kind : undefined} {path} />
+		<div class="hidden lg:block text-xs text-secondary truncate {EMPTY_CELL_DASH}">
+			{#if editedAt}
+				<span title={displayDate(editedAt)}><TimeAgo date={editedAt} compact /> ago</span>
+			{/if}
+		</div>
 		<div class="relative z-[1] flex items-center justify-end gap-2">
 			<div data-row-actions class="flex gap-2 items-center">
 				{@render actions?.()}
@@ -431,6 +437,14 @@
 				{/if}
 				{@render titleBadge?.()}
 			</div>
+			{#if !inlineBadges && languageBadge}
+				<div class="flex items-center shrink-0">
+					{@render languageBadge()}
+				</div>
+			{/if}
+			{#if !inlineBadges && tagBadges}
+				<div class="relative z-[1] flex items-center gap-1 shrink-0">{@render tagBadges()}</div>
+			{/if}
 			{#if !inlineBadges && draftBadge}
 				<!-- The home table keeps the draft marker on the title line. -->
 				<div class="relative z-[1] flex items-center shrink-0">{@render draftBadge()}</div>

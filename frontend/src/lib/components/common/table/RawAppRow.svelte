@@ -41,6 +41,7 @@
 	summary={app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={true}
+	editedAt={app.edited_at}
 	{depth}
 >
 	{#snippet sharedBadge()}

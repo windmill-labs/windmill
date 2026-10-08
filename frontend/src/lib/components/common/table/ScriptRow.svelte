@@ -51,7 +51,8 @@
 	import WacExportDrawer from '$lib/components/scripts/WacExportDrawer.svelte'
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
+	import { isHomeTable } from '$lib/components/home/homeTable'
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
@@ -103,6 +104,7 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
+	const iconSize = isHomeTable() ? 12 : 14
 
 	async function archiveScript(path: string): Promise<void> {
 		await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
@@ -169,12 +171,13 @@
 	{errorHandlerMuted}
 	workspaceId={$workspaceStore ?? ''}
 	canFavorite={!script.draft_only}
+	editedAt={script.created_at}
 	{depth}
 	{rowSelection}
 >
 	{#snippet languageBadge()}
 		{#if script.language}
-			<LanguageIcon lang={script.language} width={14} height={14} />
+			<LanguageIcon lang={script.language} width={iconSize} height={iconSize} />
 		{/if}
 	{/snippet}
 	{#snippet tagBadges()}
@@ -229,25 +232,7 @@
 		/>
 	{/snippet}
 	{#snippet labelBadges()}
-		{#if script.labels?.length}
-			<div class="flex items-center gap-0.5">
-				{#each script.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-				{/each}
-				{#if script.labels.length > 3}
-					<Badge
-						color="blue"
-						small
-						class="px-1"
-						title={script.labels
-							.slice(3)
-							.map((l) => 'Label: ' + l)
-							.join('\n')}>+{script.labels.length - 3}</Badge
-					>
-				{/if}
-			</div>
-		{/if}
-		<InheritedLabels labels={script.inherited_labels} />
+		<RowLabels labels={script.labels} inheritedLabels={script.inherited_labels} />
 	{/snippet}
 
 	{#snippet actions()}

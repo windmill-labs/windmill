@@ -128,7 +128,7 @@
 					: 'rounded-md px-2 py-0.5',
 			verySmall ? 'px-0.5 py-0.5' : '',
 			'flex flex-row gap-1 items-center justify-center',
-			compact ? 'text-2xs px-1.5 py-0.5 gap-1' : '',
+			compact ? 'text-2xs px-1 py-0 gap-0.5' : '',
 			classNames
 		)
 	)

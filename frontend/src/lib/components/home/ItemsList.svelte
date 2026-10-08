@@ -22,14 +22,16 @@
 	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
-		ArrowDownUp,
+		ArrowDown,
+		ArrowUp,
 		Bot,
+		ChevronDown,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
-		LayoutDashboard,
-		Tag
+		LayoutDashboard
 	} from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import ContentSearchInner from '$lib/components/ContentSearchInner.svelte'
@@ -881,27 +883,17 @@
 	// the first page.
 	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
 	const SORT_SETTING_NAME = 'homeSort'
-	// `short` labels the trigger button next to the sort icon (the button is icon-only
-	// only while searching, when sorting is disabled — see below).
-	const sortOptions: { value: SortOrder; label: string; short: string }[] = [
-		{ value: 'updated_desc', label: 'Recently updated', short: 'Recent' },
-		{ value: 'updated_asc', label: 'Oldest updated', short: 'Oldest' },
-		{ value: 'name_asc', label: 'Name (A-Z)', short: 'A-Z' },
-		{ value: 'name_desc', label: 'Name (Z-A)', short: 'Z-A' }
-	]
+	const sortOrders: SortOrder[] = ['updated_desc', 'updated_asc', 'name_asc', 'name_desc']
 	let sortOrder = $state<SortOrder>(
-		sortOptions.find((o) => o.value === getLocalSetting(SORT_SETTING_NAME))?.value ?? 'updated_desc'
+		sortOrders.find((o) => o === getLocalSetting(SORT_SETTING_NAME)) ?? 'updated_desc'
 	)
 	$effect(() => {
 		storeLocalSetting(SORT_SETTING_NAME, sortOrder === 'updated_desc' ? undefined : sortOrder)
 	})
-	let sortItems: MenuItem[] = $derived(
-		sortOptions.map((o) => ({
-			displayName: o.label,
-			selected: o.value === sortOrder,
-			action: () => (sortOrder = o.value)
-		}))
-	)
+	// Clicking a sortable column header sorts by it, and clicking it again flips the direction.
+	function toggleSort(asc: SortOrder, desc: SortOrder, first: SortOrder) {
+		sortOrder = sortOrder === first ? (first === asc ? desc : asc) : first
+	}
 	// Preserve the endpoint's exact order rather than re-deriving it on the client:
 	// each row carries its server fetch ordinal (`ord`), which already reflects the
 	// chosen order, the (path, kind) tiebreaks, full-precision timestamps, the database
@@ -1445,12 +1437,19 @@
 			(a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || cmp(a, b)
 		)
 	})
-	let hasChips = $derived(
-		owners.length > 0 ||
-			allLabels.length > 0 ||
-			ownerFilter != undefined ||
-			labelFilter != undefined
-	)
+	let hasChips = $derived(owners.length > 0 || ownerFilter != undefined)
+	let labelItems: MenuItem[] = $derived([
+		{
+			displayName: 'All labels',
+			selected: labelFilter == undefined,
+			action: () => setLabelFilter(undefined)
+		},
+		...allLabels.map((l) => ({
+			displayName: l,
+			selected: l === labelFilter,
+			action: () => setLabelFilter(l)
+		}))
+	])
 	// FilterSearchbar presets: the owner prefixes and labels the list actually holds, so
 	// scoping to one is a click in the searchbar dropdown.
 	// Owner sets the `owner` filter (server path-scope), label sets `label` (client filter).
@@ -2003,30 +2002,6 @@
 						{/if}
 					</Button>
 				{/if}
-				<DropdownV2
-					items={sortItems}
-					disabled={filter !== ''}
-					placement="bottom-end"
-					fixedHeight={false}
-				>
-					{#snippet buttonReplacement()}
-						{@const active = sortOptions.find((o) => o.value === sortOrder)}
-						{@const short = filter !== '' ? '' : (active?.short ?? '')}
-						<Button
-							nonCaptureEvent
-							disabled={filter !== ''}
-							iconOnly={short === ''}
-							unifiedSize="xs"
-							variant="default"
-							startIcon={{ icon: ArrowDownUp }}
-							title={filter !== ''
-								? 'Sorting is disabled while searching (results are ranked by relevance)'
-								: `Sort: ${active?.label ?? ''}`}
-						>
-							{#if short !== ''}{short}{/if}
-						</Button>
-					{/snippet}
-				</DropdownV2>
 			</div>
 		{/if}
 
@@ -2074,15 +2049,6 @@
 				filters={owners}
 				queryName="owner"
 				maxDisplayed={10}
-			/>
-			<ListFilters
-				inline
-				bind:selectedFilter={() => labelFilter, setLabelFilter}
-				filters={allLabels}
-				queryName="label"
-				maxDisplayed={10}
-				color="blue"
-				icon={Tag}
 			/>
 		</div>
 	{/if}
@@ -2246,6 +2212,24 @@
 	</div>
 </CenteredPage>
 
+{#snippet sortHeader(label: string, asc: SortOrder, desc: SortOrder, first: SortOrder)}
+	{@const active = filter === '' && (sortOrder === asc || sortOrder === desc)}
+	<Button
+		unifiedSize="2xs"
+		variant="subtle"
+		wrapperClasses="w-fit"
+		disabled={filter !== ''}
+		btnClasses={twMerge('-ml-1.5 px-1.5 text-2xs font-medium whitespace-nowrap', active ? 'text-primary' : 'text-secondary')}
+		endIcon={active ? { icon: sortOrder === asc ? ArrowUp : ArrowDown } : undefined}
+		title={filter !== ''
+			? 'Sorting is disabled while searching (results are ranked by relevance)'
+			: `Sort by ${label.toLowerCase()}`}
+		onClick={() => toggleSort(asc, desc, first)}
+	>
+		{label}
+	</Button>
+{/snippet}
+
 {#snippet tableHeader()}
 	<div class="{HOME_TABLE_GRID} pl-5 pr-3 py-1.5 border-b text-2xs font-medium text-secondary">
 		<div class="flex items-center">
@@ -2259,12 +2243,34 @@
 				/>
 			{/if}
 		</div>
-		<div>Name</div>
+		<div>{@render sortHeader('Name', 'name_asc', 'name_desc', 'name_asc')}</div>
 		<div class="hidden lg:grid {HOME_TABLE_BADGE_GRID}">
-			<div>Labels</div>
+			<div>
+				<DropdownV2 items={labelItems} placement="bottom-start" fixedHeight={false}>
+					{#snippet buttonReplacement()}
+						<Button
+							nonCaptureEvent
+							unifiedSize="2xs"
+							variant="subtle"
+							wrapperClasses="w-fit"
+							btnClasses={twMerge(
+								'-ml-1.5 px-1.5 text-2xs font-medium whitespace-nowrap',
+								labelFilter ? 'text-accent' : 'text-secondary'
+							)}
+							endIcon={{ icon: ChevronDown }}
+							title="Filter by label"
+						>
+							{labelFilter ? `Label: ${labelFilter}` : 'Labels'}
+						</Button>
+					{/snippet}
+				</DropdownV2>
+			</div>
 		</div>
-		<div class="hidden lg:block text-center">Runs</div>
+		<div class="hidden lg:block">Last run</div>
 		<div class="hidden lg:block">Triggers</div>
+		<div class="hidden lg:block">
+			{@render sortHeader('Last edited', 'updated_asc', 'updated_desc', 'updated_desc')}
+		</div>
 		<div></div>
 	</div>
 {/snippet}

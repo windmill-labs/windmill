@@ -5,7 +5,7 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
 	import type { ListableResource } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
@@ -68,6 +68,7 @@
 	summary={agent.description}
 	workspaceId={agent.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={false}
+	editedAt={agent.edited_at}
 	{depth}
 >
 	{#snippet draftBadge()}
@@ -85,7 +86,7 @@
 		<SharedBadge canWrite={agent.canWrite} extraPerms={agent.extra_perms} />
 	{/snippet}
 	{#snippet labelBadges()}
-		<InheritedLabels labels={agent.inherited_labels} />
+		<RowLabels labels={undefined} inheritedLabels={agent.inherited_labels} />
 	{/snippet}
 
 	{#snippet actions()}

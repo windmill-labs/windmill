@@ -51,17 +51,15 @@ function days(field: string): number[] | undefined {
 }
 
 function listDays(ds: number[]): string {
-	if (ds.join() === '1,2,3,4,5') return 'weekday'
-	if (ds.join() === '0,6') return 'weekend day'
-	const names = ds.map((d) => DAY_NAMES[d])
-	return names.length === 1
-		? names[0]
-		: `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+	if (ds.join() === '1,2,3,4,5') return 'Weekdays'
+	if (ds.join() === '0,6') return 'Weekends'
+	if (ds.length === 1) return `${DAY_NAMES[ds[0]]}s`
+	return ds.map((d) => DAY_NAMES[d].slice(0, 3)).join('/')
 }
 
 /**
- * A plain-English reading of a Windmill cron expression — "Every hour",
- * "Every day at 4:00", "Every Monday at 9:30" — or undefined when it is not one
+ * A short plain-English reading of a Windmill cron expression — "Hourly",
+ * "Daily, 4:00", "Mondays, 9:30" — or undefined when it is not one
  * of the common shapes, so the caller can show the expression itself.
  *
  * Windmill crons have six fields, seconds first; a five-field entry is padded
@@ -77,7 +75,7 @@ export function describeCron(cron: string): string | undefined {
 	if (anyDay && min === '*' && hour === '*') {
 		if (sec === '*') return 'Every second'
 		const n = everyN(sec)
-		if (n) return `Every ${n} seconds`
+		if (n) return `Every ${n}s`
 	}
 	if (sec !== '0') return undefined
 
@@ -85,24 +83,24 @@ export function describeCron(cron: string): string | undefined {
 		if (hour === '*') {
 			if (min === '*') return 'Every minute'
 			const n = everyN(min)
-			if (n) return `Every ${n} minutes`
-			if (min === '0') return 'Every hour'
-			if (isNum(min)) return `Every hour at :${min.padStart(2, '0')}`
+			if (n) return `Every ${n} min`
+			if (min === '0') return 'Hourly'
+			if (isNum(min)) return `Hourly at :${min.padStart(2, '0')}`
 			return undefined
 		}
 		const n = everyN(hour)
-		if (n && min === '0') return `Every ${n} hours`
-		if (isNum(hour) && isNum(min)) return `Every day at ${time(hour, min)}`
+		if (n && min === '0') return `Every ${n}h`
+		if (isNum(hour) && isNum(min)) return `Daily, ${time(hour, min)}`
 		return undefined
 	}
 
 	if (!isNum(hour) || !isNum(min)) return undefined
 	if (dom === '*') {
 		const ds = days(dow)
-		return ds ? `Every ${listDays(ds)} at ${time(hour, min)}` : undefined
+		return ds ? `${listDays(ds)}, ${time(hour, min)}` : undefined
 	}
 	if (isNum(dom) && (dow === '*' || dow === '?')) {
-		return `Every month on the ${ordinal(Number(dom))} at ${time(hour, min)}`
+		return `Monthly on the ${ordinal(Number(dom))}, ${time(hour, min)}`
 	}
 	return undefined
 }
@@ -119,10 +117,10 @@ function shortZone(timezone: string): string {
 	}
 }
 
-/** `describeCron` of a schedule, naming its zone whenever the text states a
- * wall-clock time: "Every day at 12:00 UTC". */
+/** `describeCron` of a schedule, naming its zone whenever the text ends on a
+ * wall-clock time: "Daily, 12:00 UTC". */
 export function describeSchedule(cron: string, timezone?: string): string | undefined {
 	const text = describeCron(cron)
-	if (!text || !timezone || !/ at \d/.test(text)) return text
+	if (!text || !timezone || !/\d:\d\d$/.test(text)) return text
 	return `${text} ${shortZone(timezone)}`
 }

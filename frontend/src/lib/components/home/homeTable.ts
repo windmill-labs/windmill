@@ -3,15 +3,15 @@ import { getContext, setContext } from 'svelte'
 /**
  * Column template shared by the home table's header and every row, so the
  * columns line up across separately rendered rows (the tree nests them):
- * select · name · badges · runs · triggers · actions. Below `lg` the labels,
+ * select · name · badges · last run · triggers · last edited · actions. Below `lg` the labels,
  * triggers and runs cells are hidden, and the template drops them too.
  */
 export const HOME_TABLE_GRID =
-	'grid items-center gap-x-5 grid-cols-[1rem_minmax(0,1fr)_6.5rem] lg:grid-cols-[1rem_minmax(0,2fr)_minmax(0,1.5fr)_1.25rem_11rem_6.5rem]'
+	'grid items-center gap-x-5 grid-cols-[1rem_minmax(0,1fr)_6.5rem] lg:grid-cols-[1rem_minmax(0,2fr)_minmax(0,1.5fr)_6rem_13rem_5rem_6.5rem]'
 
-/** Sub-columns of the badges area: labels · language · type tags · shared. */
+/** Sub-columns of the badges area: labels · shared. */
 export const HOME_TABLE_BADGE_GRID =
-	'grid-cols-[minmax(0,1fr)_1rem_5rem_1.25rem] gap-x-2 items-center min-w-0'
+	'grid-cols-[minmax(0,1fr)_1.25rem] gap-x-2 items-center min-w-0'
 
 /** Shows a muted dash in a table cell that renders no element. */
 export const EMPTY_CELL_DASH =

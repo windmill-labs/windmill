@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$lib/base'
 	import { Tooltip } from '$lib/components/meltComponents'
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { triggerDisplayNamesMap, triggerIconMapMono } from '$lib/components/triggers/utils'
 	import { displayDate, formatCron } from '$lib/utils'
 	import { describeSchedule } from '$lib/utils/describeCron'
@@ -16,9 +17,8 @@
 
 	let { kind, path }: Props = $props()
 
-	const GRID_SIZE = 9
-	// Past this many triggers the last visible slot becomes the `+N` badge.
-	const MAX_TRIGGER_ICONS = 3
+	// Past this many triggers the rest collapse into a `+N` that lists them all on hover.
+	const MAX_TRIGGERS_SHOWN = 2
 
 	const homeActivity = getHomeActivity()
 
@@ -29,29 +29,28 @@
 	let activity = $derived(kind ? homeActivity?.get(kind, path) : undefined)
 	let runs = $derived(activity?.recent_runs ?? [])
 	let triggers = $derived(activity?.triggers ?? [])
+	let lastRun = $derived(runs[0])
 	let visibleTriggers = $derived(
-		triggers.length > MAX_TRIGGER_ICONS ? triggers.slice(0, MAX_TRIGGER_ICONS - 1) : triggers
+		triggers.length > MAX_TRIGGERS_SHOWN + 1 ? triggers.slice(0, MAX_TRIGGERS_SHOWN) : triggers
 	)
-	let hiddenTriggers = $derived(triggers.slice(visibleTriggers.length))
-	// A runnable whose only trigger is a schedule shows its cadence instead of an icon.
-	let loneSchedule = $derived(
-		triggers.length === 1 && triggers[0].kind === 'schedule' && triggers[0].schedule
-			? triggers[0]
-			: undefined
-	)
-	let loneScheduleText = $derived(
-		loneSchedule?.schedule
-			? (describeLoneSchedule(
-					loneSchedule.schedule,
-					loneSchedule.timezone,
-					loneSchedule.cron_version
-				) ?? loneSchedule.schedule)
-			: undefined
-	)
+	let hiddenCount = $derived(triggers.length - visibleTriggers.length)
+
+	type Trigger = (typeof triggers)[number]
+
+	function triggerText(trigger: Trigger): string {
+		if (trigger.kind === 'schedule' && trigger.schedule) {
+			return (
+				describeScheduleOf(trigger.schedule, trigger.timezone, trigger.cron_version) ??
+				trigger.schedule
+			)
+		}
+		if (trigger.kind === 'http') return 'HTTP route'
+		return triggerLabel(trigger.kind)
+	}
 
 	// `describeCron` reads weekdays the v2 way (0 = Sunday); a v1 cron numbers them
 	// from 1 = Sunday, so one that names weekdays is shown as the raw expression.
-	function describeLoneSchedule(
+	function describeScheduleOf(
 		cron: string,
 		timezone: string | undefined,
 		cronVersion: string | undefined
@@ -87,125 +86,88 @@
 </script>
 
 {#if homeActivity}
-	<div class="relative z-[1] hidden lg:flex w-5 shrink-0 justify-center">
-		{#if kind && !(activity && runs.length === 0)}
-			<Tooltip>
+	<div class="relative z-[1] hidden lg:flex items-center w-24 min-w-0 shrink-0 text-xs">
+		{#if lastRun}
+			<Tooltip class="min-w-0">
 				<a
 					href="{base}/runs/{path}"
-					class="grid grid-cols-3 gap-px p-0.5 rounded hover:bg-surface-secondary"
+					class="flex items-center gap-1.5 min-w-0 text-secondary hover:text-primary"
 					aria-label="Latest runs"
 				>
-					{#each Array(GRID_SIZE) as _, i (i)}
-						{@const run = runs[i]}
-						<div
-							class={twMerge(
-								'w-1 h-1 rounded-[1px]',
-								run ? statusClass[run.status] : 'bg-surface-secondary'
-							)}
-						></div>
-					{/each}
+					<span class={twMerge('w-1.5 h-1.5 rounded-full shrink-0', statusClass[lastRun.status])}
+					></span>
+					<span class="truncate">
+						{#if lastRun.status === 'running'}
+							Running
+						{:else}
+							<TimeAgo date={lastRun.created_at} compact /> ago
+						{/if}
+					</span>
 				</a>
 				{#snippet text()}
-					{#if runs.length === 0}
-						<span>No runs yet</span>
-					{:else}
-						<div class="flex flex-col gap-1">
-							<span class="font-semibold">Latest {runs.length} runs</span>
-							{#each runs as run (run.id)}
-								<div class="flex items-center gap-2">
-									<div class={twMerge('w-2 h-2 rounded-[1px]', statusClass[run.status])}></div>
-									<span class="w-16">{statusLabel[run.status]}</span>
-									<span class="text-hint">{displayDate(run.created_at, true)}</span>
-								</div>
-							{/each}
-						</div>
-					{/if}
+					<div class="flex flex-col gap-1">
+						<span class="font-semibold">Latest {runs.length} runs</span>
+						{#each runs as run (run.id)}
+							<div class="flex items-center gap-2">
+								<div class={twMerge('w-2 h-2 rounded-full', statusClass[run.status])}></div>
+								<span class="w-16">{statusLabel[run.status]}</span>
+								<span class="text-hint">{displayDate(run.created_at, true)}</span>
+							</div>
+						{/each}
+					</div>
 				{/snippet}
 			</Tooltip>
-		{:else}
+		{:else if kind && activity}
+			<span class="text-hint">Never run</span>
+		{:else if !kind}
 			<span class="text-hint text-2xs opacity-40">–</span>
 		{/if}
 	</div>
 
-	<div
-		class="relative z-[1] hidden lg:flex items-center justify-start gap-0.5 w-44 min-w-0 shrink-0"
-	>
-		{#if loneSchedule}
-			<Tooltip class="min-w-0">
-				<div
+	<div class="relative z-[1] hidden lg:flex items-center w-52 min-w-0 shrink-0 text-xs">
+		{#each visibleTriggers as trigger, i (i)}
+			<Tooltip class="min-w-0 shrink">
+				<span
 					class={twMerge(
-						'h-5 px-1.5 rounded-md bg-surface-secondary text-secondary text-2xs flex items-center gap-1 min-w-0',
-						loneSchedule.mode === 'enabled' ? '' : 'opacity-50'
-					)}
+						'block truncate',
+						trigger.mode === 'enabled' ? 'text-secondary' : 'text-hint line-through'
+					)}>{triggerText(trigger)}</span
 				>
-					{@render triggerIconOnly('schedule')}
-					<span class="truncate">{loneScheduleText}</span>
-				</div>
 				{#snippet text()}
-					{@render triggerLine(loneSchedule)}
+					{@render triggerLine(trigger)}
 				{/snippet}
 			</Tooltip>
-		{:else}
-			{#each visibleTriggers as trigger, i (i)}
-				<Tooltip>
-					{@render triggerChip(trigger.kind, trigger.mode)}
-					{#snippet text()}
-						{@render triggerLine(trigger)}
-					{/snippet}
-				</Tooltip>
-			{/each}
-			{#if hiddenTriggers.length > 0}
-				<Tooltip>
-					<div
-						class="h-5 min-w-5 px-1 rounded-md bg-surface-secondary text-3xs font-semibold text-secondary center-center"
-					>
-						+{hiddenTriggers.length}
-					</div>
-					{#snippet text()}
-						<div class="flex flex-col gap-1">
-							<span class="font-semibold">{triggers.length} triggers</span>
-							{#each triggers as trigger, i (i)}
-								{@render triggerLine(trigger)}
-							{/each}
-						</div>
-					{/snippet}
-				</Tooltip>
+			{#if i < visibleTriggers.length - 1 || hiddenCount > 0}
+				<span class="text-hint shrink-0 mr-1">,</span>
 			{/if}
+		{/each}
+		{#if hiddenCount > 0}
+			<Tooltip class="shrink-0">
+				<span class="text-hint">+{hiddenCount}</span>
+				{#snippet text()}
+					<div class="flex flex-col gap-1">
+						<span class="font-semibold">{triggers.length} triggers</span>
+						{#each triggers as trigger, i (i)}
+							{@render triggerLine(trigger)}
+						{/each}
+					</div>
+				{/snippet}
+			</Tooltip>
 		{/if}
 	</div>
 {/if}
 
-{#snippet triggerChip(kind: string, mode: string)}
-	{@const Icon = triggerIcon(kind)}
-	<div
-		class={twMerge(
-			'h-5 w-5 rounded-md bg-surface-secondary text-secondary center-center',
-			mode === 'enabled' ? '' : 'opacity-50'
-		)}
-	>
-		{#if Icon}
-			<Icon size={12} />
-		{:else}
-			<span class="text-3xs font-semibold">{kind.slice(0, 1).toUpperCase()}</span>
-		{/if}
-	</div>
-{/snippet}
-
-{#snippet triggerIconOnly(kind: string)}
-	{@const Icon = triggerIcon(kind)}
-	{#if Icon}
-		<Icon size={12} />
-	{/if}
-{/snippet}
-
-{#snippet triggerLine(trigger: { kind: string; path: string; mode: string })}
+{#snippet triggerLine(trigger: Trigger)}
 	{@const Icon = triggerIcon(trigger.kind)}
 	<div class="flex items-center gap-2">
 		{#if Icon}
 			<Icon size={12} />
 		{/if}
-		<span class="font-semibold">{triggerLabel(trigger.kind)}</span>
+		<span class="font-semibold">{triggerText(trigger)}</span>
 		<span>{trigger.path}</span>
+		{#if trigger.schedule}
+			<span class="text-hint font-mono">{trigger.schedule}</span>
+		{/if}
 		{#if trigger.mode !== 'enabled'}
 			<span class="text-hint">({trigger.mode})</span>
 		{/if}

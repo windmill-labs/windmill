@@ -37,7 +37,7 @@
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
 	import EditInForkButton from './EditInForkButton.svelte'
@@ -151,6 +151,7 @@
 	summary={flow.is_draft ? `${flow.summary || flow.draft_path || flow.path}*` : flow.summary}
 	{errorHandlerMuted}
 	canFavorite={!flow.draft_only}
+	editedAt={flow.edited_at}
 	{depth}
 	{rowSelection}
 	titleBadge={flow.chat_input_enabled ? chatBadge : undefined}
@@ -176,25 +177,7 @@
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
 	{/snippet}
 	{#snippet labelBadges()}
-		{#if flow.labels?.length}
-			<div class="flex items-center gap-0.5">
-				{#each flow.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-				{/each}
-				{#if flow.labels.length > 3}
-					<Badge
-						color="blue"
-						small
-						class="px-1"
-						title={flow.labels
-							.slice(3)
-							.map((l) => 'Label: ' + l)
-							.join('\n')}>+{flow.labels.length - 3}</Badge
-					>
-				{/if}
-			</div>
-		{/if}
-		<InheritedLabels labels={flow.inherited_labels} />
+		<RowLabels labels={flow.labels} inheritedLabels={flow.inherited_labels} />
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-2">
