@@ -345,6 +345,10 @@ pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
     Ok(ui)
 }
 
+const SHELL_ACTIVE_CHARS: [char; 16] = [
+    '$', '`', '\'', '"', '\\', ';', '&', '|', '<', '>', '(', ')', '{', '}', '*', '!',
+];
+
 /// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] or [`API_BASE_URL_SETTING`] value.
 ///
 /// A path is appended to it verbatim, so anything that doesn't concatenate into a
@@ -384,6 +388,14 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
     }
     if value.chars().any(char::is_whitespace) {
         return Err("must not contain whitespace".to_string());
+    }
+    // The UI pastes the URL into shell commands users copy, where double quotes
+    // do not stop `$(...)` or backticks from running.
+    if value.contains(SHELL_ACTIVE_CHARS) {
+        return Err(
+            "must not contain shell metacharacters, since it is shown inside commands users copy"
+                .to_string(),
+        );
     }
     // Matches the sibling `base_url` / `hub_base_url` convention. The receiver
     // builder trims it anyway, so this is about keeping the stored value canonical
@@ -1113,6 +1125,9 @@ mod tests {
             "https://hooks.example.com#",
             "https://user:password@hooks.example.com",
             "https://user@hooks.example.com",
+            "https://hooks.example.com/$(uname)",
+            "https://hooks.example.com/`uname`",
+            "https://hooks.example.com/a;b",
         ];
         for v in accept {
             assert!(
