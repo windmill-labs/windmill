@@ -104,6 +104,7 @@
 		autoscaling?: AutoscalingConfig
 		native_mode?: boolean
 		object_store_cache_config?: ObjectStoreConfig
+		paused?: boolean
 	} = $state({})
 
 	function loadNConfig() {
@@ -111,10 +112,9 @@
 			? config.worker_tags != undefined ||
 				config.dedicated_worker != undefined ||
 				config.dedicated_workers != undefined
-				? config
-				: {
-						worker_tags: []
-					}
+				? // a copy: editing the draft must not touch the saved config it is compared against
+					$state.snapshot(config)
+				: { ...$state.snapshot(config), worker_tags: [] }
 			: {
 					worker_tags: []
 				}
@@ -212,6 +212,7 @@
 					periodic_script_interval_seconds?: number
 					native_mode?: boolean
 					object_store_cache_config?: ObjectStoreConfig
+					paused?: boolean
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -268,8 +269,10 @@
 		if (!config && !nconfig) return false
 		if (!config || !nconfig) return true
 
-		const cleaned1 = cleanValueProperties(config)
-		const cleaned2 = cleanValueProperties(nconfig)
+		// Compared without empty values: the draft is filled with empty defaults a saved
+		// config may lack, which are not an edit.
+		const cleaned1 = cleanWorkerGroupConfig(cleanValueProperties(config))
+		const cleaned2 = cleanWorkerGroupConfig(cleanValueProperties(nconfig))
 
 		return (
 			orderedJsonStringify(replaceFalseWithUndefined(cleaned1)) !==
@@ -298,6 +301,47 @@
 	let openDelete = $state(false)
 	let openClean = $state(false)
 	let openRestart = $state(false)
+	let pendingConfig: typeof nconfig | undefined = $state()
+
+	// Mirrors `reload_worker_config` in backend/src/monitor.rs, which decides the restart. It
+	// compares the body that is sent rather than the draft, and only the fields a worker loads.
+	const RESTART_FIELDS = [
+		'dedicated_worker',
+		'dedicated_workers',
+		'init_bash',
+		'periodic_script_bash',
+		'periodic_script_interval_seconds',
+		'native_mode'
+	] as const
+	const OTHER_WORKER_FIELDS = [
+		'worker_tags',
+		'priority_tags',
+		'additional_python_paths',
+		'pip_local_dependencies',
+		'object_store_cache_config'
+	] as const
+	function restartsWorkers(body: typeof nconfig): boolean {
+		if (activeWorkers === 0) return false
+		const saved: typeof nconfig = config ?? {}
+		const comparable = (c: typeof nconfig, k: keyof typeof nconfig) =>
+			orderedJsonStringify(replaceFalseWithUndefined(cleanWorkerGroupConfig({ v: c[k] })))
+		const changed = (k: keyof typeof nconfig) => comparable(saved, k) !== comparable(body, k)
+		const restartFieldChanged = RESTART_FIELDS.some(changed)
+		const onlyPauseChanged =
+			changed('paused') &&
+			!restartFieldChanged &&
+			!OTHER_WORKER_FIELDS.some(changed) &&
+			!hasEnvVarChanges
+		const dedicated =
+			body.dedicated_worker != undefined || (body.dedicated_workers?.length ?? 0) > 0
+		return !onlyPauseChanged && (dedicated || restartFieldChanged)
+	}
+
+	async function saveConfig(body: typeof nconfig) {
+		await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: body })
+		sendUserToast('Configuration set')
+		dispatch('reload')
+	}
 
 	// Compute hashed tags for display (actual tags used by the worker)
 	let hashedDedicatedTags: Map<string, string> = $state(new Map())
@@ -396,6 +440,31 @@
 			>Are you sure you want to clean the cache of all workers of this worker group (will also
 			restart the workers and expect supervisor to restart them) ?</span
 		>
+	</div>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={pendingConfig != undefined}
+	title="Apply changes and restart workers"
+	confirmationText="Apply and restart"
+	on:canceled={() => {
+		pendingConfig = undefined
+	}}
+	on:confirmed={async () => {
+		const body = pendingConfig
+		pendingConfig = undefined
+		if (body) {
+			await saveConfig(body)
+		}
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span
+			>Applying these changes will restart the {pluralize(activeWorkers, 'worker')} of worker group '{name}'.
+			Workers finish their running job, shut down gracefully and are expected to be restarted by
+			their supervisor.</span
+		>
+		<span>Pausing or resuming a worker group alone does not restart its workers.</span>
 	</div>
 </ConfirmationModal>
 
@@ -731,6 +800,32 @@
 					/>
 				{/if}
 			</div>
+		{/if}
+
+		{#if nconfig !== undefined}
+			<div class="mt-8"></div>
+			<Label label="Pause">
+				{#snippet header()}
+					<Tooltip>
+						{#snippet text()}
+							A paused worker group stops pulling jobs, including suspended jobs that are resumed.
+							Jobs already running finish, queued jobs stay in the queue until the group is resumed.
+							Workers pick the change up within about 10 seconds, without restarting.
+						{/snippet}
+					</Tooltip>
+				{/snippet}
+				<Toggle
+					size="sm"
+					options={{ right: 'Pause this worker group' }}
+					checked={nconfig?.paused === true}
+					on:change={(ev) => {
+						if (nconfig !== undefined) {
+							nconfig.paused = ev.detail ? true : undefined
+						}
+					}}
+					disabled={!canEditConfig}
+				/>
+			</Label>
 		{/if}
 
 		<div class="mt-8"></div>
@@ -1216,9 +1311,19 @@
 									}
 								})
 
-								await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
-								sendUserToast('Configuration set')
-								dispatch('reload')
+								// A group without saved tags inherits them from the worker's environment, and
+								// an explicit empty list would override that: only send one the user asked for.
+								const inheritsTags =
+									config?.worker_tags == undefined &&
+									config?.dedicated_worker == undefined &&
+									config?.dedicated_workers == undefined &&
+									nconfig.worker_tags?.length === 0
+								const body = inheritsTags ? { ...nconfig, worker_tags: undefined } : nconfig
+								if (restartsWorkers(body)) {
+									pendingConfig = body
+								} else {
+									await saveConfig(body)
+								}
 							}}
 							disabled={(!hasChanges &&
 								!hasEnvVarChanges &&
@@ -1257,6 +1362,16 @@
 				>
 				{#if isNativeMode}
 					<Badge color="blue" small>Native</Badge>
+				{/if}
+				{#if config?.paused === true}
+					<Badge color="yellow" small>
+						Paused
+						<Tooltip>
+							{#snippet text()}
+								Workers of this group pull no new jobs. Queued jobs wait until the group is resumed.
+							{/snippet}
+						</Tooltip>
+					</Badge>
 				{/if}
 			</div>
 

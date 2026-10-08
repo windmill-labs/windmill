@@ -95,6 +95,9 @@ pub fn otel_incr_zombie_delete_count(_count: u64) {}
 pub fn otel_set_queue_count(_tag: &str, _count: i64) {}
 
 #[cfg(not(feature = "private"))]
+pub fn otel_set_queue_delay(_tag: &str, _delay_secs: f64) {}
+
+#[cfg(not(feature = "private"))]
 pub fn otel_set_queue_running_count(_tag: &str, _count: i64) {}
 
 #[cfg(not(feature = "private"))]

@@ -52,8 +52,17 @@ export function sdkScopeDescription(scope: string): string | undefined {
 // Keyed by viewer as well as app: this localStorage lives on the shared embedder
 // origin, so without the viewer one person's "do not ask again" would silently
 // suppress the prompt for the next person to use the same browser profile.
-function sdkConsentKey(viewer: string, workspace: string, path: string): string {
-	return `wm_sdk_consent:${viewer}:${workspace}:${path}`
+// `preview` keeps the editor's consent apart from the deployed app's: the editor
+// runs a draft nobody may have reviewed, so trust given to one is not trust given
+// to the other.
+function sdkConsentKey(viewer: string, workspace: string, path: string, preview: boolean): string {
+	return `wm_sdk_consent:${preview ? 'p:' : ''}${viewer}:${workspace}:${path}`
+}
+
+/** True when `approved` (a consent the viewer gave) covers every scope the app now
+ * declares. Fewer scopes need no new consent; one more does. */
+export function sdkConsentCovers(approved: unknown, scopes: string[]): boolean {
+	return Array.isArray(approved) && scopes.every((s) => approved.includes(s))
 }
 
 /** True when a previously stored "do not ask again" consent covers every
@@ -62,13 +71,14 @@ export function hasStoredSdkConsent(
 	viewer: string,
 	workspace: string,
 	path: string,
-	scopes: string[]
+	scopes: string[],
+	preview = false
 ): boolean {
 	try {
 		const stored = JSON.parse(
-			localStorage.getItem(sdkConsentKey(viewer, workspace, path)) ?? 'null'
+			localStorage.getItem(sdkConsentKey(viewer, workspace, path, preview)) ?? 'null'
 		)
-		return Array.isArray(stored) && scopes.every((s) => stored.includes(s))
+		return sdkConsentCovers(stored, scopes)
 	} catch (_) {
 		return false
 	}
@@ -78,9 +88,29 @@ export function storeSdkConsent(
 	viewer: string,
 	workspace: string,
 	path: string,
-	scopes: string[]
+	scopes: string[],
+	preview = false
 ): void {
 	try {
-		localStorage.setItem(sdkConsentKey(viewer, workspace, path), JSON.stringify(scopes))
+		localStorage.setItem(sdkConsentKey(viewer, workspace, path, preview), JSON.stringify(scopes))
+	} catch (_) {}
+}
+
+/** Follows the editor's app to its new path (first deploy of a draft, or a rename),
+ * so a stored "do not ask again" consent neither is asked again nor stays behind
+ * under the old path. A plain Continue is not stored and does not carry over. */
+export function movePreviewSdkConsent(
+	viewer: string,
+	workspace: string,
+	from: string,
+	to: string
+): void {
+	if (from === to) return
+	try {
+		const fromKey = sdkConsentKey(viewer, workspace, from, true)
+		const stored = localStorage.getItem(fromKey)
+		if (stored === null) return
+		localStorage.setItem(sdkConsentKey(viewer, workspace, to, true), stored)
+		localStorage.removeItem(fromKey)
 	} catch (_) {}
 }

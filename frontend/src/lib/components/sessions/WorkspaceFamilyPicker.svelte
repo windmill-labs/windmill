@@ -32,8 +32,9 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import InputError from '$lib/components/InputError.svelte'
 	import PrefixedInput from '$lib/components/PrefixedInput.svelte'
-	import { Badge, Button, CopyButton } from '$lib/components/common'
-	import { devBadgeText, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
+	import { Button, CopyButton } from '$lib/components/common'
+	import { devLabelNoun } from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import Select from '../select/Select.svelte'
 	import { Building, Check, GitFork, Plus, Settings } from 'lucide-svelte'
 
@@ -448,12 +449,12 @@
 								>{f.name}</span
 							>
 							{#if f.is_dev_workspace}
-								<Badge
-									color="dark-blue"
-									small
-									class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
-									>{devBadgeText(f.dev_workspace_label)}</Badge
-								>
+								<DevWorkspaceBadge
+									label={f.dev_workspace_label}
+									color={f.color}
+									fallbackClass="dark:bg-surface-accent-primary text-white dark:text-white"
+									class="text-3xs px-1 py-0"
+								/>
 							{/if}
 							{#if isSelected(f.id)}
 								<Check size={14} class="shrink-0 ml-auto text-accent" />

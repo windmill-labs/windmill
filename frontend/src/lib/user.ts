@@ -1,5 +1,6 @@
-import { type User, UserService } from '$lib/gen'
+import { UserService } from '$lib/gen'
 import type { UserExt } from './stores.js'
+import { mapUserToUserExt } from './userExt'
 
 async function fetchUserExt(workspace: string): Promise<UserExt> {
 	return mapUserToUserExt(await UserService.whoami({ workspace }), workspace)
@@ -41,17 +42,4 @@ export function getWorkspaceRole(workspace: string): Promise<RoleLookup> {
 /** Roles are per-identity, so anything that changes who is logged in must drop this. */
 export function clearWorkspaceRoleCache(): void {
 	workspaceRoleCache.clear()
-}
-
-function mapUserToUserExt(user: User, workspace: string): UserExt {
-	const ext: UserExt = {
-		...user,
-		workspace_id: workspace,
-		groups: user.groups!,
-		pgroups: user.groups!.map((x) => `g/${x}`)
-	}
-	if (ext.is_service_account && sessionStorage.getItem('pre_impersonation_token')) {
-		ext.impersonating_email = sessionStorage.getItem('pre_impersonation_email') ?? undefined
-	}
-	return ext
 }

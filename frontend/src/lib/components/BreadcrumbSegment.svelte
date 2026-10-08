@@ -6,7 +6,7 @@ state — switching popovers relies on melt-ui's `closeOnOtherPopoverOpen` to
 close siblings.
 -->
 <script lang="ts">
-	import { ChevronRight } from 'lucide-svelte'
+	import BreadcrumbItemContent from './BreadcrumbItemContent.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import WorkspaceItemDrillPicker, {
 		type Scope
@@ -15,7 +15,8 @@ close siblings.
 
 	interface Props {
 		label: string
-		withChevron?: boolean
+		/** Leading glyph, e.g. the folder or user a path scope names. */
+		icon?: import('svelte').Snippet
 		extraClass?: string
 		disabled?: boolean
 		/** Where the picker lands when this segment is clicked. */
@@ -33,7 +34,7 @@ close siblings.
 
 	let {
 		label,
-		withChevron = false,
+		icon,
 		extraClass = '',
 		disabled = false,
 		initialScope,
@@ -71,8 +72,7 @@ close siblings.
 	{disabled}
 >
 	{#snippet trigger()}
-		{#if withChevron}<ChevronRight size={10} class="shrink-0" /><span class="truncate">{label}</span
-			>{:else}{label}{/if}
+		<BreadcrumbItemContent {label} {icon} />
 	{/snippet}
 	{#snippet content()}
 		<WorkspaceItemDrillPicker

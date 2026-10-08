@@ -1,6 +1,6 @@
 {
 	"name": "@windmill-labs/components",
-	"version": "1.825.0",
+	"version": "1.828.0",
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui-builder": "mv static/ui_builder static/ui_builder.dev-disabled 2>/dev/null || true ; trap 'mv static/ui_builder.dev-disabled static/ui_builder 2>/dev/null || true' EXIT ; vite dev",
@@ -127,7 +127,6 @@
 		"mdast-util-find-and-replace": "^3.0.2",
 		"mermaid": "^11.16.1",
 		"minimatch": "^10.2.3",
-		"modern-screenshot": "^4.7.0",
 		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@=25.0.0",
 		"monaco-languageclient": "10.6.0",
 		"monaco-vim": "^0.4.1",

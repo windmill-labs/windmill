@@ -212,15 +212,16 @@ export const AI_AGENT_SCHEMA: Schema = {
 	]
 }
 
-/** The inputs of an AI decision step: one call to a decision model (TypeSafe's Jev, or
- *  Cloudflare's Clef). */
+/** The inputs of an AI decision step: one call to a decision model (TypeSafe's Jev, Cloudflare's
+ *  Clef, or OpenAI's Decisions API). */
 export const AI_DECISION_SCHEMA: Schema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
 	properties: {
 		provider: {
 			type: 'object',
 			format: 'ai-decision-provider',
-			description: 'The decision model to ask: TypeSafe (Jev) or Cloudflare (Clef).'
+			description:
+				'The decision model to ask: TypeSafe (Jev), Cloudflare (Clef) or OpenAI (Decisions API).'
 		},
 		// Untyped, so the static editor takes any JSON: TypeSafe reads a string, an object or an
 		// array of strings.
