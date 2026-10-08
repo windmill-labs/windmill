@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.828.0](https://github.com/windmill-labs/windmill/compare/v1.827.0...v1.828.0) (2026-10-08)
+
+
+### Features
+
+* add gpt-6.1-sol to the chat, agent steps and weekly ai evals ([#11584](https://github.com/windmill-labs/windmill/issues/11584)) ([8f7e0c7](https://github.com/windmill-labs/windmill/commit/8f7e0c72848b56fa97f6f0141d930c7d15044864))
+* add wmill user list and document post-suspend approvers context ([#11600](https://github.com/windmill-labs/windmill/issues/11600)) ([1c2667c](https://github.com/windmill-labs/windmill/commit/1c2667cd5530925893cf69fd622938b6ffa55d1d))
+* ask before minting the frontend sdk token in the raw app editor ([#11604](https://github.com/windmill-labs/windmill/issues/11604)) ([6e948b0](https://github.com/windmill-labs/windmill/commit/6e948b07d13b85e9251c3a200bf149f167649bc4))
+* improve data table roles and grants UX ([#11562](https://github.com/windmill-labs/windmill/issues/11562)) ([d7d18f0](https://github.com/windmill-labs/windmill/commit/d7d18f00af4e2df8fcb1362c9439d2250d0ce4b6))
+* one page header across routes, and one sidebar for operators and developers ([#11310](https://github.com/windmill-labs/windmill/issues/11310)) ([41162b2](https://github.com/windmill-labs/windmill/commit/41162b270c70ddac6a256bde9acf31a629990e24))
+
+
+### Bug Fixes
+
+* add retry to runScriptByPathAsync and runScriptByHashAsync ([#11485](https://github.com/windmill-labs/windmill/issues/11485)) ([3f3b1c2](https://github.com/windmill-labs/windmill/commit/3f3b1c2c308ddaba377db45308711e7c660d8775))
+* describe exponential retry as multiplier × seconds^attempt ([#11546](https://github.com/windmill-labs/windmill/issues/11546)) ([a2e51cd](https://github.com/windmill-labs/windmill/commit/a2e51cdbaafb7d71b8e8bbd818e40c472098f9ba))
+* keep capturing job logs after a non-UTF-8 output line ([#11595](https://github.com/windmill-labs/windmill/issues/11595)) ([0e7d974](https://github.com/windmill-labs/windmill/commit/0e7d974ce9b468353ecb6618dace710704690687))
+
+
+### Performance Improvements
+
+* load public raw apps without the loading screen ([#11608](https://github.com/windmill-labs/windmill/issues/11608)) ([c09764f](https://github.com/windmill-labs/windmill/commit/c09764fa6516badddbdbb520af32e5d1541cf996))
+
 ## [1.827.0](https://github.com/windmill-labs/windmill/compare/v1.826.0...v1.827.0) (2026-10-07)
 
 
