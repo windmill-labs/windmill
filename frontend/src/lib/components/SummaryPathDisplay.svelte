@@ -83,19 +83,24 @@
 	let labelsDirty = $state(false)
 	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath) || labelsDirty)
 
-	$effect(() => {
-		if (popoverOpen && onSaved) {
-			editSummary = summary ?? ''
-			editPath = path ?? ''
-			labelsDirty = false
-			onBehalfOfEmail = undefined
-			if (kind === 'flow' && $operatingWorkspace && path) {
-				checkFlowOnBehalfOf($operatingWorkspace, path).then((email) => {
-					onBehalfOfEmail = email
-				})
-			}
-		}
-	})
+	/** Seeds the fields from the item and asks who a flow runs on behalf of. Called on the open
+	 *  transition rather than from an effect watching `popoverOpen`: that effect also read
+	 *  `summary`, `path` and the workspace, so a save or a rename landing while the popover was
+	 *  open reseeded the fields from the props — over whatever the user had typed. */
+	function onOpen() {
+		if (!onSaved) return
+		editSummary = summary ?? ''
+		editPath = path ?? ''
+		labelsDirty = false
+		onBehalfOfEmail = undefined
+		if (kind !== 'flow' || !$operatingWorkspace || !path) return
+		const askedFor = path
+		checkFlowOnBehalfOf($operatingWorkspace, path).then((email) => {
+			// The answer describes the path the popover opened on. Closed since, or moved to
+			// another path, it answers nothing on screen.
+			if (popoverOpen && path === askedFor) onBehalfOfEmail = email
+		})
+	}
 
 	/** The path's name field inside this popover. `Path` hardcodes `id="path"`, and melt resolves a
 	 *  string `openFocus` with a document-wide `querySelector`, so a popover portalled to the body
@@ -154,7 +159,14 @@
 					summaryInput?.focus()
 					return null
 				}}
-		bind:isOpen={popoverOpen}
+		bind:isOpen={
+			() => popoverOpen,
+			(v) => {
+				const opening = v && !popoverOpen
+				popoverOpen = v
+				if (opening) onOpen()
+			}
+		}
 	>
 		{#snippet trigger()}
 			<!-- Both of the popover's arms show the summary and the path, and ownership decides

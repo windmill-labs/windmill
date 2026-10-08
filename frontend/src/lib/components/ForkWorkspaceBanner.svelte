@@ -1,6 +1,8 @@
 <script lang="ts">
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { Badge } from './common'
+	import { AlertTriangle, ArrowDown, ArrowUp, Pencil } from 'lucide-svelte'
 	import { workspaceStore, userWorkspaces, userStore, type UserExt } from '$lib/stores'
 	import type { WorkspaceComparison } from '$lib/gen'
 	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
@@ -54,6 +56,11 @@
 		return !isLoading && !!c && !c.skipped_comparison
 	}
 	const hasAnswer = $derived(isAnswerable(comparison, loading))
+
+	/** Bar width from which each badge says what it counts. Below it they keep the icon and the
+	 *  number, which is the part a reader scans for; the tooltip names them either way. */
+	const BAR_FITS_COUNT_LABELS = 1280
+	const compactCounts = $derived(pageHeader.barWidth < BAR_FITS_COUNT_LABELS)
 
 	// Fork is fully in sync with its parent (comparison ran, no ahead/behind diffs).
 	function isUpToDate(c: WorkspaceComparison | undefined): boolean {
@@ -137,6 +144,18 @@
 
 	// Opens the direction the button offers, so the label and the list agree: a fork
 	// with nothing to deploy lands on the update side, not on an empty deploy list.
+	/** The compare page opened on one direction, for a badge that counts exactly that. The button
+	 *  beside them still chooses on the reader's behalf; a badge means the one thing it names. */
+	function openCompareDir(dir: 'deploy_to' | 'update') {
+		if (!parentWorkspaceId || !$workspaceStore) return
+		goto(
+			'/forks/compare?workspace_id=' +
+				encodeURIComponent($workspaceStore) +
+				(dir === 'update' ? '&dir=update' : ''),
+			{ replaceState: true }
+		)
+	}
+
 	function openComparisonDrawer() {
 		if (parentWorkspaceId && $workspaceStore) {
 			const dir = hasAnswer && changesAhead === 0 ? '&dir=update' : ''
@@ -188,6 +207,9 @@
 {#snippet forkAction()}
 	{@const total = comparison?.summary.total_diffs ?? 0}
 	{@const conflicts = comparison?.summary.conflicts ?? 0}
+	<!-- What the comparison has to say is a mark beside the button, never instead of it: a fork
+	     still being counted, or one whose count failed, is exactly when a reader wants the page
+	     that does the counting properly. The button below renders in every state. -->
 	{#if loading}
 		<span class="text-2xs text-tertiary">Checking for changes…</span>
 	{:else if error}
@@ -196,6 +218,71 @@
 		<Badge color="blue" small>
 			{draftCount} draft{draftCount !== 1 ? 's' : ''}
 		</Badge>
+	{:else if total > 0}
+		<!-- Which way the drift goes is the thing to know at a glance: ahead is what this fork has
+		     to give its parent, behind is what it has yet to take. -->
+		<!-- The colours and the icons the compare page gives these three, so the counts in the bar
+		     and the rows behind the button say the same thing the same way. -->
+		{#if changesAhead > 0}
+			<Badge
+				color="green"
+				small
+				clickable
+				onclick={() => openCompareDir('deploy_to')}
+				title="{changesAhead} ahead of {parentWorkspaceId} — review what this {currentNoun} has to give"
+			>
+				<ArrowUp class="w-3 h-3 inline" />
+				{changesAhead}{compactCounts ? '' : ' ahead'}
+			</Badge>
+		{/if}
+		{#if changesBehind > 0}
+			<Badge
+				color="blue"
+				small
+				clickable
+				onclick={() => openCompareDir('update')}
+				title="{changesBehind} behind {parentWorkspaceId} — review what this {currentNoun} has yet to take"
+			>
+				<ArrowDown class="w-3 h-3 inline" />
+				{changesBehind}{compactCounts ? '' : ' behind'}
+			</Badge>
+		{/if}
+		{#if conflicts > 0}
+			<!-- A conflict is ahead and behind at once, so it has no direction of its own; it opens
+			     the side the reader resolves it from before deploying. -->
+			<Badge
+				color="orange"
+				small
+				clickable
+				onclick={() => openCompareDir('deploy_to')}
+				title="{conflicts} conflicting item{conflicts !== 1 ? 's' : ''} — review them"
+			>
+				<AlertTriangle class="w-3 h-3 inline" />
+				{conflicts}{compactCounts ? '' : ` conflict${conflicts !== 1 ? 's' : ''}`}
+			</Badge>
+		{/if}
+		<!-- Drafts are a different axis from the drift beside them: ahead and behind count deployed
+		     items against the parent, this counts work in this fork that is not deployed anywhere
+		     yet. It shares blue with "behind" and is told apart by the pencil and by naming what it
+		     counts, rather than by an arrow that would read as a third direction. Clicking goes to
+		     the drafts half of the compare page rather than the drawer the button opens. It shows at
+		     every drift — a fork both behind and holding drafts said nothing about the drafts. -->
+		{#if draftCount > 0}
+			<Badge
+				color="blue"
+				small
+				clickable
+				onclick={openDraftCompare}
+				title="{draftCount} draft{draftCount !== 1
+					? 's'
+					: ''} in this {currentNoun}, not deployed anywhere yet — review and deploy"
+			>
+				<Pencil class="w-3 h-3 inline" />
+				{draftCount}{compactCounts ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
+			</Badge>
+		{/if}
+	{/if}
+	{#if showDraftsOnly}
 		<Button
 			variant="subtle"
 			unifiedSize="sm"
@@ -204,32 +291,17 @@
 		>
 			Review & deploy drafts
 		</Button>
-	{:else if total > 0}
-		<!-- Which way the drift goes is the thing to know at a glance: ahead is what this fork has
-		     to give its parent, behind is what it has yet to take. -->
-		{#if changesAhead > 0}
-			<Badge color="blue" small title="{changesAhead} ahead of {parentWorkspaceId}">
-				↑ {changesAhead}
-			</Badge>
-		{/if}
-		{#if changesBehind > 0}
-			<Badge color="gray" small title="{changesBehind} behind {parentWorkspaceId}">
-				↓ {changesBehind}
-			</Badge>
-		{/if}
-		{#if conflicts > 0}
-			<Badge color="orange" small title="{conflicts} conflicting item{conflicts !== 1 ? 's' : ''}">
-				{conflicts} conflict{conflicts !== 1 ? 's' : ''}
-			</Badge>
-		{/if}
+	{:else}
 		<Button
 			variant="subtle"
 			unifiedSize="sm"
 			onclick={openComparisonDrawer}
-			title={`${forkAheadBehindMessage(changesAhead, changesBehind)} ${parentWorkspaceId} over ${total} items`}
+			title={hasAnswer
+				? `${forkAheadBehindMessage(changesAhead, changesBehind)} ${parentWorkspaceId} over ${total} items`
+				: `Review this ${currentNoun} against ${parentWorkspaceId}`}
 		>
 			{#if !hasAnswer || changesAhead > 0}
-				Review & Deploy Changes
+				Review changes
 			{:else}
 				Review & Update {currentNoun}
 			{/if}

@@ -15,6 +15,7 @@
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { BAR_TOP_PAD } from '$lib/components/pageHeaderRegistry.svelte'
 	import { Button } from '$lib/components/common'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { cubicOut } from 'svelte/easing'
@@ -473,12 +474,12 @@
 	/** The arriving strip fades in over the expansion; the leaving one goes quickly, so the two
 	 *  are never both legible at once — they stand in different places, and a slow dissolve would
 	 *  read as two tab rows rather than one changing place. */
-	function stripArrive(_node: HTMLElement) {
+	function stripArrive(_node: Element) {
 		return reducedMotion.val
 			? { duration: 0 }
 			: { duration: 180, delay: 60, easing: cubicOut, css: (t: number) => `opacity: ${t}` }
 	}
-	function stripLeave(_node: HTMLElement) {
+	function stripLeave(_node: Element) {
 		return reducedMotion.val
 			? { duration: 0 }
 			: { duration: 80, easing: cubicOut, css: (t: number) => `opacity: ${t}` }
@@ -1101,7 +1102,7 @@
 					<Pane
 						bind:size={chatPaneSize}
 						minSize={fullscreen ? 0 : 25}
-						class="flex flex-col min-h-0 {previewCollapsed ? '' : 'pt-11'} {panesAnimating &&
+						class="flex flex-col min-h-0 {previewCollapsed ? '' : BAR_TOP_PAD} {panesAnimating &&
 						!fullscreen
 							? '!bg-transparent'
 							: ''}"
@@ -1142,7 +1143,7 @@
 										panelShare = w / contentWidth
 								}
 							}
-							class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0 pt-11' : 'p-2 pl-0'}"
+							class="flex-1 min-h-0 flex flex-col {fullscreen ? `p-0 ${BAR_TOP_PAD}` : 'p-2 pl-0'}"
 						>
 							<!-- The action controls float over the tab strip, so the strip has to reserve
 							     their width or tabs slide underneath them. Measured rather than guessed:

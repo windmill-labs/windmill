@@ -80,6 +80,12 @@
 	 * app point at /apps/get all over the app), so only the app can say which
 	 * editor the Edit button must open. */
 	let isRawApp = $state(false)
+	/** The app's execution mode, from the same lite read as the permissions and for the same
+	 * reason: a sandboxed low-code app loads inside the opaque iframe, so `app` here stays
+	 * undefined and cannot say whether the app answers at a public url. `policy.execution_mode` is
+	 * where the lite payload carries it; the flat field beside it is the apps *list* row's
+	 * spelling (ListableApp, which is what AppRow reads). */
+	let executionMode = $state<string | undefined>(undefined)
 	let editHref = $derived(`${base}/${isRawApp ? 'apps_raw' : 'apps'}/edit/${path}?nodraft=true`)
 	let refresh: (() => void) | undefined
 
@@ -170,34 +176,43 @@
 			const lite: any = await AppService.getAppLiteByPath({ workspace, path })
 			appPerms = { path: lite?.path ?? path, extraPerms: lite?.extra_perms ?? {} }
 			isRawApp = !!lite?.raw_app
+			executionMode = lite?.policy?.execution_mode ?? lite?.execution_mode
 		} catch (_) {
 			appPerms = undefined
 		}
 	}
 
-	/** The app's public url, undefined until it is known and for anything that has none — an app
-	 *  that was never deployed has no row for `secret_of` to answer about. Only fetched where the
-	 *  button that opens it is shown. */
-	let publicUrl = $state<string | undefined>(undefined)
-	async function loadPublicUrl() {
+	/** Whether the app answers at a public url at all. Read from the app this viewer has already
+	 *  loaded, the way the apps table decides the same thing (AppRow) — the secret itself is a
+	 *  request, and asking for one on every app view to decide whether to draw a button is a
+	 *  request per view that most views never use. */
+	const hasPublicUrl = $derived(executionMode === 'anonymous')
+	/** Resolved when the button is used, not when it is drawn. */
+	async function openPublicUrl() {
+		// The tab is opened inside the click itself and filled once the secret arrives. Safari only
+		// lets a gesture open the tab it opens synchronously, so opening it after the await is
+		// blocked there — silently, since a blocked popup reports nothing.
+		const tab = window.open('about:blank', '_blank')
 		try {
 			const secret = await AppService.getPublicSecretOfApp({ workspace, path })
+			if (!secret) {
+				tab?.close()
+				sendUserToast('This app has no public url', true)
+				return
+			}
 			// Built from this viewer's workspace rather than the navigation one, like everything
 			// else here: the two differ inside a session's preview panel.
-			publicUrl = secret
-				? `${window.location.origin}${base}/public/${workspace}/${secret}`
-				: undefined
-		} catch (_) {
-			publicUrl = undefined
+			const url = `${window.location.origin}${base}/public/${workspace}/${secret}`
+			if (tab) tab.location.href = url
+			else sendUserToast('Allow pop-ups for this site to open the app’s public url', true)
+		} catch (e: any) {
+			tab?.close()
+			sendUserToast('Could not open the public url: ' + (e?.body ?? e?.message ?? e), true)
 		}
 	}
 
 	$effect(() => {
 		if (workspace && path) loadPerms()
-	})
-	$effect(() => {
-		publicUrl = undefined
-		if (ownsPageHeader && !menuHidden && workspace && path) loadPublicUrl()
 	})
 
 	// Both of this page's buttons carry a label, and a phone's bar has room for neither beside the
@@ -205,13 +220,12 @@
 	// measures itself on mount, and starting compact would pop them out a frame later.
 	const compact = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
 	const compactItems: Item[] = $derived([
-		...(publicUrl
+		...(hasPublicUrl
 			? [
 					{
 						displayName: 'Public url',
 						icon: ExternalLink,
-						href: publicUrl,
-						hrefTarget: '_blank' as const
+						action: () => openPublicUrl()
 					}
 				]
 			: []),
@@ -276,16 +290,15 @@
 		     which are what say where each one goes. -->
 		<DropdownV2 items={compactItems} placement="bottom-end" size="sm" />
 	{:else}
-		{#if publicUrl}
+		{#if hasPublicUrl}
 			<!-- The app on its own, at the url anyone it is shared with uses. A new tab rather than
 			     this one: the viewer here is the same app, so replacing it would look like nothing
-			     happened. -->
+			     happened. The secret is fetched by the click, so the url exists only once asked for. -->
 			<Button
 				unifiedSize="sm"
 				variant="subtle"
 				startIcon={{ icon: ExternalLink }}
-				href={publicUrl}
-				target="_blank"
+				onclick={openPublicUrl}
 				title="Open the app's public url in a new tab">Public url</Button
 			>
 		{/if}

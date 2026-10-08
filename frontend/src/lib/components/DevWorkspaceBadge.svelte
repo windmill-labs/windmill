@@ -16,10 +16,11 @@ before a colour could be picked.
 	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
-		/** The workspace's `dev_workspace_label`; spelled the way `devBadgeText` spells it. */
-		label?: string | null | undefined
+		/** The workspace's `dev_workspace_label`; spelled the way `devBadgeText` spells it. Nullable
+		 *  because that is what the workspace rows carry. */
+		label?: string | null
 		/** The fork's own colour. Without one — or with an unparsable one — the badge falls back. */
-		color?: string | undefined
+		color?: string | null
 		/** The badge's colour when the fork has none of its own. */
 		fallbackColor?: BadgeColor
 		/** Extra classes for that same case, for a host that tuned the uncoloured badge. */

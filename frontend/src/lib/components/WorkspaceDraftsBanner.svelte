@@ -37,9 +37,8 @@
 {/if}
 
 {#snippet draftsAction()}
-	<!-- A count on its own leaves the reader to work out what it counts; the sentence says it.
-	     On a phone the sentence goes and the badge becomes the button: the count is the part that
-	     has to be seen, and the bar has room for one thing. -->
+	<!-- On a phone the badge becomes the button: the count is the part that has to be seen, and
+	     the bar has room for one thing. -->
 	{#if phone}
 		<Button
 			variant="subtle"
@@ -50,7 +49,6 @@
 			<Badge color="blue" small>{draftCount}</Badge>
 		</Button>
 	{:else}
-		<span class="shrink-0 text-2xs text-tertiary">This workspace has</span>
 		<Badge color="blue" small>
 			{draftCount} draft{draftCount !== 1 ? 's' : ''}
 		</Badge>

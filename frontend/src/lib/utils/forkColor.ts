@@ -120,7 +120,7 @@ function lightestAtContrast(
  * fork chip consumes (see WorkspaceScopeTrigger). Returns undefined for an
  * unparsable color, letting the chip fall back to the default accent.
  */
-export function forkAccentStyle(color: string | undefined): string | undefined {
+export function forkAccentStyle(color: string | null | undefined): string | undefined {
 	if (!color) return undefined
 	const parsed = hexToHsl(color)
 	if (!parsed) return undefined

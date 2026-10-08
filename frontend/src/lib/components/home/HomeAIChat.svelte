@@ -20,7 +20,15 @@
 
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ArrowUp, Globe2, KeyRound, PlugZap, Settings, WandSparkles, X } from 'lucide-svelte'
+	import {
+		ArrowUp,
+		ExternalLink,
+		Globe2,
+		KeyRound,
+		PlugZap,
+		Settings,
+		WandSparkles
+	} from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { Badge } from '../common'
 	import CloseButton from '../common/CloseButton.svelte'
@@ -40,9 +48,17 @@
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { onboardingProfile } from '$lib/onboardingProfile'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
+
+	/** Bar width from which the two side trips stand in the bar rather than folding into the menu.
+	 *  Home's trail is ~250px and the rest of its actions ~400, so this leaves room for both
+	 *  labelled buttons without the trail starting to truncate. Below it they fold back. */
+	const BAR_FITS_SIDE_TRIPS = 1024
+	const sideTripsInBar = $derived(pageHeader.barWidth >= BAR_FITS_SIDE_TRIPS)
+	const hubOffered = $derived(!$userStore?.operator && HOME_SHOW_HUB)
 
 	let value = $state('')
 	// The stock examples, unless the invite that brought this person here wrote prompts for
@@ -68,49 +84,23 @@
 	}
 
 	// Removing puts the composer away rather than throwing it out, and the way back is one item in
-	// the band's menu — easy to miss on a page the composer has just vacated. A mark flies from the
-	// control that removed it to that menu, so where it went is witnessed rather than explained.
-	const FLIGHT_MS = 450
-	// The mark's last stretch, where it fades into the menu.
-	const FLIGHT_FADE_MS = 160
-	// Two refs for the two controls that remove it — the cross on a working composer and the
-	// button on the overlay that replaces it without a provider. Only one is ever mounted, and one
-	// ref for both would depend on which block Svelte tears down first.
-	let crossEl: HTMLElement | undefined = $state(undefined)
-	let overlayRemoveEl: HTMLElement | undefined = $state(undefined)
-	let flight = $state<{ from: DOMRect; to: DOMRect } | undefined>(undefined)
-	let flightArrived = $state(false)
-	let flightTimer: ReturnType<typeof setTimeout> | undefined
-	// The menu answers the arriving mark with one ring, so the eye that followed the flight has
-	// something to land on. It blooms as the mark dissolves, not after it: the two read as one
-	// gesture.
-	const PULSE_MS = 500
+	// the band's menu — so the ellipsis flashes as it appears, in a corner nobody is watching while
+	// the hero collapses in the middle of the page.
+	//
+	// A keyframe animation, not a transition: this mounts in the same flush that collapses the
+	// hero, so the frame that would paint it at rest is the frame it is already told to leave, and
+	// one `requestAnimationFrame` is not reliably past that paint. The flash then goes straight to
+	// invisible without ever being drawn. Mounted only while pulsing, so each removal replays it.
+	const PULSE_MS = 1000
 	let pulsing = $state(false)
-	let pulseOut = $state(false)
-	let pulseStartTimer: ReturnType<typeof setTimeout> | undefined
 	let pulseEndTimer: ReturnType<typeof setTimeout> | undefined
 
 	function removeComposer() {
-		const from = (crossEl ?? overlayRemoveEl)?.getBoundingClientRect()
-		const to = document.querySelector('[data-home-ai-menu]')?.getBoundingClientRect()
 		setCollapsed(true)
-		if (reducedMotion.val || !from || !to) return
-		clearTimeout(flightTimer)
-		clearTimeout(pulseStartTimer)
+		if (reducedMotion.val) return
 		clearTimeout(pulseEndTimer)
-		flightArrived = false
-		pulsing = false
-		pulseOut = false
-		flight = { from, to }
-		// A frame at the origin before the transition starts, or the element mounts already there.
-		requestAnimationFrame(() => (flightArrived = true))
-		flightTimer = setTimeout(() => (flight = undefined), FLIGHT_MS)
-		pulseStartTimer = setTimeout(() => {
-			pulsing = true
-			// Same reason as the mark's: one frame at rest, or it mounts already expanded.
-			requestAnimationFrame(() => (pulseOut = true))
-			pulseEndTimer = setTimeout(() => (pulsing = false), PULSE_MS)
-		}, FLIGHT_MS - FLIGHT_FADE_MS)
+		pulsing = true
+		pulseEndTimer = setTimeout(() => (pulsing = false), PULSE_MS)
 	}
 
 	// In global-AI mode the layout's chat panel is disabled and never loads the copilot
@@ -225,7 +215,7 @@
 			{#if !disabled}
 				<!-- The one dismiss control while the composer is usable; the overlay below carries its
 				     own once it takes over, so the two never show at the same time. -->
-				<div class="absolute right-0 top-0 z-20" bind:this={crossEl}>
+				<div class="absolute right-0 top-0 z-20">
 					<CloseButton small noBg title="Remove session chat" onClick={removeComposer} />
 				</div>
 			{/if}
@@ -313,9 +303,7 @@
 									{freeTierExhausted ? 'Add your own API key' : 'Configure AI'}
 								</Button>
 							{/if}
-							<div bind:this={overlayRemoveEl}>
-								<Button unifiedSize="sm" variant="default" onClick={removeComposer}>Remove</Button>
-							</div>
+							<Button unifiedSize="sm" variant="default" onClick={removeComposer}>Remove</Button>
 						</div>
 					</div>
 				{/if}
@@ -352,76 +340,90 @@
 {#snippet homeMenu()}
 	<!-- The band's own menu: the connect helper, the hub, and whether the composer is on this page
 	     — all of them preferences or side trips, none of them the page's work. -->
-	<!-- data-home-ai-menu: where the mark flies to when the composer is removed. -->
-	<span data-home-ai-menu class="relative flex">
-		{#if pulsing}
-			<!-- One ring out of the menu as the mark lands. Not `animate-ping`: that curve spends its
-			     opacity in the first three quarters, so the ring is already invisible by the time it
-			     has grown clear of the button. -->
-			<span
-				aria-hidden="true"
-				class="pointer-events-none absolute -inset-1 rounded-lg border-2 border-ai/60"
-				style:transition="transform {PULSE_MS}ms ease-out, opacity {PULSE_MS}ms ease-out"
-				style:transform="scale({pulseOut ? 1.7 : 1})"
-				style:opacity={pulseOut ? 0 : 1}
-			></span>
+	<span class="flex items-center gap-1">
+		<!-- Wide enough, and the two side trips are buttons of their own: a menu is where a thing
+		     goes when the bar cannot hold it, not where it belongs. They fold back below the width
+		     above. -->
+		{#if sideTripsInBar}
+			<!-- The same quiet shape the hero gave them before the bar took them: xs, hint-coloured,
+			     and the hub keeps its outbound mark. They sit beside the page's own buttons, and a
+			     side trip should not read as loudly as the thing the page is for. -->
+			<Button
+				variant="subtle"
+				unifiedSize="xs"
+				btnClasses="!text-2xs !text-hint"
+				startIcon={{ icon: PlugZap }}
+				onClick={() => homeConnectDrawer?.openDrawer?.()}
+			>
+				CLI / MCP
+			</Button>
+			{#if hubOffered}
+				<Button
+					variant="subtle"
+					unifiedSize="xs"
+					btnClasses="!text-2xs !text-hint"
+					startIcon={{ icon: Globe2 }}
+					endIcon={{ icon: ExternalLink }}
+					href={$hubBaseUrlStore}
+					target="_blank"
+				>
+					Hub
+				</Button>
+			{/if}
 		{/if}
-		<DropdownV2
-			placement="bottom-end"
-			size="sm"
-			items={[
-				...(showComposer
-					? [
-							collapsed
-								? {
-										displayName: 'Restore session chat',
+		<!-- Nothing left to hold once the side trips stand in the bar and the composer is on the
+		     page: an ellipsis that opens an empty menu is a button that does nothing. -->
+		<!-- No menu while the hero is on the page and its side trips are in the bar: the hero's own
+		     cross removes it, so an ellipsis holding a second way to do that is a button whose only
+		     item is a duplicate. -->
+		{#if !sideTripsInBar || (showComposer && collapsed)}
+			<!-- The flash rides the ellipsis itself, not the row: with the side trips beside it the
+			     row is three controls wide, and marking all three names none of them. -->
+			<span class="relative inline-flex">
+				{#if pulsing}
+					<!-- `opacity-0` at rest: the keyframes carry no fill mode, so at the end of the
+					     animation the element returns to its own opacity. At 1 that is the flash coming
+					     back at full strength until the unmount timer catches up. -->
+					<span
+						aria-hidden="true"
+						class="pointer-events-none absolute -inset-1 rounded-lg bg-blue-500/30 opacity-0 animate-fade-out"
+					></span>
+				{/if}
+				<DropdownV2
+					placement="bottom-end"
+					size="sm"
+					items={[
+						...(showComposer && collapsed
+							? [
+									{
+										displayName: 'Pin session hero to homepage',
 										icon: WandSparkles,
 										action: () => setCollapsed(false)
 									}
-								: {
-										// The same words as the cross on the composer itself: one thing, one name,
-										// whichever of the two a reader reaches for.
-										displayName: 'Remove session chat',
-										icon: X,
-										action: () => setCollapsed(true)
-									}
-						]
-					: []),
-				{
-					displayName: 'CLI / MCP',
-					icon: PlugZap,
-					action: () => homeConnectDrawer?.openDrawer?.()
-				},
-				...(!$userStore?.operator && HOME_SHOW_HUB
-					? [
-							{
-								displayName: 'Hub',
-								icon: Globe2,
-								href: $hubBaseUrlStore,
-								hrefTarget: '_blank' as const
-							}
-						]
-					: [])
-			]}
-		/>
+								]
+							: []),
+						...(sideTripsInBar
+							? []
+							: [
+									{
+										displayName: 'CLI / MCP',
+										icon: PlugZap,
+										action: () => homeConnectDrawer?.openDrawer?.()
+									},
+									...(hubOffered
+										? [
+												{
+													displayName: 'Hub',
+													icon: Globe2,
+													href: $hubBaseUrlStore,
+													hrefTarget: '_blank' as const
+												}
+											]
+										: [])
+								])
+					]}
+				/>
+			</span>
+		{/if}
 	</span>
 {/snippet}
-
-{#if flight}
-	<!-- The mark on its way to the menu. Transform and opacity only, so the trip costs no layout,
-	     and `aria-hidden` because it says nothing a reader of the menu item does not already read. -->
-	<div
-		aria-hidden="true"
-		class="fixed z-[6000] pointer-events-none flex items-center justify-center h-6 w-6 rounded-full border bg-surface shadow-sm"
-		style:left="{flight.from.left}px"
-		style:top="{flight.from.top}px"
-		style:transition="transform {FLIGHT_MS}ms cubic-bezier(0.4, 0, 0.2, 1), opacity {FLIGHT_FADE_MS}ms
-		ease-in {FLIGHT_MS - FLIGHT_FADE_MS}ms"
-		style:opacity={flightArrived ? 0 : 1}
-		style:transform="translate({flightArrived ? flight.to.left - flight.from.left : 0}px, {flightArrived
-			? flight.to.top - flight.from.top
-			: 0}px) scale({flightArrived ? 0.5 : 1})"
-	>
-		<WandSparkles size={12} class="text-hint" />
-	</div>
-{/if}

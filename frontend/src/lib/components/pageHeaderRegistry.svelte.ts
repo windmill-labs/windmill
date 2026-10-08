@@ -95,6 +95,16 @@ let nextId = 0
  */
 export const PHONE_BAR = 800
 
+/** The bar's height, and the padding a page owes the band when the band floats over it rather than
+ *  sitting in the flow (see `barRightInset`). They are one measurement in two forms: raise one and
+ *  the other has to follow, or the page's own content disappears under the bar. Written as literal
+ *  class names so Tailwind sees them. */
+export const BAR_HEIGHT = 'h-12'
+export const BAR_TOP_PAD = 'pt-12'
+/** The same height in px, for the places that animate to the bar's bottom edge rather than
+ *  standing under it — a transition's `css` and a measurement's fallback take a number. */
+export const BAR_HEIGHT_PX = 48
+
 // The bar's own width, written by the bar and read by the pages that fill it. A page's buttons
 // share that row with the breadcrumb, so it is the width they crowd against — not the window's,
 // which the sidebar and a page's side panel both take from.

@@ -87,7 +87,7 @@
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
 	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
-	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
+	import { BAR_HEIGHT_PX, pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { sidebarPageAllowed } from '$lib/components/sidebar/operatorRoutes'
 	import type GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
@@ -545,9 +545,10 @@
 		menuOpen = false
 		navDetached.val = detached
 	}
-	// Docking and detaching move and resize the rail itself between its docked box and the
-	// detached card's (top 44px, bottom and left insets, rounded corners); detaching also slides
-	// it off the left edge, where the closed card lives. No opacity: the rail never fades.
+	// Docking and detaching move and resize the rail itself between its docked box and the detached
+	// card's (top at the band's bottom edge, bottom and left insets, rounded corners); detaching
+	// also slides it off the left edge, where the closed card lives. No opacity: the rail never
+	// fades.
 	// The footer's icon buttons wear the rail's own row box — 32px square, 16px glyph — so the
 	// pair that hides and collapses the sidebar lines up with the links above them, collapsed or
 	// not. Padding alone drifted: two different paddings, two icon sizes and a negative margin.
@@ -563,7 +564,7 @@
 			duration: reduced ? 0 : RAIL_MORPH_MS,
 			easing: cubicOut,
 			css: (t: number, u: number) =>
-				`top:${u * 44}px; bottom:${u * 8}px; left:${u * 4}px; border-radius:${u * 8}px; overflow:hidden;` +
+				`top:${u * BAR_HEIGHT_PX}px; bottom:${u * 8}px; left:${u * 4}px; border-radius:${u * 8}px; overflow:hidden;` +
 				`width:${SIDEBAR_MIN_REM + (docked - SIDEBAR_MIN_REM) * t}rem;` +
 				(offscreen ? `transform:translateX(calc(${-u} * (100% + 0.5rem)));` : '')
 		}
@@ -849,7 +850,7 @@
 			// Its last month runs on a cap too, but nothing is unpaid: only speak up once it bites
 			if ((premiumInfo.usage ?? 0) > (premiumInfo.max_tolerated_executions ?? 0)) {
 				sendUserToast(
-					'Your team plan was canceled and this month\'s paid executions are used up. Jobs can run again on the free plan from the 1st, or subscribe again in the workspace settings.',
+					"Your team plan was canceled and this month's paid executions are used up. Jobs can run again on the free plan from the 1st, or subscribe again in the workspace settings.",
 					true
 				)
 			}
