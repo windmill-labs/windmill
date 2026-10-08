@@ -2300,7 +2300,7 @@ fn check_operator_composed_app(
             "Operators with builder rights must deploy an app with its policy".to_string(),
         ));
     };
-    referenced.extend(policy_runnable_paths(policy)?);
+    referenced.extend(checked_policy_runnable_paths(policy)?);
     if policy.sandbox == Some(false) {
         return Err(Error::PermissionDenied(
             "Operators with builder rights can only deploy sandboxed apps".to_string(),
@@ -2328,8 +2328,9 @@ fn check_operator_composed_app(
     Ok(referenced)
 }
 
-/// The runnables a builder app's policy authorizes, as `(is_flow, path)`.
-pub(crate) fn policy_runnable_paths(policy: &Policy) -> Result<Vec<(bool, String)>> {
+/// The runnables a builder app's policy authorizes, as `(is_flow, path)`; refuses a policy that
+/// pins inline code.
+pub(crate) fn checked_policy_runnable_paths(policy: &Policy) -> Result<Vec<(bool, String)>> {
     // A `rawscript/<sha>` triggerable is the deployed app's authorization to run caller-supplied
     // `raw_code` hashing to it: pinning one hands a builder arbitrary code execution through an
     // app whose value passed the inline-script check. A composition-only app has none.
@@ -2340,7 +2341,7 @@ pub(crate) fn policy_runnable_paths(policy: &Policy) -> Result<Vec<(bool, String
     }
     if pins_raw_script(&policy.triggerables) || pins_raw_script(&policy.triggerables_v2) {
         return Err(Error::PermissionDenied(
-            "Operators with builder rights cannot deploy an app whose policy pins inline code"
+            "Operators with builder rights cannot save or deploy an app whose policy pins inline code"
                 .to_string(),
         ));
     }

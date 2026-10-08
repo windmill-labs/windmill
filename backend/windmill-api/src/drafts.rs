@@ -518,7 +518,7 @@ async fn update_draft(
             if let Some(policy) = draft.get("policy") {
                 let policy = serde_json::from_value(policy.clone())
                     .map_err(|e| Error::BadRequest(format!("Invalid app draft policy: {e}")))?;
-                referenced.extend(crate::apps::policy_runnable_paths(&policy)?);
+                referenced.extend(crate::apps::checked_policy_runnable_paths(&policy)?);
             }
             referenced.sort();
             referenced.dedup();
