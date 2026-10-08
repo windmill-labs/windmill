@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace_id, agent_path FROM slack_thread_agent\n             WHERE slack_team_id = $1 AND channel_id = $2 AND thread_ts = $3",
+  "query": "SELECT t.workspace_id, t.agent_path FROM slack_thread_agent t\n             JOIN workspace_settings ws ON ws.workspace_id = t.workspace_id\n                AND ws.slack_team_id = t.slack_team_id\n             WHERE t.slack_team_id = $1 AND t.channel_id = $2 AND t.thread_ts = $3",
   "describe": {
     "columns": [
       {
@@ -26,5 +26,5 @@
       false
     ]
   },
-  "hash": "94cdc3cb0127c53d3fd255bc6b11879bb510b4e91fed87a875d1930082f94577"
+  "hash": "e996f360c1b82e10a66362757dcede7cc7e1a3427526ecdb3c7c31961ad3b52a"
 }

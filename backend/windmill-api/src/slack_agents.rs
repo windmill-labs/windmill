@@ -285,13 +285,13 @@ pub struct SlackMessage {
     pub team_id: String,
     pub channel_id: String,
     pub user_id: String,
-    /// With the bot mention stripped.
+    /// With the bot mention stripped, still escaped the way Slack sends it.
     pub text: String,
     /// The message's own ts; `None` for a slash command, which has no message to reply under.
     pub ts: Option<String>,
     pub thread_ts: Option<String>,
-    /// Slack resent the event because the first delivery was not acknowledged in time.
-    pub is_retry: bool,
+    /// A slash command's, where it can be answered when the bot cannot post in the channel.
+    pub response_url: Option<String>,
 }
 
 enum Route {
@@ -308,15 +308,13 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
     let (name, question) = split_agent_name(&text);
     let thread_root = msg.thread_ts.clone().or_else(|| msg.ts.clone());
 
-    let (w_id, route, source) = if let Some(name) = name {
-        let Some(w_id) = workspace_for_team(db, &msg.team_id).await? else {
-            return Ok(false);
-        };
-        (w_id, Route::Named(name.to_string()), "mention")
-    } else if let Some(r) = match &thread_root {
+    // Only a workspace still connected to the team answers: disconnecting keeps its bot token.
+    let thread = match &thread_root {
         Some(root) => sqlx::query!(
-            "SELECT workspace_id, agent_path FROM slack_thread_agent
-             WHERE slack_team_id = $1 AND channel_id = $2 AND thread_ts = $3",
+            "SELECT t.workspace_id, t.agent_path FROM slack_thread_agent t
+             JOIN workspace_settings ws ON ws.workspace_id = t.workspace_id
+                AND ws.slack_team_id = t.slack_team_id
+             WHERE t.slack_team_id = $1 AND t.channel_id = $2 AND t.thread_ts = $3",
             msg.team_id,
             msg.channel_id,
             root
@@ -325,31 +323,58 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
         .await?
         .map(|r| (r.workspace_id, r.agent_path)),
         None => None,
-    } {
-        (r.0, Route::Agent(r.1), "thread")
-    } else if let Some(r) = sqlx::query!(
-        "SELECT workspace_id, agent_path FROM slack_channel_agent
-         WHERE slack_team_id = $1 AND channel_id = $2",
+    };
+    let channel = sqlx::query!(
+        "SELECT c.workspace_id, c.agent_path FROM slack_channel_agent c
+         JOIN workspace_settings ws ON ws.workspace_id = c.workspace_id
+            AND ws.slack_team_id = c.slack_team_id
+         WHERE c.slack_team_id = $1 AND c.channel_id = $2",
         msg.team_id,
         msg.channel_id
     )
     .fetch_optional(db)
     .await?
-    {
-        (
-            r.workspace_id,
-            Route::Agent(r.agent_path),
-            "channel_default",
-        )
+    .map(|r| (r.workspace_id, r.agent_path));
+
+    let (w_id, route, source) = if let Some(name) = name {
+        // The thread's or the channel's workspace, where several share the team.
+        let w_id = match thread.as_ref().or(channel.as_ref()) {
+            Some((w_id, _)) => Some(w_id.clone()),
+            None => workspace_for_team(db, &msg.team_id).await?,
+        };
+        let Some(w_id) = w_id else {
+            return Ok(false);
+        };
+        (w_id, Route::Named(name.to_string()), "mention")
+    } else if let Some((w_id, path)) = thread {
+        (w_id, Route::Agent(path), "thread")
+    } else if let Some((w_id, path)) = channel {
+        (w_id, Route::Agent(path), "channel_default")
     } else if let Some(w_id) = workspace_without_command_script(db, &msg.team_id).await? {
         (w_id, Route::Help, "help")
     } else {
         return Ok(false);
     };
 
-    // The first delivery is already being answered.
-    if msg.is_retry {
-        return Ok(true);
+    if let Some(ts) = &msg.ts {
+        let first = sqlx::query_scalar!(
+            "INSERT INTO slack_answered_message (slack_team_id, channel_id, ts)
+             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING true",
+            msg.team_id,
+            msg.channel_id,
+            ts
+        )
+        .fetch_optional(db)
+        .await?
+        .is_some();
+        if !first {
+            return Ok(true);
+        }
+        sqlx::query!(
+            "DELETE FROM slack_answered_message WHERE created_at < now() - interval '1 day'"
+        )
+        .execute(db)
+        .await?;
     }
 
     if !matches!(route, Route::Help) {
@@ -471,16 +496,36 @@ async fn answer(
     let thread_root = match msg.thread_ts.clone().or_else(|| msg.ts.clone()) {
         Some(ts) => ts,
         None => {
+            // Special mentions (`<!channel>`, `<!here>`) defused: posted by the bot, they would
+            // notify the whole channel on the asker's behalf.
+            let echoed = msg.text.replace("<!", "&lt;!");
             let posted = slack_call(
                 &token,
                 "chat.postMessage",
                 &[
                     ("channel", channel.clone()),
-                    ("text", format!("<@{}>: {}", msg.user_id, question)),
+                    ("text", format!("<@{}>: {}", msg.user_id, echoed)),
                 ],
             )
-            .await?;
-            posted["ts"].as_str().unwrap_or_default().to_string()
+            .await;
+            match posted {
+                Ok(posted) => posted["ts"].as_str().unwrap_or_default().to_string(),
+                Err(e) => {
+                    let not_member = ["not_in_channel", "channel_not_found"]
+                        .iter()
+                        .any(|code| e.to_string().contains(code));
+                    if let (true, Some(url)) = (not_member, &msg.response_url) {
+                        let _ = HTTP_CLIENT
+                            .post(url)
+                            .json(&serde_json::json!({
+                                "text": "Add the Windmill bot to this conversation to ask agents here."
+                            }))
+                            .send()
+                            .await;
+                    }
+                    return Err(e);
+                }
+            }
         }
     };
     let reply = Reply::start(&token, &channel, &thread_root).await?;

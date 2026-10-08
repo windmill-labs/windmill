@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM slack_answered_message WHERE created_at < now() - interval '1 day'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "cad02f11ce7127c1e74eface0cb01939a9effee10fb7664d08cf39da5d2e13d7"
+}

@@ -27,6 +27,22 @@ CREATE TABLE slack_thread_agent (
         ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+CREATE INDEX index_slack_thread_agent_workspace ON slack_thread_agent (workspace_id, agent_path);
+
+-- The Slack messages an agent has taken up. Slack resends an event it did not see acknowledged,
+-- and posts a direct message mentioning the bot as two events; only the first is answered.
+CREATE TABLE slack_answered_message (
+    slack_team_id VARCHAR(255) NOT NULL,
+    channel_id VARCHAR(255) NOT NULL,
+    ts VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (slack_team_id, channel_id, ts)
+);
+
+CREATE INDEX index_slack_answered_message_created_at ON slack_answered_message (created_at);
+
+GRANT ALL ON slack_answered_message TO windmill_admin;
+GRANT ALL ON slack_answered_message TO windmill_user;
 GRANT ALL ON slack_channel_agent TO windmill_admin;
 GRANT ALL ON slack_channel_agent TO windmill_user;
 GRANT ALL ON slack_thread_agent TO windmill_admin;
