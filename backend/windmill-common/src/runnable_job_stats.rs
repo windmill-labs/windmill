@@ -131,16 +131,13 @@ pub fn accumulate_runnable_round(
 }
 
 pub async fn flush_runnable_job_stats(db: &Pool<Postgres>) -> Result<(), sqlx::Error> {
-    let mut drained: Vec<(StatsKey, RunnableStats)> = {
+    let drained: Vec<(StatsKey, RunnableStats)> = {
         let mut stats = STATS.lock().unwrap();
         if stats.is_empty() {
             return Ok(());
         }
         stats.drain().collect()
     };
-    // Every worker upserts the same rows: taking their locks in one order is what keeps
-    // two concurrent flushes from deadlocking.
-    drained.sort_unstable_by(|a, b| a.0.cmp(&b.0));
 
     let mut hours = Vec::with_capacity(drained.len());
     let mut workspace_ids = Vec::with_capacity(drained.len());
@@ -165,8 +162,9 @@ pub async fn flush_runnable_job_stats(db: &Pool<Postgres>) -> Result<(), sqlx::E
         cpus.push(s.total_cpu_ms);
     }
 
-    // The join drops rows of a workspace deleted since its jobs ran, which nothing would
-    // remove before the retention sweep.
+    // The join drops rows of a workspace deleted since its jobs ran. The ORDER BY makes
+    // every worker lock the rows they share in one order: without it two concurrent
+    // flushes can deadlock, and the join is free to undo an ordering of the arrays.
     let res = sqlx::query!(
         r#"
         INSERT INTO runnable_job_stats
@@ -180,6 +178,7 @@ pub async fn flush_runnable_job_stats(db: &Pool<Postgres>) -> Result<(), sqlx::E
             AS s(hour, workspace_id, runnable_path, worker_group, job_count, total_duration_ms,
                  max_memory_peak, sum_memory_peak, memory_sample_count, total_cpu_ms)
         JOIN workspace w ON w.id = s.workspace_id
+        ORDER BY s.hour, s.workspace_id, s.runnable_path, s.worker_group
         ON CONFLICT (hour, workspace_id, runnable_path, worker_group) DO UPDATE SET
             job_count = runnable_job_stats.job_count + EXCLUDED.job_count,
             total_duration_ms = runnable_job_stats.total_duration_ms + EXCLUDED.total_duration_ms,
@@ -212,14 +211,21 @@ pub async fn flush_runnable_job_stats(db: &Pool<Postgres>) -> Result<(), sqlx::E
     Ok(())
 }
 
+/// Also removes the rows of workspaces that no longer exist: a flush that overlaps a
+/// workspace's deletion still sees the workspace and can write after the deletion's own
+/// cleanup ran.
 pub async fn cleanup_old_runnable_job_stats(
     db: &Pool<Postgres>,
     retention_days: i64,
 ) -> Result<u64, sqlx::Error> {
     let cutoff = get_current_hour() - retention_days * 24 * 3600;
-    let result = sqlx::query!("DELETE FROM runnable_job_stats WHERE hour < $1", cutoff)
-        .execute(db)
-        .await?;
+    let result = sqlx::query!(
+        "DELETE FROM runnable_job_stats s WHERE s.hour < $1 \
+         OR NOT EXISTS (SELECT 1 FROM workspace w WHERE w.id = s.workspace_id)",
+        cutoff
+    )
+    .execute(db)
+    .await?;
     Ok(result.rows_affected())
 }
 

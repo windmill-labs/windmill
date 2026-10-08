@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM runnable_job_stats s WHERE s.hour < $1 OR NOT EXISTS (SELECT 1 FROM workspace w WHERE w.id = s.workspace_id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "abd64e6bc13c2d47a37ee49aa8b8d9b8a7fceaa89ab1308234ac6da42c86651f"
+}
