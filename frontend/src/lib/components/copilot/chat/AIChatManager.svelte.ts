@@ -3920,6 +3920,12 @@ export class AIChatManager implements ChatViewHost {
 					entityId: this.sessionId,
 					workspace: this.operatingWorkspace
 				})
+				if (this.browserTools) {
+					logFeatureUsage('ai_session', 'browser_message', {
+						entityId: this.sessionId,
+						workspace: this.operatingWorkspace
+					})
+				}
 			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {

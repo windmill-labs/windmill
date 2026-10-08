@@ -10,6 +10,7 @@ import { modelSupportsVision } from '../../modelConfig'
 import { normalizeImageDataUrl } from '../imageUtils'
 import { createToolDef } from '../shared'
 import { NONE, type SessionTool } from '../sessionCapabilities'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 type BrowserToolName = 'read' | 'screenshot' | 'click' | 'type' | 'navigate'
 
@@ -56,13 +57,35 @@ export function cancelBrowserCalls() {
 	if (parentOrigin) window.parent.postMessage({ type: 'wm-browser:cancel' }, parentOrigin)
 }
 
-async function callBrowser(tool: BrowserToolName, args: Record<string, unknown>): Promise<any> {
-	if (!(await connectBrowserBridge())) throw new Error('The browser extension is not connected.')
-	const id = randomUUID()
-	return new Promise((resolve, reject) => {
-		pending.set(id, { resolve, reject })
-		window.parent.postMessage({ type: 'wm-browser:call', id, tool, args }, parentOrigin!)
-	})
+type ToolCtx = { workspace: string; helpers: { sessionId?: string } }
+/** `ai_session` / `browser_tool` keys: the tool, and whether the user's approval let it run. */
+type BrowserToolOutcome = 'ok' | 'declined' | 'failed'
+const DECLINED = 'The user declined this action'
+
+async function callBrowser(
+	tool: BrowserToolName,
+	args: Record<string, unknown>,
+	{ workspace, helpers }: ToolCtx
+): Promise<any> {
+	const log = (outcome: BrowserToolOutcome) =>
+		logFeatureUsage('ai_session', 'browser_tool', {
+			key: `${tool}:${outcome}`,
+			entityId: helpers?.sessionId,
+			workspace
+		})
+	try {
+		if (!(await connectBrowserBridge())) throw new Error('The browser extension is not connected.')
+		const id = randomUUID()
+		const result = await new Promise((resolve, reject) => {
+			pending.set(id, { resolve, reject })
+			window.parent.postMessage({ type: 'wm-browser:call', id, tool, args }, parentOrigin!)
+		})
+		log('ok')
+		return result
+	} catch (e) {
+		log(e instanceof Error && e.message === DECLINED ? 'declined' : 'failed')
+		throw e
+	}
 }
 
 const targetFields = {
@@ -93,17 +116,17 @@ function relayTool(
 	description: string,
 	label: (args: any) => string,
 	format: (result: any) => string = (r) => String(r)
-): SessionTool<{}> {
+): SessionTool<ToolCtx['helpers']> {
 	return {
 		requires: NONE,
 		def: createToolDef(schema, name, description),
 		planModeSafe: tool === 'read',
 		showDetails: true,
-		fn: async ({ args, toolId, toolCallbacks }) => {
+		fn: async ({ args, toolId, toolCallbacks, workspace, helpers }) => {
 			const parsed = schema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: label(parsed), isLoading: true })
 			try {
-				const result = format(await callBrowser(tool, parsed))
+				const result = format(await callBrowser(tool, parsed, { workspace, helpers }))
 				toolCallbacks.setToolStatus(toolId, { content: label(parsed), result, isLoading: false })
 				return result
 			} catch (e) {
@@ -115,7 +138,7 @@ function relayTool(
 	}
 }
 
-export const browserTools: SessionTool<{}>[] = [
+export const browserTools: SessionTool<ToolCtx['helpers']>[] = [
 	relayTool(
 		'read',
 		readSchema,
@@ -134,7 +157,7 @@ export const browserTools: SessionTool<{}>[] = [
 		),
 		planModeSafe: true,
 		showDetails: true,
-		fn: async ({ toolId, toolCallbacks }) => {
+		fn: async ({ toolId, toolCallbacks, workspace, helpers }) => {
 			const model = tryGetCurrentModel()
 			if (model && !modelSupportsVision(model.provider, model.model)) {
 				const cannotSee = `${model.model} cannot read images, so a screenshot would be discarded. Use browser_read_page instead.`
@@ -143,7 +166,9 @@ export const browserTools: SessionTool<{}>[] = [
 			}
 			toolCallbacks.setToolStatus(toolId, { content: 'Capturing the active tab...' })
 			try {
-				const image = await normalizeImageDataUrl(await callBrowser('screenshot', {}))
+				const image = await normalizeImageDataUrl(
+					await callBrowser('screenshot', {}, { workspace, helpers })
+				)
 				toolCallbacks.attachToolImage?.(toolId, image)
 				toolCallbacks.setToolStatus(toolId, {
 					content: 'Captured the active tab',

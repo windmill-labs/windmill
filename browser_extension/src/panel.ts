@@ -139,6 +139,7 @@ function confirmAction(text: string, tab: chrome.tabs.Tab, gen: number): Promise
 				allow.onclick = deny.onclick = null
 				declineOpen = undefined
 				if (ok) resolve()
+				// The frontend matches this exact message to count declines.
 				else reject(new Error('The user declined this action'))
 			}
 			allow.onclick = () => done(true)
