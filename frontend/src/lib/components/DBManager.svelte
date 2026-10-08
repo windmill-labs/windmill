@@ -375,7 +375,8 @@
 			}
 		if (!isInstanceDatatable(datatable))
 			return {
-				reason: 'Only data tables stored in the instance database have roles and grants.',
+				reason:
+					"Roles and grants are not supported on data tables backed by a Postgres resource. Store the data table on Windmill's database or on an external Postgres instance (set up by a superadmin in instance settings) to use them.",
 				ee: false
 			}
 		if (needsAdmin && !canManageDatatable)
@@ -458,6 +459,11 @@
 	// default to open — actually be folded; a plain "expanded" set could never
 	// close them, since the default would keep winning.
 	// What the permissions drawer is open on, if anything: a schema, or a table.
+	let aclEditor = $state<PgAclEditor | undefined>(undefined)
+	/** The open access editor lists the data table's roles, which the roles drawer can change. */
+	export function refreshAcl() {
+		aclEditor?.refresh()
+	}
 	let aclDrawer = $state<{ datatable: string | undefined; target: AclTarget } | undefined>(
 		undefined
 	)
@@ -1466,7 +1472,7 @@
 <Portal>
 	<Drawer open={!!aclDrawer} size="900px" on:close={() => (aclDrawer = undefined)}>
 		<DrawerContent
-			title="Access — {aclLabel(aclDrawer?.target)}"
+			title="Access: {aclLabel(aclDrawer?.target)}"
 			on:close={() => (aclDrawer = undefined)}
 			tooltip="Who owns this, and what each role may do with it."
 		>
@@ -1474,7 +1480,18 @@
 				{@const dt = aclDrawer.datatable ?? currentDatatable}
 				{#if dt}
 					{#key `${dt}~${JSON.stringify(aclDrawer.target)}`}
-						<PgAclEditor {workspace} datatable={dt} target={aclDrawer.target} />
+						<PgAclEditor
+							bind:this={aclEditor}
+							{workspace}
+							datatable={dt}
+							target={aclDrawer.target}
+							manageRoles={onDatatableAction
+								? {
+										open: () => onDatatableAction?.(dt, 'roles'),
+										blocker: accessBlocker(dt, true)?.reason
+									}
+								: undefined}
+						/>
 					{/key}
 				{/if}
 			{/if}

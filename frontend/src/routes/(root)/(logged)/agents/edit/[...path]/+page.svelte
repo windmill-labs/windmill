@@ -17,7 +17,7 @@
 	})
 </script>
 
-<div class="h-screen w-full">
+<div class="h-full w-full">
 	<AgentEditorModal
 		layout="page"
 		enableAi={$copilotInfo.enabled}

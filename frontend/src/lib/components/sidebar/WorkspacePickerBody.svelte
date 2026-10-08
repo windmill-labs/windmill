@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import { workspaceMenuHref } from './workspaceMenuHref'
 	import { isOperatorInWorkspace } from './operatorRoutes'
@@ -18,7 +18,7 @@
 	import { Check, ChevronDown, ChevronRight, Plus, Settings } from 'lucide-svelte'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { SvelteSet } from 'svelte/reactivity'
-	import { Badge, CopyButton } from '$lib/components/common'
+	import { CopyButton } from '$lib/components/common'
 	import { MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { EXECUTIONS_HINT } from './executionsHint'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
@@ -39,7 +39,7 @@
 	} from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
-	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 
 	interface Props {
 		// The melt item builder of the menu (or submenu) hosting this list. Melt
@@ -48,14 +48,26 @@
 		item: MenubarMenuElements['item']
 		// When used outside of the side bar, where links to workspace settings and such don't make as much sense.
 		strictWorkspaceSelect?: boolean
+		/** Closes the menu this list lives in, so a workspace switch does not run under an open
+		 *  panel. The host owns the menu, so only it can. */
+		closeMenu?: () => void
 		// Set by a picker embedded in a page that drives its own navigation, so switching
 		// workspaces must not navigate away from it. Separate from strictWorkspaceSelect,
-		// which only strips the sidebar-specific rows — the operator submenu sets that one
-		// and still wants the switch to move the page.
+		// which only strips the sidebar-specific rows.
 		keepPageOnSwitch?: boolean
+		/** Opens with every family closed, forks included. For a picker whose job is to move between
+		 *  families rather than within one — a session's, where the fork is the session's own and
+		 *  not something the picker should offer to change. */
+		collapseFamilies?: boolean
 	}
 
-	let { item, strictWorkspaceSelect = false, keepPageOnSwitch = false }: Props = $props()
+	let {
+		item,
+		strictWorkspaceSelect = false,
+		keepPageOnSwitch = false,
+		collapseFamilies = false,
+		closeMenu
+	}: Props = $props()
 
 	async function toggleSwitchWorkspace(id: string) {
 		if ($workspaceStore === id) {
@@ -107,8 +119,13 @@
 		if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
 			return
 		}
+		// This click is handled here rather than by melt, so melt never closes the menu for it and
+		// the panel would sit through the switch — which renames the workspace in the header,
+		// moving the very trigger the panel hangs from, with floating-ui chasing it across the
+		// viewport. Close first, let that reach the DOM, then switch.
 		e.preventDefault()
-		toggleSwitchWorkspace(workspace.id)
+		closeMenu?.()
+		void tick().then(() => toggleSwitchWorkspace(workspace.id))
 	}
 
 	// Family-first picker: list the workspace families (roots) with their forks
@@ -117,7 +134,7 @@
 	// scope header's WorkspaceFamilyPicker remains the primary fork surface.
 	//
 	// strictWorkspaceSelect is used where this list has no scope header beside it
-	// (standalone pages such as svix webhook creation, the operator menu), so
+	// (standalone pages such as svix webhook creation), so
 	// there forks must stay directly selectable — list the full hierarchy
 	// unconditionally.
 	const hierarchy = $derived($userWorkspaces ? buildWorkspaceHierarchy($userWorkspaces) : [])
@@ -140,16 +157,41 @@
 	const canForkHere = $derived(
 		(!isCloudHosted() || $maybePremium) && $workspaceStore !== 'admins' && canCreateFork($userStore)
 	)
+	// The row mechanics below — which family to expand, which collapsed row carries the tick — key on
+	// a depth-0 row of the list, which `buildWorkspaceHierarchy` puts at the highest workspace the
+	// caller can see: parentless, or with a parent absent from their list. `findWorkspaceAncestors`
+	// stops at that same visibility boundary, so it lands on the same row.
+	const lineageRoot = $derived.by(() => {
+		const id = $workspaceStore ?? undefined
+		if (!id) return undefined
+		const ancestors = findWorkspaceAncestors(id, $userWorkspaces ?? [])
+		return ancestors.at(-1) ?? $userWorkspaces?.find((w) => w.id === id)
+	})
+
 	const familyWorkspaces = $derived.by(() => {
-		if (strictWorkspaceSelect) return hierarchy
 		let rootId: string | undefined
-		return hierarchy.filter((h) => {
-			if (h.depth === 0) {
-				rootId = h.workspace.id
-				return true
-			}
-			return !!rootId && expandedFamilies.has(rootId)
-		})
+		const visible = strictWorkspaceSelect
+			? hierarchy
+			: hierarchy.filter((h) => {
+					if (h.depth === 0) {
+						rootId = h.workspace.id
+						return true
+					}
+					return !!rootId && expandedFamilies.has(rootId)
+				})
+		// The family the user is standing in leads the list, its forks travelling with it: the
+		// workspace they are in is the one they look for first, and the one the tick is on.
+		const activeRoot = lineageRoot?.id
+		if (!activeRoot) return visible
+		const families: { root: string | undefined; rows: typeof visible }[] = []
+		for (const h of visible) {
+			if (h.depth === 0 || families.length === 0) families.push({ root: h.workspace.id, rows: [h] })
+			else families[families.length - 1].rows.push(h)
+		}
+		const at = families.findIndex((f) => f.root === activeRoot)
+		if (at <= 0) return visible
+		const [active] = families.splice(at, 1)
+		return [active, ...families].flatMap((f) => f.rows)
 	})
 
 	// ArrowRight/ArrowLeft expand/collapse the keyboard-highlighted family (melt
@@ -173,27 +215,13 @@
 		e.stopPropagation()
 	}
 
-	// The row mechanics below — which family to expand, which collapsed row carries the tick — key on
-	// a depth-0 row of the list, which `buildWorkspaceHierarchy` puts at the highest workspace the
-	// caller can see: parentless, or with a parent absent from their list. `findWorkspaceAncestors`
-	// stops at that same visibility boundary, so it lands on the same row.
-	const lineageRoot = $derived.by(() => {
-		const id = $workspaceStore ?? undefined
-		if (!id) return undefined
-		const ancestors = findWorkspaceAncestors(id, $userWorkspaces ?? [])
-		return ancestors.at(-1) ?? $userWorkspaces?.find((w) => w.id === id)
-	})
-
 	const ambiguousNames = $derived(ambiguousWorkspaceNames($userWorkspaces))
 
-	// Seeded once per instance: opening while a fork is active expands that fork's family,
-	// putting the tick on the active fork's own row instead of on its collapsed root. The
-	// host menu renders this only while open, so in practice each open gets a fresh
-	// instance and therefore a fresh expansion state — except across a close and re-open
-	// inside the menu's 100ms outro, where Svelte resumes the same instance and whatever
-	// was expanded by hand survives.
+	// Seeded once per instance: the family the user is standing in opens expanded, so its forks —
+	// the ones they are most likely to switch between — are there without a click, and the tick
+	// sits on the actual workspace rather than on its collapsed root. Other families stay closed.
 	untrack(() => {
-		if (lineageRoot && lineageRoot.id !== $workspaceStore) {
+		if (!collapseFamilies && lineageRoot && familiesWithForks.has(lineageRoot.id)) {
 			expandedFamilies.add(lineageRoot.id)
 		}
 	})
@@ -281,12 +309,12 @@
 										{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
 									</div>
 									{#if workspace.is_dev_workspace}
-										<Badge
-											color="dark-blue"
-											small
-											class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
-											>{devBadgeText(workspace.dev_workspace_label)}</Badge
-										>
+										<DevWorkspaceBadge
+											label={workspace.dev_workspace_label}
+											color={workspace.color}
+											fallbackClass="dark:bg-surface-accent-primary text-white dark:text-white"
+											class="text-3xs px-1 py-0"
+										/>
 									{/if}
 								</div>
 								{#if ambiguousNames.has(workspace.name)}
@@ -345,11 +373,7 @@
 				</MenuItem>
 			{/if}
 			{#if canForkHere}
-				<MenuItem
-					class={itemClass}
-					onClick={() => (globalForkModal.val = { opened: true })}
-					{item}
-				>
+				<MenuItem class={itemClass} onClick={() => (globalForkModal.val = { opened: true })} {item}>
 					<Plus size={16} />
 					Workspace fork
 				</MenuItem>

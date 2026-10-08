@@ -40,7 +40,7 @@ use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::otel_oss::{
     otel_incr_zombie_delete_count, otel_incr_zombie_restart_count, otel_set_db_pool,
-    otel_set_queue_count, otel_set_queue_running_count,
+    otel_set_queue_count, otel_set_queue_delay, otel_set_queue_running_count,
 };
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
@@ -165,6 +165,12 @@ lazy_static::lazy_static! {
     static ref QUEUE_COUNT: prometheus::IntGaugeVec = prometheus::register_int_gauge_vec!(
         "queue_count",
         "Number of jobs in the queue",
+        &["tag"]
+    ).unwrap();
+
+    static ref QUEUE_DELAY_SECONDS: prometheus::GaugeVec = prometheus::register_gauge_vec!(
+        "queue_delay_seconds",
+        "How long the next job to be picked up has been waiting, in seconds",
         &["tag"]
     ).unwrap();
 
@@ -421,6 +427,8 @@ pub async fn initial_load(
                     native_mode,
                     // an agent worker never reads its group's config, only its token
                     object_store_cache_config: None,
+                    // nor whether it is paused: the server refuses it jobs instead
+                    paused: false,
                 }));
             }
         }
@@ -5597,6 +5605,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         for q in QUEUE_COUNT_TAGS.read().await.iter() {
             if queue_stats.get(q).is_none() {
                 (*QUEUE_COUNT).with_label_values(&[q]).set(0);
+                (*QUEUE_DELAY_SECONDS).with_label_values(&[q]).set(0.0);
             }
         }
     }
@@ -5605,6 +5614,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         for q in OTEL_QUEUE_COUNT_TAGS.read().await.iter() {
             if queue_stats.get(q).is_none() {
                 otel_set_queue_count(q, 0);
+                otel_set_queue_delay(q, 0.0);
             }
         }
     }
@@ -5620,6 +5630,9 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         if metrics_enabled {
             let metric = (*QUEUE_COUNT).with_label_values(&[tag]);
             metric.set(count as i64);
+            (*QUEUE_DELAY_SECONDS)
+                .with_label_values(&[tag])
+                .set(stat.delay);
             tags_to_watch.push(tag.to_string());
         }
 
@@ -5627,6 +5640,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             otel_tags_to_watch.push(tag.to_string());
         }
         otel_set_queue_count(tag, count as i64);
+        otel_set_queue_delay(tag, stat.delay);
     }
 
     if save_metrics {
@@ -5677,8 +5691,13 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty());
 
+        // Pausing or resuming must not restart the workers, dedicated ones included: a reload
+        // whose only difference is the flag skips every restart below.
+        let only_pause_changed = wc.paused != config.paused
+            && WorkerConfig { paused: wc.paused, ..config.clone() } == **wc;
+
         if **wc != config || has_dedicated {
-            if kill_if_change {
+            if kill_if_change && !only_pause_changed {
                 if has_dedicated
                     || wc.dedicated_worker != config.dedicated_worker
                     || wc.dedicated_workers != config.dedicated_workers

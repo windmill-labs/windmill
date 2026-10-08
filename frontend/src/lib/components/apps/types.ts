@@ -188,6 +188,8 @@ export interface AppEditorProps {
 	// with its author and time. `version` and `head` differ when another deploy landed
 	// beside this one, which is when the out-of-date prompt has something to say.
 	onDeploy?: (e: { version?: number; head?: number; headBy?: string; headAt?: string }) => void
+	/** True for the route's own editor: its top bar becomes the page header. */
+	ownsPageHeader?: boolean
 }
 
 export type App = {

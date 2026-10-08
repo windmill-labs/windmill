@@ -949,6 +949,22 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     }
 }
 
+/// The registry overrides of a workspace, empty when it has none.
+///
+/// One snapshot: registry settings reload under running jobs, so a caller whose cache key
+/// has to agree with the registry values it used reads both from here rather than calling
+/// [`workspace_registry_cache_suffix`] and a `read_ee_registry_*` helper separately.
+pub async fn workspace_registry_overrides(
+    w_id: &str,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let registries = WORKSPACE_REGISTRIES.read().await;
+    registries
+        .as_ref()
+        .and_then(|m| m.get(w_id))
+        .cloned()
+        .unwrap_or_default()
+}
+
 /// The name a build artifact is cached under, derived from `base` — the runnable's own
 /// cache-key input — and its inline modules.
 ///
@@ -2005,6 +2021,7 @@ pub fn create_span_with_name(
         root_job = field::Empty,
         workspace_id = %arc_job.workspace_id,
         worker = %worker_name,
+        worker_group = %*WORKER_GROUP,
         hostname = field::Empty,
         tag = %arc_job.tag,
         language = field::Empty,
@@ -2156,6 +2173,7 @@ pub fn log_context_for_job(
         job_id: Some(arc_job.id.to_string()),
         workspace_id: Some(arc_job.workspace_id.clone()),
         worker: Some(worker_name.to_string()),
+        worker_group: Some(WORKER_GROUP.clone()),
         tag: Some(arc_job.tag.clone()),
         job_kind: Some(arc_job.kind.as_str().to_string()),
         created_by: Some(arc_job.created_by.clone()),
@@ -3406,6 +3424,10 @@ pub async fn run_worker(
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
                 }
+            } else if WORKER_CONFIG.load().paused {
+                // Checked after the same-worker channel: a flow this worker already runs
+                // still needs it for its remaining same-worker steps.
+                Ok(None)
             } else {
                 match &conn {
                     Connection::Sql(db) => {
