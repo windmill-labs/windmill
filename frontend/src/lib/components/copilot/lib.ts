@@ -72,6 +72,7 @@ interface AIProviderDetails {
 // the frontier model. The gpt-5 family is deprecated (retires 2026-12-11) but
 // still served, so it stays in the list below the 5.6 models.
 const OPENAI_MODELS = [
+	'gpt-6.1-sol',
 	'gpt-6-sol',
 	'gpt-6-astra',
 	'gpt-6-luna',
@@ -169,12 +170,17 @@ export const AI_PROVIDERS: Record<ChatAIProvider, AIProviderDetails> = {
 }
 
 /** Decision models answer typed questions instead of messages, so only an AI decision offers
- *  them: TypeSafe's Jev, and Cloudflare's Jev-compatible Clef. The pinned Jev version is there
+ *  them: TypeSafe's Jev, Cloudflare's Jev-compatible Clef, and the model of OpenAI's Decisions
+ *  API, which an OpenAI resource serves next to its chat models. The pinned Jev version is there
  *  for flows tuned against its probabilities. */
 export const DECISION_AI_PROVIDERS: Record<
-	Exclude<AIProvider, ChatAIProvider>,
+	Exclude<AIProvider, ChatAIProvider> | 'openai',
 	AIProviderDetails
 > = {
+	openai: {
+		label: 'OpenAI',
+		defaultModels: ['gpt-6-luna']
+	},
 	typesafe: {
 		label: 'TypeSafe',
 		defaultModels: ['jev-latest', 'jev-1.13.0']

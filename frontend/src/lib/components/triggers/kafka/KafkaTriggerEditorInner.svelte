@@ -548,6 +548,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa

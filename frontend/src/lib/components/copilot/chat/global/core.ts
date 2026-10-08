@@ -70,7 +70,10 @@ import {
 import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
-import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+import {
+	DEFAULT_DATA as DEFAULT_RAW_APP_DATA,
+	formatDataTableRef
+} from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
@@ -1298,7 +1301,22 @@ const initAppSchema = z.object({
 	framework: z
 		.enum(FRAMEWORK_KEYS)
 		.describe(
-			'Frontend framework template. Confirm with the user before calling — never default silently. react19 is recommended for new apps.'
+			'Frontend framework template: the one the user named or an app they point at uses, otherwise react19. Do not ask.'
+		),
+	data: z
+		.object({
+			datatable: z.string().describe('Data table the app stores its data in.'),
+			schema: z.string().optional().describe("Schema the app's new tables go in. Omit for public."),
+			tables: z
+				.array(z.string())
+				.optional()
+				.describe(
+					'Tables the app queries, reused or about to be created, each as `<datatable>/<table>` (public) or `<datatable>/<schema>:<table>`.'
+				)
+		})
+		.optional()
+		.describe(
+			'Data setup of an app that stores data, as the user gave or chose it. Omit for an app that stores nothing.'
 		)
 })
 
@@ -1550,7 +1568,7 @@ Raw apps:
 - A draft app is reachable by nobody; deploying is what exposes its backend runnables. deploy_workspace_item says so when the deploy widens who may open the app: anonymous means anyone with the URL, without logging in; guest means anyone the instance's identity provider authenticates, member of this workspace or not. Relay that in plain words and carry on. This is disclosure, not a gate: do not stop and ask for permission, and do not refuse the deploy. You cannot change who may open an app from chat; it is set on the app's deploy settings.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
-- Use init_app only after confirming framework, path, and summary with the user.
+- Use init_app for a new app, with framework react19 unless the user named one or points at an app to follow: do not ask about the framework, and write the summary and pick the path (path conventions above) yourself. When the app has to store data and the user did not say where, settle the data setup with askUserQuestion BEFORE init_app or any SQL (get_instructions subject "app" lists the questions, one askUserQuestion each), then pass the outcome as init_app's data.
 - Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.`
 	)}
 
@@ -2420,7 +2438,7 @@ function getAppInstructions(language?: ScriptLang): string {
 
 - Global mode edits raw app drafts only; it does not save or deploy unless the user explicitly asks to deploy.
 - App drafts are addressed by workspace path. Follow the path conventions in the system prompt: default to \`u/<current-user>/<name>\` for bare names; only use \`f/<folder>/<name>\` when the folder is known to exist. The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
-- To create a new app, use \`init_app\` with a path, optional summary, and a framework (\`react19\` / \`react18\` / \`svelte5\` / \`vue\`). Confirm framework + path + summary with the user before calling — do not silently default to \`react19\` even though it is the recommended choice. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
+- To create a new app, use \`init_app\` with a path, optional summary, a framework (\`react19\` / \`react18\` / \`svelte5\` / \`vue\`) and, for an app that stores data, its \`data\` setup. "Starting a new app" below decides the framework and when the data setup is asked. Ask each of its questions with \`askUserQuestion\`, one question per call with the suggested answer first, before \`init_app\` and before any SQL. \`init_app\` only records \`data\`: a new schema is yours to create with the datatable SQL tool. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
 - \`init_app\` seeds a starter inline runnable named \`a\` (bun, \`main(x: string) => string\`) so the React/Svelte demo button works on first render. Replace or remove it once you start building real backend runnables.
 - Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
 - Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).
@@ -4530,7 +4548,6 @@ export const globalTools: SessionTool<{}>[] = [
 		),
 		planModeSafe: true,
 		showDetails: true,
-		autoCollapseDetails: false,
 		fn: async (ctx) => {
 			const parsed = getRuntimeLogsSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app runtime logs...' })
@@ -5068,6 +5085,9 @@ function getSessionScreenshot(sessionId: string | undefined): Promise<SessionScr
 export type DeployedInSessionHandler = (req: {
 	sessionId: string | undefined
 	kind: 'script' | 'flow' | 'raw_app'
+	/** The path the item's draft, and so its open editor, is keyed on. */
+	storagePath: string
+	/** Where the deploy landed. */
 	path: string
 }) => void
 
@@ -6550,16 +6570,31 @@ async function testRunFlowStepByPath(
 	)
 }
 
+/** The `data.tables` entry for a table named without its data table (`schema:table`,
+ * `schema.table` or `table`), which models write for a table of the app's own data table.
+ * A bare name is a table of the app's own schema. */
+function appTableRef(datatable: string, schema: string | undefined, ref: string): string {
+	if (ref.includes('/')) return ref
+	const sep = ref.includes(':') ? ':' : '.'
+	const at = ref.indexOf(sep)
+	return formatDataTableRef(
+		at === -1
+			? { datatable, schema, table: ref }
+			: { datatable, schema: ref.slice(0, at), table: ref.slice(at + 1) }
+	)
+}
+
 async function initApp(
 	args: {
 		path: string
 		summary?: string
 		framework: FrameworkKey
+		data?: { datatable: string; schema?: string; tables?: string[] }
 	},
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, summary, framework } = args
+	const { path, summary, framework, data } = args
 
 	if (await getGlobalDraft(workspace, 'app', path)) {
 		throw new Error(
@@ -6580,13 +6615,20 @@ async function initApp(
 	const value: AppDraftValue = {
 		summary,
 		files: { ...template },
-		runnables: structuredClone(STARTER_RUNNABLES)
+		runnables: structuredClone(STARTER_RUNNABLES),
+		...(data && {
+			data: {
+				tables: (data.tables ?? []).map((ref) => appTableRef(data.datatable, data.schema, ref)),
+				datatable: data.datatable,
+				schema: data.schema
+			}
+		})
 	}
 	await recomputeAppPolicy(value)
 	const result = await saveAppDraft(workspace, path, value)
 	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Saved app "${path}" draft (${framework})`,
-		message: `Initialized a per-user draft app "${path}" from the ${framework} template (saved server-side, not a deployed workspace item). The template is a demo tour with starter runnables ${Object.keys(STARTER_RUNNABLES).join(', ')}: replace its UI and delete the runnables the app does not need (delete_app_runnable). Use write_app_file / write_app_runnable to evolve it.`
+		message: `Initialized a per-user draft app "${path}" from the ${framework} template (saved server-side, not a deployed workspace item). The template is a demo tour with starter runnables ${Object.keys(STARTER_RUNNABLES).join(', ')}: replace its UI and delete the runnables the app does not need (delete_app_runnable). Use write_app_file / write_app_runnable to evolve it.${data?.schema ? ` Its data config names schema "${data.schema}" of data table "${data.datatable}" without creating it: if it does not exist yet, create it before the tables that go in it.` : ''}`
 	}))
 }
 
@@ -8692,24 +8734,29 @@ async function deployDraft(
 	// synthetic storage key never exists deployed, so the entry would otherwise
 	// stop matching anything after the draft is gone.
 	const deployedKind = itemKindFor(type, triggerKind)
+	const draftStoragePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
 	if (deployedKind) {
-		toolCallbacks.onItemDeployed?.(
-			deployedKind,
-			getGlobalDraftStoragePath(workspace, type, path, triggerKind),
-			deployedPath
-		)
+		toolCallbacks.onItemDeployed?.(deployedKind, draftStoragePath, deployedPath)
 	}
 
-	// Reload the session preview if it's open on the deployed item. Map the
-	// deploy type to the preview kind — a raw app deploys under 'app' but the
-	// preview addresses it as 'raw_app'; non-previewable types map to undefined.
+	// Reload the session preview if it's open on the deployed item, which its editor
+	// knows by the draft's storage path. Map the deploy type to the preview kind — a
+	// raw app deploys under 'app' but the preview addresses it as 'raw_app';
+	// non-previewable types map to undefined.
 	const previewKindByType: Partial<Record<WorkspaceItemType, 'script' | 'flow' | 'raw_app'>> = {
 		script: 'script',
 		flow: 'flow',
 		app: 'raw_app'
 	}
 	const kind = previewKindByType[type]
-	if (kind) deployedInSessionHandler?.({ sessionId, kind, path })
+	if (kind) {
+		deployedInSessionHandler?.({
+			sessionId,
+			kind,
+			storagePath: draftStoragePath,
+			path: deployedPath
+		})
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
@@ -8983,10 +9030,8 @@ export function prepareGlobalUserMessage(
 		content += `path: ${activeEditor.path}\n`
 		content += `isLiveDraft: true\n`
 		if (activeEditor.isNew) {
-			// The template only lives in the open editor until the first edit saves it, so
-			// init_app would see no draft and overwrite it with a second app.
 			content +=
-				'isNew: true — the user just started this item from the new-item builder; it holds the starter template and is the item to build. Edit it in place; do not create another one.\n'
+				'isNew: true — the user just started this item from the new-item builder; it holds the starter template and is the item to build. Edit it in place; do not create another one. For an app, its files are the framework it was started with and the `data` config read_workspace_item shows is the data setup it was started with: ask about neither.\n'
 		}
 		content += '\n'
 	}

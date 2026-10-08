@@ -92,6 +92,8 @@ export type RawAppPreviewLogs = {
 	/** Files were sent to the UI Builder and its build has not reported back in time. */
 	buildPending: boolean
 	buildLogs: string
+	/** The app is held back until the user answers its SDK permission prompt, so it is not running. */
+	sdkConsentPending: boolean
 }
 export type RawAppRuntimeLogRequester = (limit: number) => Promise<RawAppPreviewLogs>
 

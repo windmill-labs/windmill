@@ -537,6 +537,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -653,7 +654,7 @@
 											tooltip="When enabled (recommended), Windmill automatically acknowledges Pub/Sub messages after successful processing. When disabled, your script/flow must explicitly acknowledge each message."
 										>
 											<div class="mt-2">
-												<Toggle bind:checked={auto_acknowledge_msg} />
+												<Toggle bind:checked={auto_acknowledge_msg} disabled={!can_write} />
 											</div>
 											{#if !auto_acknowledge_msg}
 												<div class="mt-3">

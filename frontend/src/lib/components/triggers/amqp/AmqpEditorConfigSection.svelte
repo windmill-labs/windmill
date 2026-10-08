@@ -136,8 +136,9 @@
 								/>
 								<button
 									transition:fade|local={{ duration: 100 }}
-									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
+									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
 									aria-label="Clear"
+									disabled={!can_write}
 									onclick={() => {
 										if (exchange) {
 											exchange.routing_keys = (exchange.routing_keys ?? []).filter(

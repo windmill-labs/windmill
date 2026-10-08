@@ -131,7 +131,11 @@
 			on_failure_exact: a.failedExact,
 			on_failure_extra_args: a.errorHandlerPath ? a.errorHandlerExtraArgs : undefined,
 			on_recovery: a.recoveryHandlerPath
-				? handlerFullPath(a.recoveryHandlerSelected, a.recoveryHandlerItemKind, a.recoveryHandlerPath)
+				? handlerFullPath(
+						a.recoveryHandlerSelected,
+						a.recoveryHandlerItemKind,
+						a.recoveryHandlerPath
+					)
 				: undefined,
 			on_recovery_times: a.recoveredTimes,
 			on_recovery_extra_args: a.recoveryHandlerPath ? a.recoveryHandlerExtraArgs : {},
@@ -413,7 +417,7 @@
 						<select
 							class="!w-14"
 							bind:value={failedExact}
-							disabled={!$enterpriseLicense || emptyString(errorHandlerPath)}
+							disabled={!canWrite || !$enterpriseLicense || emptyString(errorHandlerPath)}
 						>
 							<option value={false}>&gt;=</option>
 							<option value={true}>==</option>
@@ -422,7 +426,7 @@
 							type="number"
 							class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-primary' : ''}"
 							bind:value={failedTimes}
-							disabled={!$enterpriseLicense}
+							disabled={!canWrite || !$enterpriseLicense}
 							min="1"
 						/>
 						<p class={emptyString(errorHandlerPath) ? 'text-primary' : ''}
@@ -484,8 +488,7 @@
 										<li><b>is_flow</b>: Whether the runnable is a flow.</li>
 										<li><b>schedule_path</b>: The path of the schedule.</li>
 										<li><b>error</b>: The error of the last job that errored</li>
-										<li
-											><b>error_started_at</b>: The start datetime of the last job that errored</li
+										<li><b>error_started_at</b>: The start datetime of the last job that errored</li
 										>
 										<li
 											><b>success_times</b>: The number of times the schedule succeeded before
@@ -606,10 +609,7 @@
 						and <a href="https://www.windmill.dev/docs/flows/retries" target="_blank">retries</a>.
 					</Alert>
 				{:else}
-					<FlowRetries
-						bind:flowModuleRetry={retry}
-						disabled={itemKind !== 'script' || disabled}
-					/>
+					<FlowRetries bind:flowModuleRetry={retry} disabled={itemKind !== 'script' || disabled} />
 				{/if}
 			</Section>
 		{:else if optionTabSelected === 'dynamic_skip'}
@@ -646,8 +646,8 @@
 						</div>
 					</Label>
 					<Alert type="info" size="xs" title="Handler requirements">
-						Handler must return a boolean value. Return true to execute the scheduled job, false
-						to skip.
+						Handler must return a boolean value. Return true to execute the scheduled job, false to
+						skip.
 					</Alert>
 				</div>
 			</Section>

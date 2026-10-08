@@ -681,6 +681,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -714,7 +715,7 @@
 							bind:value={summary}
 						/>
 					</label>
-					<LabelsInput bind:labels class="-mt-4" />
+					<LabelsInput bind:labels class="-mt-4" disabled={!can_write} />
 
 					<div class="flex flex-col gap-1">
 						<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
@@ -824,7 +825,7 @@
 							disabled={!can_write}
 						/>
 						{#if showPauseUntil}
-							<DateTimeInput bind:value={paused_until} />
+							<DateTimeInput bind:value={paused_until} disabled={!can_write} />
 						{/if}
 					</div>
 				</div>
@@ -874,6 +875,7 @@
 						<Toggle
 							options={{ right: 'no overlap of flows' }}
 							bind:checked={no_flow_overlap}
+							disabled={!can_write}
 							class="mt-2"
 						/>
 					{/if}

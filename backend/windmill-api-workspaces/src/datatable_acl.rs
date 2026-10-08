@@ -683,6 +683,9 @@ pub(crate) struct CatalogFacts {
     pub(crate) former_owner: Option<FormerOwnerDefaults>,
     /// For a revoke: each grant it takes back.
     pub(crate) revoked_grants: Vec<RevokedGrant>,
+    /// For a grant on what a schema holds: the role cannot reach the schema yet, so the grant
+    /// would give it nothing it can use.
+    pub(crate) lacks_schema_usage: bool,
 }
 
 /// A grant a revoke takes back, as the catalog records it: what `source` gave on `object` (the
@@ -1526,7 +1529,24 @@ async fn build_plan(
             )));
         }
     }
-    let facts = CatalogFacts { other_pg_roles, existing_objects, former_owner, revoked_grants };
+    let lacks_schema_usage = match (&change, target) {
+        (AclChange::Grant { scope, .. }, AclTarget::Schema { schema })
+            if !matches!(scope, GrantScope::Target) =>
+        {
+            !has_schema_usage(client, schema, &pg_role).await?
+        }
+        (AclChange::Grant { .. }, AclTarget::Table { schema, .. }) => {
+            !has_schema_usage(client, schema, &pg_role).await?
+        }
+        _ => false,
+    };
+    let facts = CatalogFacts {
+        other_pg_roles,
+        existing_objects,
+        former_owner,
+        revoked_grants,
+        lacks_schema_usage,
+    };
     let mut plan =
         crate::datatable_acl_oss::plan_statements(target, &change, dbname, &pg_role, &facts)?;
     if matches!(change, AclChange::SetOwner { .. }) {
@@ -1538,6 +1558,27 @@ async fn build_plan(
         }
     }
     Ok(plan)
+}
+
+/// Whether `pg_role` may look into `schema`, directly or through a role it inherits from.
+async fn has_schema_usage(
+    client: &tokio_postgres::Client,
+    schema: &str,
+    pg_role: &str,
+) -> Result<bool> {
+    Ok(client
+        .query_one(
+            "SELECT has_schema_privilege($1::name, $2::text, 'USAGE')",
+            &[&pg_role, &schema],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read the role's privileges on schema {schema}: {}",
+                pg_error_message(&e)
+            ))
+        })?
+        .get(0))
 }
 
 /// Postgres only hands an object to a role that could have created it: a table to one with

@@ -196,6 +196,24 @@ async function openInSession(
 	workspaceId?: string,
 	opts?: { seedPrompt?: string; autoSend?: boolean }
 ): Promise<void> {
+	await goto(await sessionHrefFor(url, workspaceId, opts))
+}
+
+/** A fresh session's page, with an editor in its preview. For a `load` that sends the
+ * user there by redirect, where a `goto` would start a second navigation. */
+export function editorSessionHref(
+	target: SessionTarget,
+	workspaceId?: string,
+	previewParams?: Record<string, string>
+): Promise<string> {
+	return sessionHrefFor(withPreviewParams(sessionTargetHref(target), previewParams), workspaceId)
+}
+
+async function sessionHrefFor(
+	url: string | undefined,
+	workspaceId?: string,
+	opts?: { seedPrompt?: string; autoSend?: boolean }
+): Promise<string> {
 	// Seed the fresh session's preview with a single tab on `url` so it opens
 	// straight onto what the caller wants (resetSessionPreviewTabs also writes
 	// through a live runtime if one already exists for this id).
@@ -216,7 +234,7 @@ async function openInSession(
 		navRouteOffered = true
 	}
 	selectSession(session.id)
-	await goto(sessionPageHref(session.id))
+	return sessionPageHref(session.id)
 }
 
 // Open an editor's own hand-off, running its `beforeOpen` (which persists the

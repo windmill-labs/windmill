@@ -26,6 +26,7 @@ import {
 	type PreviewTarget
 } from './previewRouter'
 import type { SessionPreviewTab, SessionTarget } from './sessionState.svelte'
+import { sessionTargetHref } from './sessionMode.svelte'
 import type { Kind } from '$lib/utils_deployable'
 import { pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 import {
@@ -639,6 +640,25 @@ export class SessionPreviewTabs {
 		const tab = this.#tabs.find((t) => t.url === fromUrl)
 		if (!tab) return
 		retargetTab(tab, toUrl)
+		this.#flush()
+	}
+
+	/** Follow an item its editor deployed under a new path, in place: the editor is keyed
+	 * on the path, and nothing is left to edit at the old one. */
+	retargetEditor(from: SessionTarget, to: SessionTarget): void {
+		const tab = this.#tabs.find((t) => isItemTabFor(t.url, from, 'edit'))
+		if (!tab) return
+		// One editor per item: a tab already on the new path keeps it.
+		const existing = this.#tabs.find((t) => t.id !== tab.id && isItemTabFor(t.url, to, 'edit'))
+		if (existing) {
+			const wasActive = this.#activeId === tab.id
+			this.close(tab.id)
+			if (wasActive) this.#activeId = existing.id
+		} else {
+			const url = sessionTargetHref(to)
+			if (!url) return
+			retargetTab(tab, url)
+		}
 		this.#flush()
 	}
 
