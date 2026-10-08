@@ -5115,6 +5115,8 @@ pub async fn handle_queued_job(
 
         let cjob = MiniCompletedJob::from(job.to_owned());
         drop(job);
+        // Taken ahead of the returns below so that none of them leaves the entry behind.
+        let cpu_time_ms = crate::handle_child::take_job_cpu_time_ms(&cjob.id);
         //it's a test job, no need to update the db
         if cjob.workspace_id == "" {
             return Ok(JobOutcome::Completed);
@@ -5124,7 +5126,6 @@ pub async fn handle_queued_job(
             .as_ref()
             .is_err_and(|err| matches!(err, &Error::AlreadyCompleted(_)))
         {
-            crate::handle_child::take_job_cpu_time_ms(&cjob.id);
             return Ok(JobOutcome::AlreadyCompleted);
         }
         if result
@@ -5141,6 +5142,7 @@ pub async fn handle_queued_job(
             job_dir,
             job_completed_tx,
             mem_peak,
+            cpu_time_ms,
             canceled_by,
             cached_res_path,
             &client.token,

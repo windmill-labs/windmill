@@ -7,6 +7,10 @@
 //! TypeScript, ...) have no memory or CPU reading, memory is the peak of the job's main
 //! process only, and CPU counts that process and the children it waited for, and nothing
 //! for a job that was killed.
+//!
+//! Nothing here checks authorization: these functions write and prune every workspace's
+//! rows, and are for the worker's completion path and the server's monitor only. Reads
+//! go through the devops-gated API handler.
 
 use std::{collections::HashMap, sync::Mutex};
 

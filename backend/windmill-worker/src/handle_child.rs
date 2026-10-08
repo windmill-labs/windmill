@@ -1272,6 +1272,21 @@ pub fn process_status(
 mod tests {
     use super::*;
 
+    #[test]
+    fn proc_stat_cpu_time_survives_a_hostile_process_name() {
+        // utime 150, stime 50, cutime 700, cstime 100 ticks: 1000 ticks, 10 s.
+        let tail = "Z 1 42 42 0 -1 4194560 100 200 0 0 150 50 700 100 20 0 1 0 12345 0 0";
+        assert_eq!(
+            parse_proc_stat_cpu_ms(&format!("42 (bun) {tail}")),
+            Some(10_000)
+        );
+        assert_eq!(
+            parse_proc_stat_cpu_ms(&format!("42 (a) R 9 (9 9 9 9 9 9 9 9 9) {tail}")),
+            Some(10_000)
+        );
+        assert_eq!(parse_proc_stat_cpu_ms("42 (bun) Z 1 42"), None);
+    }
+
     // A non-positive timeout means "unset" to `resolve_job_timeout`, so an
     // exhausted budget that reported 0 would hand the next phase no deadline at
     // all — the opposite of what running out of time should do.

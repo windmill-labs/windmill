@@ -586,6 +586,7 @@ pub async fn process_result(
     job_dir: &str,
     job_completed_tx: JobCompletedSender,
     mem_peak: i32,
+    cpu_time_ms: Option<i64>,
     canceled_by: Option<CanceledBy>,
     cached_res_path: Option<String>,
     token: &str,
@@ -596,10 +597,7 @@ pub async fn process_result(
     has_stream: bool,
     flow_runners: Option<Arc<FlowRunners>>,
 ) -> error::Result<crate::worker::JobOutcome> {
-    let resource_usage = Some(JobResourceUsage {
-        worker_group: WORKER_GROUP.clone(),
-        cpu_time_ms: crate::handle_child::take_job_cpu_time_ms(&job.id),
-    });
+    let resource_usage = Some(JobResourceUsage { worker_group: WORKER_GROUP.clone(), cpu_time_ms });
     match result {
         Ok(result) => {
             send_job_completed(
