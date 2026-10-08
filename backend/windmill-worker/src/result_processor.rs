@@ -333,12 +333,22 @@ pub fn start_background_processor(
         let flush_handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(900)); // Flush every 15 min
 
+            // Once per hourly bucket, at an offset of its own per worker so that a fleet
+            // started together does not write the same rows in the same second.
+            let runnable_period = tokio::time::Duration::from_secs(3600);
+            let mut runnable_interval = tokio::time::interval_at(
+                tokio::time::Instant::now() + runnable_period.mul_f64(rand::random::<f64>()),
+                runnable_period,
+            );
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
                         if let Err(e) = flush_stats_to_db(&db_clone, &stats_map_clone).await {
                             tracing::error!("Failed to flush worker group job stats: {}", e);
                         }
+                    }
+                    _ = runnable_interval.tick() => {
                         if let Err(e) = flush_runnable_job_stats(&db_clone).await {
                             tracing::error!("Failed to flush runnable job stats: {}", e);
                         }

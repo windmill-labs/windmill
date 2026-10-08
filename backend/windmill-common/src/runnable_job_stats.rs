@@ -131,13 +131,16 @@ pub fn accumulate_runnable_round(
 }
 
 pub async fn flush_runnable_job_stats(db: &Pool<Postgres>) -> Result<(), sqlx::Error> {
-    let drained: Vec<(StatsKey, RunnableStats)> = {
+    let mut drained: Vec<(StatsKey, RunnableStats)> = {
         let mut stats = STATS.lock().unwrap();
         if stats.is_empty() {
             return Ok(());
         }
         stats.drain().collect()
     };
+    // Every worker upserts the same rows: taking their locks in one order is what keeps
+    // two concurrent flushes from deadlocking.
+    drained.sort_unstable_by(|a, b| a.0.cmp(&b.0));
 
     let mut hours = Vec::with_capacity(drained.len());
     let mut workspace_ids = Vec::with_capacity(drained.len());
@@ -162,8 +165,8 @@ pub async fn flush_runnable_job_stats(db: &Pool<Postgres>) -> Result<(), sqlx::E
         cpus.push(s.total_cpu_ms);
     }
 
-    // The join drops rows of a workspace deleted since its jobs ran: without it their
-    // foreign key violation would fail the whole batch, and every retry after it.
+    // The join drops rows of a workspace deleted since its jobs ran, which nothing would
+    // remove before the retention sweep.
     let res = sqlx::query!(
         r#"
         INSERT INTO runnable_job_stats

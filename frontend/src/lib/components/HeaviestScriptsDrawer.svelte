@@ -19,7 +19,6 @@
 	let { workerGroups }: Props = $props()
 
 	const WINDOWS = {
-		'1h': 3600,
 		'24h': 24 * 3600,
 		'7d': 7 * 24 * 3600,
 		'30d': 30 * 24 * 3600
@@ -81,7 +80,7 @@
 	<DrawerContent title="Heaviest scripts" on:close={drawer?.closeDrawer}>
 		<Section
 			label="Resource usage per script"
-			tooltip="Aggregated by the workers every 15 minutes, per script and worker group. Memory is the peak of the job's main process. CPU time counts that process and the child processes it waited for. Scripts run inside the worker process (SQL, native TypeScript) and jobs of dedicated workers report neither, and a killed job reports no CPU time."
+			tooltip="Aggregated by the workers once an hour, per script and worker group, so the last hour is incomplete. Memory is the peak of the job's main process. CPU time counts that process and the child processes it waited for. Scripts run inside the worker process (SQL, native TypeScript) and jobs of dedicated workers report neither, and a killed job reports no CPU time."
 		>
 			{#snippet action()}
 				<ToggleButtonGroup bind:selected={windowKey} noWFull>
