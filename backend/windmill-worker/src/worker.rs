@@ -155,7 +155,7 @@ use crate::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
         tally_unfinished_dependency_deploy,
     },
-    worker_utils::{insert_ping, queue_vacuum, update_worker_ping_full},
+    worker_utils::{insert_ping, mark_worker_draining, queue_vacuum, update_worker_ping_full},
 };
 
 #[cfg(feature = "rust")]
@@ -2713,7 +2713,7 @@ pub async fn run_worker(
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
     let mut reported_ip = cached_ip();
-    let previous_jobs_executed = insert_ping(hostname, &worker_name, reported_ip, conn)
+    let previous_jobs_executed = insert_ping(hostname, &worker_name, reported_ip, true, conn)
         .await
         .expect("initial ping could be sent");
 
@@ -3160,6 +3160,31 @@ pub async fn run_worker(
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
 
+    // The loop below only sees the killpill once the running job is done, which is too late
+    // for that job to learn its worker is going away.
+    {
+        let mut killpill_rx = killpill_rx.resubscribe();
+        let conn = conn.clone();
+        let worker_name = worker_name.clone();
+        tokio::spawn(async move {
+            if matches!(
+                killpill_rx.recv().await,
+                Err(broadcast::error::RecvError::Closed)
+            ) {
+                return;
+            }
+            for attempt in 1..=3 {
+                match mark_worker_draining(&conn, &worker_name).await {
+                    Ok(()) => return,
+                    Err(e) => {
+                        tracing::warn!(worker = %worker_name, "failed to mark worker as draining (attempt {attempt}/3): {e:#}");
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        });
+    }
+
     loop {
         let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
         if last_processing_duration_secs > 5 {
@@ -3235,7 +3260,7 @@ pub async fn run_worker(
             // which costs at most the last job's id here: no job of this worker is in flight at this
             // point in the loop, and the next one refills them.
             if ip_just_resolved && conn.as_sql().is_none() {
-                if let Err(e) = insert_ping(hostname, &worker_name, ip, &conn).await {
+                if let Err(e) = insert_ping(hostname, &worker_name, ip, false, &conn).await {
                     tracing::warn!(
                         worker = %worker_name, hostname = %hostname,
                         "failed to re-register with the resolved external IP: {e}"
