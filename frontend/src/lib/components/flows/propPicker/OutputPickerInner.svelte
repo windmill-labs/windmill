@@ -72,6 +72,8 @@
 		/** Offer a result/logs toggle. Only for viewers that show the result alone —
 		 *  where a log pane sits alongside it, the toggle just hides what is already there. */
 		logsToggle?: boolean
+		/** Bottom-right line under the result, e.g. a hint about the step. */
+		footer?: import('svelte').Snippet
 	}
 
 	let {
@@ -102,7 +104,8 @@
 		selectionId,
 		initial,
 		customEmptyJobMessage,
-		logsToggle = false
+		logsToggle = false,
+		footer
 	}: Props = $props()
 
 	let jsonView = $state(false)
@@ -794,6 +797,11 @@
 			class="-mb-1 -mt-0.5 w-full text-right pr-4 dark:text-gray-500 text-gray-400 font-normal text-2xs py-0"
 			>Run loaded from history</span
 		>
+	{/if}
+	{#if footer}
+		<div class="-mb-1 w-full flex justify-end pr-4 text-2xs py-0">
+			{@render footer()}
+		</div>
 	{/if}
 </div>
 

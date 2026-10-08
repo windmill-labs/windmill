@@ -30,6 +30,7 @@
 		type RoutingCheck
 	} from '../aiDecisionBranching'
 	import StepIdBadge from './StepIdBadge.svelte'
+	import { ON_ERROR, guardedStepOf } from '../errorHandling'
 
 	interface Props {
 		flowModule: FlowModule
@@ -112,6 +113,8 @@
 
 	// Kept in step with the AI decision questions its branches were generated from.
 	let routingChecks = $derived(checkRouting(flowStore.val, flowModule))
+	// The step whose errors this branchone handles, when it is one's error handler.
+	let guardedId = $derived(guardedStepOf(flowStore.val.value, flowModule.id))
 
 	function addMissing(check: RoutingCheck) {
 		push(history, flowStore.val)
@@ -189,6 +192,15 @@
 									</Alert>
 								{/each}
 							{/each}
+							{#if guardedId}
+								<Alert type="info" size="xs" title="Handles the errors of {guardedId}">
+									<code>results.{guardedId}?.error</code> has <code>message</code>,
+									<code>name</code>, <code>stack</code>, <code>step_id</code> (and
+									<code>exit_code</code> for scripts that exit non-zero). Branches are checked on
+									success too, when the result can be empty: use <code>?.</code>, and keep
+									{ON_ERROR} last.
+								</Alert>
+							{/if}
 							<section
 								class="flex flex-col gap-3"
 								use:dragHandleZone={{ items, flipDurationMs: 150, dropTargetStyle: {} }}
@@ -235,14 +247,27 @@
 												parentModule={flowModule}
 												{previousModule}
 												{enableAi}
+												{guardedId}
 											/>
 										</div>
 									</div>
 								{/each}
 							</section>
-							<div class="flex items-center gap-2 rounded-md bg-surface-tertiary p-3 shadow-sm">
+							<div
+								class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-2 rounded-md bg-surface-tertiary p-3 shadow-sm"
+							>
 								<Badge color="blue" class="text-xs">Default</Badge>
-								<p class="text-xs italic text-tertiary">Runs if none of the above match</p>
+								<TextInput
+									size="sm"
+									bind:value={
+										() => value.default_summary ?? '',
+										(v) => (value.default_summary = String(v) || undefined)
+									}
+									inputProps={{ placeholder: 'Default' }}
+								/>
+								<p class="col-start-2 text-xs italic text-tertiary">
+									Runs if none of the above match
+								</p>
 							</div>
 						</div>
 						<Button

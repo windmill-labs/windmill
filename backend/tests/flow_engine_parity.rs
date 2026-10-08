@@ -360,6 +360,7 @@ export function main() {
                         },
                     )],
                     default_node: None,
+                    default_summary: None,
                 },
             ),
         ],
@@ -2187,6 +2188,7 @@ export function main() {
                     }],
                     default: vec![],
                     default_node: None,
+                    default_summary: None,
                 },
             ),
             flow_module(
@@ -2312,6 +2314,7 @@ export function main() {
             }],
             default: vec![],
             default_node: None,
+            default_summary: None,
         },
     );
 
@@ -2330,6 +2333,7 @@ export function main() {
             }],
             default: vec![],
             default_node: None,
+            default_summary: None,
         },
     );
 
@@ -2444,6 +2448,7 @@ export function main(value: number) {
                 }],
                 default: vec![],
                 default_node: None,
+                default_summary: None,
             },
         )],
         flow_env: Some(flow_env),

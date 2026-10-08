@@ -302,7 +302,7 @@ export function getContainerInnerArrays(mod: FlowModule): ContainerInnerArray[] 
 				set: (v) => {
 					val.default = v
 				},
-				label: 'Default'
+				label: val.default_summary || 'Default'
 			},
 			...val.branches.map((b: any, i: number) => ({
 				get: () => b.modules,

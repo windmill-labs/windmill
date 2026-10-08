@@ -250,7 +250,7 @@
 {:else if flowModule.value.type === 'branchone'}
 	{#if selectedId === `${flowModule?.id}-branch-default`}
 		<div class="h-full flex flex-col">
-			<FlowCard {noEditor} title="Default branch">
+			<FlowCard {noEditor} title={flowModule.value.default_summary || 'Default branch'}>
 				<div class="p-4">
 					<p class="text-xs text-tertiary">
 						Nothing to configure — this branch runs when none of the predicates match.

@@ -5782,7 +5782,7 @@ async fn compute_next_flow_transform(
                 }
             }
         }
-        FlowModuleValue::BranchOne { branches, default, default_node } => {
+        FlowModuleValue::BranchOne { branches, default, default_node, .. } => {
             // Branch lock for nested restart: if this BranchOne is the target of a
             // nested restart, reuse the branch that was originally chosen instead of
             // re-evaluating predicates. The lock is opt-in via `restarted_from.nested`

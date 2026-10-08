@@ -104,7 +104,7 @@ fn module_value_references_flow_nodes(value: &FlowModuleValue) -> bool {
         | FlowModuleValue::WhileloopFlow { modules, modules_node, .. } => {
             modules_node.is_some() || any(modules)
         }
-        FlowModuleValue::BranchOne { branches: b, default, default_node } => {
+        FlowModuleValue::BranchOne { branches: b, default, default_node, .. } => {
             default_node.is_some() || any(default) || branches(b)
         }
         FlowModuleValue::BranchAll { branches: b, .. } => branches(b),

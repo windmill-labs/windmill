@@ -1716,7 +1716,7 @@ async fn lock_modules(
                     }
                     .into()
                 }
-                FlowModuleValue::BranchOne { branches, default, default_node } => {
+                FlowModuleValue::BranchOne { branches, default, default_node, default_summary } => {
                     let mut nbranches = vec![];
                     for mut b in branches {
                         let nmodules;
@@ -1780,6 +1780,7 @@ async fn lock_modules(
                         branches: nbranches,
                         default: ndefault,
                         default_node,
+                        default_summary,
                     }
                     .into();
                 }
