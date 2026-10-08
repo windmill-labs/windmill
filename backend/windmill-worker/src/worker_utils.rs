@@ -39,7 +39,9 @@ pub(crate) async fn update_worker_ping_full(
     let wm_memory_usage = get_windmill_memory_usage();
 
     let (vcpus, memory) = if read_cgroups {
-        (get_vcpus(), get_memory())
+        let memory = get_memory();
+        crate::resource_metrics::set_memory_limit(memory);
+        (get_vcpus(), memory)
     } else {
         (None, None)
     };

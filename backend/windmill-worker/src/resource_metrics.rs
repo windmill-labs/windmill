@@ -103,7 +103,12 @@ fn metrics_enabled() -> bool {
 // (native mode runs several). Only the first worker to report exports them, so that
 // summing the series over workers does not count one container several times.
 static CONTAINER_SERIES_OWNER: OnceLock<String> = OnceLock::new();
-static MEMORY_LIMIT: OnceLock<Option<i64>> = OnceLock::new();
+static MEMORY_LIMIT: Mutex<Option<Option<i64>>> = Mutex::new(None);
+
+/// Replaces the exported memory limit, for the ping that re-reads the cgroup limits.
+pub(crate) fn set_memory_limit(limit: Option<i64>) {
+    *MEMORY_LIMIT.lock().unwrap() = Some(limit);
+}
 static LAST_CPU_STAT: Mutex<CpuStat> =
     Mutex::new(CpuStat { usage_usec: 0, nr_periods: 0, nr_throttled: 0, throttled_usec: 0 });
 
@@ -145,7 +150,7 @@ pub(crate) fn record_worker_resources(
         return;
     }
 
-    let memory_limit = *MEMORY_LIMIT.get_or_init(get_memory);
+    let memory_limit = *MEMORY_LIMIT.lock().unwrap().get_or_insert_with(get_memory);
     #[cfg(feature = "prometheus")]
     if let Some(m) = PROM_METRICS.as_ref() {
         let labels = &[worker_name, worker_group];
