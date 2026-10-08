@@ -85,7 +85,8 @@
 		['dark-indigo']: 'bg-indigo-700 text-indigo-100 dark:bg-indigo-800 dark:text-indigo-200',
 		['dark-orange']: 'bg-orange-700 text-orange-100 dark:bg-orange-800 dark:text-orange-200',
 		['dark-violet']: 'bg-violet-700 text-violet-100 dark:bg-violet-800 dark:text-violet-200',
-		transparent: 'bg-surface-accent-selected text-accent border-gray-400 dark:border-gray-500'
+		// Keeps the unselected chip's border, so selecting one does not change its height.
+		transparent: 'bg-surface-accent-selected text-accent border border-surface-accent-selected'
 	}
 
 	const hovers: Partial<Record<BadgeColor, string>> = {

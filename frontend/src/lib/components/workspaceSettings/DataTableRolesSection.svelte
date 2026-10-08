@@ -15,6 +15,7 @@
 	import { SettingService, type DatatableRoleCluster, type InstanceDatatableRole } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
+	import { handleRoleCreationError } from './datatableRoleModals'
 
 	let {
 		initialName = '',
@@ -134,14 +135,28 @@
 	async function create() {
 		const name = newName.trim()
 		if (!name) return
-		await run(
-			() =>
-				SettingService.createInstanceDatatableRole({
-					requestBody: { name, cluster }
-				}),
-			`Created the data table role ${name}`
-		)
-		newName = ''
+		busy = true
+		try {
+			await SettingService.createInstanceDatatableRole({ requestBody: { name, cluster } })
+			sendUserToast(`Created the data table role ${name}`)
+			newName = ''
+		} catch (e) {
+			const createdOn = cluster
+			handleRoleCreationError(e, {
+				name,
+				cluster: createdOn,
+				confirmationModal,
+				onTakenOver: async () => {
+					newName = ''
+					if (cluster === createdOn) await load()
+					onChanged?.()
+				}
+			})
+		} finally {
+			await load()
+			busy = false
+			onChanged?.()
+		}
 	}
 
 	async function remove(role: InstanceDatatableRole) {
