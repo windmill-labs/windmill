@@ -65,7 +65,7 @@
 				</tr>
 			</Head>
 			<tbody>
-				{#each status.keys as key (key.kid)}
+				{#each status.keys as key, i (`${key.source}:${key.kid ?? i}`)}
 					<tr>
 						<Cell first>
 							<span class="flex items-center gap-1 font-mono text-xs">
