@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT channel_id, channel_name, agent_path FROM slack_channel_agent\n         WHERE workspace_id = $1 AND agent_path = $2 ORDER BY channel_name",
+  "query": "SELECT c.channel_id, c.channel_name, c.agent_path FROM slack_channel_agent c\n         JOIN resource r ON r.workspace_id = c.workspace_id AND r.path = c.agent_path\n         WHERE c.workspace_id = $1 AND c.agent_path = $2 ORDER BY c.channel_name",
   "describe": {
     "columns": [
       {
@@ -31,5 +31,5 @@
       false
     ]
   },
-  "hash": "80ef811675f39e6ab14071c5370dd9fde961177a086a931ecb4c6bb72cf70120"
+  "hash": "35b5261c148af3bf68de2772847125dcfc4f0f8a22b5eeb927f3484d7534826c"
 }

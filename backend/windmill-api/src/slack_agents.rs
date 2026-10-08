@@ -22,8 +22,8 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
-    utils::{require_admin, StripPath},
-    variables::get_secret_value_as_admin,
+    utils::{calculate_hash, require_admin, StripPath},
+    variables::{get_secret_value_as_admin, get_workspace_key},
     BASE_URL,
 };
 
@@ -58,19 +58,23 @@ struct ChannelAgent {
     agent_path: String,
 }
 
+/// Listed through the caller's permissions: an agent they cannot read stays unnamed.
 async fn list_channel_agents(
-    _authed: ApiAuthed,
-    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<ChannelAgent>> {
+    let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as!(
         ChannelAgent,
-        "SELECT channel_id, channel_name, agent_path FROM slack_channel_agent
-         WHERE workspace_id = $1 ORDER BY channel_name",
+        "SELECT c.channel_id, c.channel_name, c.agent_path FROM slack_channel_agent c
+         JOIN resource r ON r.workspace_id = c.workspace_id AND r.path = c.agent_path
+         WHERE c.workspace_id = $1 ORDER BY c.channel_name",
         w_id
     )
-    .fetch_all(&db)
+    .fetch_all(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(Json(rows))
 }
 
@@ -82,8 +86,9 @@ struct AgentSlack {
 }
 
 async fn list_agent_channels(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<AgentSlack> {
     let slack_team_name = sqlx::query_scalar!(
@@ -94,15 +99,18 @@ async fn list_agent_channels(
     .fetch_optional(&db)
     .await?
     .flatten();
+    let mut tx = user_db.begin(&authed).await?;
     let channels = sqlx::query_as!(
         ChannelAgent,
-        "SELECT channel_id, channel_name, agent_path FROM slack_channel_agent
-         WHERE workspace_id = $1 AND agent_path = $2 ORDER BY channel_name",
+        "SELECT c.channel_id, c.channel_name, c.agent_path FROM slack_channel_agent c
+         JOIN resource r ON r.workspace_id = c.workspace_id AND r.path = c.agent_path
+         WHERE c.workspace_id = $1 AND c.agent_path = $2 ORDER BY c.channel_name",
         w_id,
         path.to_path()
     )
-    .fetch_all(&db)
+    .fetch_all(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(Json(AgentSlack { slack_team_name, channels }))
 }
 
@@ -304,6 +312,12 @@ enum Route {
 /// Whether an agent answers this message; if so, the answer is under way when this returns.
 /// `false` leaves the message to the workspace's command script.
 pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
+    // Without it the Slack endpoints take unsigned requests, and the sender's `user_id` would
+    // pick whose permissions the agent runs with.
+    #[cfg(feature = "oauth2")]
+    if crate::SLACK_SIGNING_SECRET.is_none() {
+        return Ok(false);
+    }
     let text = decode_entities(&msg.text);
     let (name, question) = split_agent_name(&text);
     let thread_root = msg.thread_ts.clone().or_else(|| msg.ts.clone());
@@ -370,11 +384,15 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
         if !first {
             return Ok(true);
         }
-        sqlx::query!(
-            "DELETE FROM slack_answered_message WHERE created_at < now() - interval '1 day'"
-        )
-        .execute(db)
-        .await?;
+    }
+    // Recorded before answering, so a follow-up sent while the first answer is on its way
+    // already finds its agent. A named agent is recorded once the sender's name resolves.
+    if let (Route::Agent(path), Some(root)) = (&route, &thread_root) {
+        if let Err(e) =
+            record_thread_agent(db, &msg.team_id, &msg.channel_id, root, &w_id, path).await
+        {
+            tracing::warn!("Could not record the Slack thread's agent: {e:#}");
+        }
     }
 
     if !matches!(route, Route::Help) {
@@ -385,11 +403,47 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
     // ponytail: the reply waits in this API process, so a restart mid-run loses the reply (not
     // the run, which still shows in Windmill); a job-completion hook would make it durable.
     tokio::spawn(async move {
+        prune(&db).await;
         if let Err(e) = answer(&db, &w_id, route, &question, msg).await {
             tracing::error!("Slack agent answer failed: {e:#}");
         }
     });
     Ok(true)
+}
+
+async fn record_thread_agent(
+    db: &DB,
+    team_id: &str,
+    channel_id: &str,
+    thread_ts: &str,
+    w_id: &str,
+    agent_path: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO slack_thread_agent (slack_team_id, channel_id, thread_ts, workspace_id, agent_path)
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+        team_id,
+        channel_id,
+        thread_ts,
+        w_id,
+        agent_path
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Best effort: a message already marked answered must still be answered if this fails.
+async fn prune(db: &DB) {
+    let res = sqlx::query!(
+        "WITH a AS (DELETE FROM slack_answered_message WHERE created_at < now() - interval '1 day')
+         DELETE FROM slack_thread_agent WHERE created_at < now() - interval '90 days'"
+    )
+    .execute(db)
+    .await;
+    if let Err(e) = res {
+        tracing::warn!("Could not prune Slack agent routing: {e:#}");
+    }
 }
 
 /// `+name rest` or `~name rest` → (name, rest).
@@ -605,23 +659,16 @@ async fn answer(
             .await;
     }
 
-    sqlx::query!(
-        "INSERT INTO slack_thread_agent (slack_team_id, channel_id, thread_ts, workspace_id, agent_path)
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
-        msg.team_id,
-        channel,
-        thread_root,
-        w_id,
-        agent_path
-    )
-    .execute(db)
-    .await?;
+    record_thread_agent(db, &msg.team_id, &channel, &thread_root, w_id, &agent_path).await?;
 
+    // Keyed with the workspace's secret: any member could rebuild the plain thread and user ids
+    // and load this person's conversation, tool results included, through the run API.
+    let workspace_key = get_workspace_key(w_id, db).await?;
     let run_query = RunJobQuery {
-        memory_id: Some(format!(
-            "slack:{}:{}:{}:{}",
+        memory_id: Some(calculate_hash(&format!(
+            "{workspace_key}:slack:{}:{}:{}:{}",
             msg.team_id, channel, thread_root, msg.user_id
-        )),
+        ))),
         ..Default::default()
     };
     let args: HashMap<String, Box<RawValue>> = [(

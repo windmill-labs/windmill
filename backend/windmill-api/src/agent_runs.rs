@@ -42,9 +42,6 @@ pub(crate) async fn run_agent(
     Query(run_query): Query<RunJobQuery>,
     Json(args): Json<HashMap<String, Box<RawValue>>>,
 ) -> Result<(StatusCode, String)> {
-    #[cfg(feature = "enterprise")]
-    crate::jobs::check_license_key_valid().await?;
-
     let path = path.to_path();
     check_scopes(&authed, || format!("jobs:run:agents:{path}"))?;
 
@@ -62,6 +59,9 @@ pub(crate) async fn run_agent_as(
     run_query: &RunJobQuery,
     args: &HashMap<String, Box<RawValue>>,
 ) -> Result<uuid::Uuid> {
+    #[cfg(feature = "enterprise")]
+    crate::jobs::check_license_key_valid().await?;
+
     // Read through the caller's own permissions: reading the agent is what allows running it.
     let mut tx = user_db.clone().begin(authed).await?;
     let value = sqlx::query_scalar!(

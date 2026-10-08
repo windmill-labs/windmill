@@ -28,6 +28,7 @@ CREATE TABLE slack_thread_agent (
 );
 
 CREATE INDEX index_slack_thread_agent_workspace ON slack_thread_agent (workspace_id, agent_path);
+CREATE INDEX index_slack_thread_agent_created_at ON slack_thread_agent (created_at);
 
 -- The Slack messages an agent has taken up. Slack resends an event it did not see acknowledged,
 -- and posts a direct message mentioning the bot as two events; only the first is answered.
