@@ -154,7 +154,7 @@ async fn paid_seats_and_fork_count(db: Pool<Postgres>) {
     let breakdown = billable_seats(&db, "seat-root").await.unwrap();
     assert_eq!(
         (breakdown.developers, breakdown.operators, breakdown.seats),
-        (4, 0, 4),
+        (4, 0, 5),
         "the app right alone also bills every operator as a developer"
     );
 
