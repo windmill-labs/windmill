@@ -6,15 +6,18 @@ import { clearStores } from './storeUtils'
 // Note: logout and logoutWithRedirect have been moved to logoutKit.ts
 // as they depend on SvelteKit navigation
 
-// The impersonation backup holds the impersonator's own auth token, so it must go on
-// logout too, not only when impersonation is ended from the banner — otherwise a usable
-// token stays readable for the lifetime of the tab.
-function clearImpersonationFromStorage(): void {
+// Every browser-storage entry that can hold a credential must go on logout. The impersonation
+// backup is the impersonator's own auth token; `oauth-callback` carries a connected account's
+// token response when the OAuth popup had no opener to post it to; `test_dev_token` is the
+// session token of the /test_dev pages.
+function clearCredentialsFromStorage(): void {
 	try {
 		sessionStorage.removeItem('pre_impersonation_token')
 		sessionStorage.removeItem('pre_impersonation_email')
+		localStorage.removeItem('oauth-callback')
+		localStorage.removeItem('test_dev_token')
 	} catch (e) {
-		console.error('error interacting with session storage', e)
+		console.error('error interacting with browser storage', e)
 	}
 }
 
@@ -23,7 +26,7 @@ export async function clearUser() {
 		noteSessionEmail(undefined)
 		accountSetup.reset()
 		clearStores()
-		clearImpersonationFromStorage()
+		clearCredentialsFromStorage()
 		await UserService.logout()
 	} catch (error) {}
 }
