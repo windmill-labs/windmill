@@ -86,7 +86,9 @@ pub async fn update_workflow_as_code_status(
                     COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
                 ),
                 array[$1, 'started_at'],
-                to_jsonb(now()::text)
+                -- A child that parks is started again at each resume, and its duration is
+                -- recorded from its first start: keep that one.
+                COALESCE(workflow_as_code_status->$1->'started_at', to_jsonb(now()::text))
                 )
             WHERE id = $2",
         id.to_string(),
