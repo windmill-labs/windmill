@@ -3,7 +3,7 @@
     "auth_url": "https://github.com/login/oauth/authorize",
     "token_url": "https://github.com/login/oauth/access_token",
     "scopes": ["workflow", "repo"],
-    "scope_options": ["repo", "workflow", "gist", "read:org"]
+    "scope_options": ["repo", "workflow", "gist", "read:org", "read:project", "project"]
   },
   "gitlab": {
     "auth_url": "https://gitlab.com/oauth/authorize",
