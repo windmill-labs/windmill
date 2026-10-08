@@ -43,9 +43,11 @@
 				{status.signer.last_refresh_success
 					? displayDate(status.signer.last_refresh_success)
 					: 'never'}
-				<Badge color={status.signer.breaker === 'closed' ? 'green' : 'red'}>
-					{status.signer.breaker === 'closed' ? 'Signer reachable' : 'Signer unreachable'}
-				</Badge>
+				{#if status.signer.breaker !== 'closed'}
+					<Badge color="red">Signer unreachable</Badge>
+				{:else if !status.signer.last_refresh_error && status.signer.last_refresh_success}
+					<Badge color="green">Signer reachable</Badge>
+				{/if}
 			</div>
 			{#if status.signer.last_refresh_error}
 				<Alert type="warning" title="The last key listing was refused">
