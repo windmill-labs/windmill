@@ -5969,6 +5969,10 @@ can call one, not an agent used as a tool.
 - \`results.step_id.property\` - Access specific property from a previous step output only when that step result is in scope
 - \`flow_input.iter.value\` - Current iteration value inside a \`forloopflow\`; in a \`whileloopflow\` it is just the iteration index (a plain number, same as \`flow_input.iter.index\`)
 - \`flow_input.iter.index\` - Current loop index when inside a loop (\`forloopflow\` or \`whileloopflow\`)
+- After a suspend step (approval), the next step's javascript expressions also get:
+  - \`resume\` - the last resume payload (the resume form values); with \`continue_on_disapprove_timeout\`, a disapproval or timeout yields \`{ error: { name: "SuspendedDisapproved" | "SuspendedTimedOut", message } }\` instead
+  - \`resumes\` - every resume payload, in arrival order
+  - \`approvers\` - a plain array of strings, one per resume: for a resume through the \`resume\`/\`cancel\` URL from \`getResumeUrls(approver)\`, the \`approver\` passed there if any; otherwise (including the \`approvalPage\` link) the resuming user's username, else \`"anonymous"\`, e.g. \`approvers[0]\`. It is NOT the \`{ resume_id, approver }\` objects stored in the flow status, so \`approvers[0].approver\` is always undefined
 
 ## Loop Structure Rules
 
@@ -8711,6 +8715,8 @@ user related commands
 
 **Subcommands:**
 
+- \`user list\` - List the users of the workspace
+  - \`--json\` - Output as JSON (for piping to jq)
 - \`user add <email:string> [password:string]\` - Create a user
   - \`--superadmin\` - Specify to make the new user superadmin.
   - \`--company <company:string>\` - Specify to set the company of the new user.
