@@ -834,7 +834,7 @@ The Windmill Hub publishes resource types for most services, and an instance get
 
 - If looking up resource types reports that the instance is missing the hub's types, mention that a superadmin can sync them: the hub most likely has one for the service. Create one of your own only if the user still wants it, since after a sync the workspace would hold both.
 - Otherwise, or when the user prefers it to syncing, propose a resource type holding the service's connection fields (base URL, account or region identifiers, credentials), as in "Custom Resource Types" below, and ask the user before creating it: every resource of that type and every script taking one depends on its fields.
-- You cannot create a resource type yourself: give the user the schema to add with **Add resource type** on the Resources page.
+- Where you have no way to create a resource type yourself, give the user the schema to add with **Add resource type** on the Resources page.
 - A plain variable instead of a resource is fine when the user asks for it; without that, default to the resource, its secret in a variable it references.
 
 ## Custom Resource Types

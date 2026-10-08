@@ -761,7 +761,8 @@
 
 # The instance never synced the hub's resource types, so the one Confluence takes is missing:
 # the script's connection picker stays empty until a superadmin syncs, which only the
-# assistant's reply can tell the user.
+# assistant's reply can tell the user. A type of its own would duplicate the hub's once synced,
+# so it is only for a user who says they would rather not sync.
 - id: global-resource-type-hub-not-synced
   prompt: |-
     Write a script that creates a page in our Confluence space from a space key, a title and the page body.
@@ -777,6 +778,7 @@
   toolExpect:
     forbiddenToolsUsed:
       - write_variable
+      - create_resource_type
       - deploy_workspace_item
   assistantExpect:
     requiredMentionsAnyOf:
@@ -786,7 +788,8 @@
     - the script creates a Confluence page from a space key, a title and a body
 
 # An in-house API has no hub resource type, so its connection needs a type of the workspace's
-# own: a token parameter or a variable read inside the code is the fallback the guidance rules out.
+# own, created once the user confirms its schema: a token parameter or a variable read inside
+# the code is the fallback the guidance rules out.
 - id: global-resource-type-custom-api
   prompt: |-
     Write a script that fetches an invoice by id from our internal billing API at https://billing.acme.internal/api/v1. It authenticates with a bearer token.
@@ -801,6 +804,8 @@
           - getVariable
           - get_variable
   toolExpect:
+    requiredToolsUsed:
+      - create_resource_type
     forbiddenToolsUsed:
       - write_variable
       - deploy_workspace_item

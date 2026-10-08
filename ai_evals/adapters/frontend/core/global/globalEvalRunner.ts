@@ -41,6 +41,7 @@ import type { TokenUsage, ToolCallDetail } from "../shared/types";
 const MUTATING_GLOBAL_TOOLS = new Set([
   "deploy_workspace_item",
   "delete_workspace_item",
+  "create_resource_type",
 ]);
 const DISABLE_ACTIVE_EDITOR_CONTEXT_ENV =
   "WMILL_AI_EVAL_DISABLE_ACTIVE_EDITOR_CONTEXT";
