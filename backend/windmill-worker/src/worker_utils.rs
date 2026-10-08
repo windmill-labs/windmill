@@ -9,7 +9,7 @@ use windmill_common::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
         insert_ping_query, set_worker_draining_query, update_job_ping_query,
         update_worker_ping_from_job_query, update_worker_ping_main_loop_query, Connection, Ping,
-        PingType, NATIVE_MODE_RESOLVED, WORKER_CONFIG, WORKER_DRAINING, WORKER_GROUP,
+        PingType, NATIVE_MODE_RESOLVED, WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, DB,
 };
@@ -180,6 +180,7 @@ pub async fn insert_ping(
     worker_instance: &str,
     worker_name: &str,
     ip: Option<&str>,
+    reset_draining: bool,
     db: &Connection,
 ) -> anyhow::Result<i32> {
     let (tags, dw, dws, native_mode) = {
@@ -225,7 +226,7 @@ pub async fn insert_ping(
                 memory,
                 job_isolation,
                 native_mode,
-                WORKER_DRAINING.load(std::sync::atomic::Ordering::Relaxed),
+                reset_draining.then_some(false),
                 db,
             )
             .await;
@@ -258,7 +259,7 @@ pub async fn insert_ping(
                         wm_memory_usage: get_windmill_memory_usage(),
                         job_isolation,
                         native_mode: Some(native_mode),
-                        draining: Some(WORKER_DRAINING.load(std::sync::atomic::Ordering::Relaxed)),
+                        draining: reset_draining.then_some(false),
                         ping_type: PingType::Initial,
                     },
                 )
