@@ -1277,6 +1277,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 												? 'This can result in edits being applied or tools being called without user confirmation.'
 												: 'This can result in tools being called without user confirmation.'}
 										</p>
+										{#if chatHost.browserTools}
+											<p class="mt-1">
+												That includes clicking, typing and navigating on your page, and a page you
+												visit can try to steer the assistant into doing so.
+											</p>
+										{/if}
 										{#if yoloBypassedTools.length > 0}
 											<p class="mt-2 font-semibold">Bypassed in current mode:</p>
 											<ul class="mt-1 list-disc pl-4 space-y-0.5">

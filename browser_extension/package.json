@@ -3,7 +3,7 @@
 	"private": true,
 	"version": "0.1.0",
 	"scripts": {
-		"build": "rm -rf dist && tsc && cp static/* dist/"
+		"build": "rm -rf dist && tsc && cp -r static/. dist/"
 	},
 	"devDependencies": {
 		"@types/chrome": "^0.3.4",

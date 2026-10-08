@@ -737,10 +737,7 @@ export class AIChatManager implements ChatViewHost {
 			(this.autonomyMode === AIAutonomyMode.ACCEPT_EDIT ||
 				this.autonomyMode === AIAutonomyMode.YOLO)
 	)
-	// Never in the side panel: page content in context could steer an unconfirmed workspace tool.
-	autoAcceptToolConfirmationsAvailable = $derived(
-		!this.browserTools && supportsAutoAcceptToolConfirmations(this.mode)
-	)
+	autoAcceptToolConfirmationsAvailable = $derived(supportsAutoAcceptToolConfirmations(this.mode))
 	autoAcceptToolConfirmationsActive = $derived(
 		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
 	)

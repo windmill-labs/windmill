@@ -210,6 +210,7 @@ function pageAction(
 			el.innerText ||
 			input.placeholder ||
 			(input.type === 'submit' || input.type === 'button' ? input.value : '') ||
+			el.title ||
 			input.name ||
 			''
 		)

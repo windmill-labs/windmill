@@ -157,6 +157,8 @@ export interface ChatViewHost {
 	readonly autoAcceptEditsAvailable: boolean
 	readonly autoAcceptToolConfirmationsAvailable: boolean
 	readonly planModeAvailable: boolean
+	/** Hosted in the browser extension's side panel, with tools acting on the user's tab. */
+	readonly browserTools?: boolean
 	attachedFiles: AttachedFilesStore
 	artifacts: SessionArtifactsStore
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void

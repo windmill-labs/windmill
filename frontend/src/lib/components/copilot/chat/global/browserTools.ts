@@ -18,8 +18,9 @@ type Action = 'click' | 'type' | 'navigate'
 let parentOrigin: string | undefined
 let connection: Promise<boolean> | undefined
 const pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>()
-/** By tool call: the extension's description of the target, made when the approval card opens. */
-const prepared = new Map<string, Promise<{ approvalId: string; label: string }>>()
+/** By the call's own `args` object, the one object the validation, the approval card and the
+ * tool all receive: the target the extension pinned and described before the card opened. */
+const prepared = new WeakMap<object, { approvalId: string; label: string }>()
 
 /** Resolves true once the extension framing this page answers the handshake, accepting only
  * its own window's messages. */
@@ -50,7 +51,6 @@ export function connectBrowserBridge(): Promise<boolean> {
 export function cancelBrowserCalls() {
 	for (const p of pending.values()) p.reject(new Error('Stopped by the user'))
 	pending.clear()
-	prepared.clear()
 	if (parentOrigin) window.parent.postMessage({ type: 'wm-browser:cancel' }, parentOrigin)
 }
 
@@ -91,7 +91,9 @@ function fail(toolCallbacks: ToolCallbacks, toolId: string, content: string, e: 
 }
 
 /** Click, type and navigate go through the chat's own approval card. The extension pins and
- * describes the target as the card opens, and after approval runs only what it described. */
+ * describes the target before the card opens, so Run is only offered on a described target,
+ * and after approval it runs only that. A call with nothing prepared is refused, never
+ * prepared again: a preparation made after consent would bind whatever the page holds then. */
 function actionTool(
 	tool: Action,
 	schema: z.ZodObject<any>,
@@ -99,26 +101,25 @@ function actionTool(
 	description: string,
 	label: (args: any) => string
 ): SessionTool<{}> {
-	const prepare = (args: any) => callBrowser('prepare', { tool, args: schema.parse(args) })
 	return {
 		requires: NONE,
 		def: createToolDef(schema, name, description),
 		showDetails: true,
 		requiresConfirmation: true,
-		confirmationMessage: label,
-		onConfirmationRequested: ({ args, toolCallbacks, toolId }) => {
-			const p = prepare(args)
-			prepared.set(toolId, p)
-			p.then(
-				(r) => toolCallbacks.setToolStatus(toolId, { content: r.label }),
-				() => {}
-			)
-		},
-		fn: async ({ args, toolId, toolCallbacks }) => {
-			const p = prepared.get(toolId) ?? prepare(args)
-			prepared.delete(toolId)
+		validateBeforeConfirmation: async ({ args }) => {
 			try {
-				const { approvalId, label: described } = await p
+				prepared.set(args, await callBrowser('prepare', { tool, args: schema.parse(args) }))
+			} catch (e) {
+				return `Failed: ${e instanceof Error ? e.message : String(e)}`
+			}
+		},
+		confirmationMessage: (args) => prepared.get(args)?.label ?? label(args),
+		fn: async ({ args, toolId, toolCallbacks }) => {
+			const entry = prepared.get(args)
+			prepared.delete(args)
+			try {
+				if (!entry) throw new Error('This action was withdrawn. Ask again.')
+				const { approvalId, label: described } = entry
 				const result = String(await callBrowser('act', { approvalId }))
 				toolCallbacks.setToolStatus(toolId, { content: described, result, isLoading: false })
 				return result
