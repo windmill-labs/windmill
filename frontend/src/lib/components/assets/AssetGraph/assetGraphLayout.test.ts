@@ -147,4 +147,18 @@ describe('layoutAssetGraph (tidy-tree with join breaks)', () => {
 			expect(pos.get(id)!.y).toBeGreaterThan(anchor.y)
 		}
 	})
+
+	it('packs narrow nodes by their own width', () => {
+		const pos = layoutAssetGraph({
+			nodes: [
+				{ ...n('p'), width: 100 },
+				{ ...n('l'), width: 100 },
+				{ ...n('r'), width: 180 }
+			],
+			edges: [e('p', 'l'), e('p', 'r')]
+		})
+		const gap = pos.get('r')!.x - 90 - (pos.get('l')!.x + 50)
+		expect(gap).toBe(NODE.gap.horizontal)
+		expect(pos.get('l')!.x).toBe(50)
+	})
 })
