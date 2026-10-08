@@ -172,7 +172,8 @@
 									{duration(s.total_duration_ms)}
 								</Cell>
 								<Cell numeric class="text-xs text-primary">
-									{duration(s.total_duration_ms / s.job_count)}
+									<!-- A workflow suspended and not yet completed has time recorded and no job. -->
+									{s.job_count > 0 ? duration(s.total_duration_ms / s.job_count) : '-'}
 								</Cell>
 								{#if s.memory_sample_count > 0}
 									<Cell numeric class="text-xs text-primary">

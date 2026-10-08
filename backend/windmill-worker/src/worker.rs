@@ -5134,12 +5134,13 @@ pub async fn handle_queued_job(
         {
             // WAC v2 job suspended while waiting for child jobs — don't complete it
             // Only a worker with a database connection flushes the rollup.
-            if let (Some(cpu_time_ms), Connection::Sql(_)) = (cpu_time_ms, conn) {
-                windmill_common::runnable_job_stats::accumulate_runnable_cpu_time(
+            if let Connection::Sql(_) = conn {
+                windmill_common::runnable_job_stats::accumulate_runnable_round(
                     &cjob.workspace_id,
                     cjob.kind,
                     cjob.runnable_path.as_deref(),
                     &WORKER_GROUP,
+                    started.elapsed().as_millis() as i64,
                     cpu_time_ms,
                 );
             }

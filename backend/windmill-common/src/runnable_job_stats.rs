@@ -4,9 +4,10 @@
 //! "heaviest scripts" view never has to aggregate `v2_job_completed`.
 //!
 //! What a row leaves out: executors that run in the worker process (SQL, native
-//! TypeScript, ...) have no memory or CPU reading, memory is the peak of the job's main
-//! process only, and CPU counts that process and the children it waited for, and nothing
-//! for a job that was killed.
+//! TypeScript, ...) have no CPU reading, and for memory report nothing or, for some SQL
+//! ones, the size of their result, as the job's `memory_peak` does. Memory is otherwise
+//! the peak of the job's main process only, and CPU counts that process and the children
+//! it waited for, and nothing for a job that was killed.
 //!
 //! Nothing here checks authorization: these functions write and prune every workspace's
 //! rows, and are for the worker's completion path and the server's monitor only. Reads
@@ -105,15 +106,17 @@ pub fn accumulate_runnable_job_stats(
         .add_job(duration_ms, mem_peak, cpu_time_ms);
 }
 
-/// Counts CPU time spent on a job that is not completing: a suspended workflow-as-code
-/// round replays its finished steps for free when it resumes, so the time they took
-/// would otherwise never reach the rollup.
-pub fn accumulate_runnable_cpu_time(
+/// Counts the time spent on a round of a job that is not completing, without counting a
+/// job: a suspended workflow-as-code round replays its finished steps for free when it
+/// resumes, so the time they took would otherwise never reach the rollup. A row can
+/// therefore hold time and no job until the workflow completes.
+pub fn accumulate_runnable_round(
     workspace_id: &str,
     kind: JobKind,
     runnable_path: Option<&str>,
     worker_group: &str,
-    cpu_time_ms: i64,
+    duration_ms: i64,
+    cpu_time_ms: Option<i64>,
 ) {
     let key = (
         get_current_hour(),
@@ -121,7 +124,10 @@ pub fn accumulate_runnable_cpu_time(
         stats_path(kind, runnable_path).to_string(),
         worker_group.to_string(),
     );
-    STATS.lock().unwrap().entry(key).or_default().total_cpu_ms += cpu_time_ms.max(0);
+    let mut stats = STATS.lock().unwrap();
+    let entry = stats.entry(key).or_default();
+    entry.total_duration_ms += duration_ms;
+    entry.total_cpu_ms += cpu_time_ms.unwrap_or(0).max(0);
 }
 
 pub async fn flush_runnable_job_stats(db: &Pool<Postgres>) -> Result<(), sqlx::Error> {
