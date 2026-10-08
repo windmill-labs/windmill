@@ -1049,6 +1049,7 @@ where
                     let wm_memory_usage = get_windmill_memory_usage();
                     tracing::info!("job {job_id} on {worker_name} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
                     let occupancy = occupancy_metrics.as_mut().map(|x| x.update_occupancy_metrics());
+                    crate::resource_metrics::record_worker_resources(worker_name, memory_usage, wm_memory_usage, occupancy.as_ref());
                     if job_id != Uuid::nil() {
                         if let Err(err) = update_worker_ping_from_job(&conn, &job_id, w_id, worker_name, memory_usage, wm_memory_usage, occupancy).await {
                             tracing::error!("Unable to update worker ping for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);

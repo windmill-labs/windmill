@@ -1783,6 +1783,73 @@ pub fn get_cpu_period() -> Option<i64> {
     Some(100000)
 }
 
+/// Bucket bounds in bytes, 16 MiB to 32 GiB, shared by the Prometheus and OTel job
+/// peak-memory histograms so the two exports stay comparable.
+pub const JOB_MEMORY_PEAK_BUCKETS: [f64; 12] = {
+    let mut buckets = [0.0; 12];
+    let mut i = 0;
+    while i < 12 {
+        buckets[i] = (16u64 << (20 + i)) as f64;
+        i += 1;
+    }
+    buckets
+};
+
+/// Cumulative CPU accounting of the worker's cgroup. The throttling fields stay at 0
+/// when the cgroup has no CPU controller, which is also what an unthrottled one reports.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CpuStat {
+    pub usage_usec: u64,
+    pub nr_periods: u64,
+    pub nr_throttled: u64,
+    pub throttled_usec: u64,
+}
+
+fn cpu_stat_field(stat: &str, key: &str) -> Option<u64> {
+    stat.lines().find_map(|line| {
+        let (k, v) = line.split_once(' ')?;
+        (k == key).then(|| v.trim().parse().ok()).flatten()
+    })
+}
+
+fn parse_cgroup_v2_cpu_stat(stat: &str) -> Option<CpuStat> {
+    Some(CpuStat {
+        usage_usec: cpu_stat_field(stat, "usage_usec")?,
+        nr_periods: cpu_stat_field(stat, "nr_periods").unwrap_or(0),
+        nr_throttled: cpu_stat_field(stat, "nr_throttled").unwrap_or(0),
+        throttled_usec: cpu_stat_field(stat, "throttled_usec").unwrap_or(0),
+    })
+}
+
+/// cgroup v1 splits the same figures over two controllers and counts time in nanoseconds.
+fn parse_cgroup_v1_cpu_stat(cpuacct_usage: &str, stat: &str) -> Option<CpuStat> {
+    Some(CpuStat {
+        usage_usec: cpuacct_usage.trim().parse::<u64>().ok()? / 1000,
+        nr_periods: cpu_stat_field(stat, "nr_periods").unwrap_or(0),
+        nr_throttled: cpu_stat_field(stat, "nr_throttled").unwrap_or(0),
+        throttled_usec: cpu_stat_field(stat, "throttled_time").unwrap_or(0) / 1000,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn get_cpu_stat() -> Option<CpuStat> {
+    const V1_USAGE: &str = "/sys/fs/cgroup/cpuacct/cpuacct.usage";
+    if Path::new(V1_USAGE).exists() {
+        parse_cgroup_v1_cpu_stat(
+            &std::fs::read_to_string(V1_USAGE).ok()?,
+            &std::fs::read_to_string("/sys/fs/cgroup/cpu/cpu.stat").unwrap_or_default(),
+        )
+    } else {
+        let cgroup_path = get_cgroupv2_path()?;
+        parse_cgroup_v2_cpu_stat(&std::fs::read_to_string(format!("{cgroup_path}/cpu.stat")).ok()?)
+    }
+}
+
+#[cfg(windows)]
+pub fn get_cpu_stat() -> Option<CpuStat> {
+    None
+}
+
 /// CPUs the process is allowed to run on, ignoring any bandwidth quota — the count
 /// Go's `NumCPU` reports. `available_parallelism` cannot stand in for it: that folds
 /// the quota in, so a fraction of a CPU makes it report a single-core machine.
@@ -2918,6 +2985,32 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn cgroup_cpu_stat_is_normalized_to_microseconds() {
+        let v2 = "usage_usec 2500000\nuser_usec 2000000\nsystem_usec 500000\n\
+                  nr_periods 40\nnr_throttled 7\nthrottled_usec 350000\nnr_bursts 0\n";
+        let expected = CpuStat {
+            usage_usec: 2_500_000,
+            nr_periods: 40,
+            nr_throttled: 7,
+            throttled_usec: 350_000,
+        };
+        assert_eq!(parse_cgroup_v2_cpu_stat(v2), Some(expected));
+
+        let v1_stat = "nr_periods 40\nnr_throttled 7\nthrottled_time 350000000\n";
+        assert_eq!(
+            parse_cgroup_v1_cpu_stat("2500000000\n", v1_stat),
+            Some(expected)
+        );
+
+        // No CPU controller: usage is still reported, throttling reads as zero.
+        assert_eq!(
+            parse_cgroup_v2_cpu_stat("usage_usec 12\nuser_usec 8\nsystem_usec 4\n"),
+            Some(CpuStat { usage_usec: 12, ..Default::default() })
+        );
+        assert_eq!(parse_cgroup_v2_cpu_stat("nr_periods 40\n"), None);
+    }
 
     #[test]
     fn datatable_role_is_read_from_the_leading_comment_block() {
