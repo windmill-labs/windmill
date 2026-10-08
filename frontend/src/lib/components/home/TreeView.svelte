@@ -73,7 +73,7 @@
 		leaf
 	}: Props = $props()
 
-	// The home table draws no separators between its rows.
+	// The home table's rows carry its faint separator and a hover shade instead.
 	const separator = isHomeTable()
 		? `pl-5 hover:bg-surface-hover ${HOME_TABLE_ROW_SEPARATOR}`
 		: 'border-b'

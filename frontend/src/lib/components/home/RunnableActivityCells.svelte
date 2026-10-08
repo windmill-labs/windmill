@@ -9,6 +9,7 @@
 	import { ExternalLink } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { workspaceStore } from '$lib/stores'
+	import { goto } from '$lib/navigation'
 	import { getHomeActivity, type ActivityKind } from './homeActivity.svelte'
 
 	interface Props {
@@ -93,10 +94,17 @@
 		{#if lastRun}
 			<!-- The close delay lets the pointer cross into the popup to click a run. -->
 			<Tooltip class="min-w-0" closeDelay={150}>
-				<!-- Not a link: the popover's "View runs" and run entries are the ways in. -->
+				<!-- Not a link for the mouse: the popover's "View runs" and run entries are the
+				     ways in. The popover's links are out of the tab order, so Enter on the focused
+				     cell stands in for "View runs". -->
 				<span
-					class="flex items-center gap-1.5 min-w-0 text-secondary cursor-default"
-					aria-label="Latest runs"
+					tabindex="0"
+					role="link"
+					class="flex items-center gap-1.5 min-w-0 text-secondary cursor-default rounded focus-visible:outline focus-visible:outline-1"
+					aria-label="Latest runs, press Enter to view all runs"
+					onkeydown={(e) => {
+						if (e.key === 'Enter') goto(`/runs/${path}?workspace=${$workspaceStore}`)
+					}}
 				>
 					<span class={twMerge('w-1.5 h-1.5 rounded-full shrink-0', statusClass[lastRun.status])}
 					></span>

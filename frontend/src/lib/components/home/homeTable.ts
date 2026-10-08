@@ -3,8 +3,8 @@ import { getContext, setContext } from 'svelte'
 /**
  * Column template shared by the home table's header and every row, so the
  * columns line up across separately rendered rows (the tree nests them):
- * select · name · badges · last run · triggers · last edited · actions. Below `lg` the labels,
- * triggers and runs cells are hidden, and the template drops them too.
+ * select · name · badges · last run · triggers · last edited · actions. Below `lg` only
+ * select, name and actions remain, and the template drops the other columns.
  */
 export const HOME_TABLE_GRID =
 	'grid items-center gap-x-5 grid-cols-[1rem_minmax(0,1fr)_var(--home-actions-w,6.5rem)] lg:grid-cols-[1rem_minmax(0,3fr)_minmax(0,1fr)_6rem_13rem_5rem_var(--home-actions-w,6.5rem)]'
