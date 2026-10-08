@@ -34,7 +34,11 @@
 		type RawAppBuildMode,
 		type RawAppTemplatePickerResult
 	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
-	import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
+	import {
+		BUILDER_FRAMEWORK_TEMPLATES,
+		react19Template,
+		STARTER_RUNNABLES
+	} from '$lib/components/raw_apps/templates'
 	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type RawAppDraft = {
@@ -274,7 +278,9 @@
 			}
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
-			const seedFiles = { ...react19Template }
+			const seedFiles = {
+				...($operatorBuilderApps ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template)
+			}
 			const seedRunnables = starterRunnables()
 			savedApp = {
 				summary: '',
