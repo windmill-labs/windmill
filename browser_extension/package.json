@@ -1,0 +1,12 @@
+{
+	"name": "windmill-browser-extension",
+	"private": true,
+	"version": "0.1.0",
+	"scripts": {
+		"build": "rm -rf dist && tsc && cp static/* dist/"
+	},
+	"devDependencies": {
+		"@types/chrome": "^0.3.4",
+		"typescript": "^5.5.0"
+	}
+}

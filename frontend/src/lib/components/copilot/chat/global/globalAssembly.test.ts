@@ -28,6 +28,23 @@ describe('assembleGlobalTools', () => {
 		expect(names({ pipelineFolders })).toContain('get_pipeline_graph')
 		expect(names({})).not.toContain('get_pipeline_graph')
 	})
+
+	// The extension's side panel has no editor or page to open, and the prompt must not
+	// name a tool the panel withholds.
+	it('swaps page navigation for the browser tools in the extension side panel', () => {
+		const opts = {
+			browserTools: true,
+			access: new Set(['run_preview', 'deploy', 'manage_code', 'admin'] as const)
+		}
+		const names = assembleGlobalTools(opts).map((t) => t.def.function.name)
+		expect(names).toContain('browser_click')
+		expect(names).not.toContain('open_page')
+		expect(names).not.toContain('open_preview')
+		const content = assembleGlobalSystemMessage(undefined, opts).content as string
+		expect(content).toContain('browser_read_page')
+		expect(content).not.toContain('open_page')
+		expect(content).not.toContain('open_preview')
+	})
 })
 
 describe('assembleGlobalSystemMessage', () => {

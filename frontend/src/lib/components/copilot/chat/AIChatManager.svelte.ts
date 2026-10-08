@@ -132,7 +132,7 @@ import {
 	isWebSearchEnabledForProvider
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
-import { resolveSessionAccess } from './global/sessionAccess'
+import { fullSessionAccess, resolveSessionAccess } from './global/sessionAccess'
 import type { SessionAccess } from './sessionCapabilities'
 import { filterSessionTools } from './global/sessionToolset'
 import {
@@ -723,6 +723,9 @@ export class AIChatManager implements ChatViewHost {
 	// needs the preview pane; the global side-panel chat leaves it false. Reactive because
 	// `planModeAvailable` derives from it.
 	isSessionChat = $state(false)
+	// Set when a session is hosted in the browser extension's side panel: adds the browser
+	// tools and drops what needs the Windmill editor — the preview, plan mode and drafts.
+	browserTools = $state(false)
 	// Undefined until a send or the assistant settings modal resolves it. Reactive: both
 	// tool views derive from it.
 	private sessionAccess = $state<SessionAccess | undefined>(undefined)
@@ -737,7 +740,9 @@ export class AIChatManager implements ChatViewHost {
 	autoAcceptToolConfirmationsActive = $derived(
 		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
 	)
-	planModeAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
+	planModeAvailable = $derived(
+		this.isSessionChat && !this.browserTools && supportsPlanMode(this.mode)
+	)
 	planModeActive = $derived(this.autonomyMode === AIAutonomyMode.PLAN && this.planModeAvailable)
 	prePlanAutonomyMode = $state<AIAutonomyMode | undefined>(undefined)
 	// The posture's own state — its two tools, the plan document and the planning round.
@@ -757,7 +762,15 @@ export class AIChatManager implements ChatViewHost {
 	 * reaching either one can never arrive unfiltered. A session withholds what its user's
 	 * capabilities do not cover; elsewhere `sessionAccess` is unset and nothing is dropped. */
 	#shipped = (planTools: Tool<any>[]): Tool<any>[] =>
-		filterSessionTools([...this.#assembledTools, ...planTools], this.sessionAccess)
+		filterSessionTools([...this.#assembledTools, ...planTools], this.#effectiveAccess())
+	/** Drafts live in the editor the side panel lacks, so its sessions are never offered them,
+	 * whatever the user's role. */
+	#effectiveAccess = (): SessionAccess | undefined => {
+		if (!this.browserTools) return this.sessionAccess
+		const access = new Set(this.sessionAccess ?? fullSessionAccess())
+		access.delete('write_draft')
+		return access
+	}
 	/** What the request carries: the assembled tools plus the plan-mode transition the current
 	 * posture offers. Read by the request path and by the YOLO disclosure. */
 	tools: Tool<any>[] = $derived(this.#shipped(this.planMode.tools))
@@ -2538,7 +2551,7 @@ export class AIChatManager implements ChatViewHost {
 						sessionId: this.sessionId,
 						operatingWorkspace: this.operatingWorkspace,
 						artifacts: this.artifacts,
-						access: this.sessionAccess,
+						access: this.#effectiveAccess(),
 						getChatId: () => this.historyManager.getCurrentChatId(),
 						openArtifact: this.openArtifact
 					}
@@ -2572,12 +2585,13 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	private globalAssemblyOpts = (): GlobalAssemblyOpts => ({
-		previewTools: this.isSessionChat,
+		previewTools: this.isSessionChat && !this.browserTools,
+		browserTools: this.browserTools,
 		user: this.globalIdentity,
 		skills: this.globalSkills,
 		folderInstructions: this.globalFolderInstructions,
 		mcpServers: this.mcpServers,
-		access: this.sessionAccess,
+		access: this.#effectiveAccess(),
 		sessionContext: this.sessionContextResolver?.(),
 		pipelineFolders: this.#pipelineFolders()
 	})
@@ -2683,6 +2697,13 @@ export class AIChatManager implements ChatViewHost {
 		const access = await resolveSessionAccess(workspace)
 		if (generation !== this.sessionAccessGeneration) return
 		this.sessionAccess = workspace === (this.operatingWorkspace ?? '') ? access : undefined
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
+	}
+
+	enableBrowserTools = () => {
+		this.browserTools = true
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
