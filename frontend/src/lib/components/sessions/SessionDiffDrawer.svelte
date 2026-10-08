@@ -2,8 +2,7 @@
 	import WorkspaceDiffDrawer from './WorkspaceDiffDrawer.svelte'
 	import { ArrowRight, GitFork, Pencil } from 'lucide-svelte'
 	import { userWorkspaces } from '$lib/stores'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import { useSessionDeployModel } from './sessionDeployModel.svelte'
 	import type { DeployItem } from './sessionDeployModel'
 
@@ -95,7 +94,7 @@
 					{ws?.name ?? workspaceId}
 				</span>
 				{#if ws?.is_dev_workspace}
-					<Badge color="indigo" small>{devBadgeText(ws.dev_workspace_label)}</Badge>
+					<DevWorkspaceBadge label={ws.dev_workspace_label} color={ws.color} fallbackColor="indigo" />
 				{/if}
 				<ArrowRight class="w-3 h-3 shrink-0 text-tertiary" />
 				<span class="font-medium truncate" title={parentWs?.name ?? parentWorkspaceId}>

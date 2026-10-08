@@ -624,9 +624,11 @@
 
 {#if files}
 	{#key redraw}
-		<div class="h-screen">
+		<div class="h-full">
 			<RawAppEditor
 				bind:this={rawAppEditor}
+				ownsPageHeader
+				onDetails={(e) => goto(`/apps_raw/get/${e.path}?workspace=${$workspaceStore}`)}
 				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()
 					goto(`/apps_raw/edit/${savedPath}`)

@@ -337,7 +337,7 @@
 		sandbox={sandboxAttr}
 		referrerpolicy={unsandboxed ? undefined : 'no-referrer'}
 		onload={() => (loadedSrc = iframeSrc)}
-		style="display: block; width: 100%; height: 100%; min-height: 100vh; border: none"
+		style="display: block; width: 100%; height: 100%; border: none"
 		style:background={loadedSrc === iframeSrc ? 'white' : 'transparent'}
 	></iframe>
 {/if}

@@ -103,14 +103,20 @@
 {:else if app}
 	{#key app}
 		{#if app.raw_app && effectiveWorkspace}
-			<RawAppPreview
-				workspace={effectiveWorkspace}
-				{user}
-				secret={app.bundle_secret}
-				path={app.path}
-				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
-				{syncHashToUrl}
-			/>
+			<!-- The bundle's iframe is full-height, so every host has to give this box a height to
+			     resolve against: in the workspace the layout hands one down, and the share, embed
+			     and custom-path routes floor themselves at the viewport. An iframe with no height
+			     above it falls back to 150px. Styled inline: app.css may not be loaded here. -->
+			<div style="height: 100%; width: 100%">
+				<RawAppPreview
+					workspace={effectiveWorkspace}
+					{user}
+					secret={app.bundle_secret}
+					path={app.path}
+					runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
+					{syncHashToUrl}
+				/>
+			</div>
 		{:else if app.raw_app && !effectiveWorkspace}
 			{#await Promise.all([loadAppCss(), import('$lib/components/common/alert/Alert.svelte')]) then [, { default: Alert }]}
 				<div class="px-4 mt-20">

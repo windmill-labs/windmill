@@ -1459,6 +1459,14 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit, appPath }) 
 			toolResult: report
 		}
 	}
+	if (previewLogs?.sdkConsentPending) {
+		return {
+			aiResult:
+				'The app built, but the preview is waiting for the user to approve the permissions the app declares in policy.frontend_sdk_scopes, so its code is not running. This is not a bug in the app: do not change the code. Ask the user to approve the permissions in the preview, then call get_app_runtime_logs again.',
+			uiMessage: 'Waiting for permission approval',
+			toolResult: 'Waiting for permission approval'
+		}
+	}
 	const entries = previewLogs?.entries
 	if (entries === undefined) {
 		return {
