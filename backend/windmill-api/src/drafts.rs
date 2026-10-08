@@ -516,7 +516,14 @@ async fn update_draft(
             }
             let mut referenced = windmill_common::apps::app_value_runnable_paths(&draft)?;
             if let Some(policy) = draft.get("policy") {
-                let policy = serde_json::from_value(policy.clone())
+                // Not `triggerables_v2`: every deploy of a draft rebuilds it from the runnables, so
+                // a copy gone stale since the last deploy must not block autosave. A deploy path
+                // that skips the rebuild must check it here.
+                let mut policy = policy.clone();
+                if let Some(policy) = policy.as_object_mut() {
+                    policy.remove("triggerables_v2");
+                }
+                let policy = serde_json::from_value(policy)
                     .map_err(|e| Error::BadRequest(format!("Invalid app draft policy: {e}")))?;
                 referenced.extend(crate::apps::checked_policy_runnable_paths(&policy)?);
             }

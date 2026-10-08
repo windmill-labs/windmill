@@ -380,6 +380,14 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
             expected,
             "raw app draft {runnables} {policy}: {}",
             resp.text().await?
+        (
+            json!({}),
+            json!({"sandbox": true, "triggerables_v2": {
+                "x:script/u/alice/private": {"static_inputs": {}, "one_of_inputs": {}},
+                "y:rawscript/abc": {"static_inputs": {}, "one_of_inputs": {}}
+            }}),
+            200,
+        ),
         );
     }
 

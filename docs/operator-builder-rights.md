@@ -109,9 +109,11 @@ held to the same rule as its deploy: `update_draft` refuses one whose `policy.sa
 Turning the sandbox off in their own editor stays that admin's explicit choice. It also refuses
 a draft naming a runnable the builder cannot read, or a hub one, like the deploy: the editor
 preview runs them as whoever opens it, and admits any path for an admin. That covers the
-policy's triggerables too, `rawscript/` keys included: the editor carries a legacy
-`triggerables` map through to the deploy untouched, so an admin deploying the draft would
-publish it.
+policy's legacy `triggerables` too, `rawscript/` keys included: every deploy of a draft
+carries it through untouched, so an admin deploying the draft would publish it. Its
+`triggerables_v2` is not checked: every deploy of a draft rebuilds it from the runnables, the
+preview never reads it, and a copy gone stale since the last deploy would otherwise block
+autosave.
 
 ## Billing
 
