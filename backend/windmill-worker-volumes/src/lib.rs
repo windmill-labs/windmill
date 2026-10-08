@@ -60,24 +60,28 @@ pub struct VolumeMount {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FileStamp {
     size: u64,
-    changed: (i64, i64),
+    changed: Option<(i64, i64)>,
 }
 
 impl FileStamp {
+    /// Whether the file is as it was at `earlier`. An unreadable change time never matches.
+    pub fn unchanged_since(&self, earlier: &FileStamp) -> bool {
+        self.changed.is_some() && self == earlier
+    }
+
     pub fn of(meta: &std::fs::Metadata) -> Self {
         // ctime rather than mtime: a tool that restores mtime (cp -p, tar, rsync -t) cannot set it.
         #[cfg(unix)]
         let changed = {
             use std::os::unix::fs::MetadataExt;
-            (meta.ctime(), meta.ctime_nsec())
+            Some((meta.ctime(), meta.ctime_nsec()))
         };
         #[cfg(not(unix))]
         let changed = meta
             .modified()
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| (d.as_secs() as i64, d.subsec_nanos() as i64))
-            .unwrap_or_default();
+            .map(|d| (d.as_secs() as i64, d.subsec_nanos() as i64));
         Self { size: meta.len(), changed }
     }
 }
