@@ -1,19 +1,23 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import { AppService, OpenAPI, type AppWithLastVersion } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
-
-	import { setLicense } from '$lib/enterpriseUtils'
-
-	import { getUserExt } from '$lib/user'
+	import { OpenAPI } from '$lib/gen/core/OpenAPI'
+	import type { GuestEntry } from '$lib/gen/types.gen'
+	import type { UserExt } from '$lib/stores'
 	import { page } from '$app/state'
 	import { base } from '$lib/base'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
+	import {
+		getLicenseOrUndefined,
+		getUserExtOrUndefined,
+		publicGet,
+		type PublicAppValue
+	} from '$lib/components/apps/editor/publicAppApi'
 
-	let app: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
+	let app: PublicAppValue | undefined = $state(undefined)
+	let user: UserExt | undefined = $state(undefined)
+	let license: string | undefined = $state(undefined)
 	let notExists = $state(false)
 	let noPermission = $state(false)
 	let jwtError = $state(false)
@@ -73,6 +77,7 @@
 	const viewerUrl = `${base}/a/${parsedCustomPath.path}${page.url.search}${page.url.hash}`
 
 	let workspace: string | undefined = $state(undefined)
+	let embedWorkspace: string | undefined
 	let refresh: (() => void) | undefined
 	/** `<workspace>/<app_path>` when this app is open to guests. Resolved eagerly:
 	 * PublicAppFrame renders its sign-in gate before `onViewerReady` fires. */
@@ -92,9 +97,9 @@
 		if (guestEntrySettled()) return
 		for (let attempt = 0; attempt < 3; attempt++) {
 			try {
-				const entry = await AppService.getGuestEntryByCustomPath({
-					customPath: parsedCustomPath.path
-				})
+				const entry = await publicGet<GuestEntry>(
+					`/apps_u/guest_entry_by_custom_path/${encodeURI(parsedCustomPath.path)}`
+				)
 				guestAppPath = `${entry.workspace_id}/${entry.app_path}`
 				guestEntry = 'guest'
 				return
@@ -123,46 +128,41 @@
 		} else if (parsedCustomPath.jwt) {
 			OpenAPI.TOKEN = 'jwt_ext_' + parsedCustomPath.jwt
 		}
-		const headers: Record<string, string> = {}
-		if (typeof OpenAPI.TOKEN === 'string' && OpenAPI.TOKEN) {
-			headers['Authorization'] = `Bearer ${OpenAPI.TOKEN}`
-		}
 		const consent = opts?.sdkConsent ? '?sdk_consent=true' : ''
-		const res = await fetch(
-			`${OpenAPI.BASE}/apps_u/embed_token_by_custom_path/${parsedCustomPath.path}${consent}`,
-			{ headers }
+		const resp = await publicGet<{ token?: string; workspace_id?: string }>(
+			`/apps_u/embed_token_by_custom_path/${parsedCustomPath.path}${consent}`
 		)
-		if (!res.ok) {
-			const err: any = new Error('Failed to fetch embed token')
-			err.status = res.status
-			throw err
-		}
-		return await res.json()
+		embedWorkspace = resp.workspace_id ?? embedWorkspace
+		return resp
 	}
 
 	// Viewer side: load the app + user using the embed token handed to the iframe.
 	async function loadApp() {
 		try {
-			app = await AppService.getPublicAppByCustomPath({
-				customPath: parsedCustomPath.path
-			})
-			workspace = app.workspace_id
-			workspaceStore.set(app.workspace_id)
+			// The embed token names the workspace, so the user loads alongside the app
+			// rather than after it. The opaque viewer frame never fetches one.
+			const userLoad = embedWorkspace ? getUserExtOrUndefined(embedWorkspace) : undefined
+			const loaded = await publicGet<PublicAppValue>(
+				`/apps_u/public_app_by_custom_path/${encodeURI(parsedCustomPath.path)}`
+			)
+			const appWorkspace = loaded.workspace_id!
+			user = await (userLoad && embedWorkspace === appWorkspace
+				? userLoad
+				: getUserExtOrUndefined(appWorkspace))
+			import('$lib/stores').then(({ workspaceStore }) => workspaceStore.set(appWorkspace))
+			app = loaded
+			workspace = appWorkspace
 			noPermission = false
 			notExists = false
 			jwtError = false
-
-			try {
-				userStore.set(await getUserExt(app.workspace_id))
-				// A JWT in the custom path that fails to resolve a user is surfaced as a
-				// toast (matches the pre-sandbox custom-path viewer) rather than silently
-				// falling through to anonymous.
-				if (!$userStore && parsedCustomPath.jwt) {
-					jwtError = true
+			// A JWT in the custom path that fails to resolve a user is surfaced as a
+			// toast (matches the pre-sandbox custom-path viewer) rather than silently
+			// falling through to anonymous.
+			if (!user && parsedCustomPath.jwt) {
+				jwtError = true
+				import('$lib/toast').then(({ sendUserToast }) =>
 					sendUserToast('Could not authentify user with jwt token', true)
-				}
-			} catch (e) {
-				console.warn('Anonymous user')
+				)
 			}
 		} catch (e) {
 			if (e.status == 401) {
@@ -182,14 +182,15 @@
 	}
 
 	if (BROWSER) {
-		setLicense()
+		getLicenseOrUndefined().then((l) => (license = l))
 		loadGuestEntry()
 	}
 </script>
 
 <!-- The route is what gives the app a height: nothing above it has one (`app.html` wraps the
-     body in `display: contents`), and the viewer's own boxes are `h-full`. -->
-<div class="h-screen w-full">
+     body in `display: contents`), and the viewer's own boxes are full-height. Styled
+     inline: a raw app renders here without app.css. -->
+<div style="height: 100vh; width: 100%">
 	<PublicAppFrame
 		{fetchEmbedToken}
 		{viewerUrl}
@@ -203,6 +204,8 @@
 		{#snippet viewer()}
 			<PublicApp
 				{workspace}
+				{user}
+				{license}
 				{notExists}
 				{noPermission}
 				{jwtError}

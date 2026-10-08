@@ -2,10 +2,19 @@ use sqlx::{Pool, Postgres};
 use uuid::Uuid;
 use windmill_common::{
     external_ip::UNKNOWN_IP,
-    worker::{insert_ping_query, update_worker_ping_main_loop_query},
+    worker::{insert_ping_query, set_worker_draining_query, update_worker_ping_main_loop_query},
 };
 
 async fn insert_ping(db: &Pool<Postgres>, worker: &str, ip: Option<&str>) -> anyhow::Result<()> {
+    register(db, worker, ip, None).await
+}
+
+async fn register(
+    db: &Pool<Postgres>,
+    worker: &str,
+    ip: Option<&str>,
+    draining: Option<bool>,
+) -> anyhow::Result<()> {
     insert_ping_query(
         "test-instance",
         worker,
@@ -19,9 +28,30 @@ async fn insert_ping(db: &Pool<Postgres>, worker: &str, ip: Option<&str>) -> any
         None,
         None,
         false,
+        draining,
         db,
     )
     .await?;
+    Ok(())
+}
+
+/// A worker re-registers mid-life once its external IP resolves. That registration must not
+/// clear a draining flag the same process already published; only a worker starting up under
+/// a reclaimed name resets it.
+#[sqlx::test]
+async fn only_a_starting_worker_resets_draining(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let draining = || async {
+        sqlx::query_scalar::<_, bool>("SELECT draining FROM worker_ping WHERE worker = 'wk-drain'")
+            .fetch_one(&db)
+            .await
+    };
+    register(&db, "wk-drain", None, Some(false)).await?;
+    set_worker_draining_query("wk-drain", &db).await?;
+    register(&db, "wk-drain", Some("1.2.3.4"), None).await?;
+    assert!(draining().await?);
+
+    register(&db, "wk-drain", None, Some(false)).await?;
+    assert!(!draining().await?);
     Ok(())
 }
 
