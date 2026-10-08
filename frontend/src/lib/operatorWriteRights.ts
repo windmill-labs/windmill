@@ -1,4 +1,4 @@
-import { derived, type Readable } from 'svelte/store'
+import { derived, get, readable, type Readable } from 'svelte/store'
 import { userWorkspaces, workspaceStore } from '$lib/stores'
 import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -66,3 +66,8 @@ export const useOperatorBuilderRights = () => anyBuilderRight(useOperatingWorksp
 export const navigationOperatorBuilderFlows = builderRight('builder_flows', workspaceStore)
 export const navigationOperatorBuilderApps = builderRight('builder_apps', workspaceStore)
 export const navigationOperatorBuilderRights = anyBuilderRight(workspaceStore)
+
+/** The app builder right in a given workspace, read once: for code acting on an explicit
+ * workspace rather than the nav's, such as the global AI chat. */
+export const operatorBuilderAppsIn = (workspace: string | undefined) =>
+	get(builderRight('builder_apps', readable(workspace)))

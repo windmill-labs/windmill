@@ -5,6 +5,7 @@
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -529,23 +530,10 @@
 		return $operatorBuilderApps ? {} : structuredClone(STARTER_RUNNABLES)
 	}
 
-	// The backend refuses an unsandboxed draft or deploy from an operator with builder rights:
-	// whoever opens their app, here or deployed, would otherwise run its code with their session.
-	// It refuses Viewer mode too, which the deploy panel cannot switch off, and a draft that runs
-	// as someone else, which an app another user deployed carries from its policy.
+	// The deploy panel cannot switch Viewer mode off, nor drop the identity an app another user
+	// deployed carries, so the editor conforms the policy as soon as it opens.
 	$effect(() => {
-		if (!$operatorBuilderApps || !policy) return
-		if (policy.sandbox !== true) policy.sandbox = true
-		if (policy.execution_mode === 'viewer') policy.execution_mode = 'publisher'
-		const username = $userStore?.username
-		const self = username?.includes('@') ? username : `u/${username}`
-		if (
-			(policy.on_behalf_of != undefined && policy.on_behalf_of !== self) ||
-			(policy.on_behalf_of_email != undefined && policy.on_behalf_of_email !== $userStore?.email)
-		) {
-			delete policy.on_behalf_of
-			delete policy.on_behalf_of_email
-		}
+		if ($operatorBuilderApps && policy) conformBuilderAppPolicy(policy, $userStore)
 	})
 
 	async function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
