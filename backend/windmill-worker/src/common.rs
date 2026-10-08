@@ -643,6 +643,7 @@ pub async fn update_worker_ping_for_failed_init_script(
                         wm_memory_usage: None,
                         job_isolation: None,
                         native_mode: None,
+                        draining: None,
                         ping_type: PingType::InitScript,
                     },
                 )

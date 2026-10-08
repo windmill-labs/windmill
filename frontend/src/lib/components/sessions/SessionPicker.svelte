@@ -1338,8 +1338,8 @@
 	bind:open={seedOfferOpen}
 	kind="X"
 	enterConfirms={false}
-	title="Keep this {seedOffer?.route.kind ?? 'item'} in the new session?"
-	description="You came here from {seedOffer?.route.itemPath ?? ''}."
+	title="Keep this {seedOffer?.kind ?? 'item'} in the new session?"
+	description="You came here from {seedOffer?.path ?? ''}."
 >
 	<p class="text-sm text-secondary">
 		Keeping it opens it in the preview, so the chat starts with it as context.

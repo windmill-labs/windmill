@@ -197,6 +197,14 @@ async setProgress(percent: number, jobId?: any): Promise<void>
 async getProgress(jobId?: any): Promise<number | null>
 
 /**
+ * Whether the worker running this job has received its shutdown signal.
+ * A draining worker waits for its current job to finish before exiting, so a
+ * long-running script can poll this and return early to let the worker be replaced.
+ * @param jobId? Job to check, defaults to the current job
+ */
+async workerIsDraining(jobId?: string): Promise<boolean>
+
+/**
  * Set a flow user state
  * @param key key of the state
  * @param value value of the state

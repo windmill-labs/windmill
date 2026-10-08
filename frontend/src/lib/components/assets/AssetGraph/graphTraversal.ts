@@ -226,3 +226,76 @@ export function computeInducedSchedule(
 	const roots = ordered.filter((n) => (cleanIndegree.get(n) ?? 0) === 0)
 	return { nodes: ordered, edges: cleanEdges, indegree: cleanIndegree, roots, cyclic }
 }
+
+/** What is linked to a node through the drawn graph: everything it depends on
+ * (upstream) and everything depending on it (downstream), both recursive, the
+ * node itself in each. An edge lies on a path through the node exactly when
+ * both its ends are upstream, or both downstream. */
+export type HoverLineage = {
+	upstream: Set<string>
+	downstream: Set<string>
+	hasEdge: (e: { source: string; target: string }) => boolean
+}
+
+export function hoverLineage(
+	edges: ReadonlyArray<{ source: string; target: string }>,
+	id: string
+): HoverLineage {
+	const walk = (from: 'source' | 'target', to: 'source' | 'target') => {
+		const next = new Map<string, string[]>()
+		for (const e of edges) next.set(e[from], [...(next.get(e[from]) ?? []), e[to]])
+		const seen = new Set([id])
+		const stack = [id]
+		while (stack.length) {
+			for (const n of next.get(stack.pop()!) ?? []) {
+				if (!seen.has(n)) {
+					seen.add(n)
+					stack.push(n)
+				}
+			}
+		}
+		return seen
+	}
+	const upstream = walk('target', 'source')
+	const downstream = walk('source', 'target')
+	return {
+		upstream,
+		downstream,
+		hasEdge: (e) =>
+			(upstream.has(e.source) && upstream.has(e.target)) ||
+			(downstream.has(e.source) && downstream.has(e.target))
+	}
+}
+
+/** Ids of the edges another path already implies: an edge A → C when C can be
+ * reached from A through at least one other node (A → B → … → C). Edges joining
+ * the same two nodes don't make each other redundant. */
+export function transitivelyImpliedEdges(
+	edges: ReadonlyArray<{ id: string; source: string; target: string }>
+): Set<string> {
+	const next = new Map<string, Set<string>>()
+	for (const e of edges) {
+		if (e.source === e.target) continue
+		next.set(e.source, (next.get(e.source) ?? new Set()).add(e.target))
+	}
+	// Whether `to` is reachable from `from` without taking the direct step.
+	const reachableAround = (from: string, to: string) => {
+		const seen = new Set<string>([from])
+		const stack = [...(next.get(from) ?? [])].filter((n) => n !== to)
+		for (const n of stack) seen.add(n)
+		while (stack.length) {
+			const cur = stack.pop()!
+			for (const n of next.get(cur) ?? []) {
+				if (n === to) return true
+				if (!seen.has(n)) {
+					seen.add(n)
+					stack.push(n)
+				}
+			}
+		}
+		return false
+	}
+	const implied = new Set<string>()
+	for (const e of edges) if (e.source !== e.target && reachableAround(e.source, e.target)) implied.add(e.id)
+	return implied
+}

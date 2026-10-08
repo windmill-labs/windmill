@@ -702,3 +702,51 @@ async fn test_list_filtered_job_uuids_resolved_excludes_queue(
 
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_worker_is_draining_follows_the_job_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let job = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, kind, tag, args)
+         VALUES ($1, 'test-workspace', 'test-user', 'u/test-user', 'script', 'deno', '{}'::jsonb)",
+    )
+    .bind(job)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag, running, started_at, worker)
+         VALUES ($1, 'test-workspace', now(), 'deno', true, now(), 'wk-drain-test')",
+    )
+    .bind(job)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO worker_ping (worker, worker_instance, ip, worker_group, wm_version)
+         VALUES ('wk-drain-test', 'host', 'NO IP', 'default', 'v0')",
+    )
+    .execute(&db)
+    .await?;
+
+    let url = format!("http://localhost:{port}/api/w/test-workspace/jobs/worker_is_draining/{job}");
+    let draining = || async {
+        let resp = authed(client().get(&url)).send().await?;
+        anyhow::Ok(resp.json::<bool>().await?)
+    };
+    assert!(!draining().await?);
+
+    windmill_common::worker::set_worker_draining_query("wk-drain-test", &db).await?;
+    assert!(draining().await?);
+
+    // A parked job keeps its last worker on the queue row without running on it.
+    sqlx::query("UPDATE v2_job_queue SET started_at = NULL WHERE id = $1")
+        .bind(job)
+        .execute(&db)
+        .await?;
+    assert!(!draining().await?);
+
+    Ok(())
+}

@@ -725,6 +725,19 @@ export async function getProgress(jobId?: any): Promise<number | null> {
 }
 
 /**
+ * Whether the worker running this job has received its shutdown signal.
+ * A draining worker waits for its current job to finish before exiting, so a
+ * long-running script can poll this and return early to let the worker be replaced.
+ * @param jobId? Job to check, defaults to the current job
+ */
+export async function workerIsDraining(jobId?: string): Promise<boolean> {
+  return await JobService.workerIsDraining({
+    id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+    workspace: getWorkspace(),
+  });
+}
+
+/**
  * Set a flow user state
  * @param key key of the state
  * @param value value of the state

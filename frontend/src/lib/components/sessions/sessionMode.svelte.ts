@@ -1,9 +1,13 @@
 import { base } from '$app/paths'
 import type { SessionTarget } from './sessionState.svelte'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 
 // Maps a session's editor target to the canonical full-page Windmill route.
 export function sessionTargetHref(target: SessionTarget | undefined): string | undefined {
 	if (!target) return undefined
+	if (target.kind === 'pipeline') {
+		return `${base}/pipeline/${encodeURIComponent(normalizePipelineFolder(target.path))}`
+	}
 	const seg =
 		target.kind === 'script'
 			? 'scripts/edit'
