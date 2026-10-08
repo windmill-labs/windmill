@@ -327,36 +327,34 @@ async fn setting_enabled(db: &DB, name: &str) -> Result<bool> {
         .unwrap_or(false))
 }
 
-/// Syncs from the configured hub, falling back to the image's cache when it cannot be
-/// reached and the instance has never synced from a hub (see [`sync_from_image_cache`]).
-pub async fn sync(db: &DB) -> Result<SyncOutcome> {
+/// Syncs from the configured hub and records the attempt, successful or not.
+async fn sync_from_hub(db: &DB) -> Result<SyncOutcome> {
     let attempted_at = Utc::now();
-    let from_hub = if setting_enabled(db, DISABLE_HUB_SETTING).await? {
-        Err(Error::BadRequest(
-            "The hub is disabled on this instance".to_string(),
-        ))
+    let result = match fetch_configured_hub(db).await {
+        Ok(types) => apply(db, SyncSource::Hub, &types).await,
+        Err(e) => Err(e),
+    };
+    let state = match &result {
+        Ok(_) => {
+            json!({ "last_attempt_at": attempted_at, "last_hub_sync_at": attempted_at, "last_error": null })
+        }
+        Err(e) => json!({ "last_attempt_at": attempted_at, "last_error": e.to_string() }),
+    };
+    record_state(db, state).await?;
+    result
+}
+
+/// Syncs from the configured hub, falling back to the image's cache when the hub is disabled
+/// or unreachable and the instance has never synced from a hub (see [`sync_from_image_cache`]).
+pub async fn sync(db: &DB) -> Result<SyncOutcome> {
+    let hub_err = if setting_enabled(db, DISABLE_HUB_SETTING).await? {
+        Error::BadRequest("The hub is disabled on this instance".to_string())
     } else {
-        match fetch_configured_hub(db).await {
-            Ok(types) => apply(db, SyncSource::Hub, &types).await,
-            Err(e) => Err(e),
+        match sync_from_hub(db).await {
+            Ok(outcome) => return Ok(outcome),
+            Err(e) => e,
         }
     };
-    let hub_err = match from_hub {
-        Ok(outcome) => {
-            record_state(
-                db,
-                json!({ "last_attempt_at": attempted_at, "last_hub_sync_at": attempted_at, "last_error": null }),
-            )
-            .await?;
-            return Ok(outcome);
-        }
-        Err(e) => e,
-    };
-    record_state(
-        db,
-        json!({ "last_attempt_at": attempted_at, "last_error": hub_err.to_string() }),
-    )
-    .await?;
     match sync_from_image_cache(db).await? {
         Some(outcome) => {
             tracing::warn!("Hub resource type sync failed, used the image's cache: {hub_err}");
@@ -370,14 +368,17 @@ pub async fn sync(db: &DB) -> Result<SyncOutcome> {
 /// before: the cache is the listing as of the image's build, so it would revert every type
 /// the hub has updated since. `None` when skipped or when the image carries no cache.
 pub async fn sync_from_image_cache(db: &DB) -> Result<Option<SyncOutcome>> {
+    sync_from_cache_file(db, &cache_path()).await
+}
+
+async fn sync_from_cache_file(db: &DB, path: &str) -> Result<Option<SyncOutcome>> {
     if let Some(at) = load_state(db).await?.last_hub_sync_at {
         tracing::info!(
             "Not applying the image's cached resource types: synced from the hub at {at}"
         );
         return Ok(None);
     }
-    let path = cache_path();
-    let content = match tokio::fs::read_to_string(&path).await {
+    let content = match tokio::fs::read_to_string(path).await {
         Ok(content) => content,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             tracing::info!("No cached resource types at {path}");
@@ -428,6 +429,9 @@ pub fn spawn_daily_sync(db: DB, mut killpill_rx: tokio::sync::broadcast::Receive
 }
 
 async fn sync_if_due(db: &DB) -> Result<()> {
+    if setting_enabled(db, DISABLE_HUB_SETTING).await? {
+        return Ok(());
+    }
     // A transaction-scoped lock: a dropped transaction rolls back and releases it, so a
     // pass cut short cannot leave it held on a pooled connection. The transaction only
     // owns the lock; the sync runs on other connections.
@@ -447,8 +451,11 @@ async fn sync_if_due(db: &DB) -> Result<()> {
         && state
             .last_attempt_at
             .is_none_or(|at| now - at >= RETRY_INTERVAL);
+    // Hub only. Falling back to the image's cache here would re-apply the same listing every
+    // hour on an instance that never reaches a hub, over any edit made since; the cache is
+    // applied at boot (`SYNC_CACHED_RT`) or on demand instead.
     if due {
-        match sync(db).await {
+        match sync_from_hub(db).await {
             Ok(outcome) => tracing::info!("{}", outcome.summary()),
             Err(e) => tracing::warn!("Hub resource type sync failed, retrying in an hour: {e}"),
         }
@@ -509,5 +516,36 @@ mod tests {
         assert_eq!(row, stored(None, None, true));
         let row = target_row(&hub_type(Some(Some("csv")), None, Some(true)), None);
         assert_eq!(row, stored(None, None, true));
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn the_image_cache_never_overrides_a_hub_sync(db: DB) -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("resource_types.json");
+        std::fs::write(
+            &path,
+            json!([{ "name": "cached_type", "schema": null, "description": "image copy" }])
+                .to_string(),
+        )?;
+        let path = path.to_str().unwrap();
+        let description = || {
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT description FROM resource_type WHERE workspace_id = 'admins' AND name = 'cached_type'",
+            )
+            .fetch_one(&db)
+        };
+
+        assert!(sync_from_cache_file(&db, path).await?.is_some());
+        assert_eq!(description().await?.as_deref(), Some("image copy"));
+
+        record_state(&db, json!({ "last_hub_sync_at": Utc::now() })).await?;
+        sqlx::query(
+            "UPDATE resource_type SET description = 'hub copy' WHERE workspace_id = 'admins' AND name = 'cached_type'",
+        )
+        .execute(&db)
+        .await?;
+        assert!(sync_from_cache_file(&db, path).await?.is_none());
+        assert_eq!(description().await?.as_deref(), Some("hub copy"));
+        Ok(())
     }
 }
