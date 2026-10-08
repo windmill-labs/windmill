@@ -155,7 +155,7 @@ use crate::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
         tally_unfinished_dependency_deploy,
     },
-    worker_utils::{insert_ping, queue_vacuum, update_worker_ping_full},
+    worker_utils::{insert_ping, mark_worker_draining, queue_vacuum, update_worker_ping_full},
 };
 
 #[cfg(feature = "rust")]
@@ -947,6 +947,22 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     } else {
         String::new()
     }
+}
+
+/// The registry overrides of a workspace, empty when it has none.
+///
+/// One snapshot: registry settings reload under running jobs, so a caller whose cache key
+/// has to agree with the registry values it used reads both from here rather than calling
+/// [`workspace_registry_cache_suffix`] and a `read_ee_registry_*` helper separately.
+pub async fn workspace_registry_overrides(
+    w_id: &str,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let registries = WORKSPACE_REGISTRIES.read().await;
+    registries
+        .as_ref()
+        .and_then(|m| m.get(w_id))
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// The name a build artifact is cached under, derived from `base` — the runnable's own
@@ -2005,6 +2021,7 @@ pub fn create_span_with_name(
         root_job = field::Empty,
         workspace_id = %arc_job.workspace_id,
         worker = %worker_name,
+        worker_group = %*WORKER_GROUP,
         hostname = field::Empty,
         tag = %arc_job.tag,
         language = field::Empty,
@@ -2156,6 +2173,7 @@ pub fn log_context_for_job(
         job_id: Some(arc_job.id.to_string()),
         workspace_id: Some(arc_job.workspace_id.clone()),
         worker: Some(worker_name.to_string()),
+        worker_group: Some(WORKER_GROUP.clone()),
         tag: Some(arc_job.tag.clone()),
         job_kind: Some(arc_job.kind.as_str().to_string()),
         created_by: Some(arc_job.created_by.clone()),
@@ -2695,7 +2713,7 @@ pub async fn run_worker(
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
     let mut reported_ip = cached_ip();
-    let previous_jobs_executed = insert_ping(hostname, &worker_name, reported_ip, conn)
+    let previous_jobs_executed = insert_ping(hostname, &worker_name, reported_ip, true, conn)
         .await
         .expect("initial ping could be sent");
 
@@ -3142,6 +3160,31 @@ pub async fn run_worker(
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
 
+    // The loop below only sees the killpill once the running job is done, which is too late
+    // for that job to learn its worker is going away.
+    {
+        let mut killpill_rx = killpill_rx.resubscribe();
+        let conn = conn.clone();
+        let worker_name = worker_name.clone();
+        tokio::spawn(async move {
+            if matches!(
+                killpill_rx.recv().await,
+                Err(broadcast::error::RecvError::Closed)
+            ) {
+                return;
+            }
+            for attempt in 1..=3 {
+                match mark_worker_draining(&conn, &worker_name).await {
+                    Ok(()) => return,
+                    Err(e) => {
+                        tracing::warn!(worker = %worker_name, "failed to mark worker as draining (attempt {attempt}/3): {e:#}");
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        });
+    }
+
     loop {
         let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
         if last_processing_duration_secs > 5 {
@@ -3217,7 +3260,7 @@ pub async fn run_worker(
             // which costs at most the last job's id here: no job of this worker is in flight at this
             // point in the loop, and the next one refills them.
             if ip_just_resolved && conn.as_sql().is_none() {
-                if let Err(e) = insert_ping(hostname, &worker_name, ip, &conn).await {
+                if let Err(e) = insert_ping(hostname, &worker_name, ip, false, &conn).await {
                     tracing::warn!(
                         worker = %worker_name, hostname = %hostname,
                         "failed to re-register with the resolved external IP: {e}"
@@ -3406,6 +3449,10 @@ pub async fn run_worker(
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
                 }
+            } else if WORKER_CONFIG.load().paused {
+                // Checked after the same-worker channel: a flow this worker already runs
+                // still needs it for its remaining same-worker steps.
+                Ok(None)
             } else {
                 match &conn {
                     Connection::Sql(db) => {

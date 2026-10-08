@@ -3,6 +3,7 @@ import { type Script } from './gen'
 import type { SupportedLanguage } from './common'
 
 import CLAUDE_SANDBOX_INIT_CODE from './templates/claude_sandbox.ts.template?raw'
+import PI_SANDBOX_INIT_CODE from './templates/pi_sandbox.ts.template?raw'
 import WAC_PYTHON_INIT_CODE from './templates/wac_python.py.template?raw'
 import WAC_TYPESCRIPT_INIT_CODE from './templates/wac_typescript.ts.template?raw'
 import CI_TEST_BUN_INIT_CODE from './templates/ci_test_bun.ts.template?raw'
@@ -15,6 +16,7 @@ def main(message: str, name: str, step_id: str):
     print("message", message)
     print("name", name)
     print("step_id", step_id)
+    # "recover": True ends the flow as a success instead of a failure
     return { "message": message, "flow_id": flow_id, "step_id": step_id, "recover": False }`
 
 const PYTHON_INIT_CODE_CLEAR = `# import wmill
@@ -243,6 +245,7 @@ export async function main(message: string, name: string, step_id: string) {
   console.log("message", message)
   console.log("name",name)
   console.log("step_id", step_id)
+  // recover: true ends the flow as a success instead of a failure
   return { message, flow_id, step_id, recover: false }
 }
 `
@@ -253,6 +256,7 @@ export async function main(message: string, name: string, step_id: string) {
   console.log("message", message)
   console.log("name",name)
   console.log("step_id", step_id)
+  // recover: true ends the flow as a success instead of a failure
   return { message, flow_id, step_id, recover: false }
 }
 `
@@ -1497,6 +1501,9 @@ export const INITIAL_CODE = {
 	claudesandbox: {
 		script: CLAUDE_SANDBOX_INIT_CODE
 	},
+	pisandbox: {
+		script: PI_SANDBOX_INIT_CODE
+	},
 	wac_python: {
 		script: WAC_PYTHON_INIT_CODE
 	},
@@ -1560,6 +1567,7 @@ export function initialCode(
 		| 'powershell'
 		| 'bunnative'
 		| 'claudesandbox'
+		| 'pisandbox'
 		| 'wac_python'
 		| 'wac_typescript'
 		| 'ci_test_bun'
@@ -1667,6 +1675,8 @@ export function initialCode(
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (subkind === 'claudesandbox') {
 			return INITIAL_CODE.claudesandbox.script
+		} else if (subkind === 'pisandbox') {
+			return INITIAL_CODE.pisandbox.script
 		} else if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger
 		} else if (language == 'bunnative' || subkind === 'bunnative') {
@@ -1708,6 +1718,7 @@ export function getResetCode(
 		| 'powershell'
 		| 'bunnative'
 		| 'claudesandbox'
+		| 'pisandbox'
 		| 'wac_python'
 		| 'wac_typescript'
 		| 'ci_test_bun'

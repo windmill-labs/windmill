@@ -855,7 +855,7 @@ fn convert_typ_val(arg_t: String, arg_v: Value) -> Value {
                 }
             })
         }
-        "binary" => {
+        "binary" | "varbinary" => {
             // convert base64 to hex as expected by snowflake
             let bytes = engine::general_purpose::STANDARD
                 .decode(arg_v.as_str().unwrap_or(""))

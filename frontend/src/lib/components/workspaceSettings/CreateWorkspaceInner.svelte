@@ -28,6 +28,7 @@
 		devWorkspacesInChainAbove
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
+	import { isOperatorInWorkspace } from '$lib/components/sidebar/operatorRoutes'
 	import {
 		fetchProtectionRulesForWorkspace,
 		isRuleUnconditionallyActiveInRulesets
@@ -128,9 +129,14 @@
 	let forkableWorkspaces = $derived(forkable.current)
 
 	// Base candidates are the current workspace's family: its root first, then every fork/dev under it.
+	// Never one the user is an operator in: a fork does not carry the role, so forking such a base
+	// would hand them a full-rights copy of it.
 	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, forkableWorkspaces))
 	let baseCandidates = $derived(
-		familyRoot ? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)] : []
+		(familyRoot
+			? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)]
+			: []
+		).filter((w) => !isOperatorInWorkspace(w))
 	)
 	let baseItems = $derived(
 		baseCandidates.map((w) => ({

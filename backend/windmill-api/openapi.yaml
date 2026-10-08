@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.826.0
+  version: 1.828.0
   title: Windmill API
 
   contact:
@@ -1765,6 +1765,12 @@ paths:
                   type: string
                 cluster:
                   $ref: "#/components/schemas/DatatableRoleCluster"
+                take_over:
+                  type: boolean
+                  description: >
+                    manage a Postgres role of that name that already exists on the cluster,
+                    replacing its password, instead of refusing it. A role with cluster-wide
+                    attributes or memberships is refused either way
       responses:
         "200":
           description: the created role
@@ -1772,6 +1778,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InstanceDatatableRole"
+        "409":
+          description: a Postgres role of that name already exists on the cluster and take_over was not set
 
   /settings/datatable_roles/{id}:
     post:
@@ -12004,6 +12012,7 @@ paths:
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/RunRetry"
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
           in: query
@@ -16008,6 +16017,7 @@ paths:
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/RunRetry"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
@@ -17311,6 +17321,27 @@ paths:
             application/json:
               schema:
                 type: string
+
+  /w/{workspace}/jobs/worker_is_draining/{id}:
+    get:
+      summary: whether the worker running this job is draining
+      description: |
+        True once the worker running the job has received its shutdown signal. The worker
+        still waits for the job to finish, so a long-running job can poll this to exit early.
+        False when the job is not currently running on a worker.
+      operationId: workerIsDraining
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: whether the worker running this job is draining
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/jobs_u/get_logs/{id}:
     get:
@@ -27822,6 +27853,12 @@ components:
       in: query
       schema:
         type: string
+    RunRetry:
+      name: retry
+      description: JSON-encoded retry policy (same shape as a schedule's retry) re-running the job when it fails. The returned id is the first attempt's; each retry is a job of its own, recorded as a child of the first attempt. Not supported for hub scripts, with invisible_to_owner, or for a script whose preprocessor would run.
+      in: query
+      schema:
+        type: string
     NewJobId:
       name: job_id
       description:
@@ -34525,6 +34562,11 @@ components:
           type: boolean
         cluster:
           $ref: "#/components/schemas/DatatableRoleCluster"
+        in_use:
+          type: boolean
+          description: >-
+            Whether any data table, in any workspace, lets someone connect as this role. Only set
+            in a data table's available_roles.
 
     DatatableRoleTenants:
       type: object
@@ -35880,6 +35922,9 @@ components:
           type: string
         native_mode:
           type: boolean
+        draining:
+          type: boolean
+          description: the worker received its shutdown signal and exits once its current job is done
       required:
         - worker
         - worker_instance

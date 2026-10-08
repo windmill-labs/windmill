@@ -196,12 +196,15 @@ class Windmill:
         args: dict = None,
         scheduled_in_secs: int = None,
         tag: str = None,
+        retry: dict = None,
     ) -> str:
         """Internal helper for running scripts asynchronously."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
         if tag:
             params["tag"] = tag
+        if retry:
+            params["retry"] = json.dumps(retry)
         if os.environ.get("WM_JOB_ID"):
             params["parent_job"] = os.environ.get("WM_JOB_ID")
         if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
@@ -222,9 +225,15 @@ class Windmill:
         args: dict = None,
         scheduled_in_secs: int = None,
         tag: str = None,
+        retry: dict = None,
     ) -> str:
-        """Create a script job by path and return its job id."""
-        return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag)
+        """Create a script job by path and return its job id.
+
+        ``retry`` re-runs the job when it fails, with the policy a schedule takes,
+        e.g. ``{"constant": {"attempts": 3, "seconds": 10}}``. The returned id is
+        the first attempt's; each retry is a job of its own, recorded as a child of it.
+        """
+        return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag, retry=retry)
 
     def run_script_by_hash_async(
         self,
@@ -232,9 +241,10 @@ class Windmill:
         args: dict = None,
         scheduled_in_secs: int = None,
         tag: str = None,
+        retry: dict = None,
     ) -> str:
-        """Create a script job by hash and return its job id."""
-        return self._run_script_async_internal(hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag)
+        """Create a script job by hash and return its job id. See ``run_script_by_path_async`` for ``retry``."""
+        return self._run_script_async_internal(hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag, retry=retry)
 
     def run_flow_async(
         self,
@@ -812,6 +822,22 @@ class Windmill:
             return None
         else:
             return r.json()
+
+    def worker_is_draining(self, job_id: Optional[str] = None) -> bool:
+        """Whether the worker running the job has received its shutdown signal.
+
+        A draining worker waits for its current job to finish before exiting. A long-running
+        script can poll this and return early so the worker can be replaced.
+
+        Args:
+            job_id: Job ID (defaults to current WM_JOB_ID)
+
+        Returns:
+            True if the worker running the job is draining
+        """
+        job_id = job_id or os.environ.get("WM_JOB_ID")
+
+        return self.get(f"/w/{self.workspace}/jobs/worker_is_draining/{job_id}").json()
 
     def set_flow_user_state(self, key: str, value: Any) -> None:
         """Set the user state of a flow at a given key"""
@@ -1618,6 +1644,7 @@ def run_script_by_path_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
     tag: str = None,
+    retry: Dict[str, Any] = None,
 ) -> str:
     """Create a script job by path and return its job ID.
 
@@ -1626,6 +1653,8 @@ def run_script_by_path_async(
         args: Script arguments
         scheduled_in_secs: Delay before execution in seconds
         tag: Override the worker tag the job runs on
+        retry: Re-run the job when it fails, with the policy a schedule takes,
+            e.g. ``{"constant": {"attempts": 3, "seconds": 10}}``
 
     Returns:
         Job ID string
@@ -1635,6 +1664,7 @@ def run_script_by_path_async(
         args=args,
         scheduled_in_secs=scheduled_in_secs,
         tag=tag,
+        retry=retry,
     )
 
 
@@ -1644,6 +1674,7 @@ def run_script_by_hash_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
     tag: str = None,
+    retry: Dict[str, Any] = None,
 ) -> str:
     """Create a script job by hash and return its job ID.
 
@@ -1652,6 +1683,7 @@ def run_script_by_hash_async(
         args: Script arguments
         scheduled_in_secs: Delay before execution in seconds
         tag: Override the worker tag the job runs on
+        retry: Re-run the job when it fails, see ``run_script_by_path_async``
 
     Returns:
         Job ID string
@@ -1661,6 +1693,7 @@ def run_script_by_hash_async(
         args=args,
         scheduled_in_secs=scheduled_in_secs,
         tag=tag,
+        retry=retry,
     )
 
 
@@ -2008,6 +2041,17 @@ def get_progress(job_id: Optional[str] = None) -> Any:
     Get the progress
     """
     return _client.get_progress(job_id)
+
+
+@init_global_client
+def worker_is_draining(job_id: Optional[str] = None) -> bool:
+    """
+    Whether the worker running this job has received its shutdown signal.
+
+    A draining worker waits for its current job to finish before exiting. A long-running
+    script can poll this and return early so the worker can be replaced.
+    """
+    return _client.worker_is_draining(job_id)
 
 
 def set_shared_state_pickle(value: Any, path="state.pickle") -> None:

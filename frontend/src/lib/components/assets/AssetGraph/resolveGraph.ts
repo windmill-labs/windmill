@@ -1,4 +1,9 @@
-import type { AssetGraphMacroEdge, AssetGraphResponse, NativeTriggerKind } from './types'
+import type {
+	AssetGraphMacroEdge,
+	AssetGraphResponse,
+	NativeTriggerKind,
+	PipelineTriggerDraft
+} from './types'
 import {
 	mergeColumnLineage,
 	parsePipelineAnnotations,
@@ -46,6 +51,8 @@ export type ResolveGraphInput = {
 	 * annotation has no matching trigger row in `base.triggers`.
 	 */
 	annotatedNativeKindsByPath: Map<string, Set<NativeTriggerKind>>
+	/** Undeployed triggers; each stands in for its script's missing trigger of that kind. */
+	triggerDrafts?: Iterable<PipelineTriggerDraft>
 }
 
 /** Mutable bag the sequential passes accumulate the resolved graph into. */
@@ -264,14 +271,198 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 	// there is nothing to show (also keeps the no-macros response shape
 	// byte-identical to before the feature).
 	const macroEdges = resolveMacroEdges(input)
+	const triggers = withTriggerDrafts(
+		[...baseTriggers, ...acc.extraTriggers],
+		input.triggerDrafts ?? []
+	)
 	return {
 		...base,
-		assets: acc.assets,
+		assets: dropOrphanedAssets(acc.assets, base, acc.edges, triggers),
 		runnables: acc.runnables,
 		edges: acc.edges,
-		triggers: [...baseTriggers, ...acc.extraTriggers],
+		triggers,
 		...(macroEdges.length > 0 || base.macro_edges ? { macro_edges: macroEdges } : {})
 	}
+}
+
+function withTriggerDrafts(
+	triggers: AssetGraphResponse['triggers'],
+	triggerDrafts: Iterable<PipelineTriggerDraft>
+): AssetGraphResponse['triggers'] {
+	const drafts = [...triggerDrafts]
+	if (drafts.length === 0) return triggers
+	const drafted = new Set(drafts.map((d) => `${d.kind}:${d.config.script_path}`))
+	return [
+		...triggers.filter(
+			(t) =>
+				!(
+					t.trigger_kind !== 'asset' &&
+					t.missing &&
+					t.runnable_kind === 'script' &&
+					drafted.has(`${t.trigger_kind}:${t.runnable_path}`)
+				)
+		),
+		...drafts.map((d) => ({
+			trigger_kind: d.kind,
+			path: d.config.path,
+			runnable_kind: 'script' as const,
+			runnable_path: d.config.script_path,
+			unsaved: true,
+			draft: true,
+			...(d.kind === 'schedule'
+				? { schedule: d.config.schedule as string, timezone: d.config.timezone as string }
+				: {}),
+			...(d.config.summary ? { summary: d.config.summary as string } : {})
+		}))
+	]
+}
+
+/** Why a node is red, and what the Fix actions act on. */
+export type PipelineNodeErrors = {
+	/** `kind:path` → reason. */
+	assets: Map<string, string>
+	/** Script path → reason. */
+	scripts: Map<string, string>
+	/** Subscribed assets nothing writes: `kind:path` → the asset and its subscribers. */
+	unwritten: Map<string, { asset: { kind: AssetKind; path: string }; subscribers: string[] }>
+	/** Script path → the unwritten asset it runs on (its first, when several). */
+	waitsOn: Map<string, { kind: AssetKind; path: string }>
+	/** Pipeline scripts nothing starts → why: no trigger at all, or only asset
+	 * triggers on assets nothing writes (an auto-triggering read included). */
+	untriggered: Map<string, 'no-trigger' | 'unwritten-inputs'>
+	/** Assets some asset trigger waits on that nothing in the pipeline writes: the
+	 * ones to look up across the workspace for `writtenElsewhere`. */
+	unwrittenTriggerAssets: Set<string>
+}
+
+/**
+ * Nodes the pipeline cannot work with, with the reason. Assets (keyed
+ * `kind:path`): one nothing uses at all. Scripts (keyed by path): one
+ * subscribed (`// on <asset>`) to an asset nothing writes, in the pipeline or,
+ * per `writtenElsewhere`, by a script anywhere else in the workspace, since the subscription can never fire; the asset itself is
+ * fine, and is reported in `unwritten`. A body read of an external asset is fine and is not passed here:
+ * only the explicit `// on` annotations, per script path, count as subscriptions.
+ */
+export function pipelineNodeErrors(
+	graph: AssetGraphResponse,
+	explicitOnByPath: Map<string, Array<{ kind: AssetKind; path: string }>>,
+	writtenElsewhere: ReadonlySet<string> = new Set()
+): PipelineNodeErrors {
+	const referenced = referencedAssetKeys(graph)
+	// Only a script's write fires an asset trigger: a flow's never does.
+	const written = new Set(
+		graph.edges
+			.filter(
+				(e) => e.runnable_kind === 'script' && (e.access_type === 'w' || e.access_type === 'rw')
+			)
+			.map((e) => `${e.asset_kind}:${e.asset_path}`)
+	)
+	for (const k of writtenElsewhere) written.add(k)
+	// The dbt project's own edges are hidden from the pipeline graph (see
+	// `hideDbtRunnables`), so its relations are judged by their provenance: the
+	// project uses every one, and materializes all but its sources.
+	for (const a of graph.assets) {
+		if (!a.dbt) continue
+		referenced.add(`${a.kind}:${a.path}`)
+		if (a.dbt.resource_type !== 'source') written.add(`${a.kind}:${a.path}`)
+	}
+	const errors = new Map<string, string>()
+	const scriptErrors = new Map<string, string>()
+	const unwritten: PipelineNodeErrors['unwritten'] = new Map()
+	const waitsOn: PipelineNodeErrors['waitsOn'] = new Map()
+	for (const a of graph.assets) {
+		const key = `${a.kind}:${a.path}`
+		if (!referenced.has(key)) errors.set(key, 'nothing in the pipeline uses it')
+	}
+	const scripts = new Set(
+		graph.runnables.filter((r) => r.usage_kind === 'script').map((r) => r.path)
+	)
+	for (const [path, refs] of explicitOnByPath) {
+		if (!scripts.has(path)) continue
+		for (const ref of refs) {
+			const key = `${ref.kind}:${ref.path}`
+			if (written.has(key)) continue
+			const entry = unwritten.get(key) ?? { asset: ref, subscribers: [] }
+			if (!entry.subscribers.includes(path)) entry.subscribers.push(path)
+			unwritten.set(key, entry)
+			if (!scriptErrors.has(path)) {
+				scriptErrors.set(path, `runs on ${ref.path}, which nothing writes`)
+				waitsOn.set(path, ref)
+			}
+		}
+	}
+	// A pipeline script nothing starts runs only by hand. An asset trigger starts
+	// it only if something writes that asset, which covers the automatic trigger
+	// of a ducklake/s3 read too. dbt projects and macro libraries are never
+	// started on their own, so they are left out.
+	const assetKey = (t: { asset_kind: AssetKind; asset_path: string }) =>
+		`${t.asset_kind}:${t.asset_path}`
+	const unwrittenTriggerAssets = new Set<string>()
+	const hasTrigger = new Set<string>()
+	const started = new Set<string>()
+	for (const t of graph.triggers) {
+		hasTrigger.add(t.runnable_path)
+		if (t.trigger_kind !== 'asset') started.add(t.runnable_path)
+		else if (written.has(assetKey(t))) started.add(t.runnable_path)
+		else unwrittenTriggerAssets.add(assetKey(t))
+	}
+	for (const k of unwritten.keys()) unwrittenTriggerAssets.add(k)
+	const untriggered: PipelineNodeErrors['untriggered'] = new Map()
+	for (const r of graph.runnables) {
+		if (r.usage_kind !== 'script' || !r.in_pipeline || r.dbt || r.macros?.length) continue
+		if (started.has(r.path) || scriptErrors.has(r.path)) continue
+		const why = hasTrigger.has(r.path) ? 'unwritten-inputs' : 'no-trigger'
+		untriggered.set(r.path, why)
+		scriptErrors.set(
+			r.path,
+			why === 'no-trigger'
+				? 'nothing starts it: it has no trigger'
+				: 'nothing starts it: nothing writes the assets it runs after'
+		)
+	}
+	return {
+		assets: errors,
+		scripts: scriptErrors,
+		unwritten,
+		waitsOn,
+		untriggered,
+		unwrittenTriggerAssets
+	}
+}
+
+function referencedAssetKeys(
+	graph: Pick<AssetGraphResponse, 'edges' | 'triggers' | 'test_edges' | 'dbt_edges'>
+): Set<string> {
+	const keys = new Set<string>()
+	for (const e of graph.edges) keys.add(`${e.asset_kind}:${e.asset_path}`)
+	for (const t of graph.triggers)
+		if (t.trigger_kind === 'asset') keys.add(`${t.asset_kind}:${t.asset_path}`)
+	for (const e of graph.test_edges ?? []) keys.add(`${e.asset_kind}:${e.asset_path}`)
+	for (const e of graph.dbt_edges ?? []) {
+		keys.add(`dbt:${e.from_asset_path}`)
+		keys.add(`dbt:${e.to_asset_path}`)
+	}
+	return keys
+}
+
+/**
+ * The backend only returns assets something references, so a deployed asset
+ * whose every edge and trigger the draft/live overlays stripped — an output the
+ * open script renamed — would linger as an edgeless node until the deploy
+ * lands. Assets that were already unreferenced in `base` are left alone.
+ */
+function dropOrphanedAssets(
+	assets: AssetGraphResponse['assets'],
+	base: AssetGraphResponse,
+	edges: AssetGraphResponse['edges'],
+	triggers: AssetGraphResponse['triggers']
+): AssetGraphResponse['assets'] {
+	const before = referencedAssetKeys(base)
+	const after = referencedAssetKeys({ ...base, edges, triggers })
+	return assets.filter((a) => {
+		const key = `${a.kind}:${a.path}`
+		return !before.has(key) || after.has(key)
+	})
 }
 
 /**
@@ -847,7 +1038,6 @@ function overlayInferredLineage(acc: Accumulator, input: ResolveGraphInput) {
 	overlayLineage(inferredWritesByPath, 'w')
 	overlayLineage(inferredReadsByPath, 'r')
 }
-
 
 /** dbt project ↔ relation association, for a graph that does NOT draw it.
  *

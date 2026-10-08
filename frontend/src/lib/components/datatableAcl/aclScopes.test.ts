@@ -3,10 +3,12 @@ import type { AclGrant } from '$lib/gen'
 import {
 	blockingSources,
 	grantKey,
+	grantCoverage,
 	groupGrants,
 	revocablePrivileges,
 	revokeScopeOf,
-	uncoveredCreators
+	uncoveredCreators,
+	type GroupedGrant
 } from './aclScopes'
 
 const table = (name: string) => ({ name, kind: 'TABLE' })
@@ -174,5 +176,31 @@ describe('uncoveredCreators', () => {
 				'late'
 			])
 		).toEqual([])
+	})
+})
+
+describe('grantCoverage', () => {
+	const schema = { kind: 'schema' as const, schema: 'sales' }
+	const row = (grant: Partial<GroupedGrant>): GroupedGrant => ({
+		grantee: 'analytics',
+		privileges: ['SELECT'],
+		objects: [],
+		sources: [],
+		...grant
+	})
+
+	it('says nothing for the object itself, and names what is created later', () => {
+		expect(grantCoverage(row({}), schema)).toBeUndefined()
+		expect(grantCoverage(row({ future: 'TABLES' }), schema)).toBe('tables created later')
+		expect(grantCoverage(row({ future: 'TABLES' }), { kind: 'database' })).toBe(
+			'tables created later, in every schema'
+		)
+	})
+
+	it('names a routine with its arguments, and summarizes past three objects', () => {
+		const routine = row({ objects: [{ name: 'refresh', kind: 'FUNCTION', args: 'integer' }] })
+		expect(grantCoverage(routine, schema)).toBe('function refresh(integer)')
+		const many = row({ objects: ['a', 'b', 'c', 'd', 'e'].map(table) })
+		expect(grantCoverage(many, schema)).toBe('tables a, b, c and 2 more')
 	})
 })
