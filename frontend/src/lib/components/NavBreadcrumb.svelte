@@ -396,6 +396,12 @@ not this component) — so the lead can run the whole line.
 			onPick={() => {}}
 		/>
 	{:else if section}
+		{#if section.parent}
+			<span class={twMerge(SEGMENT, LEAD, 'hover:bg-transparent hover:text-secondary')}>
+				<span class="truncate">{section.parent}</span>
+			</span>
+			{@render slash()}
+		{/if}
 		<!-- A section's own widget lays out as a row: its title, and whatever belongs with it. -->
 		<span
 			class={twMerge(
