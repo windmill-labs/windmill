@@ -6,6 +6,12 @@ export type GraphUsageKind = 'script' | 'flow'
 export interface AssetGraphAssetNode {
 	kind: AssetKind
 	path: string
+	// Filled in client-side: the node is misconfigured (see `pipelineNodeErrors`).
+	error?: string
+	// Filled in client-side: no script in the workspace writes it, so a step
+	// downstream of it would never run on its writes (a flow's write fires no
+	// asset trigger).
+	never_written?: boolean
 	// Fork workspaces only: 'fork' when this ducklake asset was materialized in
 	// the fork itself, 'deferred' when reads fall back to the parent workspace's
 	// current table via a defer view. Absent outside forks / for other kinds /
@@ -70,6 +76,12 @@ export interface DbtDataTest {
 export interface AssetGraphRunnableNode {
 	path: string
 	usage_kind: GraphUsageKind
+	// Filled in client-side (not sent by the backend): the canvas titles the
+	// node with the summary over the path, and shows the language's icon.
+	summary?: string
+	language?: import('$lib/gen').ScriptLang
+	// Why the script is misconfigured, when it is (see `pipelineNodeErrors`).
+	error?: string
 	// Script has `// pipeline` annotation. Drives the pipeline-member
 	// visual state; unrelated to what the script actually writes (that's
 	// parsed separately into lineage edges).
@@ -170,6 +182,17 @@ export type NativeTriggerKind =
 	| 'gcp'
 	| 'data_upload'
 
+export type PipelineTriggerDraftKind = Exclude<NativeTriggerKind, 'webhook' | 'data_upload'>
+
+/** A trigger configured in the pipeline editor but not deployed yet. It lives only
+ * in the pipeline's draft bundle, never as a workspace trigger draft, and is
+ * created when the pipeline is saved. `config` is what the kind's editor saves
+ * (for a schedule, a `NewSchedule`). */
+export type PipelineTriggerDraft = {
+	kind: PipelineTriggerDraftKind
+	config: Record<string, any> & { path: string; script_path: string }
+}
+
 export type AssetGraphTrigger =
 	| {
 			trigger_kind: 'asset'
@@ -192,6 +215,13 @@ export type AssetGraphTrigger =
 			// the canvas renders a red placeholder with a "Create trigger"
 			// affordance instead of a fully-wired source.
 			missing?: boolean
+			// A pipeline-local `PipelineTriggerDraft`: `path` is the trigger it
+			// will be deployed as, and no row exists yet.
+			draft?: boolean
+			// A schedule's cron, zone and summary, filled in client-side, for the node's labels.
+			schedule?: string
+			timezone?: string
+			summary?: string
 	  }
 
 // Macro-library → consumer edge: the consumer calls `macro_names` of

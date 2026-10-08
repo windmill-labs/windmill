@@ -31,6 +31,13 @@
 		/** What is being renamed. An agent is a resource, so the path field is scoped to one and
 		 *  the write goes through the agent branch of the rename manager. */
 		kind?: 'flow' | 'script' | 'agent'
+		/** Saves instead of the API, for an item that exists only locally (a draft).
+		 * Returns an error message to keep the popover open. */
+		saveOverride?: (next: {
+			path: string
+			summary: string
+			labels: string[] | undefined
+		}) => string | undefined
 		/** Header variant: no path line (the host shows it) and a lighter summary. */
 		compact?: boolean
 		/** Rendered inside the trigger in place of the summary, for a host that hangs a second copy
@@ -51,6 +58,7 @@
 		editable = false,
 		onSaved,
 		kind = 'flow',
+		saveOverride = undefined,
 		compact = false,
 		label,
 		triggerClass = 'block min-w-0 max-w-full px-1 py-0.5 rounded text-left cursor-pointer hover:bg-surface-hover transition-colors',
@@ -67,7 +75,9 @@
 	let popoverOpen = $state(false)
 	// Resolved before the popover opens, not on opening it: the path field only exists for an owner,
 	// and `openFocus` looks for it in the same flush the popover renders in.
-	const own = $derived(isOwner(path ?? '', actingUser, $operatingWorkspace))
+	const own = $derived(
+		saveOverride !== undefined || isOwner(path ?? '', actingUser, $operatingWorkspace)
+	)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let summaryInput: ReturnType<typeof TextInput> | undefined = $state()
 	let labelsDirty = $state(false)
@@ -101,6 +111,17 @@
 	async function save(close: () => void) {
 		const initialPath = path ?? ''
 		const newPath = own ? editPath : initialPath
+		if (saveOverride) {
+			const error = saveOverride({ path: newPath, summary: editSummary, labels })
+			if (error) {
+				sendUserToast(error, true)
+				return
+			}
+			labelsDirty = false
+			close()
+			onSaved?.(newPath)
+			return
+		}
 
 		try {
 			await updateItemPathAndSummary({

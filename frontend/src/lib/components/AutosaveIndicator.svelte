@@ -142,7 +142,13 @@
 	let hintTimer: ReturnType<typeof setTimeout> | undefined
 
 	const kindLabel = $derived(
-		itemKind === 'flow' ? 'flow' : itemKind === 'app' || itemKind === 'raw_app' ? 'app' : 'script'
+		itemKind === 'flow'
+			? 'flow'
+			: itemKind === 'app' || itemKind === 'raw_app'
+				? 'app'
+				: itemKind === 'data_pipeline'
+					? 'pipeline'
+					: 'script'
 	)
 
 	// Each false → true transition fires a hint (others > loaded). Seeded to
