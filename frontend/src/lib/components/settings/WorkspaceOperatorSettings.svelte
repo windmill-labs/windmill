@@ -65,6 +65,10 @@
 			!(originalSettings.builder_flows || originalSettings.builder_apps)
 	)
 
+	const grantedBuilderKinds = $derived(
+		[builderFlows && 'flows', builderApps && 'full-code apps'].filter(Boolean).join(' and ')
+	)
+
 	function onSaveClicked() {
 		if (grantsFirstBuilderRight) {
 			confirmBuilderOpen = true
@@ -284,8 +288,8 @@
 			instance is billed.
 		</span>
 		<span>
-			They can create, edit and delete flows and full-code apps wherever their folder permissions
-			already let them write. Review those permissions before enabling.
+			They can create, edit and delete {grantedBuilderKinds} wherever their folder permissions already
+			let them write. Review those permissions before enabling.
 		</span>
 	</div>
 </ConfirmationModal>
