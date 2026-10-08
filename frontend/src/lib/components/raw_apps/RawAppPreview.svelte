@@ -62,6 +62,32 @@
 		for (const event of queued) runner.handleMessage(event)
 	})
 
+	// If the job bridge cannot load (offline, or a chunk a redeploy removed), the bundle
+	// still paints, so its requests are answered with an error rather than left pending.
+	let runnerFailed = false
+	let requestRefused = $state(false)
+	function refuseRequest(event: MessageEvent) {
+		const data = event.data
+		if (typeof data?.type !== 'string' || data.reqId === undefined) return
+		requestRefused = true
+		;(event.source as Window | null)?.postMessage(
+			{
+				type: data.type + 'Res',
+				reqId: data.reqId,
+				error: true,
+				result: { message: 'Could not load the app runtime, reload the page to try again' }
+			},
+			'*'
+		)
+	}
+	runnerModule.catch((e) => {
+		console.error('Could not load the raw app job bridge', e)
+		runnerFailed = true
+		const queued = queuedForRunner
+		queuedForRunner = []
+		for (const event of queued) refuseRequest(event)
+	})
+
 	// Get initial hash from parent URL to pass to the iframe
 	let initialHash = ''
 
@@ -261,6 +287,8 @@
 				if (syncHashToUrl && window.location.hash !== newHash) {
 					history.replaceState(null, '', newHash || window.location.pathname)
 				}
+			} else if (runnerFailed) {
+				refuseRequest(event)
 			} else if (!runner) {
 				queuedForRunner.push(event)
 			}
@@ -281,6 +309,16 @@
 		{path}
 		gateJobIds={!unsandboxed}
 	/>
+{:catch}
+	{#if requestRefused}
+		<!-- Styled inline: neither app.css nor another chunk can be counted on here. -->
+		<div
+			role="alert"
+			style="position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1000; padding: 8px 12px; border: 1px solid #fca5a5; border-radius: 6px; background: #fef2f2; color: #991b1b; font: 13px/1.4 system-ui, sans-serif"
+		>
+			Could not load the app runtime. Reload the page to try again.
+		</div>
+	{/if}
 {/await}
 
 {#if iframeSrc}
