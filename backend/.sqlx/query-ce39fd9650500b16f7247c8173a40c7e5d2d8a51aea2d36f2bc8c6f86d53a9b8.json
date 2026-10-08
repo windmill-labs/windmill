@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH deleted AS (\n                    DELETE FROM v2_job_queue WHERE id = $1\n                    RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason,\n                        (extras->>'wac_first_started_at')::timestamptz AS first_started_at,\n                        COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000)::bigint AS run_ms\n                ), completed AS (\n                    INSERT INTO v2_job_completed AS cj\n                        ( workspace_id\n                        , id\n                        , started_at\n                        , duration_ms\n                        , extras\n                        , result\n                        , result_columns\n                        , canceled_by\n                        , canceled_reason\n                        , flow_status\n                        , workflow_as_code_status\n                        , memory_peak\n                        , status\n                        , worker\n                        )\n                    SELECT d.workspace_id, d.id, COALESCE(d.first_started_at, d.started_at),\n                        CASE WHEN d.first_started_at IS NULL THEN d.run_ms\n                            ELSE EXTRACT('epoch' FROM (now() - d.first_started_at))*1000 END,\n                        CASE WHEN d.first_started_at IS NOT NULL\n                            THEN jsonb_build_object('wac_last_segment_ms', d.run_ms) END,\n                        $3::text::jsonb, $10,\n                        CASE WHEN $4::BOOL THEN $5 ELSE d.canceled_by END,\n                        CASE WHEN $4::BOOL THEN $6 WHEN d.canceled_by IS NOT NULL THEN d.canceled_reason END,\n                        s.flow_status, s.workflow_as_code_status, $8,\n                        CASE WHEN $4::BOOL OR d.canceled_by IS NOT NULL THEN 'canceled'::job_status\n                            WHEN $7::BOOL THEN 'skipped'::job_status\n                            WHEN $2::BOOL THEN 'success'::job_status\n                            ELSE 'failure'::job_status END,\n                        d.worker\n                    FROM deleted d LEFT JOIN v2_job_status s ON s.id = d.id\n                    ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::text::jsonb,\n                        canceled_by = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL\n                            THEN EXCLUDED.canceled_by ELSE cj.canceled_by END,\n                        canceled_reason = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL\n                            THEN EXCLUDED.canceled_reason ELSE cj.canceled_reason END\n                    RETURNING cj.started_at, cj.duration_ms,\n                        COALESCE((cj.extras->>'wac_last_segment_ms')::bigint, cj.duration_ms) AS last_run_ms\n                )\n                SELECT started_at AS \"started_at?\", duration_ms AS \"duration_ms!\",\n                    last_run_ms AS \"last_run_ms!\" FROM completed",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "started_at?",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "duration_ms!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_run_ms!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Text",
+        "Bool",
+        "Varchar",
+        "Text",
+        "Bool",
+        "Int4",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "ce39fd9650500b16f7247c8173a40c7e5d2d8a51aea2d36f2bc8c6f86d53a9b8"
+}
