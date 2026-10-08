@@ -213,20 +213,27 @@ pub async fn flush_runnable_job_stats(db: &Pool<Postgres>) -> Result<(), sqlx::E
 
 /// Also removes the rows of workspaces that no longer exist: a flush that overlaps a
 /// workspace's deletion still sees the workspace and can write after the deletion's own
-/// cleanup ran.
+/// cleanup ran. Such a row is at most a couple of hours old, so only the last day is
+/// searched, which keeps both statements on a range of the primary key.
 pub async fn cleanup_old_runnable_job_stats(
     db: &Pool<Postgres>,
     retention_days: i64,
 ) -> Result<u64, sqlx::Error> {
-    let cutoff = get_current_hour() - retention_days * 24 * 3600;
-    let result = sqlx::query!(
-        "DELETE FROM runnable_job_stats s WHERE s.hour < $1 \
-         OR NOT EXISTS (SELECT 1 FROM workspace w WHERE w.id = s.workspace_id)",
-        cutoff
+    let current_hour = get_current_hour();
+    let expired = sqlx::query!(
+        "DELETE FROM runnable_job_stats WHERE hour < $1",
+        current_hour - retention_days * 24 * 3600
     )
     .execute(db)
     .await?;
-    Ok(result.rows_affected())
+    let orphaned = sqlx::query!(
+        "DELETE FROM runnable_job_stats s WHERE s.hour >= $1 \
+         AND NOT EXISTS (SELECT 1 FROM workspace w WHERE w.id = s.workspace_id)",
+        current_hour - 24 * 3600
+    )
+    .execute(db)
+    .await?;
+    Ok(expired.rows_affected() + orphaned.rows_affected())
 }
 
 #[cfg(test)]
