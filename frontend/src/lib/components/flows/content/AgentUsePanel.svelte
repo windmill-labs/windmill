@@ -19,6 +19,7 @@
 		workspace,
 		isAdmin,
 		slackTeamName,
+		signingSecretSet,
 		channels,
 		onChanged
 	}: {
@@ -27,6 +28,8 @@
 		isAdmin: boolean
 		/** Unset when Slack is not connected to the workspace. */
 		slackTeamName: string | undefined
+		/** Agents answer in Slack only when the instance verifies Slack's request signatures. */
+		signingSecretSet: boolean
 		channels: SlackChannelAgent[]
 		onChanged: () => void
 	} = $props()
@@ -148,6 +151,12 @@
 							<span class="text-2xs text-hint">A workspace admin can connect it.</span>
 						{/if}
 					{:else}
+						{#if !signingSecretSet}
+							<Alert type="warning" title="Agents can't answer in Slack yet" size="xs">
+								The instance needs SLACK_SIGNING_SECRET set to the Slack app's signing secret, so
+								Windmill can tell who sent a message.
+							</Alert>
+						{/if}
 						<div class="flex flex-col gap-1">
 							<span class="text-xs font-semibold text-emphasis">Ask it anywhere</span>
 							<span class="text-xs text-secondary">

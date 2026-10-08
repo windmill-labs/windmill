@@ -82,6 +82,8 @@ async fn list_channel_agents(
 struct AgentSlack {
     /// The connected Slack workspace's name; `None` when Slack is not connected.
     slack_team_name: Option<String>,
+    /// Agents answer only when the instance verifies Slack's request signatures.
+    signing_secret_set: bool,
     channels: Vec<ChannelAgent>,
 }
 
@@ -111,7 +113,11 @@ async fn list_agent_channels(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(AgentSlack { slack_team_name, channels }))
+    #[cfg(feature = "oauth2")]
+    let signing_secret_set = crate::SLACK_SIGNING_SECRET.is_some();
+    #[cfg(not(feature = "oauth2"))]
+    let signing_secret_set = false;
+    Ok(Json(AgentSlack { slack_team_name, signing_secret_set, channels }))
 }
 
 #[derive(Deserialize)]
@@ -653,13 +659,13 @@ async fn answer(
         }
     };
 
+    record_thread_agent(db, &msg.team_id, &channel, &thread_root, w_id, &agent_path).await?;
+
     if question.is_empty() {
         return reply
             .send(format!("What would you like to ask `{agent_path}`?"), None)
             .await;
     }
-
-    record_thread_agent(db, &msg.team_id, &channel, &thread_root, w_id, &agent_path).await?;
 
     // Keyed with the workspace's secret: any member could rebuild the plain thread and user ids
     // and load this person's conversation, tool results included, through the run API.

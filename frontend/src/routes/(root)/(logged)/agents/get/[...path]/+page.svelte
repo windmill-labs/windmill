@@ -214,6 +214,7 @@
 						workspace={ws}
 						isAdmin={!!($userStore?.is_admin || $userStore?.is_super_admin)}
 						slackTeamName={slack.current?.slack_team_name}
+						signingSecretSet={slack.current?.signing_secret_set ?? true}
 						channels={slack.current?.channels ?? []}
 						onChanged={() => slack.refetch()}
 					/>

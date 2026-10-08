@@ -13468,12 +13468,16 @@ paths:
                   slack_team_name:
                     type: string
                     description: the connected Slack workspace; absent when Slack is not connected
+                  signing_secret_set:
+                    type: boolean
+                    description: agents answer in Slack only when the instance sets SLACK_SIGNING_SECRET
                   channels:
                     type: array
                     items:
                       $ref: "#/components/schemas/SlackChannelAgent"
                 required:
                   - channels
+                  - signing_secret_set
 
   /w/{workspace}/flow_conversations/update/{conversation_id}:
     post:
