@@ -210,6 +210,20 @@ export const settings: Record<string, Setting[]> = {
 					!value?.endsWith(' '))
 		},
 		{
+			label: 'API base url',
+			description:
+				'Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, MCP), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway.',
+			key: 'api_base_url',
+			fieldType: 'text',
+			placeholder: 'https://api.windmill.company.com',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true,
+			error:
+				'API base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, and no trailing slash',
+			isValid: isValidWebhookBaseUrl
+		},
+		{
 			label: 'Email domain',
 			description: 'Domain to display in webhooks for email triggers (should match the MX record)',
 			key: 'email_domain',

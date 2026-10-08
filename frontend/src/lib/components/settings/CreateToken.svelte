@@ -15,6 +15,7 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -247,9 +248,9 @@
 	// token branch guards the same case by disabling its generate button.
 	const mcpUrl = $derived(
 		isAllWorkspaces
-			? `${window.location.origin}/api/mcp/gateway`
+			? `${apiBaseUrl()}/api/mcp/gateway`
 			: newTokenWorkspace
-				? `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp`
+				? `${apiBaseUrl()}/api/mcp/w/${newTokenWorkspace}/mcp`
 				: undefined
 	)
 	const mcpBaseUrl = $derived(`${mcpUrl ?? ''}?token=`)

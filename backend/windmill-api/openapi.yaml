@@ -1919,7 +1919,7 @@ paths:
 
   /settings/instance_ui:
     get:
-      summary: get the instance-wide announcement banner and accent color
+      summary: get the instance-wide announcement banner, accent color and API base url
       description: |
         Readable by any authenticated user; every page load reads it. Each value
         is the raw stored setting, or null when unset.
@@ -1928,7 +1928,7 @@ paths:
         - setting
       responses:
         "200":
-          description: the instance_banner and accent_color settings
+          description: the instance_banner, accent_color and api_base_url settings
           content:
             application/json:
               schema:
@@ -1936,6 +1936,7 @@ paths:
                 properties:
                   instance_banner: {}
                   accent_color: {}
+                  api_base_url: {}
 
   /settings_u/ruff_config:
     get:

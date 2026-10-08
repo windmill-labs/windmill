@@ -35,7 +35,7 @@
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
-	import { base } from '$lib/base'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
@@ -83,7 +83,7 @@
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
-	let base_endpoint = $derived(`${window.location.origin}${base}`)
+	let base_endpoint = $derived(apiBaseUrl())
 
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')

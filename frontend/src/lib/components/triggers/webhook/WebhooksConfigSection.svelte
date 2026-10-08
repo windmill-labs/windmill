@@ -16,7 +16,7 @@
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { copyToClipboard, isObject, readFieldsRecursively } from '$lib/utils'
 	// import { page } from '$app/state'
-	import { base } from '$lib/base'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import TriggerTokens from '../TriggerTokens.svelte'
 	import { userStore } from '$lib/stores'
 	import UserSettings from '../../UserSettings.svelte'
@@ -46,7 +46,7 @@
 	const operatingWorkspace = useOperatingWorkspace()
 	const wsId = $derived($operatingWorkspace)
 
-	const WEBHOOK_BASE_URL = $derived(`${location.origin}${base}/api/w/${wsId}/jobs`)
+	const WEBHOOK_BASE_URL = $derived(`${apiBaseUrl()}/api/w/${wsId}/jobs`)
 
 	let baseWebhookUrl = $derived.by(() => {
 		let webhookUrlPath: string
@@ -223,9 +223,7 @@ async function triggerJob() {
 function waitForJobCompletion(UUID) {
   return new Promise(async (resolve, reject) => {
     try {
-      const endpoint = \`${
-				location.origin
-			}/api/w/${wsId}/jobs_u/completed/get_result_maybe/\${UUID}\`;
+      const endpoint = \`${apiBaseUrl()}/api/w/${wsId}/jobs_u/completed/get_result_maybe/\${UUID}\`;
       const checkResponse = await fetch(endpoint, {
         method: 'GET',
         headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t\t\t')}
@@ -268,7 +266,7 @@ ${
 		? 'echo -E $RESULT | jq'
 		: requestType === 'async'
 			? `
-URL="${location.origin}/api/w/${wsId}/jobs_u/completed/get_result_maybe/$UUID"
+URL="${apiBaseUrl()}/api/w/${wsId}/jobs_u/completed/get_result_maybe/$UUID"
 while true; do
   curl -s -H "Authorization: Bearer $TOKEN" $URL -o res.json
   COMPLETED=$(cat res.json | jq .completed)

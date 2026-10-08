@@ -13,7 +13,7 @@
 	} from '$lib/gen'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { base } from '$lib/base'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
 	import { Button, Url } from '$lib/components/common'
@@ -203,7 +203,7 @@
 		}
 	})
 	function getBaseUrl() {
-		return `${window.location.origin}${base}/api/gcp/w/${wsId!}`
+		return `${apiBaseUrl()}/api/gcp/w/${wsId!}`
 	}
 
 	$effect(() => {

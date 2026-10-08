@@ -4,6 +4,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { Button } from '$lib/components/common'
 	import { page } from '$app/stores'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -26,11 +27,11 @@
 			let webhook: string
 			switch (kind) {
 				case 'script':
-					webhook = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/p/${path}`
+					webhook = `${apiBaseUrl()}/api/w/${$workspaceStore}/jobs/run/p/${path}`
 					redirectSuccess(webhook, token)
 					break
 				case 'flow':
-					webhook = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/f/${path}`
+					webhook = `${apiBaseUrl()}/api/w/${$workspaceStore}/jobs/run/f/${path}`
 					redirectSuccess(webhook, token)
 					break
 				default:

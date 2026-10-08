@@ -181,6 +181,12 @@ pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 /// `base_url` when unset; set it when the browser-facing URL is not reachable
 /// from GitHub and a separate ingress fronts the API for inbound webhooks.
 pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
+/// Base URL the UI shows for the endpoints external clients call (webhooks, HTTP
+/// routes, push trigger endpoints, MCP), instead of the origin the UI is browsed on.
+/// For deployments that serve the API on a separate domain or behind a gateway.
+/// EE only. Readable by any authenticated user, like [`INSTANCE_BANNER_SETTING`]:
+/// every user is shown URLs built from it.
+pub const API_BASE_URL_SETTING: &str = "api_base_url";
 /// Instance-wide announcement rendered above every page of the app (maintenance
 /// windows, incidents). Readable by any authenticated user, unlike most settings:
 /// the banner exists to be shown to everyone, so it must never hold anything the
@@ -313,12 +319,17 @@ pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
 pub struct InstanceUi {
     pub instance_banner: Option<serde_json::Value>,
     pub accent_color: Option<serde_json::Value>,
+    pub api_base_url: Option<serde_json::Value>,
 }
 
 pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
     let rows = sqlx::query!(
         "SELECT name, value FROM global_settings WHERE name = ANY($1)",
-        &[INSTANCE_BANNER_SETTING, ACCENT_COLOR_SETTING] as &[&str]
+        &[
+            INSTANCE_BANNER_SETTING,
+            ACCENT_COLOR_SETTING,
+            API_BASE_URL_SETTING
+        ] as &[&str]
     )
     .fetch_all(db)
     .await?;
@@ -327,17 +338,18 @@ pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
         match row.name.as_str() {
             INSTANCE_BANNER_SETTING => ui.instance_banner = Some(row.value),
             ACCENT_COLOR_SETTING => ui.accent_color = Some(row.value),
+            API_BASE_URL_SETTING => ui.api_base_url = Some(row.value),
             _ => {}
         }
     }
     Ok(ui)
 }
 
-/// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] value.
+/// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] or [`API_BASE_URL_SETTING`] value.
 ///
-/// The receiver path is appended to it verbatim, so anything that doesn't
-/// concatenate into a URL GitHub can POST to must be rejected at write time
-/// rather than silently producing an unreachable hook: a wrong scheme
+/// A path is appended to it verbatim, so anything that doesn't concatenate into a
+/// URL an external caller can reach must be rejected at write time rather than
+/// silently producing an unreachable hook or endpoint: a wrong scheme
 /// (`httpss://`), a missing host, embedded whitespace, or a query/fragment
 /// (appending a path after `?`/`#` keeps it inside the query/fragment).
 ///
@@ -353,7 +365,7 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
         url::Url::parse(value).map_err(|e| format!("must be an absolute http(s) URL: {e}"))?;
     if !url.username().is_empty() || url.password().is_some() {
         return Err(
-            "must not embed a username or password: the receiver URL is stored in workspace settings, where it is readable by workspace admins".to_string(),
+            "must not embed a username or password: the URL is readable by users who are not instance admins".to_string(),
         );
     }
     if !matches!(url.scheme(), "http" | "https") {
@@ -366,7 +378,7 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
     }
     if url.query().is_some() || url.fragment().is_some() {
         return Err(
-            "must not include a query string or fragment, since the webhook path is appended to it"
+            "must not include a query string or fragment, since a path is appended to it"
                 .to_string(),
         );
     }
