@@ -736,6 +736,9 @@ async fn resource_type_index(
 /// unsearchable until then; this re-indexes the resource types alone when the table changed.
 #[cfg(feature = "embedding")]
 pub async fn refresh_resource_type_embeddings(pg_db: &Pool<Postgres>) -> Result<()> {
+    if EMBEDDINGS_DB.read().await.is_none() {
+        return Ok(());
+    }
     let fingerprint = resource_types_fingerprint(pg_db).await?;
     let (model_instance, hub_embeddings, custom_vectors) = match EMBEDDINGS_DB.read().await.as_ref()
     {
