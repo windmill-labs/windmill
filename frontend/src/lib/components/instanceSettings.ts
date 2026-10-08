@@ -208,7 +208,15 @@ export const settings: Record<string, Setting[]> = {
 				(value?.startsWith('http') &&
 					value.includes('://') &&
 					!value?.endsWith('/') &&
-					!value?.endsWith(' '))
+					!value?.endsWith(' ')),
+			advancedToggle: {
+				label: 'The API is served on a different url than the UI',
+				onChange(values) {
+					values['api_base_url'] = values['api_base_url'] == null ? '' : null
+					return values
+				},
+				checked: (values) => values['api_base_url'] != null
+			}
 		},
 		{
 			label: 'API base url',
@@ -219,6 +227,7 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'https://api.windmill.company.com',
 			storage: 'setting',
 			ee_only: '',
+			hiddenIfNull: true,
 			hideInQuickSetup: true,
 			error:
 				'API base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, no shell metacharacters, and no trailing slash',
