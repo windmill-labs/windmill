@@ -515,6 +515,11 @@ async fn update_draft(
                 ));
             }
             let mut referenced = windmill_common::apps::app_value_runnable_paths(&draft)?;
+            if let Some(policy) = draft.get("policy") {
+                let policy = serde_json::from_value(policy.clone())
+                    .map_err(|e| Error::BadRequest(format!("Invalid app draft policy: {e}")))?;
+                referenced.extend(crate::apps::policy_runnable_paths(&policy)?);
+            }
             referenced.sort();
             referenced.dedup();
             crate::apps::refuse_hub_runnables(&referenced)?;

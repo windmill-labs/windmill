@@ -2300,22 +2300,7 @@ fn check_operator_composed_app(
             "Operators with builder rights must deploy an app with its policy".to_string(),
         ));
     };
-    // A `rawscript/<sha>` triggerable is the deployed app's authorization to run caller-supplied
-    // `raw_code` whose content hashes to it (see `execute_component`'s run mode, which authorizes
-    // inline code by this key alone). Pinning one would hand a builder arbitrary code execution
-    // through an app whose *value* passed the inline-script check above. A composition-only app
-    // has none, so refusing them costs nothing.
-    fn pins_raw_script<'a, T>(map: &'a Option<HashMap<String, T>>) -> bool {
-        map.iter()
-            .flat_map(|m| m.keys())
-            .any(|k| k.starts_with("rawscript/") || k.contains(":rawscript/"))
-    }
-    if pins_raw_script(&policy.triggerables) || pins_raw_script(&policy.triggerables_v2) {
-        return Err(Error::PermissionDenied(
-            "Operators with builder rights cannot deploy an app whose policy pins inline code"
-                .to_string(),
-        ));
-    }
+    referenced.extend(policy_runnable_paths(policy)?);
     if policy.sandbox == Some(false) {
         return Err(Error::PermissionDenied(
             "Operators with builder rights can only deploy sandboxed apps".to_string(),
@@ -2323,9 +2308,9 @@ fn check_operator_composed_app(
     }
     policy.sandbox = Some(true);
 
-    // Viewer mode would make the triggerables below non-exhaustive (see the docs). Pin an omitted
-    // mode: `update_app_internal` resolves it to the deployed app's, so a redeploy over an admin's
-    // viewer-mode app would otherwise inherit `Viewer` after this check passed.
+    // Viewer mode would make the triggerables collected above non-exhaustive (see the docs). Pin an
+    // omitted mode: `update_app_internal` resolves it to the deployed app's, so a redeploy over an
+    // admin's viewer-mode app would otherwise inherit `Viewer` after this check passed.
     match policy.stated_execution_mode() {
         Some(ExecutionMode::Viewer) => {
             return Err(Error::PermissionDenied(
@@ -2337,35 +2322,52 @@ fn check_operator_composed_app(
         None => policy.set_execution_mode(ExecutionMode::Publisher),
     }
 
-    // `execute_component` looks up `{component}:{path}` with an unrestricted component, so every
-    // colon is a possible split (`a:b:script/x` resolves for `component = "a:b"`): check every
-    // suffix that parses as a runnable.
-    referenced.extend(
-        policy
-            .triggerables
-            .iter()
-            .flat_map(|t| t.keys())
-            .chain(policy.triggerables_v2.iter().flat_map(|t| t.keys()))
-            .flat_map(|key| {
-                std::iter::once(key.as_str())
-                    .chain(key.match_indices(':').map(|(i, _)| &key[i + 1..]))
-                    .filter_map(|candidate| {
-                        candidate
-                            .strip_prefix("script/")
-                            .map(|p| (false, p.to_string()))
-                            .or_else(|| {
-                                candidate
-                                    .strip_prefix("flow/")
-                                    .map(|p| (true, p.to_string()))
-                            })
-                    })
-                    .collect::<Vec<_>>()
-            }),
-    );
     referenced.sort();
     referenced.dedup();
     refuse_hub_runnables(&referenced)?;
     Ok(referenced)
+}
+
+/// The runnables a builder app's policy authorizes, as `(is_flow, path)`.
+pub(crate) fn policy_runnable_paths(policy: &Policy) -> Result<Vec<(bool, String)>> {
+    // A `rawscript/<sha>` triggerable is the deployed app's authorization to run caller-supplied
+    // `raw_code` hashing to it: pinning one hands a builder arbitrary code execution through an
+    // app whose value passed the inline-script check. A composition-only app has none.
+    fn pins_raw_script<T>(map: &Option<HashMap<String, T>>) -> bool {
+        map.iter()
+            .flat_map(|m| m.keys())
+            .any(|k| k.starts_with("rawscript/") || k.contains(":rawscript/"))
+    }
+    if pins_raw_script(&policy.triggerables) || pins_raw_script(&policy.triggerables_v2) {
+        return Err(Error::PermissionDenied(
+            "Operators with builder rights cannot deploy an app whose policy pins inline code"
+                .to_string(),
+        ));
+    }
+    // `execute_component` looks up `{component}:{path}` with an unrestricted component, so every
+    // colon is a possible split (`a:b:script/x` resolves for `component = "a:b"`): check every
+    // suffix that parses as a runnable.
+    Ok(policy
+        .triggerables
+        .iter()
+        .flat_map(|t| t.keys())
+        .chain(policy.triggerables_v2.iter().flat_map(|t| t.keys()))
+        .flat_map(|key| {
+            std::iter::once(key.as_str())
+                .chain(key.match_indices(':').map(|(i, _)| &key[i + 1..]))
+                .filter_map(|candidate| {
+                    candidate
+                        .strip_prefix("script/")
+                        .map(|p| (false, p.to_string()))
+                        .or_else(|| {
+                            candidate
+                                .strip_prefix("flow/")
+                                .map(|p| (true, p.to_string()))
+                        })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect())
 }
 
 pub(crate) fn refuse_hub_runnables(referenced: &[(bool, String)]) -> Result<()> {
