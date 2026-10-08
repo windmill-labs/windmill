@@ -7,6 +7,7 @@
 	import {
 		createSession,
 		findEmptyLandingSession,
+		isTearingDownOpenSession,
 		selectSession,
 		sessionLastActivityAt,
 		sessionPageHref,
@@ -34,13 +35,19 @@
 	}
 
 	$effect(() => {
-		if (!sessionState.hydrated || session) return
+		// A delete awaiting its fork's removal opens the fresh session itself (onNewSession).
+		if (!sessionState.hydrated || session || isTearingDownOpenSession()) return
 		untrack(() => open((findEmptyLandingSession() ?? createSession()).id))
 	})
 
 	$effect(() => {
-		if (!session || !bridgeConnected) return
-		untrack(() => getOrCreateRuntime(session).manager.enableBrowserTools())
+		if (!session) return
+		const connected = bridgeConnected
+		untrack(() => {
+			const manager = getOrCreateRuntime(session).manager
+			manager.detachPreview()
+			if (connected) manager.enableBrowserTools()
+		})
 	})
 
 	const recentSessions = $derived(
@@ -87,7 +94,7 @@
 		</div>
 		{#if sessionId}
 			{#key sessionId}
-				<SessionWrapper {sessionId} />
+				<SessionWrapper {sessionId} onNewSession={open} />
 			{/key}
 		{/if}
 	{/if}

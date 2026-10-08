@@ -42,6 +42,14 @@ export function connectBrowserBridge(): Promise<boolean> {
 	return connection
 }
 
+/** Settles every pending call and withdraws the extension's open confirmations, so a stopped
+ * turn leaves no approval behind that could still act on the page. */
+export function cancelBrowserCalls() {
+	for (const p of pending.values()) p.reject(new Error('Stopped by the user'))
+	pending.clear()
+	if (parentOrigin) window.parent.postMessage({ type: 'wm-browser:cancel' }, parentOrigin)
+}
+
 function callBrowser(tool: BrowserToolName, args: Record<string, unknown>): Promise<any> {
 	if (!parentOrigin) return Promise.reject(new Error('The browser extension is not connected.'))
 	const id = randomUUID()

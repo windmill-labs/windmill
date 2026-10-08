@@ -30,9 +30,12 @@ async function main() {
 		const reply = (m: object) => frame.contentWindow?.postMessage(m, origin)
 		if (msg?.type === 'wm-browser:hello') {
 			reply({ type: 'wm-browser:ready' })
+		} else if (msg?.type === 'wm-browser:cancel') {
+			generation++
+			declineOpen?.()
 		} else if (msg?.type === 'wm-browser:call' && typeof msg.id === 'string') {
 			try {
-				const result = await run({ tool: msg.tool, args: msg.args ?? {} } as Call)
+				const result = await run({ tool: msg.tool, args: msg.args ?? {} } as Call, generation)
 				reply({ type: 'wm-browser:result', id: msg.id, ok: true, result })
 			} catch (err) {
 				const error = err instanceof Error ? err.message : String(err)
@@ -42,32 +45,32 @@ async function main() {
 	})
 }
 
-async function run(call: Call): Promise<unknown> {
+async function run(call: Call, gen: number): Promise<unknown> {
 	const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
 	if (tab?.id === undefined) throw new Error('No active tab')
 	const tabId = tab.id
 	switch (call.tool) {
 		case 'read':
-			return exec(tabId, readPage, [30_000])
+			return (await exec({ tabId }, readPage, [30_000]))[0]
 		case 'screenshot':
 			return chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 })
 		case 'click': {
-			const label = await exec(tabId, pageAction, ['describe', call.args])
-			await confirmAction(`Click ${label}`, tab)
-			return exec(tabId, pageAction, ['click', call.args])
+			const [label, documentId] = await exec({ tabId }, pageAction, ['describe', call.args])
+			await confirmAction(`Click ${label}`, tab, gen)
+			return execConfirmed(tabId, documentId, ['click', call.args])
 		}
 		case 'type': {
-			const label = await exec(tabId, pageAction, ['describe', call.args])
+			const [label, documentId] = await exec({ tabId }, pageAction, ['describe', call.args])
 			const submit = call.args.submit ? ' and submit' : ''
-			await confirmAction(`Type "${call.args.text}" into ${label}${submit}`, tab)
-			return exec(tabId, pageAction, ['type', call.args])
+			await confirmAction(`Type "${call.args.text}" into ${label}${submit}`, tab, gen)
+			return execConfirmed(tabId, documentId, ['type', call.args])
 		}
 		case 'navigate': {
 			const url = new URL(call.args.url)
 			if (url.protocol !== 'https:' && url.protocol !== 'http:') {
 				throw new Error('Only http(s) URLs can be opened')
 			}
-			await confirmAction(`Open ${url.href}`, tab)
+			await confirmAction(`Open ${url.href}`, tab, gen)
 			await chrome.tabs.update(tabId, { url: url.href })
 			return `Navigating to ${url.href}`
 		}
@@ -79,23 +82,43 @@ async function run(call: Call): Promise<unknown> {
 // Injected functions run in the page and must be self-contained; they report failure as
 // `{ error }` because a throw inside them reaches us without its message.
 async function exec<A extends any[]>(
-	tabId: number,
+	target: chrome.scripting.InjectionTarget,
 	func: (...args: A) => { result?: unknown; error?: string },
 	args: A
-): Promise<any> {
-	const [injection] = await chrome.scripting.executeScript({ target: { tabId }, func, args })
+): Promise<[any, string]> {
+	const [injection] = await chrome.scripting.executeScript({ target, func, args })
 	const out = injection?.result as { result?: unknown; error?: string } | undefined
 	if (!out) throw new Error('The page did not answer')
 	if (out.error) throw new Error(out.error)
-	return out.result
+	return [out.result, injection.documentId]
+}
+
+/** Pinned to the document the user confirmed: if the tab navigated meanwhile, this fails. */
+async function execConfirmed(
+	tabId: number,
+	documentId: string,
+	args: Parameters<typeof pageAction>
+): Promise<unknown> {
+	const target = { tabId, documentIds: [documentId] }
+	const [result] = await exec(target, pageAction, args).catch((e: Error) => {
+		throw /No document with id/.test(e.message)
+			? new Error('The page changed while waiting for approval. Read it again.')
+			: e
+	})
+	return result
 }
 
 let confirmQueue: Promise<unknown> = Promise.resolve()
+// Bumped when the chat stops its turn: a confirmation asked before that is never shown, and
+// the open one is declined.
+let generation = 0
+let declineOpen: (() => void) | undefined
 
 /** Shown outside the Windmill frame, so neither the chat nor the page can answer it. */
-function confirmAction(text: string, tab: chrome.tabs.Tab): Promise<void> {
+function confirmAction(text: string, tab: chrome.tabs.Tab, gen: number): Promise<void> {
 	const ask = () =>
 		new Promise<void>((resolve, reject) => {
+			if (gen !== generation) return reject(new Error('Stopped by the user'))
 			const box = document.getElementById('confirm')!
 			document.getElementById('confirm-text')!.textContent = text
 			document.getElementById('confirm-host')!.textContent = `On ${tab.url ?? 'the active tab'}`
@@ -105,12 +128,14 @@ function confirmAction(text: string, tab: chrome.tabs.Tab): Promise<void> {
 			const done = (ok: boolean) => {
 				box.hidden = true
 				allow.onclick = deny.onclick = null
+				declineOpen = undefined
 				if (ok) resolve()
 				else reject(new Error('The user declined this action'))
 			}
 			allow.onclick = () => done(true)
 			deny.onclick = () => done(false)
-			allow.focus()
+			declineOpen = () => done(false)
+			// Nothing is focused: a keystroke meant for the chat composer must not approve.
 		})
 	const next = confirmQueue.then(ask, ask)
 	confirmQueue = next.catch(() => {})

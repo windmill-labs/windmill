@@ -133,6 +133,7 @@ import {
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import { fullSessionAccess, resolveSessionAccess } from './global/sessionAccess'
+import { cancelBrowserCalls } from './global/browserTools'
 import type { SessionAccess } from './sessionCapabilities'
 import { filterSessionTools } from './global/sessionToolset'
 import {
@@ -736,7 +737,10 @@ export class AIChatManager implements ChatViewHost {
 			(this.autonomyMode === AIAutonomyMode.ACCEPT_EDIT ||
 				this.autonomyMode === AIAutonomyMode.YOLO)
 	)
-	autoAcceptToolConfirmationsAvailable = $derived(supportsAutoAcceptToolConfirmations(this.mode))
+	// Never in the side panel: page content in context could steer an unconfirmed workspace tool.
+	autoAcceptToolConfirmationsAvailable = $derived(
+		!this.browserTools && supportsAutoAcceptToolConfirmations(this.mode)
+	)
 	autoAcceptToolConfirmationsActive = $derived(
 		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
 	)
@@ -2702,6 +2706,18 @@ export class AIChatManager implements ChatViewHost {
 		}
 	}
 
+	/** For a host that renders no preview pane: forms stay inline and runs open in a new tab,
+	 * as in the docked chat. */
+	detachPreview = () => {
+		this.openRunInPreview = undefined
+		this.openRunForm = undefined
+		this.closeRunForm = undefined
+		this.showRunInPlaceOfForm = undefined
+		this.isRunFormInPreview = undefined
+		this.openArtifact = undefined
+		this.closeArtifact = undefined
+	}
+
 	enableBrowserTools = () => {
 		this.browserTools = true
 		if (this.mode === AIMode.GLOBAL) {
@@ -4485,6 +4501,7 @@ export class AIChatManager implements ChatViewHost {
 		})
 		this.abortController?.abort(cancelReason)
 		this.cancelLoadingTools()
+		if (this.browserTools) cancelBrowserCalls()
 	}
 
 	cancelInlineRequest = (reason?: string) => {
