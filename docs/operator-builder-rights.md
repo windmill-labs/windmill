@@ -133,7 +133,8 @@ that already have one on, is a zero delta and never blocks.
 
 - A builder raw app may declare `frontend_sdk_scopes`, and `mint_raw_app_sdk_token` mints as the
   *viewer*. A consenting admin therefore hands the bundle a 12h admin-identity token within the
-  curated scope list. The viewer consent prompt is the gate. The lever, if this is ever revisited,
+  curated scope list. The viewer consent prompt is the gate, shown by the editor preview as well
+  as the deployed app, before any token is minted. The lever, if this is ever revisited,
   is dropping `variables:read` / `resources:read` / `jobs:run` from `FRONTEND_SDK_ALLOWED_SCOPES`
   for builder apps.
 - The raw-app editor preview runs an app's runnables as whoever has the editor open, where the
