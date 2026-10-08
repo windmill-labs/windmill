@@ -18,7 +18,8 @@
 	]
 
 	/** An operator's session can run what is deployed, read runs and call MCP servers, but
-	 * cannot create scripts, flows or apps, so none of these asks it to build one. */
+	 * cannot author scripts or apps. It composes flows only where the workspace grants
+	 * `operator_settings.builder_flows`, so none of these asks it to build anything. */
 	export const homeAIOperatorExamples: { label: string; prompt: string }[] = [
 		{
 			label: 'Run a flow',
