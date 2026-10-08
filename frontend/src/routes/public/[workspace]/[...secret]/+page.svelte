@@ -160,25 +160,29 @@
 	}
 </script>
 
-<PublicAppFrame
-	{fetchEmbedToken}
-	{viewerUrl}
-	{guestAppPath}
-	{guestEntry}
-	onViewerReady={(_token, requestTokenRefresh) => {
-		refresh = requestTokenRefresh
-		loadApp()
-	}}
->
-	{#snippet viewer()}
-		<PublicApp
-			{app}
-			{workspace}
-			{notExists}
-			{noPermission}
-			{jwtError}
-			{guestAppPath}
-			onLoginSuccess={() => loadApp()}
-		></PublicApp>
-	{/snippet}
-</PublicAppFrame>
+<!-- The route is what gives the app a height: nothing above it has one (`app.html` wraps the
+     body in `display: contents`), and the viewer's own boxes are `h-full`. -->
+<div class="h-screen w-full">
+	<PublicAppFrame
+		{fetchEmbedToken}
+		{viewerUrl}
+		{guestAppPath}
+		{guestEntry}
+		onViewerReady={(_token, requestTokenRefresh) => {
+			refresh = requestTokenRefresh
+			loadApp()
+		}}
+	>
+		{#snippet viewer()}
+			<PublicApp
+				{app}
+				{workspace}
+				{notExists}
+				{noPermission}
+				{jwtError}
+				{guestAppPath}
+				onLoginSuccess={() => loadApp()}
+			></PublicApp>
+		{/snippet}
+	</PublicAppFrame>
+</div>

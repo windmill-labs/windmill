@@ -92,6 +92,8 @@ export type RawAppPreviewLogs = {
 	/** Files were sent to the UI Builder and its build has not reported back in time. */
 	buildPending: boolean
 	buildLogs: string
+	/** The app is held back until the user answers its SDK permission prompt, so it is not running. */
+	sdkConsentPending: boolean
 }
 export type RawAppRuntimeLogRequester = (limit: number) => Promise<RawAppPreviewLogs>
 
@@ -292,6 +294,9 @@ export function unsandboxedRawAppHtml(
 <head>
 	<meta charset="UTF-8" />
 	<title>App</title>
+	<!-- Before the app's own stylesheet, so a bundle that wants a margin can still set one: the
+	     browser default of 8px would otherwise frame every app with a gap it never asked for. -->
+	<style>html, body { margin: 0; }</style>
 	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
 	<script>
 		window.ctx = ${ctx ? JSON.stringify(ctx).replace(/</g, '\\u003c') : 'undefined'};

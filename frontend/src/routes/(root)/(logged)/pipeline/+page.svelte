@@ -4,8 +4,9 @@
 	import PipelineSetupSignpost from '$lib/components/assets/AssetGraph/PipelineSetupSignpost.svelte'
 	import PipelineAlphaAckModal from '$lib/components/assets/AssetGraph/PipelineAlphaAckModal.svelte'
 	import PipelineDbtSignpost from '$lib/components/assets/AssetGraph/PipelineDbtSignpost.svelte'
-	import { BookOpen, NetworkIcon } from 'lucide-svelte'
+	import { BookOpen } from 'lucide-svelte'
 	import { onMount } from 'svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 
 	const ACK_STORAGE_KEY = 'pipeline-alpha-ack'
 
@@ -36,21 +37,19 @@
 	<title>Pipelines — Windmill</title>
 </svelte:head>
 
-<div class="flex flex-col h-full">
-	<div
-		class="border-b flex flex-row justify-between gap-2 px-2 py-1 items-center min-h-10 shrink-0 whitespace-nowrap"
-	>
-		<div class="flex flex-row items-center gap-2">
-			<NetworkIcon size={16} class="text-tertiary shrink-0" />
-			<h1 class="text-sm font-semibold">Pipelines</h1>
-			<span
-				class="text-2xs px-1.5 py-0.5 rounded font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-			>
-				Alpha
-			</span>
-		</div>
-	</div>
+<!-- No title row of its own: the band already names this page, and the badge that sat beside the
+     title rides after that name. -->
+<PageHeaderContent section={{ label: 'Pipelines' }} afterName={alphaBadge} separator="always" />
 
+{#snippet alphaBadge()}
+	<span
+		class="text-2xs px-1.5 py-0.5 rounded font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+	>
+		Alpha
+	</span>
+{/snippet}
+
+<div class="flex flex-col h-full">
 	<div class="flex-1 min-h-0 overflow-y-auto bg-surface-secondary">
 		<div class="max-w-2xl mx-auto flex flex-col gap-6 px-4 py-8">
 			<div class="flex flex-col gap-2">

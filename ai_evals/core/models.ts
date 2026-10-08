@@ -149,6 +149,15 @@ export const EVAL_MODELS: EvalModelSpec[] = [
     },
   },
   {
+    id: "gpt-6.1-sol",
+    label: "GPT-6.1 Sol",
+    aliases: ["gpt-6.1-sol"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-6.1-sol",
+    },
+  },
+  {
     id: "gpt-6-sol",
     label: "GPT-6 Sol",
     aliases: ["gpt-6-sol"],

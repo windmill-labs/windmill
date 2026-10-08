@@ -46,9 +46,19 @@
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
 	import { USER_SETTINGS_HASH } from '../sidebar/settings'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { onboardingProfile } from '$lib/onboardingProfile'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
+
+	/** Bar width from which the two side trips stand in the bar rather than folding into the menu.
+	 *  Home's trail is ~250px and the rest of its actions ~400, so this leaves room for both
+	 *  labelled buttons without the trail starting to truncate. Below it they fold back. */
+	const BAR_FITS_SIDE_TRIPS = 1024
+	const sideTripsInBar = $derived(pageHeader.barWidth >= BAR_FITS_SIDE_TRIPS)
+	const hubOffered = $derived(!$userStore?.operator && HOME_SHOW_HUB)
 
 	let value = $state('')
 	// The stock examples, unless the invite that brought this person here wrote prompts for
@@ -71,6 +81,26 @@
 	function setCollapsed(next: boolean) {
 		collapsed = next
 		storeLocalSetting(COLLAPSED_SETTING, next ? 'true' : undefined)
+	}
+
+	// Removing puts the composer away rather than throwing it out, and the way back is one item in
+	// the band's menu — so the ellipsis flashes as it appears, in a corner nobody is watching while
+	// the hero collapses in the middle of the page.
+	//
+	// A keyframe animation, not a transition: this mounts in the same flush that collapses the
+	// hero, so the frame that would paint it at rest is the frame it is already told to leave, and
+	// one `requestAnimationFrame` is not reliably past that paint. The flash then goes straight to
+	// invisible without ever being drawn. Mounted only while pulsing, so each removal replays it.
+	const PULSE_MS = 1000
+	let pulsing = $state(false)
+	let pulseEndTimer: ReturnType<typeof setTimeout> | undefined
+
+	function removeComposer() {
+		setCollapsed(true)
+		if (reducedMotion.val) return
+		clearTimeout(pulseEndTimer)
+		pulsing = true
+		pulseEndTimer = setTimeout(() => (pulsing = false), PULSE_MS)
 	}
 
 	// In global-AI mode the layout's chat panel is disabled and never loads the copilot
@@ -107,8 +137,9 @@
 	// unlocked, so the far commoner unlocked workspace never pops the composer in mid-load.
 	let runOnlyWorkspace = $derived(isRuleActive('DisableDirectDeployment'))
 
-	// The composer hands off to /sessions, which refuses operators — so hide it from them (the
-	// prompt would be silently dropped) while the AI-independent CLI/MCP row below stays.
+	// The composer hands off to /sessions, which refuses operators and users opted out of the
+	// sessions beta — so hide it from them (the prompt would be silently dropped) while the
+	// AI-independent CLI/MCP row below stays.
 	let showComposer = $derived(
 		prefersSessionHandoff($userStore?.operator) &&
 			!runOnlyWorkspace &&
@@ -116,7 +147,7 @@
 	)
 
 	// The hero's margins and centered column are for the full block. The lone button row left
-	// by a collapsed, operator, run-only or hidden-assistant view is a hint line and should
+	// by a collapsed, opted-out, run-only or hidden-assistant view is a hint line and should
 	// cost the page almost nothing: no top margin, and the content column's full width so it
 	// hugs the right edge instead of floating centered in empty space.
 	let hero = $derived(showComposer && !collapsed)
@@ -149,7 +180,7 @@
 	const FADE_MS = 600
 
 	// Rotate the example prompt every CYCLE_MS: fade the placeholder out, swap it, fade it back in.
-	// Only while the composer is shown — otherwise (operators) it would loop forever driving an
+	// Only while the composer is shown — otherwise it would loop forever driving an
 	// unrendered input — and not under reduced motion, where the first prompt simply stays put.
 	// The index lives outside the effect so re-showing the composer resumes the rotation from the
 	// prompt currently displayed rather than restarting it.
@@ -185,7 +216,7 @@
 				<!-- The one dismiss control while the composer is usable; the overlay below carries its
 				     own once it takes over, so the two never show at the same time. -->
 				<div class="absolute right-0 top-0 z-20">
-					<CloseButton small noBg title="Hide Build with AI" onClick={() => setCollapsed(true)} />
+					<CloseButton small noBg title="Remove session chat" onClick={removeComposer} />
 				</div>
 			{/if}
 			<div class="flex items-center justify-center gap-2 mb-4">
@@ -272,9 +303,7 @@
 									{freeTierExhausted ? 'Add your own API key' : 'Configure AI'}
 								</Button>
 							{/if}
-							<Button unifiedSize="sm" variant="default" onClick={() => setCollapsed(true)}>
-								Hide
-							</Button>
+							<Button unifiedSize="sm" variant="default" onClick={removeComposer}>Remove</Button>
 						</div>
 					</div>
 				{/if}
@@ -295,49 +324,106 @@
 						</Button>
 					{/each}
 				</div>
-			{:else if showComposer}
-				<!-- All that is left of the composer once dismissed: sits with the CLI/MCP row so the
-				     collapsed home page is one quiet line. -->
-				<Button
-					variant="subtle"
-					unifiedSize="xs"
-					btnClasses="!text-2xs !text-hint"
-					startIcon={{ icon: WandSparkles }}
-					onClick={() => setCollapsed(false)}
-				>
-					Build with AI
-				</Button>
-			{:else}
-				<div></div>
 			{/if}
-
-			<!-- Not AI-related, so shown even to operators / when the composer is hidden. -->
-			<div class="flex flex-row items-center gap-1">
-				<Button
-					variant="subtle"
-					unifiedSize="xs"
-					btnClasses="!text-2xs !text-hint"
-					startIcon={{ icon: PlugZap }}
-					onClick={() => homeConnectDrawer?.openDrawer?.()}
-				>
-					CLI / MCP
-				</Button>
-				{#if !$userStore?.operator && HOME_SHOW_HUB}
-					<Button
-						variant="subtle"
-						unifiedSize="xs"
-						btnClasses="!text-2xs !text-hint"
-						startIcon={{ icon: Globe2 }}
-						endIcon={{ icon: ExternalLink }}
-						href={$hubBaseUrlStore}
-						target="_blank"
-					>
-						Hub
-					</Button>
-				{/if}
-			</div>
 		</div>
 	</div>
 </div>
 
 <HomeConnectDrawer bind:this={homeConnectDrawer} />
+
+<!-- Everything the hero offered beside the composer lives in the band's menu: the connect helper,
+     the hub, and the way back to the composer once it has been put away. -->
+<!-- Last in the bar whatever else the page registers: a menu of side trips belongs after the
+     buttons that act on what is on screen. -->
+<PageHeaderContent actions={homeMenu} actionsOrder={100} />
+
+{#snippet homeMenu()}
+	<!-- The band's own menu: the connect helper, the hub, and whether the composer is on this page
+	     — all of them preferences or side trips, none of them the page's work. -->
+	<span class="flex items-center gap-1">
+		<!-- Wide enough, and the two side trips are buttons of their own: a menu is where a thing
+		     goes when the bar cannot hold it, not where it belongs. They fold back below the width
+		     above. -->
+		{#if sideTripsInBar}
+			<!-- The same quiet shape the hero gave them before the bar took them: xs, hint-coloured,
+			     and the hub keeps its outbound mark. They sit beside the page's own buttons, and a
+			     side trip should not read as loudly as the thing the page is for. -->
+			<Button
+				variant="subtle"
+				unifiedSize="xs"
+				btnClasses="!text-2xs !text-hint"
+				startIcon={{ icon: PlugZap }}
+				onClick={() => homeConnectDrawer?.openDrawer?.()}
+			>
+				CLI / MCP
+			</Button>
+			{#if hubOffered}
+				<Button
+					variant="subtle"
+					unifiedSize="xs"
+					btnClasses="!text-2xs !text-hint"
+					startIcon={{ icon: Globe2 }}
+					endIcon={{ icon: ExternalLink }}
+					href={$hubBaseUrlStore}
+					target="_blank"
+				>
+					Hub
+				</Button>
+			{/if}
+		{/if}
+		<!-- Nothing left to hold once the side trips stand in the bar and the composer is on the
+		     page: an ellipsis that opens an empty menu is a button that does nothing. -->
+		<!-- No menu while the hero is on the page and its side trips are in the bar: the hero's own
+		     cross removes it, so an ellipsis holding a second way to do that is a button whose only
+		     item is a duplicate. -->
+		{#if !sideTripsInBar || (showComposer && collapsed)}
+			<!-- The flash rides the ellipsis itself, not the row: with the side trips beside it the
+			     row is three controls wide, and marking all three names none of them. -->
+			<span class="relative inline-flex">
+				{#if pulsing}
+					<!-- `opacity-0` at rest: the keyframes carry no fill mode, so at the end of the
+					     animation the element returns to its own opacity. At 1 that is the flash coming
+					     back at full strength until the unmount timer catches up. -->
+					<span
+						aria-hidden="true"
+						class="pointer-events-none absolute -inset-1 rounded-lg bg-blue-500/30 opacity-0 animate-fade-out"
+					></span>
+				{/if}
+				<DropdownV2
+					placement="bottom-end"
+					size="sm"
+					items={[
+						...(showComposer && collapsed
+							? [
+									{
+										displayName: 'Pin session hero to homepage',
+										icon: WandSparkles,
+										action: () => setCollapsed(false)
+									}
+								]
+							: []),
+						...(sideTripsInBar
+							? []
+							: [
+									{
+										displayName: 'CLI / MCP',
+										icon: PlugZap,
+										action: () => homeConnectDrawer?.openDrawer?.()
+									},
+									...(hubOffered
+										? [
+												{
+													displayName: 'Hub',
+													icon: Globe2,
+													href: $hubBaseUrlStore,
+													hrefTarget: '_blank' as const
+												}
+											]
+										: [])
+								])
+					]}
+				/>
+			</span>
+		{/if}
+	</span>
+{/snippet}

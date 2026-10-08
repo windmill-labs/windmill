@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.827.0](https://github.com/windmill-labs/windmill/compare/v1.826.0...v1.827.0) (2026-10-07)
+
+
+### Features
+
+* audit instance settings writes, stable audit OTel target ([#11593](https://github.com/windmill-labs/windmill/issues/11593)) ([0792332](https://github.com/windmill-labs/windmill/commit/0792332859a88b1359ea1be64250d38dd071a0a9))
+* default new raw apps to react 19 and ask for the data setup ([#11586](https://github.com/windmill-labs/windmill/issues/11586)) ([818ddd5](https://github.com/windmill-labs/windmill/commit/818ddd5d31bd81507e274dd18022c1cdbd9be842))
+* export queue delay as OTel and Prometheus metrics ([#11588](https://github.com/windmill-labs/windmill/issues/11588)) ([7565349](https://github.com/windmill-labs/windmill/commit/75653496e542550039cbe5c413d8fcb9d395cea8))
+* pause a worker group without stopping its workers ([#11596](https://github.com/windmill-labs/windmill/issues/11596)) ([95c4b30](https://github.com/windmill-labs/windmill/commit/95c4b3096cf10c1fe59de7a1a6876dfb5f02c39f))
+* run AI decision steps on OpenAI's Decisions API ([#11590](https://github.com/windmill-labs/windmill/issues/11590)) ([046df9e](https://github.com/windmill-labs/windmill/commit/046df9e44db2f2fae3059ccd7a3d6c6955ee8971))
+
+
+### Bug Fixes
+
+* avoid URLSearchParams.keys() so the frontend check passes ([#11599](https://github.com/windmill-labs/windmill/issues/11599)) ([fc6c84c](https://github.com/windmill-labs/windmill/commit/fc6c84c6974bba1850e90a088fad5460c8c93ba3))
+* let recover: true from the error handler turn nested failures green ([#11559](https://github.com/windmill-labs/windmill/issues/11559)) ([03e484e](https://github.com/windmill-labs/windmill/commit/03e484e59757c0d4d6f74511d9aa5a1e2f94af67))
+* run dependency resolution and build steps under nsjail ([#11609](https://github.com/windmill-labs/windmill/issues/11609)) ([a238d01](https://github.com/windmill-labs/windmill/commit/a238d01ef6a8c285aef6886c974904f24339f7a2))
+* scope the python wheel cache to workspaces with their own registry ([#11597](https://github.com/windmill-labs/windmill/issues/11597)) ([14381ce](https://github.com/windmill-labs/windmill/commit/14381cefee6fb2b0ece52fbf0001c2ce61bde1a1))
+* type snowflake columns in database manager insert and alter forms ([#11578](https://github.com/windmill-labs/windmill/issues/11578)) ([f2fb156](https://github.com/windmill-labs/windmill/commit/f2fb15603b2e0d11bd5d04dd675212a5e4a7b9d7))
+
 ## [1.826.0](https://github.com/windmill-labs/windmill/compare/v1.825.0...v1.826.0) (2026-10-07)
 
 

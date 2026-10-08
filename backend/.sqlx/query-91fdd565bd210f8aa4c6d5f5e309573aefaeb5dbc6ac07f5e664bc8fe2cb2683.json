@@ -1,17 +1,16 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1 AND workspace_id = $2 AND running)",
+  "query": "SELECT COALESCE(config->'paused' = 'true'::jsonb, false) FROM config WHERE name = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "exists",
+        "name": "coalesce",
         "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
         "Text"
       ]
     },
@@ -19,5 +18,5 @@
       null
     ]
   },
-  "hash": "ee769c78ec0a782de18911cdcb655aad93cf23321cd0f42f7ffa5348bfbea26e"
+  "hash": "91fdd565bd210f8aa4c6d5f5e309573aefaeb5dbc6ac07f5e664bc8fe2cb2683"
 }

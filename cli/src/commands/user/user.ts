@@ -1,6 +1,8 @@
 import { writeFile } from "node:fs/promises";
 
 import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace } from "../../core/context.ts";
+import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import {
   GlobalOptions,
   isSuperset,
@@ -67,6 +69,32 @@ async function list(opts: GlobalOptions) {
       ])
     )
     .render();
+}
+
+async function listWorkspaceUsers(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const users = await wmill.listUsers({ workspace: workspace.workspaceId });
+
+  if (opts.json) {
+    console.log(JSON.stringify(users));
+  } else {
+    new Table()
+      .header(["username", "email", "role"])
+      .padding(2)
+      .border(true)
+      .body(
+        users.map((u) => [
+          u.username,
+          u.email,
+          u.is_admin ? "admin" : u.operator ? "operator" : "developer",
+        ])
+      )
+      .render();
+  }
 }
 
 function rdString() {
@@ -518,6 +546,9 @@ export async function pushInstanceGroups(
 const command = new Command()
   .description("user related commands")
   .action(list as any)
+  .command("list", "List the users of the workspace")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(listWorkspaceUsers as any)
   .command("add", "Create a user")
   .arguments("<email:string> [password:string]")
   .option("--superadmin", "Specify to make the new user superadmin.")

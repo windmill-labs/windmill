@@ -303,7 +303,12 @@
 
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
-	import { inputBaseClass, inputBorderClass, inputSizeClasses } from './text_input/TextInput.svelte'
+	import {
+		inputBaseClass,
+		inputBorderClass,
+		inputLeadingClasses,
+		inputSizeClasses
+	} from './text_input/TextInput.svelte'
 	import { MinusIcon, SearchIcon } from 'lucide-svelte'
 	import { assignObjInPlace, clone } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
@@ -338,7 +343,7 @@
 		hideDropdownOnFreeText?: boolean
 		// Notified whenever the dropdown's effective visibility changes
 		onDropdownVisibleChange?: (visible: boolean) => void
-		size?: 'md' | 'lg'
+		size?: 'sm' | 'md' | 'lg'
 		// On the right the icon gives way to the clear button once there is text; on the left
 		// it stays put.
 		searchIconPosition?: 'left' | 'right'
@@ -747,7 +752,11 @@
 			'overflow-x-auto !pr-24 bg-surface-input outline-none scrollbar-hidden text-nowrap flex-1 mr-2 mt-0.5',
 			inputBaseClass,
 			inputSizeClasses[size],
-			// The editable's fixed top padding centres the text at md height.
+			// The editable's own 2px top margin is what centres the text at md height, where its box
+			// is shorter than the row. At sm the two are the same height, so that margin only pushes
+			// the text below centre: drop it and take the leading the shared table defines, which is
+			// the row's height less its padding.
+			size === 'sm' && twMerge('!mt-0', inputLeadingClasses.sm),
 			size === 'lg' && '!pt-[0.7rem]',
 			searchIconPosition === 'left' && '!pl-1.5'
 		)}
