@@ -479,6 +479,7 @@ pub fn sdk_stream_to_sse(
                     }
                 }
                 Ok(None) => break (!message_stopped).then(truncated_stream_error),
+                Err(_) if message_stopped => break None,
                 Err(e) => break Some(bedrock_stream_error(&e)),
             }
         };
@@ -1175,6 +1176,7 @@ impl BedrockQueryBuilder {
                     }
                 }
                 Ok(None) => break,
+                Err(_) if message_stopped => break,
                 Err(e) => return Err(bedrock_stream_error(&e)),
             }
         }

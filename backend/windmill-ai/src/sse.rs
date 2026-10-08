@@ -124,6 +124,7 @@ pub trait SSEParser {
                 }
                 // The body ends right after a transport error, so it cannot be skipped
                 // like a malformed event. A timeout spent the caller's whole budget.
+                Err(EventStreamError::Transport(_)) if self.is_complete() => break,
                 Err(EventStreamError::Transport(e)) => {
                     let message =
                         format!("The connection to the AI provider broke off mid-response: {e}");

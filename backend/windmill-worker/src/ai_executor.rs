@@ -1827,14 +1827,14 @@ pub async fn run_agent(
                         );
 
                         // The request timeout is the job's, so a timed-out call leaves no time
-                        // for another attempt.
+                        // for another attempt. A connect timeout has its own, shorter budget.
                         let resp = build_http_request(&endpoint, &auth_headers, request_body)
                             .send()
                             .await
                             .map_err(|e| {
                                 let message = format!("Failed to call API: {}", e);
-                                if e.is_builder() || e.is_timeout() {
-                                    Error::internal_err(message)
+                                if e.is_builder() || (e.is_timeout() && !e.is_connect()) {
+                                    Error::AIError(message)
                                 } else {
                                     transient_error(message, None)
                                 }
@@ -1924,7 +1924,7 @@ pub async fn run_agent(
                                     return Err(if is_transient_status(status, &text) {
                                         transient_error(message, wait)
                                     } else {
-                                        Error::internal_err(message)
+                                        Error::AIError(message)
                                     });
                                 }
                             }

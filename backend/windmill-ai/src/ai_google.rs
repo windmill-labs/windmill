@@ -328,6 +328,15 @@ pub struct GeminiSSEEvent {
     pub usage_metadata: Option<GeminiUsageMetadata>,
     #[serde(default)]
     pub error: Option<crate::retry::StreamErrorBody>,
+    #[serde(rename = "promptFeedback", default)]
+    pub prompt_feedback: Option<GeminiPromptFeedback>,
+}
+
+/// Set when Gemini refuses the prompt itself, in which case no candidate follows.
+#[derive(Deserialize, Debug)]
+pub struct GeminiPromptFeedback {
+    #[serde(rename = "blockReason", default)]
+    pub block_reason: Option<String>,
 }
 
 // ============================================================================
@@ -572,6 +581,12 @@ pub fn parse_gemini_sse_event(data: &str) -> Result<Option<GeminiParsedEvent>, E
 
     if let Some(error) = event.error {
         return Err(error.into_error("Gemini"));
+    }
+
+    if let Some(reason) = event.prompt_feedback.and_then(|f| f.block_reason) {
+        return Err(Error::AIError(format!(
+            "Gemini blocked the prompt: {reason}"
+        )));
     }
 
     let mut parsed = GeminiParsedEvent { usage: event.usage_metadata, ..Default::default() };

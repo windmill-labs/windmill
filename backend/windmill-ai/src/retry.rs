@@ -74,7 +74,7 @@ pub fn retry_after(headers: &HeaderMap) -> Option<Duration> {
             .parse::<f64>()
             .ok()
             .filter(|v| v.is_finite() && *v >= 0.0)
-            .map(|v| Duration::from_secs_f64(v / scale))
+            .map(|v| Duration::try_from_secs_f64(v / scale).unwrap_or(Duration::MAX))
     };
     seconds("retry-after-ms", 1000.0).or_else(|| seconds("retry-after", 1.0))
 }
@@ -199,7 +199,7 @@ pub async fn send_with_retries(request: RequestBuilder) -> Result<Response, Erro
 async fn send_once(request: RequestBuilder) -> Result<Response, Error> {
     let response = request.send().await.map_err(|e| {
         let message = format!("Failed to reach the AI provider: {e}");
-        if e.is_builder() || e.is_timeout() {
+        if e.is_builder() || (e.is_timeout() && !e.is_connect()) {
             Error::AIError(message)
         } else {
             transient_error(message, None)
@@ -233,9 +233,10 @@ impl Backoff {
         }
         let delay = match error.retry_after {
             Some(wait) if wait > MAX_RETRY_AFTER => return None,
-            Some(wait) => wait,
+            // A zero wait would retry back to back, so it gets the computed backoff.
+            Some(wait) if !wait.is_zero() => wait,
             // Jittered, so callers throttled together do not come back together.
-            None => (BASE_DELAY * 2u32.pow(self.retries))
+            _ => (BASE_DELAY * 2u32.pow(self.retries))
                 .min(MAX_BACKOFF)
                 .mul_f64(0.5 + rand::random::<f64>() * 0.5),
         };
@@ -307,6 +308,9 @@ mod tests {
         assert_eq!(retry_after(&headers), Some(Duration::from_secs(2)));
         headers.insert("retry-after-ms", "1500".parse().unwrap());
         assert_eq!(retry_after(&headers), Some(Duration::from_millis(1500)));
+        headers.remove("retry-after-ms");
+        headers.insert("retry-after", "1e30".parse().unwrap());
+        assert_eq!(retry_after(&headers), Some(Duration::MAX));
 
         let mut backoff = Backoff::default();
         let asked = |secs| TransientAIError {

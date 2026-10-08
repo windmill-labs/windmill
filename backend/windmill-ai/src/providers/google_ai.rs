@@ -540,6 +540,7 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
                     Ok(None) => {}
                     Err(e) => break Some(e),
                 },
+                Err(EventStreamError::Transport(_)) if finished => break None,
                 Err(EventStreamError::Transport(e)) => {
                     break Some(transient_error(
                         format!("The connection to Gemini broke off mid-response: {e}"),
