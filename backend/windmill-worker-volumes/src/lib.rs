@@ -54,11 +54,45 @@ pub struct VolumeMount {
     pub target: String,
 }
 
+/// A file's size and last change time. Sync-back trusts a pulled file's stored hash only while
+/// its stamp is the one taken at hand-off: size alone misses a rewrite of the same length. A
+/// write within the filesystem's timestamp granularity of the hand-off is not seen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileStamp {
+    size: u64,
+    changed: Option<(i64, i64)>,
+}
+
+impl FileStamp {
+    /// Whether the file is as it was at `earlier`. An unreadable change time never matches.
+    pub fn unchanged_since(&self, earlier: &FileStamp) -> bool {
+        self.changed.is_some() && self == earlier
+    }
+
+    pub fn of(meta: &std::fs::Metadata) -> Self {
+        // ctime rather than mtime: a tool that restores mtime (cp -p, tar, rsync -t) cannot set it.
+        #[cfg(unix)]
+        let changed = {
+            use std::os::unix::fs::MetadataExt;
+            Some((meta.ctime(), meta.ctime_nsec()))
+        };
+        #[cfg(not(unix))]
+        let changed = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| (d.as_secs() as i64, d.subsec_nanos() as i64));
+        Self { size: meta.len(), changed }
+    }
+}
+
 pub struct VolumeState {
     pub mount: VolumeMount,
     pub local_dir: PathBuf,
     pub manifest: HashMap<String, FileEntry>,
     pub symlinks: HashMap<String, String>,
+    /// Stamp of each pulled file as the job received it, keyed like `manifest`.
+    pub stamps: HashMap<String, FileStamp>,
 }
 
 pub struct DownloadStats {

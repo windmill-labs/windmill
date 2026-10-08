@@ -2607,6 +2607,25 @@ describe('global AI tools', () => {
 		expect(raw).not.toContain('function New')
 	})
 
+	it('records the data setup a new app is initialized with', async () => {
+		await callGlobalTool('init_app', {
+			path: 'u/admin/tickets',
+			framework: 'react19',
+			data: {
+				datatable: 'main',
+				schema: 'helpdesk',
+				tables: ['helpdesk:tickets', 'notes', 'main/customers']
+			}
+		})
+
+		const draft = getBackendDraft('raw_app', 'u/admin/tickets', { workspace: WORKSPACE })
+		expect(draft?.data).toEqual({
+			datatable: 'main',
+			schema: 'helpdesk',
+			tables: ['main/helpdesk:tickets', 'main/helpdesk:notes', 'main/customers']
+		})
+	})
+
 	it('discards a draft without deleting the workspace item', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/discard-me',
@@ -4709,6 +4728,7 @@ describe('global AI tools', () => {
 			expect(onDeployed).toHaveBeenCalledWith({
 				sessionId: 'sess-123',
 				kind: 'raw_app',
+				storagePath: 'f/apps/report',
 				path: 'f/apps/report'
 			})
 		} finally {

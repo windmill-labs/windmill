@@ -9,7 +9,7 @@
 		type Session,
 		type SessionPreviewTab
 	} from './sessionState.svelte'
-	import type { NewRawAppSeed, SessionRuntime } from './sessionRuntime.svelte'
+	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import {
 		resolvePreviewTab,
@@ -77,16 +77,10 @@
 		slot.kind === 'editor' || slot.kind === 'viewer' ? slot.path : undefined
 	)
 	const mode = $derived(slot.kind === 'viewer' ? 'view' : 'edit')
-	// `new_draft` marks a raw app opened from the new-app builder before anything was saved.
-	const newRawApp: NewRawAppSeed | undefined = $derived.by(() => {
-		if (itemKind !== 'raw_app') return undefined
-		const params = new URL(tab.url, 'http://x').searchParams
-		if (params.get('new_draft') !== 'true') return undefined
-		return {
-			datatable: params.get('datatable') ?? undefined,
-			role: params.get('datatable_role') ?? undefined
-		}
-	})
+	// `new_draft` marks a raw app handed over by the new-app builder.
+	const newRawApp = $derived(
+		itemKind === 'raw_app' && new URL(tab.url, 'http://x').searchParams.get('new_draft') === 'true'
+	)
 	// A pinned deployed version, read from the tab URL rather than passed down: the tab
 	// URL is the single record of where this tab points.
 	const pinnedVersion = $derived(
@@ -369,7 +363,10 @@
 					{#await import('./PipelineEditorView.svelte')}
 						{@render editorLoading()}
 					{:then Module}
-						<Module.default {runtime} path={itemPath} {workspaceId} {isActiveSession} {active} />
+						<!-- Keyed: the view binds one folder's state for its lifetime. -->
+						{#key itemPath}
+							<Module.default {runtime} path={itemPath} {workspaceId} {isActiveSession} {active} />
+						{/key}
 					{/await}
 				{:else}
 					{#await import('./RawAppEditorView.svelte')}
@@ -380,6 +377,7 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
+							onSeeDetails={seeDetails}
 							{isActiveSession}
 							{active}
 							{newRawApp}

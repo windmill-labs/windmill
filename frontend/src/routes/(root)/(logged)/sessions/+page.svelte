@@ -1,21 +1,25 @@
 <script lang="ts">
-	import { onMount, tick, untrack } from 'svelte'
+	import { onDestroy, onMount, tick, untrack } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { page } from '$app/state'
 	import {
 		Plus,
 		Maximize2,
-		Minimize2,
 		ExternalLink,
 		PanelRightClose,
 		PanelRightOpen,
+		Minimize2,
 		ChevronDown,
 		MonitorPlay,
 		Loader2
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { BAR_TOP_PAD } from '$lib/components/pageHeaderRegistry.svelte'
 	import { Button } from '$lib/components/common'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
+	import { cubicOut } from 'svelte/easing'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import PreviewRouterPicker, {
 		type Scope
@@ -448,6 +452,55 @@
 	let emptyStateNewTabOpen = $state(false)
 
 	let fullscreen = $state(false)
+
+	// Going full screen is the preview panel expanding to the left: the chat column shrinks to
+	// nothing and the panel takes its place. Animating that is what carries the switch, so the
+	// panel is never unmounted — it is resized, like a collapse — and the tab strips, which live
+	// in two different trees (the panel's own card, and the band), only fade.
+	const reducedMotion = useReducedMotion()
+	const PANES_MOVE_MS = 240
+	/** Panes transition their width only while a full-screen switch is in flight. Left on, every
+	 *  splitter drag would lag 240ms behind the pointer. */
+	let panesAnimating = $state(false)
+	let panesAnimationTimer: ReturnType<typeof setTimeout> | undefined = undefined
+	function toggleFullscreen() {
+		fullscreen = !fullscreen
+		if (reducedMotion.val) return
+		panesAnimating = true
+		clearTimeout(panesAnimationTimer)
+		panesAnimationTimer = setTimeout(() => (panesAnimating = false), PANES_MOVE_MS)
+	}
+	onDestroy(() => clearTimeout(panesAnimationTimer))
+	/** The arriving strip fades in over the expansion; the leaving one goes quickly, so the two
+	 *  are never both legible at once — they stand in different places, and a slow dissolve would
+	 *  read as two tab rows rather than one changing place. */
+	function stripArrive(_node: Element) {
+		return reducedMotion.val
+			? { duration: 0 }
+			: { duration: 180, delay: 60, easing: cubicOut, css: (t: number) => `opacity: ${t}` }
+	}
+	function stripLeave(_node: Element) {
+		return reducedMotion.val
+			? { duration: 0 }
+			: { duration: 80, easing: cubicOut, css: (t: number) => `opacity: ${t}` }
+	}
+	// Width of the preview panel, so the band can stop where it starts.
+	let previewWidth = $state(0)
+	/** Width of the row the panes share, so the panel can be remembered as a share of it. */
+	let contentWidth = $state(0)
+	/** What share of that row the panel takes, sampled only while it is standing still. The band's
+	 *  inset is read from this for the length of a full-screen switch: fed the live measurement,
+	 *  the bar would be sized against a panel that has not arrived yet, and on the way back from
+	 *  full screen it starts at 146px — narrow enough that the bar wraps to two rows before the
+	 *  panel settles. A share rather than a width, so a window resized while full screen still
+	 *  gives the right inset on the way out. */
+	let panelShare = $state(0)
+	const bandInset = $derived.by(() => {
+		if (fullscreen) return 0
+		if (panesAnimating && panelShare > 0 && contentWidth > 0)
+			return Math.round(panelShare * contentWidth)
+		return previewCollapsed || previewWidth === 0 ? undefined : previewWidth
+	})
 	// Fullscreen is page state, not per-session, so it outlives a session switch —
 	// tell the incoming session's model, whose own collapsed flag it overrides, or
 	// re-opening the item plainly on screen would be judged invisible and not flash.
@@ -501,9 +554,10 @@
 				lastExpandedPreviewSize = previewPaneSize
 			}
 			if (full) {
-				// Chat pane is unmounted: the preview is the only pane and must own
-				// the full width, not its remembered split share.
+				// The preview owns the full width, not its remembered split share. The chat pane
+				// stays mounted at zero, so it has to be driven to 0 in the same pass.
 				previewPaneSize = 100
+				chatPaneSize = 0
 			} else if (collapsed) {
 				previewPaneSize = 0
 				chatPaneSize = 100
@@ -904,6 +958,52 @@
 	}}
 />
 
+<!-- The session showing fills the band's breadcrumb. The band is the layout's, but it stops
+     where the preview panel starts so that panel can run from the top of the viewport. -->
+<!-- In full screen the band carries the session's name and, as one filling surface, the preview's
+     own strip and controls. The name here is only what shows until the active session's
+     SessionWrapper has mounted: it registers after this does, and the registry merges later-wins,
+     so from then on the name comes from there, with its pen and its menu. -->
+<PageHeaderContent
+	barRightInset={bandInset}
+	section={fullscreen ? { label: activeSession?.summary ?? 'Untitled session' } : undefined}
+	actions={fullscreen ? fullscreenBand : sessionPageActions}
+	actionsFill={fullscreen}
+	separator={fullscreen ? 'always' : 'none'}
+/>
+
+{#snippet fullscreenBand()}
+	<!-- The band is split in two: the breadcrumb on the page's own surface, and from there to the
+	     right edge one filled panel carrying the tabs and the preview's controls. It takes the bar's
+	     full height, and the bar's bottom border runs underneath it, so the line between header and
+	     content is unbroken. -->
+	<div
+		class="flex-1 min-w-0 self-stretch flex items-center gap-1 pl-2.5 pr-2 bg-surface-secondary/50"
+	>
+		{@render previewTabStrip(true)}
+		<div class="flex-1 min-w-4"></div>
+		<div class="flex items-center gap-0.5 shrink-0">
+			{@render previewControls()}
+		</div>
+	</div>
+{/snippet}
+
+{#snippet sessionPageActions()}
+	{#if previewCollapsed && !fullscreen}
+		<!-- Collapsed preview: the way back to the side panel, in the band with the session's own
+		     controls rather than floating over the chat. -->
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			startIcon={{ icon: PanelRightOpen }}
+			title="Open side panel"
+			onclick={() => owner?.setCollapsed(false)}
+		>
+			Open side panel
+		</Button>
+	{/if}
+{/snippet}
+
 <div class="h-full flex flex-col min-h-0">
 	{#if embedded}
 		<!-- Rendered inside a preview iframe — opening the sessions UI here would
@@ -928,7 +1028,7 @@
 			<p class="text-primary font-medium">AI Sessions are not available for operators</p>
 			<p>Use the Ask AI chat instead.</p>
 			<Button
-				size="xs"
+				unifiedSize="xs"
 				onclick={() => {
 					try {
 						localStorage.setItem('ai-chat-open', 'true')
@@ -970,33 +1070,58 @@
 		     switch, and a verdict still loading would otherwise tear them down on every
 		     one. The covered stack is inert so nothing under the overlay takes focus. -->
 		<div class="flex-1 min-h-0 flex flex-col relative">
+			<!-- Leaving full screen, the panel travels back to the right across ground the band has
+			     already claimed: the band is pinned to the width the panel will end at, so under it
+			     the bar would show through as a white patch over the panel's left edge and the left
+			     end of its tab strip. z-[31] — one above the band — puts the panel over it for the
+			     length of the move instead, uncovering it as it settles. Entering full screen needs
+			     none of this: the band is full width from the first frame and the panel stays below. -->
 			<div
-				class="flex-1 min-h-0 flex flex-row relative z-0"
+				bind:clientWidth={contentWidth}
+				class="flex-1 min-h-0 flex flex-row relative {panesAnimating && !fullscreen
+					? 'z-[31]'
+					: 'z-0'}"
 				use:splitterPointerCapture
 				inert={aiHiddenVerdict !== false}
 			>
 				<Splitpanes
 					horizontal={false}
-					class="flex-1 min-h-0 session-splitter {previewCollapsed ? 'splitter-off' : ''}"
+					style="--panes-move: {PANES_MOVE_MS}ms"
+					class="flex-1 min-h-0 session-splitter {previewCollapsed || fullscreen
+						? 'splitter-off'
+						: ''} {panesAnimating ? 'panes-animating' : ''}"
 				>
-					{#if !fullscreen}
-						<!-- Chat column. Recently visited sessions stay mounted (stacked,
+					<!-- Chat column. Recently visited sessions stay mounted (stacked,
 					     visibility-toggled) — see mountChat. -->
-						<Pane bind:size={chatPaneSize} minSize={25} class="flex flex-col min-h-0">
-							<div class="relative flex-1 min-h-0">
-								{#each mountedChatSessions as s (s.id)}
-									<div
-										class="absolute inset-0 flex flex-col {s.id === activeSession?.id
-											? 'z-10 opacity-100 pointer-events-auto'
-											: 'z-0 opacity-0 pointer-events-none'}"
-										aria-hidden={s.id !== activeSession?.id}
-									>
-										<SessionWrapper sessionId={s.id} />
-									</div>
-								{/each}
-							</div>
-						</Pane>
-					{/if}
+					<!-- The band floats over this column's top strip while a panel is beside it, so the
+					     column starts below it. The offset belongs on the pane, not on the stack's
+					     container: the session stacks are `absolute inset-0` and would ignore padding. -->
+					<!-- Full screen resizes this column to nothing rather than unmounting it, so the
+					     panel can be seen taking its place — and so a toggle doesn't tear down every
+					     mounted chat and rebuild it on the way back. -->
+					<Pane
+						bind:size={chatPaneSize}
+						minSize={fullscreen ? 0 : 25}
+						class="flex flex-col min-h-0 {previewCollapsed ? '' : BAR_TOP_PAD} {panesAnimating &&
+						!fullscreen
+							? '!bg-transparent'
+							: ''}"
+					>
+						<!-- Zero-width but still in the document, so its composer and buttons are taken
+						     out of the tab order while the panel is full screen. -->
+						<div class="relative flex-1 min-h-0" inert={fullscreen}>
+							{#each mountedChatSessions as s (s.id)}
+								<div
+									class="absolute inset-0 flex flex-col {s.id === activeSession?.id
+										? 'z-10 opacity-100 pointer-events-auto'
+										: 'z-0 opacity-0 pointer-events-none'}"
+									aria-hidden={s.id !== activeSession?.id}
+								>
+									<SessionWrapper sessionId={s.id} headerInPage={s.id === activeSession?.id} />
+								</div>
+							{/each}
+						</div>
+					</Pane>
 
 					<!-- Preview panel: the live Windmill page, framed like the editor pane.
 				     Always mounted (collapse resizes it to 0 — see previewPaneSize) so
@@ -1007,7 +1132,19 @@
 						maxSize={previewCollapsed ? 0 : 100}
 						class="flex flex-col min-h-0"
 					>
-						<div class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0' : 'p-2 pl-0'}">
+						<!-- The band floats over this column too in full screen (it holds the tab strip
+						     there), so the panel clears it with the same offset the chat column uses. -->
+						<div
+							bind:clientWidth={
+								() => previewWidth,
+								(w) => {
+									previewWidth = w
+									if (!fullscreen && !panesAnimating && contentWidth > 0)
+										panelShare = w / contentWidth
+								}
+							}
+							class="flex-1 min-h-0 flex flex-col {fullscreen ? `p-0 ${BAR_TOP_PAD}` : 'p-2 pl-0'}"
+						>
 							<!-- The action controls float over the tab strip, so the strip has to reserve
 							     their width or tabs slide underneath them. Measured rather than guessed:
 							     the set changes with the tab (an artifact has no "Open in workspace", a
@@ -1033,141 +1170,22 @@
 									</button>
 								{/if}
 
-								<!-- Open-in-full-page + full-screen toggle, floating over the top-right
-								     corner to mirror the collapse control. -->
-								<!-- Spans the tab strip's own height and centres within it, rather than
-							     being pinned a fixed distance from the top, so these controls sit on
-							     the same axis as the collapse button opposite. Its width is measured
-							     so the strip can reserve room and its tabs never scroll underneath. -->
-								<div
-									bind:clientWidth={previewActionsWidth}
-									class="absolute top-0 right-1 z-30 flex h-8 items-center gap-0.5"
-								>
-									{#if activeWorkspaceHref}
-										<a
-											href={withWorkspaceParam(activeWorkspaceHref, previewWorkspace)}
-											title="Open in workspace"
-											aria-label="Open in workspace"
-											class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-										>
-											<ExternalLink size={14} />
-										</a>
-									{/if}
-									<button
-										type="button"
-										onclick={() => (fullscreen = !fullscreen)}
-										title={fullscreen ? 'Exit full screen' : 'Full screen'}
-										aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-										class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+								<!-- In full screen the strip and these controls move into the page header band,
+								     which is empty there and has the width for them; the pane below keeps only
+								     the content. -->
+								{#if !fullscreen}
+									<!-- Open-in-full-page + full-screen toggle, floating over the top-right
+									     corner to mirror the collapse control. Its width is measured so the strip
+									     can reserve room and its tabs never scroll underneath. -->
+									<div
+										bind:clientWidth={previewActionsWidth}
+										class="absolute top-0 right-1 z-30 flex h-8 items-center gap-0.5"
 									>
-										{#if fullscreen}
-											<Minimize2 size={14} />
-										{:else}
-											<Maximize2 size={14} />
-										{/if}
-									</button>
-								</div>
+										{@render previewControls()}
+									</div>
 
-								<!-- Tab strip: open preview pages, shared with the raw-app editor
-								     (DraggableTabs). Clicking the active tab (label or accessory chevron)
-								     toggles its breadcrumb picker; the "+" trailing opens the router picker.
-								     Left/right padding clears the floating collapse/fullscreen buttons. -->
-								<DraggableTabs
-									tabs={previewTabItems}
-									activeId={owner?.activeId ?? ''}
-									onSelect={selectTab}
-									onActiveClick={() => (activeTabPickerOpen = !activeTabPickerOpen)}
-									onClose={closeTab}
-									onReorder={reorderTabs}
-									class="session-preview-tab-strip h-8 border-b border-light bg-surface-secondary/50 {fullscreen
-										? 'pl-1.5'
-										: 'pl-9'} pr-[var(--preview-actions-w,4rem)]"
-								>
-									{#snippet tabAccessory(_tab, isActive)}
-										{#if isActive}
-											<!-- Any active-tab click toggles the picker (`onActiveClick`); the tab
-										     is excluded from pointerdown-outside so toggle doesn't race close.
-										     The trigger is an inert whole-tab overlay (anchor only — clickable
-										     would break dnd reorder); the chevron is purely visual. -->
-											<Popover
-												placement="bottom-start"
-												usePointerDownOutside
-												excludeSelectors=".drawer, .session-preview-tab-strip [role='tab'][aria-selected='true']"
-												disableFocusTrap
-												closeOnOtherPopoverOpen
-												enableFlyTransition
-												bind:isOpen={activeTabPickerOpen}
-												openFocus="[data-workspace-picker-search]"
-												contentClasses="flex flex-col overflow-hidden"
-												class="absolute inset-0 pointer-events-none"
-												triggerAttrs={{
-													'aria-label': 'Change preview',
-													tabindex: -1,
-													// The inert trigger only ever receives focus from melt's
-													// close-time restore; hand it straight to the tab so
-													// arrow/Delete tab shortcuts keep working.
-													onfocus: (e: FocusEvent) =>
-														(e.currentTarget as HTMLElement)
-															.closest<HTMLElement>('[role="tab"]')
-															?.focus()
-												}}
-											>
-												{#snippet content()}
-													<!-- The picker snapshots its scope at mount, but `friendlyPath` is
-												     stamped async once the editor cell loads — a picker opened
-												     before the stamp is scoped to the `draft_<uuid>` storage
-												     folder while the tree groups the draft under its friendly
-												     folder. Remount on the scope dir so it re-lands on the item. -->
-													{#key activePickerScope?.dir ?? ''}
-														<PreviewRouterPicker
-															initialScope={activePickerScope}
-															initialHighlight={activePickerHighlight}
-															{currentItem}
-															workspaceId={previewWorkspace}
-															artifacts={sessionArtifacts}
-															onPick={(t) => {
-																activeTabPickerOpen = false
-																navigatePreviewTo(t)
-															}}
-														/>
-													{/key}
-												{/snippet}
-											</Popover>
-											<ChevronDown
-												size={12}
-												class="shrink-0 text-tertiary group-hover:text-primary"
-											/>
-										{/if}
-									{/snippet}
-									{#snippet afterTabs()}
-										<Popover
-											placement="bottom-start"
-											usePointerDownOutside
-											excludeSelectors=".drawer"
-											disableFocusTrap
-											closeOnOtherPopoverOpen
-											bind:isOpen={newTabOpen}
-											enableFlyTransition
-											openFocus="[data-workspace-picker-search]"
-											contentClasses="flex flex-col overflow-hidden"
-											class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
-										>
-											{#snippet trigger()}
-												<Plus size={14} />
-											{/snippet}
-											{#snippet content()}
-												<PreviewRouterPicker
-													workspaceId={previewWorkspace}
-													artifacts={sessionArtifacts}
-													onPick={(t) => {
-														newTabOpen = false
-														openInNewTab(t)
-													}}
-												/>
-											{/snippet}
-										</Popover>
-									{/snippet}
-								</DraggableTabs>
+									{@render previewTabStrip(false)}
+								{/if}
 
 								<!-- One host per tab of every warm session, stacked and
 								     visibility-toggled so switching tabs or sessions never reloads
@@ -1250,21 +1268,6 @@
 						</div>
 					</Pane>
 				</Splitpanes>
-				{#if previewCollapsed && !fullscreen}
-					<!-- Collapsed preview: no rail — a floating launcher in the top-right to
-				     reopen the side panel. -->
-					<div class="absolute top-2 right-3 z-50">
-						<Button
-							variant="subtle"
-							unifiedSize="sm"
-							startIcon={{ icon: PanelRightOpen }}
-							title="Open side panel"
-							onclick={() => owner?.setCollapsed(false)}
-						>
-							Open side panel
-						</Button>
-					</div>
-				{/if}
 			</div>
 			{#if aiHiddenVerdict === undefined}
 				<div class="absolute inset-0 z-20 flex items-center justify-center bg-surface">
@@ -1284,6 +1287,149 @@
 		</div>
 	{/if}
 </div>
+
+<!-- The strip and the preview's own controls render in two places: in the panel, where they
+     are a row above the pane; and in full screen, inside the band's filling surface. Written
+     once so the two cannot drift. -->
+{#snippet previewControls()}
+	{#if activeWorkspaceHref}
+		<a
+			href={withWorkspaceParam(activeWorkspaceHref, previewWorkspace)}
+			title="Open in workspace"
+			aria-label="Open in workspace"
+			class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+		>
+			<ExternalLink size={14} />
+		</a>
+	{/if}
+	{#if fullscreen}
+		<!-- Named rather than an icon alone: full screen hid the chat, and what the user wants back
+		     is the chat, not a window size. The band has the room for the word. -->
+		<button
+			type="button"
+			onclick={toggleFullscreen}
+			title="Back to chat"
+			class="inline-flex items-center gap-1.5 h-6 pl-1.5 pr-2 rounded text-xs text-tertiary hover:text-primary hover:bg-surface-hover"
+		>
+			<Minimize2 size={14} />
+			Chat
+		</button>
+	{:else}
+		<button
+			type="button"
+			onclick={toggleFullscreen}
+			title="Full screen"
+			aria-label="Full screen"
+			class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+		>
+			<Maximize2 size={14} />
+		</button>
+	{/if}
+{/snippet}
+
+{#snippet previewTabStrip(inBand: boolean)}
+	<!-- Both layouts render this one snippet, so the strip is described once. The wrapper is here to
+	     own its fade: the two strips stand in different places, and what carries the switch is the
+	     panel moving under them, not the strip travelling. -->
+	<div
+		class={inBand ? 'flex items-center h-full min-w-0' : 'shrink-0'}
+		in:stripArrive
+		out:stripLeave
+	>
+		<DraggableTabs
+			tabs={previewTabItems}
+			activeId={owner?.activeId ?? ''}
+			onSelect={selectTab}
+			onActiveClick={() => (activeTabPickerOpen = !activeTabPickerOpen)}
+			onClose={closeTab}
+			onReorder={reorderTabs}
+			size={inBand ? 'md' : 'sm'}
+			class={inBand
+				? 'session-preview-tab-strip h-full bg-transparent min-w-0'
+				: 'session-preview-tab-strip h-8 border-b border-light bg-surface-secondary/50 pl-9 pr-[var(--preview-actions-w,4rem)]'}
+		>
+			{#snippet tabAccessory(_tab, isActive)}
+				{#if isActive}
+					<!-- Any active-tab click toggles the picker (`onActiveClick`); the tab
+				     is excluded from pointerdown-outside so toggle doesn't race close.
+				     The trigger is an inert whole-tab overlay (anchor only — clickable
+				     would break dnd reorder); the chevron is purely visual. -->
+					<Popover
+						placement="bottom-start"
+						usePointerDownOutside
+						excludeSelectors=".drawer, .session-preview-tab-strip [role='tab'][aria-selected='true']"
+						disableFocusTrap
+						closeOnOtherPopoverOpen
+						enableFlyTransition
+						bind:isOpen={activeTabPickerOpen}
+						openFocus="[data-workspace-picker-search]"
+						contentClasses="flex flex-col overflow-hidden"
+						class="absolute inset-0 pointer-events-none"
+						triggerAttrs={{
+							'aria-label': 'Change preview',
+							tabindex: -1,
+							// The inert trigger only ever receives focus from melt's
+							// close-time restore; hand it straight to the tab so
+							// arrow/Delete tab shortcuts keep working.
+							onfocus: (e: FocusEvent) =>
+								(e.currentTarget as HTMLElement).closest<HTMLElement>('[role="tab"]')?.focus()
+						}}
+					>
+						{#snippet content()}
+							<!-- The picker snapshots its scope at mount, but `friendlyPath` is
+						     stamped async once the editor cell loads — a picker opened
+						     before the stamp is scoped to the `draft_<uuid>` storage
+						     folder while the tree groups the draft under its friendly
+						     folder. Remount on the scope dir so it re-lands on the item. -->
+							{#key activePickerScope?.dir ?? ''}
+								<PreviewRouterPicker
+									initialScope={activePickerScope}
+									initialHighlight={activePickerHighlight}
+									{currentItem}
+									workspaceId={previewWorkspace}
+									artifacts={sessionArtifacts}
+									onPick={(t) => {
+										activeTabPickerOpen = false
+										navigatePreviewTo(t)
+									}}
+								/>
+							{/key}
+						{/snippet}
+					</Popover>
+					<ChevronDown size={12} class="shrink-0 text-tertiary group-hover:text-primary" />
+				{/if}
+			{/snippet}
+			{#snippet afterTabs()}
+				<Popover
+					placement="bottom-start"
+					usePointerDownOutside
+					excludeSelectors=".drawer"
+					disableFocusTrap
+					closeOnOtherPopoverOpen
+					bind:isOpen={newTabOpen}
+					enableFlyTransition
+					openFocus="[data-workspace-picker-search]"
+					contentClasses="flex flex-col overflow-hidden"
+					class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
+				>
+					{#snippet trigger()}
+						<Plus size={14} />
+					{/snippet}
+					{#snippet content()}
+						<PreviewRouterPicker
+							workspaceId={previewWorkspace}
+							artifacts={sessionArtifacts}
+							onPick={(t) => {
+								newTabOpen = false
+								openInNewTab(t)
+							}}
+						/>
+					{/snippet}
+				</Popover>
+			{/snippet}
+		</DraggableTabs>
+	</div>
+{/snippet}
 
 <style>
 	/* Draggable gutter between the chat and the preview: a real (layout-occupying)
@@ -1305,6 +1451,16 @@
 		bottom: 8px !important;
 		height: auto !important;
 		border-radius: 9999px !important;
+	}
+
+	/* The full-screen switch is the preview panel expanding to the left over the chat column, so
+	   the panes' widths are animated — but only while that switch is in flight (`panes-animating`),
+	   since a splitter drag sets the same inline width and would trail the pointer. */
+	:global(.splitpanes--vertical.panes-animating) > :global(.splitpanes__pane) {
+		/* The duration comes from PANES_MOVE_MS, which also times how long the class stays on.
+		   `!important` to beat app.css's blanket `transition: none !important` on vertical panes,
+		   which is there so a splitter drag tracks the pointer exactly. */
+		transition: width var(--panes-move) cubic-bezier(0.33, 1, 0.68, 1) !important;
 	}
 
 	/* Collapsed preview: the pane is resized to 0 but stays mounted, so remove

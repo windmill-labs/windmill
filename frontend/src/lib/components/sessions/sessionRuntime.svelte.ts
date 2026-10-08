@@ -6,6 +6,8 @@ import { invalidate as invalidateWorkspaceItems } from '$lib/components/workspac
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+import { PIPELINE_DRAFT_KIND, pipelineBundlePath, pipelineLocalMirrorKey } from '$lib/pipelinePaths'
+import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
 	ApiError,
@@ -139,8 +141,11 @@ export interface LoadSlot {
 
 export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 
-/** The data config a raw app opened from the new-app builder starts with. */
-export type NewRawAppSeed = { datatable?: string; role?: string }
+/** What a mounted pipeline editor view offers the rest of the session. */
+export interface PipelineView {
+	/** Deploy all of the folder's drafts; failures stay drafts and are shown in the view. */
+	deployAll(): Promise<DeployResult>
+}
 
 // The live runtime value a raw-app editor cell binds. Legacy drag-and-drop apps
 // are intentionally NOT hosted in the session preview (only code-based raw apps).
@@ -214,9 +219,17 @@ export interface SessionRuntime {
 	// (renderer) and the open_preview/get_preview_status tools cross it, so the
 	// tab model has exactly one live copy.
 	readonly previewTabs: SessionPreviewTabs
-	// Pipeline target state — persists across editor hide/show (the pane unmounts
-	// on hide, so this can't be component-local) and across session switches.
-	readonly pipelineEditorState: PipelineEditorState
+	// Pipeline editor state per folder — persists across editor remounts and
+	// session switches, so it can't be component-local. Created on first use.
+	pipelineEditor(folder: string): PipelineEditorState
+	// A mounted pipeline editor view offers its deploy here; returns the unregister.
+	registerPipelineView(folder: string, view: PipelineView): () => void
+	// Deploy a folder's pipeline drafts through its editor tab, opening the tab if
+	// needed: the tab hydrates the drafts and shows what deployed and what failed.
+	deployPipeline(folder: string): Promise<DeployResult>
+	// Drop a folder's in-memory drafts once its draft bundle is discarded, so an
+	// open or later-mounted editor does not save them back.
+	forgetPipelineDrafts(folder: string): Promise<void>
 	// Per-(kind, path) editor cells (content/baseline stores + load slot), created
 	// on demand. Each editable preview tab resolves its own cell, so several items
 	// stay live at once.
@@ -243,8 +256,9 @@ export interface SessionRuntime {
 		path: string,
 		force?: boolean,
 		deployedOnly?: boolean,
-		/** Open the starter template when nothing exists at `path` yet (a new-app hand-off). */
-		seedIfMissing?: NewRawAppSeed
+		/** Open the starter template when nothing exists at `path` yet: a new app whose
+		 * setup has not been confirmed. Held in the cell only, nothing is saved. */
+		seedIfMissing?: boolean
 	): Promise<void>
 	/** Register a mounted raw-app preview's log requester, keyed by app path, like
 	 * `registerDomRequester`: build state is per editor, so reads route to the app edited. */
@@ -277,7 +291,14 @@ export interface SessionRuntime {
 	 * the deploy just changed. One call rather than a sequence at each deploy site — a
 	 * caller that remembers three of the four leaves a stale draft count or a picker
 	 * that still calls the item a draft. */
-	itemDeployed(workspace: string, kind: 'script' | 'flow' | 'raw_app', path: string): void
+	itemDeployed(
+		workspace: string,
+		kind: 'script' | 'flow' | 'raw_app',
+		path: string,
+		/** Where the deploy landed, when not at `path`: a new item parked at a
+		 * `draft_<uuid>` storage path deploys under the name it was given. */
+		deployedPath?: string
+	): void
 }
 
 const runtimes = new SvelteMap<string, SessionRuntime>()
@@ -723,10 +744,78 @@ function createRuntime(session: Session): SessionRuntime {
 	// picker lists, so changeMode's network refreshes would fire once per listing.
 	manager.configureGlobalMode()
 
-	// Pipeline target state lives on the runtime (not the PipelineEditorView
-	// component) so the in-session drafts survive hide/show of the editor pane —
-	// the pane unmounts on hide, and a component-local store would be discarded.
-	const pipelineEditorState = new PipelineEditorState()
+	const pipelineEditors = new Map<string, PipelineEditorState>()
+	function pipelineEditor(folder: string): PipelineEditorState {
+		const key = normalizePipelineFolder(folder)
+		let editor = pipelineEditors.get(key)
+		if (!editor) {
+			editor = new PipelineEditorState()
+			editor.folder = key
+			pipelineEditors.set(key, editor)
+		}
+		return editor
+	}
+
+	const pipelineViews = new Map<string, PipelineView>()
+	const pipelineViewWaiters = new Map<string, Set<(view: PipelineView) => void>>()
+	function registerPipelineView(folder: string, view: PipelineView): () => void {
+		const key = normalizePipelineFolder(folder)
+		pipelineViews.set(key, view)
+		const waiters = pipelineViewWaiters.get(key)
+		pipelineViewWaiters.delete(key)
+		waiters?.forEach((notify) => notify(view))
+		return () => {
+			if (pipelineViews.get(key) === view) pipelineViews.delete(key)
+		}
+	}
+	function pipelineViewFor(folder: string, timeoutMs = 15000): Promise<PipelineView | undefined> {
+		const mounted = pipelineViews.get(folder)
+		if (mounted) return Promise.resolve(mounted)
+		return new Promise((resolve) => {
+			const waiters = pipelineViewWaiters.get(folder) ?? new Set()
+			pipelineViewWaiters.set(folder, waiters)
+			const notify = (view: PipelineView) => {
+				clearTimeout(timer)
+				resolve(view)
+			}
+			const timer = setTimeout(() => {
+				waiters.delete(notify)
+				resolve(undefined)
+			}, timeoutMs)
+			waiters.add(notify)
+		})
+	}
+	manager.setPipelineReopener((folder) => {
+		const target = previewTargetForSessionTarget('pipeline', folder)
+		if (target) previewTabs.open(target)
+	})
+	async function deployPipeline(folder: string): Promise<DeployResult> {
+		const key = normalizePipelineFolder(folder)
+		const target = previewTargetForSessionTarget('pipeline', key)
+		if (target) previewTabs.open(target)
+		const view = await pipelineViewFor(key)
+		if (!view) return { success: false, error: `The pipeline editor for f/${key} did not open.` }
+		return view.deployAll()
+	}
+	async function forgetPipelineDrafts(folder: string): Promise<void> {
+		const key = normalizePipelineFolder(folder)
+		const editor = pipelineEditors.get(key)
+		if (editor) {
+			// The open pane saves its edits back as a draft when it closes: let it, then
+			// drop that draft with the rest, or it would come back afterwards.
+			await editor.closePane()
+			editor.drafts = new Map()
+			editor.triggerDrafts = new Map()
+			editor.clearLiveOverlays()
+		}
+		// The editor's crash mirror, which its load falls back to when the DB has
+		// no draft: left behind, it would restore what was just discarded.
+		try {
+			localStorage.removeItem(pipelineLocalMirrorKey(key))
+		} catch {
+			// Storage unavailable: nothing was mirrored either.
+		}
+	}
 
 	const runtimeLogRequesters = new Map<string, RawAppRuntimeLogRequester>()
 	// appPath → requester, one entry per mounted raw-app preview tab.
@@ -740,7 +829,10 @@ function createRuntime(session: Session): SessionRuntime {
 		sessionId: session.id,
 		manager,
 		previewTabs,
-		pipelineEditorState,
+		pipelineEditor,
+		registerPipelineView,
+		deployPipeline,
+		forgetPipelineDrafts,
 		flowCell,
 		loadedEditorPath,
 		deployedRevision,
@@ -938,7 +1030,7 @@ function createRuntime(session: Session): SessionRuntime {
 			path: string,
 			force = false,
 			deployedOnly = false,
-			seedIfMissing: NewRawAppSeed | undefined = undefined
+			seedIfMissing = false
 		) {
 			const { slot, store, saved } = rawAppCell(path)
 			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
@@ -1070,21 +1162,12 @@ function createRuntime(session: Session): SessionRuntime {
 				slot.loadedWorkspace = workspace
 			} catch (err) {
 				if (seedIfMissing && !deployedOnly && err instanceof ApiError && err.status === 404) {
-					// Held in the cell only: the editor's draft sync swallows this first write,
-					// so nothing is saved until the template is actually changed.
 					const user = get(userStore)
 					saved.val = undefined
 					store.val = {
 						files: { ...react19Template },
 						runnables: structuredClone(STARTER_RUNNABLES),
-						data: {
-							...DEFAULT_DATA,
-							datatable: seedIfMissing.datatable,
-							roles:
-								seedIfMissing.datatable && seedIfMissing.role
-									? { [seedIfMissing.datatable]: seedIfMissing.role }
-									: undefined
-						},
+						data: { ...DEFAULT_DATA },
 						policy: {
 							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
 							on_behalf_of_email: user?.email,
@@ -1107,7 +1190,16 @@ function createRuntime(session: Session): SessionRuntime {
 			}
 		},
 
-		itemDeployed(workspace, kind, path) {
+		itemDeployed(workspace, kind, storagePath, deployedPath = storagePath) {
+			if (deployedPath !== storagePath) {
+				// Nothing is deployed at the storage path, so its editor would go on
+				// creating the item again and its draft would outlive the deploy: drop
+				// the draft and move the tab to where the item now lives.
+				UserDraft.stopSync(kind, storagePath, { workspace })
+				UserDraft.discard(kind, storagePath, undefined, { workspace })
+				previewTabs.retargetEditor({ kind, path: storagePath }, { kind, path: deployedPath })
+			}
+			const path = deployedPath
 			// After deploy the editor state equals the deployed value; the reload
 			// below re-seeds the cell from it, which must NOT POST as a fresh draft.
 			// The full-page editor guards this with discardDraftAfterDeploy, but the
@@ -1273,6 +1365,18 @@ export function listRuntimes(): SessionRuntime[] {
 	return Array.from(runtimes.values())
 }
 
+/** A pipeline deleted outside the session: every live session on its workspace
+ * drops what it holds of it. Its in-memory drafts would otherwise keep showing the
+ * pipeline in the preview, and autosave would write the deleted draft back. */
+export function forgetDeletedPipeline(workspace: string, folder: string): void {
+	const key = normalizePipelineFolder(folder)
+	for (const runtime of runtimes.values()) {
+		if (runtime.manager.operatingWorkspace !== workspace) continue
+		void runtime.forgetPipelineDrafts(key)
+		void runtime.manager.removeModifiedItem(PIPELINE_DRAFT_KIND, pipelineBundlePath(key))
+	}
+}
+
 export function getRuntime(sessionId: string): SessionRuntime | undefined {
 	return runtimes.get(sessionId)
 }
@@ -1411,8 +1515,8 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) =
 	// "Unknown tool call" error on the first node it tries to build.
 	if (kind === 'pipeline') {
 		const folder = normalizePipelineFolder(path)
-		const ready = await runtime.manager.waitForPipelineHelpers()
-		// A backgrounded session's preview tab does not mount, so its editor never
+		const ready = await runtime.manager.waitForPipelineHelpers(folder)
+		// A session whose page is not mounted never mounts the editor, so it never
 		// registers — don't claim success, or the model calls build_pipeline_node
 		// into the void. Tell it the tools aren't available and how to recover.
 		if (!ready) {
@@ -1422,7 +1526,7 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) =
 		// off the owner path twice over) is rejected by build_pipeline_node.
 		return `${
 			result.status === 'focused' ? 'Focused the' : 'Opened the'
-		} pipeline editor for folder "${folder}" in the side panel. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
+		} pipeline editor for folder "${folder}" in the side panel. build_pipeline_node, edit_pipeline_node and the other pipeline tools are now in your tool list: call them in your next step. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
 	}
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`
@@ -1498,7 +1602,7 @@ setClosePreviewTabsHandler(({ sessionId: callerSessionId, all, match }) => {
 
 // After a chat deploy, reload the calling session's preview — only if it's open
 // showing that exact item.
-setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
+setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, storagePath, path }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) return
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
@@ -1507,12 +1611,12 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
 	// Peek without creating a cell: a deploy for an item with no open editor tab
 	// must not allocate an empty cell that lingers until the next prune. The caches
 	// still answer for the item, so they are dropped either way.
-	if (runtime.loadedEditorPath(kind, path) !== path) {
+	if (runtime.loadedEditorPath(kind, storagePath) !== storagePath) {
 		invalidateWorkspaceDrafts(session.workspace_id)
 		invalidateWorkspaceItems(session.workspace_id, kind === 'raw_app' ? 'app' : kind)
 		return
 	}
-	runtime.itemDeployed(session.workspace_id, kind, path)
+	runtime.itemDeployed(session.workspace_id, kind, storagePath, path)
 })
 
 setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit, appPath }) => {
@@ -1563,6 +1667,14 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit, appPath }) 
 			aiResult: `${report}${consoleLogs}`,
 			uiMessage: 'App build failed',
 			toolResult: report
+		}
+	}
+	if (previewLogs?.sdkConsentPending) {
+		return {
+			aiResult:
+				'The app built, but the preview is waiting for the user to approve the permissions the app declares in policy.frontend_sdk_scopes, so its code is not running. This is not a bug in the app: do not change the code. Ask the user to approve the permissions in the preview, then call get_app_runtime_logs again.',
+			uiMessage: 'Waiting for permission approval',
+			toolResult: 'Waiting for permission approval'
 		}
 	}
 	const entries = previewLogs?.entries

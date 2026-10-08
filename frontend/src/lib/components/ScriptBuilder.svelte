@@ -93,8 +93,11 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { getContext, onDestroy, onMount, setContext, tick, untrack } from 'svelte'
+	import { getContext, onDestroy, onMount, setContext, tick, untrack, type Snippet } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
+	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
 	import ScriptSettingsBadges from './ScriptSettingsBadges.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import Modal from './common/modal/Modal.svelte'
@@ -162,12 +165,14 @@
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
-		condensedHeader = false
+		condensedHeader = false,
+		ownsPageHeader = false
 	}: ScriptBuilderProps = $props()
 
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
-	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
+	// In the page header the buttons ride a 44px band, which takes the same size.
+	const headerBtnSize = $derived(condensedHeader || ownsPageHeader ? 'sm' : 'md')
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -196,8 +201,24 @@
 	// right group (hide the ~200px tag select, icon-only Diff/Settings) before the
 	// full group crowds the path into heavy truncation; ~900 is where the path
 	// keeps a usable width given the right group's natural ~440px.
+	/** Held by the rename popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
+
 	let topbarWidth = $state(0)
-	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 900)
+	// In the page header the buttons share the row with the breadcrumb, so they collapse sooner:
+	// the trail and the summary take ~560px before either truncates, and the full button group is
+	// ~515px — about 1100px between them, plus slack for a longer path than most.
+	const compactBelow = $derived(ownsPageHeader ? 1200 : 900)
+	const compactTopbar = $derived.by(() => {
+		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
+		return w > 0 && w < compactBelow
+	})
+	// A phone's bar holds the trail and one button. Diff and Settings join the menu that compact
+	// already shows, and Deploy stays out: it is what this page is for.
+	const phoneTopbar = $derived(
+		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
+	)
 
 	// The workspace this editor operates on: deploy, save-draft, trigger loading
 	// and the AutosaveIndicator all target it. Falls back to the full-page
@@ -220,7 +241,21 @@
 
 	function getCompactMenuItems(): Item[] {
 		const hasTags = (scriptWorkerTags?.length ?? 0) > 0
+		const isDraftOnly = savedScript?.no_deployed === true
 		return [
+			...(phoneTopbar && customUi?.topBar?.diff != false
+				? [
+						{
+							displayName: 'Diff',
+							icon: DiffIcon,
+							disabled: !savedScript || !diffDrawer || isDraftOnly,
+							action: () => openDiffDrawer()
+						}
+					]
+				: []),
+			...(phoneTopbar && customUi?.topBar?.settings != false
+				? [{ displayName: 'Settings', icon: Settings, action: () => (metadataOpen = true) }]
+				: []),
 			...(customUi?.topBar?.tagEdit != false && hasTags
 				? [
 						{
@@ -561,6 +596,7 @@
 			| 'powershell'
 			| 'bunnative'
 			| 'claudesandbox'
+			| 'pisandbox'
 			| 'wac_python'
 			| 'wac_typescript'
 			| 'ci_test_bun'
@@ -1508,10 +1544,12 @@
 														(lang == script.language &&
 															template != 'bunnative' &&
 															template != 'docker' &&
-															template != 'claudesandbox') ||
+															template != 'claudesandbox' &&
+															template != 'pisandbox') ||
 														(template == 'bunnative' && lang == 'bunnative') ||
 														(template == 'docker' && lang == 'docker') ||
-														(template == 'claudesandbox' && lang == 'bun')}
+														((template == 'claudesandbox' || template == 'pisandbox') &&
+															lang == 'bun')}
 													<Popover
 														disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 													>
@@ -1561,6 +1599,21 @@
 											}}
 										>
 											Claude Sandbox
+										</Button>
+										<Button
+											unifiedSize="xs"
+											variant="default"
+											startIcon={{
+												icon: LanguageIcon,
+												props: { lang: 'pisandbox', width: 16, height: 16 }
+											} as ButtonType.Icon}
+											onclick={() => {
+												template = 'pisandbox'
+												script.language = 'bun'
+												initContent('bun', script.kind, template)
+											}}
+										>
+											Pi Sandbox
 										</Button>
 										<span title="Workflow-as-Code">
 											<Button
@@ -2249,164 +2302,298 @@
 	</Drawer>
 
 	<div class="flex flex-col h-full">
-		<div
-			bind:clientWidth={topbarWidth}
-			class="flex items-center px-4 {condensedHeader ? 'h-9' : 'h-12'}"
-		>
-			<div class="flex gap-2 lg:gap-2 w-full items-center">
-				<div class="flex flex-row items-center gap-2 min-w-0 shrink">
-					<button
-						disabled={customUi?.topBar?.settings == false}
-						class="shrink-0"
-						onclick={async () => {
-							metadataOpen = true
-						}}
-					>
-						<LanguageIcon lang={script.language} size={condensedHeader ? 18 : 24} />
-					</button>
-					{#if customUi?.topBar?.path != false}
-						<div class="min-w-0 overflow-hidden">
-							<EditorHeader
-								bind:summary={script.summary}
-								bind:path={script.path}
-								savedPath={initialPath}
-								kind="script"
-								summaryEditable={customUi?.topBar?.editableSummary != false}
-								pathEditable={customUi?.topBar?.editablePath != false}
-								hidePath={condensedHeader}
-								workspaceId={autosaveWorkspace}
-								onNavigate={(item) => onNavigate?.(item)}
-							/>
-						</div>
+		{#if ownsPageHeader}
+			<!-- The editor's own top bar is the page header on this route: the script's path and
+			     summary are the breadcrumb's, and its buttons are the header's actions. -->
+			<!-- `separator="none"`: the toolbar right below the bar draws its own `border-b`, and the
+			     bar's edge would be a second line on top of it. -->
+			<PageHeaderContent
+				item={{
+					// Frozen while the rename popover is open so the trail holds still as the user types.
+					kind: 'script',
+					// `script?`: this object is built inside a getter the band evaluates from its own
+					// tree, and `script` is a bindable prop. Deploying a new script clears the draft the
+					// route binds here and drops the `{#if}` around this editor in one flush, which
+					// invalidates the band before this component is torn down.
+					path: pathSnapshot ?? script?.path,
+					summaryContent: scriptSummary,
+					// Gated like the summary's own editor: a host that allows neither field keeps the
+					// band's segment, which copies the path.
+					pathTrigger:
+						customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false
+							? scriptPathTrigger
+							: undefined
+				}}
+				afterName={scriptMarks}
+				actions={scriptHeaderActions}
+				separator="none"
+			/>
+		{:else}
+			<div
+				bind:clientWidth={topbarWidth}
+				class="flex items-center px-4 {condensedHeader ? 'h-9' : 'h-12'}"
+			>
+				<div class="flex gap-2 lg:gap-2 w-full items-center">
+					<div class="flex flex-row items-center gap-2 min-w-0 shrink">
+						{@render languageButton(condensedHeader ? 18 : 24)}
+						{#if customUi?.topBar?.path != false}
+							<div class="min-w-0 overflow-hidden">
+								<EditorHeader
+									bind:summary={script.summary}
+									bind:path={script.path}
+									savedPath={initialPath}
+									kind="script"
+									summaryEditable={customUi?.topBar?.editableSummary != false}
+									pathEditable={customUi?.topBar?.editablePath != false}
+									hidePath={condensedHeader}
+									workspaceId={autosaveWorkspace}
+									onNavigate={(item) => onNavigate?.(item)}
+								/>
+							</div>
+						{/if}
+						{@render autosaveIndicator()}
+						{#if !condensedHeader}
+							{@render settingsBadges()}
+						{/if}
+					</div>
+
+					<!-- Separator -->
+					<div class="flex-1"></div>
+
+					{#if $enterpriseLicense && initialPath != '' && !inSessionPane}
+						<Awareness />
 					{/if}
-					{#if opWorkspace}
-						<AutosaveIndicator
-							workspace={opWorkspace}
-							itemKind="script"
-							path={indicatorPath}
-							draftOnly={savedScript?.no_deployed === true}
-							{onResetToDeployed}
-							{loadedFromDraft}
-							{othersDraftsCount}
-							{onOpenOthersDrafts}
+
+					<!-- Separator -->
+					<div class="flex-1"></div>
+
+					{@render rightButtons()}
+				</div>
+			</div>
+		{/if}
+
+		{#snippet scriptSummary()}
+			<!-- Everything the band pulls from this editor is gated on `script`. It is a bindable prop,
+			     and these snippets render from the band's tree, where nothing orders the route clearing
+			     that prop against this component's teardown: deploying a new script discards the draft
+			     bound here and drops the `{#if}` around this editor in the same flush. -->
+			{#if script}
+				<!-- Not edited in place: clicking the name opens the summary and the path together, so
+				     the band reads as a name rather than a form. `title` for one it truncates. -->
+				<div class="flex items-center gap-1 min-w-0">
+					{#snippet summaryText()}
+						<span
+							class="min-w-0 truncate text-xs {emptyString(script.summary)
+								? 'text-tertiary italic font-normal'
+								: 'font-medium text-emphasis'}"
+							title={script.summary}
+							>{emptyString(script.summary) ? 'Add a summary...' : script.summary}</span
+						>
+					{/snippet}
+					{#if customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false}
+						<PathEditPopover
+							label={summaryText}
+							bind:summary={script.summary}
+							summaryEditable={customUi?.topBar?.editableSummary != false}
+							pathEditable={customUi?.topBar?.editablePath != false}
+							bind:path={script.path}
+							bind:snapshotPath={pathSnapshot}
+							savedPath={initialPath}
+							kind="script"
+							workspaceId={autosaveWorkspace}
 						/>
-					{/if}
-					{#if !condensedHeader}
-						{@const canOpenRuntime =
-							customUi?.topBar?.settings != false &&
-							customUi?.settingsPanel?.disableRuntime !== true}
-						<ScriptSettingsBadges
-							settings={script}
-							onclick={canOpenRuntime
-								? () => {
-										selectedTab = 'runtime'
-										metadataOpen = true
-									}
-								: undefined}
-						/>
+					{:else}
+						{@render summaryText()}
 					{/if}
 				</div>
+			{/if}
+		{/snippet}
 
-				<!-- Separator -->
-				<div class="flex-1"></div>
+		<!-- The same editor as the summary's, hung off the band's path segment: anchored there it
+		     opens under the path, and `focusField` puts the cursor in the field that half of the
+		     name belongs to. The bindings are written out again because `bind:` cannot be spread;
+		     both instances bind the same slots, and only one is ever open. -->
+		{#snippet scriptPathTrigger(pathLabel: Snippet, triggerClass: string)}
+			<!-- Gated like the summary beside it: `script` is a bindable prop the route can clear in
+			     the same flush that drops this editor, and this renders from the band's tree. The
+			     `{:else}` is not decoration: the band hands the segment over the moment a page offers
+			     a `pathTrigger`, so a gate that drew nothing would take the path off the trail. -->
+			{#if script}
+				<PathEditPopover
+					label={pathLabel}
+					{triggerClass}
+					focusField="path"
+					bind:summary={script.summary}
+					summaryEditable={customUi?.topBar?.editableSummary != false}
+					pathEditable={customUi?.topBar?.editablePath != false}
+					bind:path={script.path}
+					bind:snapshotPath={pathSnapshot}
+					savedPath={initialPath}
+					kind="script"
+					workspaceId={autosaveWorkspace}
+				/>
+			{:else}
+				<span class={triggerClass}>{@render pathLabel()}</span>
+			{/if}
+		{/snippet}
 
+		{#snippet scriptMarks()}
+			{#if script}
+				<!-- Concurrency, cache, a dedicated worker: settings that hold whatever the editor shows,
+				     so they belong with the script's name. The language icon the editor's own bar carried
+				     does not come along — the code under it says which language this is. -->
+				{@render settingsBadges('pl-1.5')}
+			{/if}
+		{/snippet}
+
+		{#snippet scriptHeaderActions()}
+			{#if script}
+				<!-- Saving state and other people's drafts: the editor's own bar carries them beside the
+				     path, so the header has to carry them when it owns the bar — without them a
+				     full-page editor saves with no word either way. -->
+				{@render autosaveIndicator()}
 				{#if $enterpriseLicense && initialPath != '' && !inSessionPane}
 					<Awareness />
 				{/if}
+				{@render rightButtons()}
+			{/if}
+		{/snippet}
 
-				<!-- Separator -->
-				<div class="flex-1"></div>
+		{#snippet languageButton(size: number)}
+			<button
+				disabled={customUi?.topBar?.settings == false}
+				class="shrink-0"
+				title="Settings"
+				onclick={async () => {
+					metadataOpen = true
+				}}
+			>
+				<LanguageIcon lang={script.language} {size} />
+			</button>
+		{/snippet}
 
-				{#snippet settingsButton()}
-					{#if customUi?.topBar?.settings != false}
-						<Button
-							aiId="script-builder-settings"
-							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
-							variant="default"
-							unifiedSize={headerBtnSize}
-							on:click={() => (metadataOpen = true)}
-							startIcon={{ icon: Settings }}
-							iconOnly={compactTopbar}
-							title="Settings"
-						>
-							<span> Settings </span>
-						</Button>
-					{/if}
-				{/snippet}
-				{#snippet diffButton()}
-					{#if customUi?.topBar?.diff != false}
-						{@const isDraftOnly = savedScript?.no_deployed === true}
-						{@const diffDisabled = !savedScript || !diffDrawer || isDraftOnly}
-						{@const diffTitle = isDraftOnly
-							? 'Deploy this script once to compare against the deployed version'
-							: 'Diff'}
-						<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
+		{#snippet autosaveIndicator()}
+			{#if opWorkspace}
+				<AutosaveIndicator
+					workspace={opWorkspace}
+					itemKind="script"
+					path={indicatorPath}
+					draftOnly={savedScript?.no_deployed === true}
+					{onResetToDeployed}
+					{loadedFromDraft}
+					{othersDraftsCount}
+					{onOpenOthersDrafts}
+				/>
+			{/if}
+		{/snippet}
+
+		{#snippet settingsBadges(className?: string)}
+			{@const canOpenRuntime =
+				customUi?.topBar?.settings != false && customUi?.settingsPanel?.disableRuntime !== true}
+			<ScriptSettingsBadges
+				class={className}
+				settings={script}
+				onclick={canOpenRuntime
+					? () => {
+							selectedTab = 'runtime'
+							metadataOpen = true
+						}
+					: undefined}
+			/>
+		{/snippet}
+
+		{#snippet rightButtons()}
+			{#snippet settingsButton()}
+				{#if customUi?.topBar?.settings != false}
+					<Button
+						aiId="script-builder-settings"
+						aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
+						variant="default"
+						unifiedSize={headerBtnSize}
+						on:click={() => (metadataOpen = true)}
+						startIcon={{ icon: Settings }}
+						iconOnly={compactTopbar}
+						title="Settings"
+					>
+						<span> Settings </span>
+					</Button>
+				{/if}
+			{/snippet}
+			{#snippet diffButton()}
+				{#if customUi?.topBar?.diff != false}
+					{@const isDraftOnly = savedScript?.no_deployed === true}
+					{@const diffDisabled = !savedScript || !diffDrawer || isDraftOnly}
+					{@const diffTitle = isDraftOnly
+						? 'Deploy this script once to compare against the deployed version'
+						: 'Diff'}
+					<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
 						     never shows on hover. pointer-events-none on the button lets the hover
 						     reach this titled wrapper instead. -->
-						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
-							<Button
-								variant="default"
-								unifiedSize={headerBtnSize}
-								on:click={() => openDiffDrawer()}
-								disabled={diffDisabled}
-								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
-								iconOnly={compactTopbar}
-								title={diffTitle}
-								startIcon={{ icon: DiffIcon }}
-							>
-								Diff
-							</Button>
-						</div>
-					{/if}
-				{/snippet}
-				{#if compactTopbar}
-					<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
-						{#snippet buttonReplacement()}
-							<Button
-								nonCaptureEvent
-								unifiedSize={headerBtnSize}
-								variant="subtle"
-								startIcon={{ icon: EllipsisVertical }}
-								iconOnly
-								title="More"
-							/>
-						{/snippet}
-					</DropdownV2>
+					<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+						<Button
+							variant="default"
+							unifiedSize={headerBtnSize}
+							on:click={() => openDiffDrawer()}
+							disabled={diffDisabled}
+							btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+							iconOnly={compactTopbar}
+							title={diffTitle}
+							startIcon={{ icon: DiffIcon }}
+						>
+							Diff
+						</Button>
+					</div>
+				{/if}
+			{/snippet}
+			{#if compactTopbar}
+				<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
+					{#snippet buttonReplacement()}
+						<Button
+							nonCaptureEvent
+							unifiedSize={headerBtnSize}
+							variant="subtle"
+							startIcon={{ icon: EllipsisVertical }}
+							iconOnly
+							title="More"
+						/>
+					{/snippet}
+				</DropdownV2>
+				{#if !phoneTopbar}
 					{@render diffButton()}
-					{@render settingsButton()}
-				{:else}
-					{@render diffButton()}
-					{#if customUi?.topBar?.tagEdit != false}
-						{#if scriptWorkerTags}
-							{#if scriptWorkerTags?.length ?? 0 > 0}
-								<div class="max-w-[200px]">
-									<WorkerTagSelect
-										nullTag={script.language}
-										placeholder={customUi?.tagSelectPlaceholder}
-										bind:tag={script.tag}
-										size={headerBtnSize}
-										workspaceId={opWorkspace}
-									/>
-								</div>
-							{/if}
-						{/if}
-					{/if}
 					{@render settingsButton()}
 				{/if}
+			{:else}
+				{@render diffButton()}
+				{#if customUi?.topBar?.tagEdit != false}
+					{#if scriptWorkerTags}
+						{#if scriptWorkerTags?.length ?? 0 > 0}
+							<div class="max-w-[200px]">
+								<WorkerTagSelect
+									nullTag={script.language}
+									placeholder={customUi?.tagSelectPlaceholder}
+									bind:tag={script.tag}
+									size={headerBtnSize}
+									workspaceId={opWorkspace}
+								/>
+							</div>
+						{/if}
+					{/if}
+				{/if}
+				{@render settingsButton()}
+			{/if}
 
-				<DeployButton
-					loading={!fullyLoaded}
-					{loadingSave}
-					unifiedSize={headerBtnSize}
-					dropdownItems={computeDropdownItems(initialPath, savedScript)}
-					on:save={({ detail }) => handleEditScript(false, detail)}
-				/>
-			</div>
-		</div>
+			<DeployButton
+				loading={!fullyLoaded}
+				{loadingSave}
+				unifiedSize={headerBtnSize}
+				dropdownItems={computeDropdownItems(initialPath, savedScript)}
+				on:save={({ detail }) => handleEditScript(false, detail)}
+			/>
+		{/snippet}
 
 		{#if showPipelineHint}
 			<div
-				class="flex items-center gap-2 px-4 py-1 border-y bg-surface-secondary text-xs text-secondary"
+				class="flex items-center gap-2 px-4 py-1 border-b bg-surface-secondary text-xs text-secondary"
 			>
 				<Network size={14} class="shrink-0 text-tertiary" />
 				<span class="truncate">

@@ -128,8 +128,15 @@ describe('validateAiAgentProviders', () => {
 		]
 
 		expect(() => validateAiAgentProviders(decision(anthropic), undefined)).toThrow(
-			/Step "d".*must be "typesafe" or "cloudflare"/
+			/Step "d".*must be "typesafe", "cloudflare" or "openai"/
 		)
+		// OpenAI runs both: its resource serves the decision model next to the chat ones.
+		const openai = (model: string) => ({
+			type: 'static',
+			value: { kind: 'openai', resource: '$res:u/admin/openai', model }
+		})
+		expect(() => validateAiAgentProviders(decision(openai('gpt-6-luna')), undefined)).not.toThrow()
+		expect(() => validateAiAgentProviders(agentStep(openai('gpt-5')), undefined)).not.toThrow()
 		expect(() => validateAiAgentProviders(agentStep(typesafe), undefined)).toThrow(
 			/Step "agent".*use an "aidecision" step/
 		)

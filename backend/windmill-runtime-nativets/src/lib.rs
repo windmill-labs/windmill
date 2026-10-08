@@ -929,8 +929,8 @@ pub async fn eval_fetch_timeout(
                     for line in logged.as_deref().unwrap_or(&log).lines() {
                         tracing::info!(
                             target: "windmill:job_log",
-                            job_id = ?job_id,
-                            workspace_id = ?w_id_for_tracing,
+                            job_id = %job_id,
+                            workspace_id = %w_id_for_tracing,
                             "{line}"
                         );
                         if *OTEL_JOB_LOGS {

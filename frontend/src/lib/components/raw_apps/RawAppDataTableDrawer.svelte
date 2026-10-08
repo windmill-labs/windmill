@@ -256,11 +256,14 @@
 		selectedRole = undefined
 	}
 
-	export function openDrawer() {
+	/** Opens on `at` when given, a data table and optionally one of its schemas. */
+	export function openDrawer(at?: { datatable: string; schema?: string }) {
 		resetSelection()
-		selectedSchemaKey = undefined
+		selectedSchemaKey = at?.schema
 		selectedTableKey = undefined
-		selectDatatable(datatables.current.includes('main') ? 'main' : datatables.current[0])
+		selectDatatable(
+			at?.datatable ?? (datatables.current.includes('main') ? 'main' : datatables.current[0])
+		)
 		expand = false
 		open = true
 	}

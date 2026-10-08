@@ -5,6 +5,7 @@
 	import type { JobById } from '../apps/types'
 	import { JobService } from '$lib/gen'
 	import type { Runnable } from './rawAppPolicy'
+	import { RAW_APP_PREVIEW_RELAY } from './utils'
 	import { undefinedIfEmpty } from '$lib/utils'
 
 	interface Props {
@@ -19,10 +20,9 @@
 		 * Restrict waitJob/getJob/streamJob to job ids launched by this app
 		 * instance (WIN-2006): a SANDBOXED bundle must not read arbitrary
 		 * workspace jobs through the credentialed bridge. Off for unsandboxed
-		 * renders (the default, and editor preview) — there the bundle holds
-		 * the same credential as the bridge, so gating adds nothing and would
-		 * only break unsandboxed apps that poll persisted or runnable-returned
-		 * job ids.
+		 * renders — there the bundle holds the same credential as the bridge,
+		 * so gating adds nothing and would only break unsandboxed apps that
+		 * poll persisted or runnable-returned job ids.
 		 */
 		gateJobIds?: boolean
 		/**
@@ -32,7 +32,7 @@
 		 * `window.opener` (this window), so the bridge must accept its
 		 * `event.source` and reply to it. A getter so it tracks the live handle
 		 * without a reactive prop. Editor-only — the detached window runs the
-		 * same unsandboxed bundle as the inline preview.
+		 * same bundle, sandboxed or not, as the inline preview.
 		 */
 		extraSourceWindow?: () => Window | null | undefined
 	}
@@ -52,6 +52,11 @@
 	// Job ids launched by this app instance — see `gateJobIds`.
 	const launchedJobs = new Set<string>()
 
+	/** For a host that loads this component after the bundle may already have sent requests. */
+	export function handleMessage(event: MessageEvent) {
+		return listener(event)
+	}
+
 	let listener = async (event) => {
 		// Only accept messages from the bundle iframe (opaque origin) or the
 		// detached preview window we opened, so other frames/extensions can't
@@ -62,7 +67,11 @@
 		if (!iframe || !sourceWindow) return
 		if (sourceWindow !== iframe.contentWindow && sourceWindow !== detachedWindow) return
 
-		const data = event.data
+		// A sandboxed detached preview speaks through a same-origin relay, wrapped.
+		const data =
+			sourceWindow === detachedWindow && event.data?.type === RAW_APP_PREVIEW_RELAY
+				? event.data.data
+				: event.data
 
 		// Reply to whichever window sent the request (inline iframe or the
 		// detached preview), not a hardcoded target — otherwise the detached
@@ -81,7 +90,7 @@
 				result = e
 			}
 
-			if (event.data.type == 'backend' || event.data.type == 'waitJob') {
+			if (data.type == 'backend' || data.type == 'waitJob') {
 				respond({ result, error })
 			}
 			if (editor) {
@@ -101,7 +110,7 @@
 			}
 			return result
 		}
-		if (event.data.type == 'backend' || event.data.type == 'backendAsync') {
+		if (data.type == 'backend' || data.type == 'backendAsync') {
 			const runnable_id = data.runnable_id
 			let runnable = runnables[runnable_id]
 			if (runnable) {
@@ -152,7 +161,7 @@
 				)
 				launchedJobs.add(uuid)
 				let job: JobById = { component: runnable_id, created_at: Date.now(), job: uuid }
-				if (event.data.type == 'backendAsync') {
+				if (data.type == 'backendAsync') {
 					let result = uuid
 					respond({ result })
 				}
@@ -169,20 +178,20 @@
 			} else {
 				console.error('No runnable found for', runnable_id)
 			}
-		} else if (event.data.type == 'waitJob') {
+		} else if (data.type == 'waitJob') {
 			if (gateJobIds && !launchedJobs.has(data.jobId)) {
 				respond({ result: { message: 'Unknown job' }, error: true })
 				return
 			}
 			await respondWithResult(data.jobId)
-		} else if (event.data.type == 'getJob') {
+		} else if (data.type == 'getJob') {
 			if (gateJobIds && !launchedJobs.has(data.jobId)) {
 				respond({ result: { message: 'Unknown job' }, error: true })
 				return
 			}
 			const job = await JobService.getJob({ workspace, id: data.jobId })
 			respond({ result: job })
-		} else if (event.data.type == 'streamJob') {
+		} else if (data.type == 'streamJob') {
 			// Stream job results using SSE
 			const jobId = data.jobId
 			const reqId = data.reqId

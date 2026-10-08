@@ -7,9 +7,9 @@ use windmill_common::{
     external_ip::UNKNOWN_IP,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
-        insert_ping_query, update_job_ping_query, update_worker_ping_from_job_query,
-        update_worker_ping_main_loop_query, Connection, Ping, PingType, NATIVE_MODE_RESOLVED,
-        WORKER_CONFIG, WORKER_GROUP,
+        insert_ping_query, set_worker_draining_query, update_job_ping_query,
+        update_worker_ping_from_job_query, update_worker_ping_main_loop_query, Connection, Ping,
+        PingType, NATIVE_MODE_RESOLVED, WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, DB,
 };
@@ -164,6 +164,7 @@ async fn update_worker_ping_full_inner(
                         wm_memory_usage: get_windmill_memory_usage(),
                         job_isolation: None,
                         native_mode: Some(native_mode),
+                        draining: None,
                         ping_type: PingType::MainLoop,
                     },
                 )
@@ -179,6 +180,7 @@ pub async fn insert_ping(
     worker_instance: &str,
     worker_name: &str,
     ip: Option<&str>,
+    reset_draining: bool,
     db: &Connection,
 ) -> anyhow::Result<i32> {
     let (tags, dw, dws, native_mode) = {
@@ -224,6 +226,7 @@ pub async fn insert_ping(
                 memory,
                 job_isolation,
                 native_mode,
+                reset_draining.then_some(false),
                 db,
             )
             .await;
@@ -256,6 +259,7 @@ pub async fn insert_ping(
                         wm_memory_usage: get_windmill_memory_usage(),
                         job_isolation,
                         native_mode: Some(native_mode),
+                        draining: reset_draining.then_some(false),
                         ping_type: PingType::Initial,
                     },
                 )
@@ -314,6 +318,7 @@ pub async fn update_worker_ping_from_job(
                     &Ping {
                         last_job_executed: Some(job_id.clone()),
                         last_job_workspace_id: Some(w_id.to_string()),
+                        draining: None,
                         ping_type: PingType::Job,
                         worker_instance: None,
                         ip: None,
@@ -340,6 +345,45 @@ pub async fn update_worker_ping_from_job(
         }
     }
     Ok(())
+}
+
+/// Publishes on the worker's ping row that it has received its killpill, so the job it is
+/// still running can find out and exit early.
+pub async fn mark_worker_draining(conn: &Connection, worker_name: &str) -> anyhow::Result<()> {
+    match conn {
+        Connection::Sql(db) => set_worker_draining_query(worker_name, db).await,
+        Connection::Http(client) => {
+            client
+                .post::<Ping, ()>(
+                    UPDATE_PING_URL,
+                    None,
+                    &Ping {
+                        last_job_executed: None,
+                        last_job_workspace_id: None,
+                        draining: None,
+                        ping_type: PingType::Draining,
+                        worker_instance: None,
+                        ip: None,
+                        tags: None,
+                        dw: None,
+                        dws: None,
+                        version: None,
+                        vcpus: None,
+                        memory: None,
+                        memory_usage: None,
+                        wm_memory_usage: None,
+                        jobs_executed: None,
+                        occupancy_rate: None,
+                        occupancy_rate_15s: None,
+                        occupancy_rate_5m: None,
+                        occupancy_rate_30m: None,
+                        job_isolation: None,
+                        native_mode: None,
+                    },
+                )
+                .await
+        }
+    }
 }
 
 pub async fn ping_job_status(

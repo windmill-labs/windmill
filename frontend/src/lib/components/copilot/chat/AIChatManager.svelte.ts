@@ -501,11 +501,17 @@ export class AIChatManager implements ChatViewHost {
 	skipResponsesApi = $state(false)
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
-	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
+	// One per mounted pipeline editor; a session can have several folders open.
+	#pipelineEditors = new Set<PipelineAIChatHelpers>()
 	// Resolved when a pipeline editor registers its tools. open_preview(pipeline)
 	// awaits this so the model's next build_pipeline_node call can't race ahead of
 	// the async canvas mount and hit "Unknown tool call".
-	#pipelineHelpersWaiters = new Set<() => void>()
+	#pipelineHelpersWaiters = new Set<(helpers: PipelineAIChatHelpers) => void>()
+	// A session's pipeline editor unmounts whenever another tab takes the preview
+	// panel. Its tools stay offered for every folder the session opened, and a call
+	// reopens the tab through this, so a page shown in between costs no failed call.
+	#pipelineReopener: ((folder: string) => void) | undefined = undefined
+	#openedPipelineFolders = new Set<string>()
 	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
@@ -910,6 +916,15 @@ export class AIChatManager implements ChatViewHost {
 	// outside any turn, and waiting would resurrect the entry on reload.
 	async removeModifiedItem(itemKind: UserDraftItemKind, storagePath: string) {
 		if (!this.modifiedItems?.delete(maskKey(itemKind, storagePath))) return
+		await this.#persistModifiedItems()
+	}
+
+	// Record the items deploying a chat-modified item produced — a pipeline's
+	// scripts — so a fork review selects exactly them. Persisted at once, like a
+	// discard: the deploy can run outside any turn.
+	async recordDeployedItems(itemKind: UserDraftItemKind, storagePaths: string[]) {
+		if (!this.modifiedItems || storagePaths.length === 0) return
+		for (const p of storagePaths) this.modifiedItems.add(maskKey(itemKind, p))
 		await this.#persistModifiedItems()
 	}
 
@@ -2521,8 +2536,27 @@ export class AIChatManager implements ChatViewHost {
 
 	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
 	// fires the three network refreshes.
+	setPipelineReopener = (reopen: (folder: string) => void) => {
+		this.#pipelineReopener = reopen
+	}
+
+	#pipelineFolders = (): string[] => [
+		...new Set([
+			...[...this.#pipelineEditors].map((p) => p.getFolder()),
+			...(this.#pipelineReopener ? this.#openedPipelineFolders : [])
+		])
+	]
+
+	#ensurePipeline = async (folder: string): Promise<PipelineAIChatHelpers | undefined> => {
+		const find = () => [...this.#pipelineEditors].find((p) => p.getFolder() === folder)
+		const live = find()
+		if (live || !this.#pipelineReopener) return live
+		this.#pipelineReopener(folder)
+		return (await this.waitForPipelineHelpers(folder)) ? find() : undefined
+	}
+
 	configureGlobalMode = () => {
-		const pipeline = this.pipelineAiChatHelpers
+		const hasPipelines = this.#pipelineFolders().length > 0
 		const opts = this.globalAssemblyOpts()
 		const baseHelpers: GlobalToolHelpers = {
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
@@ -2554,7 +2588,14 @@ export class AIChatManager implements ChatViewHost {
 			}
 		}
 		this.#assembledTools = assembleGlobalTools(opts)
-		this.helpers = pipeline ? { ...baseHelpers, pipeline } : baseHelpers
+		this.helpers = hasPipelines
+			? {
+					...baseHelpers,
+					pipelines: () => [...this.#pipelineEditors],
+					pipelineFolders: this.#pipelineFolders,
+					ensurePipeline: this.#ensurePipeline
+				}
+			: baseHelpers
 		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
 		this.syncArtifactsSession()
 	}
@@ -2567,7 +2608,7 @@ export class AIChatManager implements ChatViewHost {
 		mcpServers: this.mcpServers,
 		access: this.sessionAccess,
 		sessionContext: this.sessionContextResolver?.(),
-		pipelineContext: this.pipelineAiChatHelpers?.getPipelineContext()
+		pipelineFolders: this.#pipelineFolders()
 	})
 
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
@@ -4900,19 +4941,18 @@ export class AIChatManager implements ChatViewHost {
 	// AI edits apply directly as drafts, so there is nothing to auto-accept.
 	// Returns a cleanup that tears the registration back down.
 	setPipelineHelpers = (pipelineHelpers: PipelineAIChatHelpers) => {
-		this.pipelineAiChatHelpers = pipelineHelpers
+		this.#pipelineEditors.add(pipelineHelpers)
+		this.#openedPipelineFolders.add(pipelineHelpers.getFolder())
 		untrack(() => {
 			if (this.mode === AIMode.GLOBAL) {
 				this.configureGlobalMode()
 			}
 		})
 		// The pipeline tools are now registered — release anything awaiting them.
-		const waiters = [...this.#pipelineHelpersWaiters]
-		this.#pipelineHelpersWaiters.clear()
-		waiters.forEach((resolve) => resolve())
+		;[...this.#pipelineHelpersWaiters].forEach((notify) => notify(pipelineHelpers))
 
 		return () => {
-			this.pipelineAiChatHelpers = undefined
+			this.#pipelineEditors.delete(pipelineHelpers)
 			untrack(() => {
 				if (this.mode === AIMode.GLOBAL) {
 					this.configureGlobalMode()
@@ -4922,15 +4962,16 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	/**
-	 * Await the pipeline editor's tool registration. Resolves `true` immediately
-	 * when a pipeline editor is already mounted, or when the next one registers;
-	 * resolves `false` after `timeoutMs` if none registers (e.g. a backgrounded
-	 * session whose preview tab is not mounted, or a closed tab). Callers must
-	 * treat `false` as "tools NOT available" rather than silently reporting
-	 * success — the open_preview handler surfaces that to the model.
+	 * Await the tool registration of the pipeline editor for `folder` (any folder
+	 * when unset). Resolves `true` immediately when one is already mounted, or when
+	 * it registers; resolves `false` after `timeoutMs` if none registers (e.g. a
+	 * session whose runtime is not mounted, or a closed tab). Callers must treat
+	 * `false` as "tools NOT available" rather than silently reporting success —
+	 * the open_preview handler surfaces that to the model.
 	 */
-	waitForPipelineHelpers = (timeoutMs = 8000): Promise<boolean> => {
-		if (this.pipelineAiChatHelpers) return Promise.resolve(true)
+	waitForPipelineHelpers = (folder?: string, timeoutMs = 8000): Promise<boolean> => {
+		const matches = (p: PipelineAIChatHelpers) => folder === undefined || p.getFolder() === folder
+		if ([...this.#pipelineEditors].some(matches)) return Promise.resolve(true)
 		return new Promise<boolean>((resolve) => {
 			let settled = false
 			const finish = (registered: boolean) => {
@@ -4939,7 +4980,9 @@ export class AIChatManager implements ChatViewHost {
 				this.#pipelineHelpersWaiters.delete(onRegister)
 				resolve(registered)
 			}
-			const onRegister = () => finish(true)
+			const onRegister = (p: PipelineAIChatHelpers) => {
+				if (matches(p)) finish(true)
+			}
 			this.#pipelineHelpersWaiters.add(onRegister)
 			setTimeout(() => finish(false), timeoutMs)
 		})

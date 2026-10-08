@@ -2,7 +2,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
-	import { Badge, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import {
 		Archive,
 		ArchiveRestore,
@@ -67,7 +67,7 @@
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
 	import { page } from '$app/state'
 	import { base } from '$app/paths'
-	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import {
 		dateBucket,
 		GROUP_BY_OPTIONS,
@@ -1220,9 +1220,12 @@
 									{group.label}
 								</span>
 								{#if groupWs?.is_dev_workspace}
-									<Badge color="gray" small class="text-3xs px-1 py-0 shrink-0">
-										{devBadgeText(groupWs.dev_workspace_label)}
-									</Badge>
+									<DevWorkspaceBadge
+										label={groupWs.dev_workspace_label}
+										color={groupWs.color}
+										fallbackColor="gray"
+										class="text-3xs px-1 py-0 shrink-0"
+									/>
 								{/if}
 								{#if groupWsId}
 									<Button
@@ -1335,8 +1338,8 @@
 	bind:open={seedOfferOpen}
 	kind="X"
 	enterConfirms={false}
-	title="Keep this {seedOffer?.route.kind ?? 'item'} in the new session?"
-	description="You came here from {seedOffer?.route.itemPath ?? ''}."
+	title="Keep this {seedOffer?.kind ?? 'item'} in the new session?"
+	description="You came here from {seedOffer?.path ?? ''}."
 >
 	<p class="text-sm text-secondary">
 		Keeping it opens it in the preview, so the chat starts with it as context.

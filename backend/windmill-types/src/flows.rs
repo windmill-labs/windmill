@@ -1140,7 +1140,7 @@ pub enum FlowModuleValue {
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         tool_inputs: HashMap<String, HashMap<String, InputTransform>>,
     },
-    /// One call to a decision model (TypeSafe's Jev) answering the typed `questions` of its
+    /// One call to a decision model (such as TypeSafe's Jev) answering the typed `questions` of its
     /// `input_transforms` about a `state`. A flow branches on the answers with a `BranchOne`.
     AIDecision {
         input_transforms: HashMap<String, InputTransform>,

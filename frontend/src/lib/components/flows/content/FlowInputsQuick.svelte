@@ -184,7 +184,7 @@
 		...(customUi?.aiAgent != false
 			? ([
 					['AI Agent', 'aiagent'],
-					['AI decision', 'aidecision']
+					['AI Decision', 'aidecision']
 				] as [string, string][])
 			: [])
 	]
@@ -267,28 +267,33 @@
 	)
 	let aiLength = $derived(showAiRows ? 2 : 0)
 
-	// Must match the heading and label rendered for the AI Sandbox section
 	const aiSandboxHeading = 'AI Sandbox'
-	const aiSandboxLabel = 'Claude Code'
-	let matchesAiSandbox = $derived.by(() => {
+	const aiSandboxes = [
+		{ label: 'Claude Code', subkind: 'claudesandbox' },
+		{ label: 'Pi', subkind: 'pisandbox' }
+	] as const
+	// A query matching the heading keeps every sandbox, otherwise only the ones it names.
+	let matchingAiSandboxes = $derived.by(() => {
 		const query = funcDesc?.trim().toLowerCase() ?? ''
-		if (query.length == 0) {
-			return true
-		}
-		return [aiSandboxHeading, aiSandboxLabel].some((term) => {
+		const matches = (term: string) => {
 			const lowered = term.toLowerCase()
 			return lowered.startsWith(query) || lowered.split(' ').some((w) => w.startsWith(query))
-		})
+		}
+		if (query.length == 0 || matches(aiSandboxHeading)) {
+			return aiSandboxes
+		}
+		return aiSandboxes.filter((s) => matches(s.label))
 	})
-	// Gates the AI Sandbox row and its slot in the index space; both must agree or arrow keys land
-	// on an index that renders nothing.
-	let showAiSandbox = $derived(
+	// Gates the AI Sandbox rows and their slots in the index space; both must agree or arrow keys
+	// land on an index that renders nothing.
+	let aiSandboxRows = $derived(
 		selectedKind === 'script' &&
 			preFilter === 'all' &&
 			!selected &&
 			customUi?.aiSandbox != false &&
-			!$operatorBuilderFlows &&
-			matchesAiSandbox
+			!$operatorBuilderFlows
+			? matchingAiSandboxes
+			: []
 	)
 
 	// Hub runnables carry code the workspace never reviewed, and the backend refuses them in a
@@ -301,7 +306,7 @@
 	let aiOffset = $derived(inlineOffset + (inlineScripts?.length ?? 0))
 	let workspaceOffset = $derived(aiOffset + aiLength)
 	let aiSandboxOffset = $derived(workspaceOffset + (filteredWorkspaceItems?.length ?? 0))
-	let hubOffset = $derived(aiSandboxOffset + (showAiSandbox ? 1 : 0))
+	let hubOffset = $derived(aiSandboxOffset + aiSandboxRows.length)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -530,27 +535,29 @@
 			{/await}
 			<div class="pb-1"></div>
 		{/if}
-		{#if showAiSandbox}
+		{#if aiSandboxRows.length > 0}
 			<div class="pb-0 text-2xs font-normal text-secondary ml-2">{aiSandboxHeading}</div>
-			<FlowScriptPickerQuick
-				eeRestricted={false}
-				selected={selectedByKeyboard === aiSandboxOffset}
-				onHover={() => hover(aiSandboxOffset)}
-				enterpriseLangs={[]}
-				label={aiSandboxLabel}
-				lang="claudesandbox"
-				on:click={() => {
-					dispatch('new', {
-						kind: selectedKind,
-						inlineScript: {
-							language: 'bun',
+			{#each aiSandboxRows as sandbox, i (sandbox.subkind)}
+				<FlowScriptPickerQuick
+					eeRestricted={false}
+					selected={selectedByKeyboard === aiSandboxOffset + i}
+					onHover={() => hover(aiSandboxOffset + i)}
+					enterpriseLangs={[]}
+					label={sandbox.label}
+					lang={sandbox.subkind}
+					on:click={() => {
+						dispatch('new', {
 							kind: selectedKind,
-							subkind: 'claudesandbox',
-							summary
-						}
-					})
-				}}
-			/>
+							inlineScript: {
+								language: 'bun',
+								kind: selectedKind,
+								subkind: sandbox.subkind,
+								summary
+							}
+						})
+					}}
+				/>
+			{/each}
 		{/if}
 		{#if showHub && selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}

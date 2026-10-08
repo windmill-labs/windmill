@@ -241,6 +241,21 @@ describe('page item tabs', () => {
 		])
 	})
 
+	it('follows an editor deployed under a new path in place', () => {
+		const o = owner()
+		o.open({
+			type: 'item',
+			item: { kind: 'app', raw_app: true, path: 'u/me/draft_1', summary: '' }
+		})
+		const id = o.tabs[0].id
+		o.retargetEditor(
+			{ kind: 'raw_app', path: 'u/me/draft_1' },
+			{ kind: 'raw_app', path: 'u/me/app' }
+		)
+		const url = `${base}/apps_raw/edit/u/me/app`
+		expect(o.tabs).toEqual([{ id, url, loc: url }])
+	})
+
 	it('restores a tab saved on a row’s drawer as the row it was last on', () => {
 		const snap = hydratePreviewTabs({
 			previewTabs: [
@@ -563,19 +578,22 @@ describe('SessionPreviewTabs.navigate', () => {
 		expect(o.tabs.find((t) => t.id === pageTabId)?.url).toBe('/runs')
 	})
 
-	it('retargets the one pipeline tab instead of turning the active tab into a second', () => {
+	it('keeps one tab per pipeline folder, several folders side by side', () => {
 		const o = owner()
 		o.open(pipelineTarget)
-		const pipelineTabId = o.activeId
-		o.open(scriptTarget) // a second, non-pipeline tab is now active
-		const scriptTabId = o.activeId
-		o.navigate(pipelineTarget2)
-		// No second pipeline editor: the existing one is retargeted and focused.
+		const crmTabId = o.activeId
+		o.open(pipelineTarget2)
+		const salesTabId = o.activeId
 		expect(o.tabs).toHaveLength(2)
-		expect(o.activeId).toBe(pipelineTabId)
-		expect(o.tabs.find((t) => t.id === pipelineTabId)?.url).toBe(`${base}/pipeline/sales`)
-		// The script tab is untouched.
-		expect(o.tabs.find((t) => t.id === scriptTabId)?.url).toBe('/scripts/edit/u/me/foo')
+		expect(salesTabId).not.toBe(crmTabId)
+		o.open(scriptTarget)
+		// A folder already open is focused, from open() and navigate() alike.
+		o.open(pipelineTarget)
+		expect(o.activeId).toBe(crmTabId)
+		o.navigate(pipelineTarget2)
+		expect(o.activeId).toBe(salesTabId)
+		expect(o.tabs).toHaveLength(3)
+		expect(o.tabs.find((t) => t.id === crmTabId)?.url).toBe(`${base}/pipeline/crm`)
 	})
 
 	it('retargets the active pipeline tab in place to a new folder', () => {

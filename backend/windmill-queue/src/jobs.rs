@@ -359,6 +359,22 @@ ORDER BY depth, id
     .filter_map(|r| r.id.clone())
     .collect_vec();
 
+    // A native retry is the child of its first attempt, which has completed by the time the
+    // retry is queued, so the walk above stops before reaching it.
+    let tree = [&[job.id][..], &jobs_to_cancel[..]].concat();
+    let pending_retries = sqlx::query_scalar!(
+        "SELECT q.id FROM v2_job_queue q
+            JOIN native_retry_attempt n ON n.job_id = q.id
+            JOIN v2_job r ON r.id = q.id
+            JOIN v2_job a ON a.id = r.parent_job
+            WHERE q.workspace_id = $2 AND a.parent_job = ANY($1)",
+        tree.as_slice(),
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    jobs_to_cancel.extend(pending_retries);
+
     jobs_to_cancel.reverse();
     if !jobs_to_cancel.is_empty() {
         tracing::info!("Found {} child jobs to cancel", jobs_to_cancel.len());
@@ -1391,7 +1407,18 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .then(|| completed_job.parent_job)
             .flatten()
     } else if !success && !skipped && retry_pending {
-        Some(completed_job.parent_job.unwrap_or(completed_job.id))
+        let is_retry_attempt = sqlx::query_scalar!(
+            "SELECT attempt FROM native_retry_attempt WHERE job_id = $1",
+            completed_job.id,
+        )
+        .fetch_optional(db)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!("reading the retry marker of {}: {e:#}", completed_job.id);
+            None
+        })
+        .is_some();
+        Some(native_retry_root(completed_job, is_retry_attempt))
     } else {
         None
     };
@@ -2194,18 +2221,17 @@ async fn restart_job_if_perpetual_inner(
 /// resolution too; `ON CONFLICT DO NOTHING` keeps a human's note intact.
 ///
 /// Membership of the chain must be *proven* per row, never inferred from `parent_job`
-/// alone: `root` is `job.parent_job.unwrap_or(job.id)`, so for a job launched with an
-/// explicit `parent_job` (WAC inline children, SDK-launched children) `root` is the
-/// *calling* job, and its other failed children are unrelated. Resolving those would hide
-/// exactly the failures this feature exists to surface, so each row must be either
+/// alone: the success-side caller passes the succeeding job's `parent_job`, which for a
+/// job launched with an explicit parent (WAC inline children, SDK-launched children) is
+/// the *calling* job, and its other failed children are unrelated. Resolving those would
+/// hide exactly the failures this feature exists to surface, so each row must be either
 /// - a job carrying a `native_retry_attempt` marker under `root` (provably an attempt), or
-/// - `root` itself as the original attempt, which is only provable when `root` is
-///   parentless and unmarked.
+/// - `root` itself as the original attempt: unmarked, and proven a chain root by the
+///   marked success under it, since only a chain root is ever a marked job's parent
+///   (see [`native_retry_root`]).
 ///
 /// Both arms also require the same `runnable_id` as the succeeding attempt, since every
-/// attempt in a chain runs the same runnable. The deliberate cost is a miss, not an
-/// over-reach: when the original attempt had a parent it is an unmarked sibling
-/// indistinguishable from any other child of the caller, so it stays red.
+/// attempt in a chain runs the same runnable.
 ///
 /// Nothing is trusted of the caller (this writes through a privileged pool): the gate is
 /// "some marked attempt under `root` running `runnable_id` has succeeded", evaluated in
@@ -2249,7 +2275,7 @@ pub async fn resolve_retry_chain_if_succeeded(
                     AND (
                         (j.parent_job = $1
                             AND EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
-                        OR (c.id = $1 AND j.parent_job IS NULL
+                        OR (c.id = $1
                             AND NOT EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
                     )
             ON CONFLICT (job_id) DO NOTHING",
@@ -2303,6 +2329,18 @@ async fn eval_retry_if(
     false
 }
 
+/// The first attempt of `job`'s native retry chain, which every later attempt is pushed
+/// with as `parent_job` and whose id seeds theirs. A first attempt may have a parent of its
+/// own (a script dispatched from another job), so only a marked attempt's parent is the root:
+/// rooting at that outer parent would merge the chains of its retried children.
+fn native_retry_root(job: &MiniCompletedJob, is_retry_attempt: bool) -> Uuid {
+    if is_retry_attempt {
+        job.parent_job.unwrap_or(job.id)
+    } else {
+        job.id
+    }
+}
+
 /// Native script retry. When a failed `Script` or `Script_Hub` job carries a retry
 /// policy (via `runnable_settings_handle`) and has attempts left, enqueue a fresh
 /// attempt of the same script after the policy's backoff delay — instead of having
@@ -2346,6 +2384,18 @@ pub async fn maybe_enqueue_native_script_retry(
     if !policy.has_attempts() {
         return Ok(false);
     }
+    // Cancelling a job that has a parent (every retry attempt does) only flags its queue row,
+    // and the worker that pulls it completes it without a `canceled_by`: read the flag here.
+    let soft_canceled = sqlx::query_scalar!(
+        "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
+        job.id,
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false);
+    if soft_canceled {
+        return Ok(false);
+    }
 
     // Attempt counter for this job: its `native_retry_attempt` marker, or 0 for
     // the first (un-marked) attempt. The marker is persistent (unlike the queue
@@ -2358,7 +2408,7 @@ pub async fn maybe_enqueue_native_script_retry(
     .fetch_optional(db)
     .await?
     .unwrap_or(0) as u32;
-    let root = job.parent_job.unwrap_or(job.id);
+    let root = native_retry_root(job, prev_attempts > 0);
     // Scheduled chains keep the schedule trigger so the terminal attempt drives
     // the schedule completion handlers (on_failure/on_success); `parent_job`
     // keeps every retry out of the per-occurrence handler counting queries.
