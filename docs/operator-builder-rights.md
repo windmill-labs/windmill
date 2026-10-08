@@ -178,6 +178,10 @@ that already have one on, is a zero delta and never blocks.
 - A builder's delete or settings-only update reads the app's kind before the write, not under a
   lock held through it. An admin converting that app to low-code in between lets the builder's
   request land on the low-code app; the builder already has write access to its path.
+- A builder's draft carries no run identity, so deploying it makes the deployer its run identity,
+  as any deploy does. An admin deploying a builder's draft, from the editor or Compare & Deploy,
+  therefore publishes the builder's code running as that admin; the deploy is the admin's
+  explicit act, as it is for a developer's draft.
 - All-or-nothing per workspace: there is no per-user builder role.
 - `operator_settings` is git-synced, so a pull can flip every operator's class in a workspace and
   the billed seat count with it.
