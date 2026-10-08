@@ -173,7 +173,15 @@
 	// Inspecting is done the moment the tool returned, whatever the run it looked at is
 	// still doing — the tense belongs to the call, not to its subject.
 	const verb = $derived(
-		inspected ? 'Inspected' : running ? verbs.present : settled && ran ? verbs.past : verbs.future
+		inspected
+			? 'Inspected'
+			: starting
+				? 'Starting'
+				: running
+					? verbs.present
+					: settled && ran
+						? verbs.past
+						: verbs.future
 	)
 
 	// Being cancelled is an outcome like any other, and it is the one the card has to say out
@@ -376,7 +384,8 @@
 	// has no time to give, so its outcome takes the slot — as a word, never "Not run", which
 	// stutters against the "Run <name>" label beside it.
 	const outcome = $derived(failed ? 'Failed' : canceled ? 'Cancelled' : 'Done')
-	const statusTime = $derived(running ? elapsed : starting ? 'Starting' : duration || outcome)
+	// No job yet, so no time and no outcome: the verb already says Starting.
+	const statusTime = $derived(running ? elapsed : starting ? '' : duration || outcome)
 
 	// What the preview button opens changes with the card: the form while the call is still
 	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
@@ -422,7 +431,7 @@
 {#snippet status()}
 	<!-- An inspection reports nothing here: the card is a snapshot the chat will never
 	     update, so a status on it would be frozen at whatever the run happened to be. -->
-	{#if !pending && !inspected}
+	{#if !pending && !inspected && statusTime}
 		<span class={twMerge('shrink-0 whitespace-nowrap text-2xs font-medium', statusClass)}>
 			{statusTime}
 		</span>
