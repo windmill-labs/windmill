@@ -356,19 +356,38 @@ struct ResourceTypeIndex {
 
 #[cfg(feature = "embedding")]
 impl EmbeddingsDb {
-    pub async fn new(pg_db: &Pool<Postgres>, model_instance: Arc<ModelInstance>) -> Result<Self> {
-        let db = Db::new();
-
-        let mut embeddings_db = Self {
-            db,
-            model_instance: model_instance.clone(),
+    fn empty(model_instance: Arc<ModelInstance>) -> Self {
+        Self {
+            db: Db::new(),
+            model_instance,
             hub_resource_type_embeddings: Arc::new(HashMap::new()),
             resource_types_fingerprint: None,
             custom_resource_type_vectors: Arc::new(HashMap::new()),
-        };
+        }
+    }
 
+    pub async fn new(pg_db: &Pool<Postgres>, model_instance: Arc<ModelInstance>) -> Result<Self> {
+        let mut embeddings_db = Self::empty(model_instance);
         embeddings_db.fill_db(pg_db).await?;
+        Ok(embeddings_db)
+    }
 
+    /// The resource types alone, all embedded locally, for when the full fill cannot download
+    /// the hub's embeddings: an air-gapped instance, or a private hub serving none. Hub script
+    /// search keeps failing, since it has no collection to search.
+    async fn resource_types_only(
+        pg_db: &Pool<Postgres>,
+        model_instance: Arc<ModelInstance>,
+    ) -> Result<Self> {
+        let mut embeddings_db = Self::empty(model_instance);
+        let index = resource_type_index(
+            pg_db,
+            &embeddings_db.model_instance,
+            &embeddings_db.hub_resource_type_embeddings,
+            &embeddings_db.custom_resource_type_vectors,
+        )
+        .await?;
+        embeddings_db.replace_resource_types(index)?;
         Ok(embeddings_db)
     }
 
@@ -817,6 +836,9 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> () {
                     backoff_secs = *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS;
                     *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS
                 } else {
+                    if let Err(e) = index_resource_types_alone(&db_clone).await {
+                        tracing::warn!("Failed to index the resource types alone: {e:#}");
+                    }
                     let secs = backoff_secs;
                     backoff_secs = backoff_secs
                         .saturating_mul(2)
@@ -847,6 +869,29 @@ pub async fn update_embeddings_db(db: &Pool<Postgres>) -> bool {
         tracing::error!("Could not update embeddings DB, model instance not initialized");
         false
     }
+}
+
+/// After a failed full fill, so a fill still downloading at startup is not raced. A full fill
+/// that succeeds later replaces this index.
+#[cfg(feature = "embedding")]
+async fn index_resource_types_alone(pg_db: &Pool<Postgres>) -> Result<()> {
+    if EMBEDDINGS_DB.read().await.is_some() {
+        return Ok(());
+    }
+    let Some(model_instance) = MODEL_INSTANCE.read().await.clone() else {
+        return Ok(());
+    };
+    let started = std::time::Instant::now();
+    let embeddings_db = EmbeddingsDb::resource_types_only(pg_db, model_instance).await?;
+    let mut current = EMBEDDINGS_DB.write().await;
+    if current.is_none() {
+        *current = Some(embeddings_db);
+        tracing::info!(
+            "Indexed the resource types alone in {:?}, without the hub's embeddings",
+            started.elapsed()
+        );
+    }
+    Ok(())
 }
 
 pub fn workspaced_service() -> Router {
