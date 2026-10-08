@@ -477,6 +477,21 @@ pub async fn assume_role_with_oidc_token(
 // Error Formatting
 // ============================================================================
 
+/// The error for a Bedrock stream that failed after it opened. Only a validation exception
+/// names the request as the cause; the SDK's own retries cover the opening call alone.
+pub fn bedrock_stream_error<R: std::fmt::Debug>(
+    error: &aws_sdk_bedrockruntime::error::SdkError<
+        aws_sdk_bedrockruntime::types::error::ConverseStreamOutputError,
+        R,
+    >,
+) -> Error {
+    let message = format!("Bedrock stream error: {}", format_bedrock_error(error));
+    match error.as_service_error() {
+        Some(e) if e.is_validation_exception() => Error::AIError(message),
+        _ => crate::retry::transient_error(message, None),
+    }
+}
+
 /// Format AWS SDK errors with detailed information
 pub fn format_bedrock_error<E, R>(error: &aws_sdk_bedrockruntime::error::SdkError<E, R>) -> String
 where

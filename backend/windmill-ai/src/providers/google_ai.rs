@@ -10,12 +10,15 @@ use crate::{
     image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
     proxy::{ProxyBuildArgs, ProxyRequest},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
+    retry::{
+        openai_stream_error_chunk, send_with_retries, transient_error, truncated_stream_error,
+    },
     sse::{GeminiSSEParser, SSEParser},
     types::*,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
-use eventsource_stream::Eventsource;
+use eventsource_stream::{EventStreamError, Eventsource};
 use futures::{stream::BoxStream, StreamExt};
 use http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use serde::Deserialize;
@@ -336,9 +339,7 @@ pub async fn handle_google_ai_chat_proxy(
 ) -> Result<GoogleAIProxyResponse, Error> {
     let GoogleAIProxyRequest { request, model, stream } = build_google_ai_chat_proxy_request(args)?;
 
-    let response =
-        send_google_ai_proxy_request(client, request, "Failed to send request to Gemini API")
-            .await?;
+    let response = send_google_ai_proxy_request(client, request).await?;
 
     if stream {
         Ok(convert_streaming_response(response, &model))
@@ -356,8 +357,7 @@ pub async fn handle_google_ai_models_proxy(
     args: &ProxyBuildArgs<'_>,
 ) -> Result<GoogleAIProxyResponse, Error> {
     let request = build_google_ai_models_proxy_request(args);
-    let response =
-        send_google_ai_proxy_request(client, request, "Failed to fetch Gemini models").await?;
+    let response = send_google_ai_proxy_request(client, request).await?;
 
     let gemini_resp: GeminiModelsResponse = response.json().await.map_err(|e| {
         Error::internal_err(format!("Failed to parse Gemini models response: {}", e))
@@ -505,26 +505,13 @@ fn add_google_ai_auth_header(headers: &mut Vec<(String, String)>, api_key: &str,
 async fn send_google_ai_proxy_request(
     client: &reqwest::Client,
     proxy_request: ProxyRequest,
-    send_error_message: &str,
 ) -> Result<reqwest::Response, Error> {
     let mut request = client.request(proxy_request.method.clone(), &proxy_request.url);
     for (header_name, header_value) in &proxy_request.headers {
         request = request.header(header_name.as_str(), header_value.as_str());
     }
 
-    let response = request
-        .body(proxy_request.body)
-        .send()
-        .await
-        .map_err(|e| Error::internal_err(format!("{}: {}", send_error_message, e)))?;
-
-    if let Err(e) = response.error_for_status_ref() {
-        let status = e.status().map(|s| s.to_string()).unwrap_or_default();
-        let body = response.text().await.unwrap_or_default();
-        return Err(Error::AIError(format!("{}: {}", status, body)));
-    }
-
-    Ok(response)
+    send_with_retries(request.body(proxy_request.body)).await
 }
 
 fn convert_streaming_response(response: reqwest::Response, model: &str) -> GoogleAIProxyResponse {
@@ -535,10 +522,15 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
     let openai_sse_stream = async_stream::stream! {
         tokio::pin!(gemini_sse_stream);
         let mut tool_call_index: usize = 0;
-        while let Some(event) = gemini_sse_stream.next().await {
+        let mut finished = false;
+        let failure = loop {
+            let Some(event) = gemini_sse_stream.next().await else {
+                break (!finished).then(truncated_stream_error);
+            };
             match event {
                 Ok(event) => match parse_gemini_sse_event(&event.data) {
                     Ok(Some(parsed)) => {
+                        finished |= parsed.finish_reason.is_some();
                         for chunk in gemini_event_to_openai_sse_chunks(
                             &parsed, &id, &model, &mut tool_call_index,
                         ) {
@@ -546,12 +538,22 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
                         }
                     }
                     Ok(None) => {}
-                    Err(e) => tracing::error!("Error parsing Gemini SSE event: {}", e),
+                    Err(e) => break Some(e),
                 },
+                Err(EventStreamError::Transport(e)) => {
+                    break Some(transient_error(
+                        format!("The connection to Gemini broke off mid-response: {e}"),
+                        None,
+                    ));
+                }
                 Err(e) => tracing::error!("Error reading Gemini SSE stream: {}", e),
             }
-        }
-        yield Ok::<Bytes, reqwest::Error>(Bytes::from("data: [DONE]\n\n"));
+        };
+        let last = match failure {
+            Some(error) => openai_stream_error_chunk(&error),
+            None => "data: [DONE]\n\n".to_string(),
+        };
+        yield Ok::<Bytes, reqwest::Error>(Bytes::from(last));
     }
     .boxed();
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use eventsource_stream::Eventsource;
+use eventsource_stream::{EventStreamError, Eventsource};
 use indexmap::IndexMap;
 use reqwest::Response;
 use serde::Deserialize;
@@ -14,6 +14,7 @@ use crate::{
         AnthropicExtraContent, ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall,
     },
     query_builder::StreamEventSink,
+    retry::{transient_error, truncated_stream_error, StreamErrorBody},
     types::{StreamingEvent, TokenUsage},
 };
 
@@ -43,6 +44,8 @@ pub struct OpenAIChoiceDelta {
 #[derive(Deserialize)]
 pub struct OpenAIChoice {
     pub delta: Option<OpenAIChoiceDelta>,
+    #[serde(default)]
+    pub finish_reason: Option<String>,
 }
 
 /// Nested prompt token details returned by the Chat Completions API.
@@ -87,6 +90,8 @@ pub struct OpenAISSEEvent {
     pub choices: Option<Vec<OpenAIChoice>>,
     #[serde(default)]
     pub usage: Option<OpenAIChatUsage>,
+    #[serde(default)]
+    pub error: Option<StreamErrorBody>,
 }
 
 lazy_static::lazy_static! {
@@ -98,6 +103,10 @@ lazy_static::lazy_static! {
 #[allow(async_fn_in_trait)]
 pub trait SSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error>;
+
+    /// Whether the stream delivered the event that ends a complete response. A stream
+    /// that closes without it was cut off, and what it carried is not the answer.
+    fn is_complete(&self) -> bool;
 
     async fn parse_events(&mut self, response: Response) -> Result<(), Error> {
         let mut stream = response.bytes_stream().eventsource();
@@ -112,6 +121,17 @@ pub trait SSEParser {
                     }
 
                     self.parse_event_data(&event.data).await?;
+                }
+                // The body ends right after a transport error, so it cannot be skipped
+                // like a malformed event. A timeout spent the caller's whole budget.
+                Err(EventStreamError::Transport(e)) => {
+                    let message =
+                        format!("The connection to the AI provider broke off mid-response: {e}");
+                    return Err(if e.is_timeout() {
+                        Error::AIError(message)
+                    } else {
+                        transient_error(message, None)
+                    });
                 }
                 Err(e) => {
                     consecutive_errors += 1;
@@ -130,6 +150,9 @@ pub trait SSEParser {
             }
         }
 
+        if !self.is_complete() {
+            return Err(truncated_stream_error());
+        }
         Ok(())
     }
 }
@@ -145,6 +168,9 @@ pub struct OpenAISSEParser {
     pub stream_event_processor: Box<dyn StreamEventSink>,
     /// Token usage from final chunk (when stream_options.include_usage is true)
     pub usage: Option<OpenAIChatUsage>,
+    /// Set by `[DONE]` or by a choice's `finish_reason`: OpenAI-compatible gateways do not
+    /// all send `[DONE]`.
+    complete: bool,
 }
 
 impl OpenAISSEParser {
@@ -156,13 +182,19 @@ impl OpenAISSEParser {
             events_str: String::new(),
             stream_event_processor,
             usage: None,
+            complete: false,
         }
     }
 }
 
 impl SSEParser for OpenAISSEParser {
+    fn is_complete(&self) -> bool {
+        self.complete
+    }
+
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
         if data == "[DONE]" {
+            self.complete = true;
             return Ok(());
         }
 
@@ -173,13 +205,21 @@ impl SSEParser for OpenAISSEParser {
             .ok();
 
         if let Some(event) = event {
+            if let Some(error) = event.error {
+                return Err(error.into_error("AI provider"));
+            }
+
             // Extract usage from final chunk (when stream_options.include_usage is true)
             if let Some(usage) = event.usage {
                 self.usage = Some(usage);
             }
 
             if let Some(mut choices) = event.choices.filter(|s| !s.is_empty()) {
-                if let Some(delta) = choices.remove(0).delta {
+                let choice = choices.remove(0);
+                if choice.finish_reason.is_some() {
+                    self.complete = true;
+                }
+                if let Some(delta) = choice.delta {
                     if let Some(reasoning) = delta.reasoning_content.filter(|s| !s.is_empty()) {
                         self.accumulated_reasoning.push_str(&reasoning);
                         let event = StreamingEvent::ReasoningTokenDelta { content: reasoning };
@@ -353,7 +393,7 @@ pub enum AnthropicSSEEvent {
     #[serde(rename = "error")]
     Error {
         #[serde(default)]
-        message: Option<String>,
+        error: StreamErrorBody,
     },
     #[serde(other)]
     Unknown,
@@ -391,6 +431,7 @@ pub struct AnthropicSSEParser {
     /// can be replayed before `tool_use` (required by Claude when thinking is on).
     pending_reasoning: Option<AnthropicExtraContent>,
     reasoning_attached: bool,
+    message_stopped: bool,
 }
 
 impl AnthropicSSEParser {
@@ -407,11 +448,16 @@ impl AnthropicSSEParser {
             usage: None,
             pending_reasoning: None,
             reasoning_attached: false,
+            message_stopped: false,
         }
     }
 }
 
 impl SSEParser for AnthropicSSEParser {
+    fn is_complete(&self) -> bool {
+        self.message_stopped
+    }
+
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
         let event: Option<AnthropicSSEEvent> = serde_json::from_str(data)
             .inspect_err(|e| {
@@ -583,9 +629,8 @@ impl SSEParser for AnthropicSSEParser {
                             .await?;
                     }
                 }
-                AnthropicSSEEvent::Error { message } => {
-                    let error_msg = message.unwrap_or_else(|| "Unknown error".to_string());
-                    tracing::error!("Anthropic streaming error: {}", error_msg);
+                AnthropicSSEEvent::Error { error } => {
+                    return Err(error.into_error("Anthropic"));
                 }
                 AnthropicSSEEvent::MessageStart { message } => {
                     // The only event carrying the prompt-side counts. `message_delta`
@@ -614,10 +659,9 @@ impl SSEParser for AnthropicSSEParser {
                         }
                     }
                 }
+                AnthropicSSEEvent::MessageStop {} => self.message_stopped = true,
                 // Ignore other events
-                AnthropicSSEEvent::MessageStop {}
-                | AnthropicSSEEvent::Ping {}
-                | AnthropicSSEEvent::Unknown => {}
+                AnthropicSSEEvent::Ping {} | AnthropicSSEEvent::Unknown => {}
             }
         }
 
@@ -645,6 +689,7 @@ pub struct GeminiSSEParser {
     pub annotations: Vec<UrlCitation>,
     pub used_websearch: bool,
     pub usage: Option<GeminiUsageMetadata>,
+    finished: bool,
 }
 
 impl GeminiSSEParser {
@@ -659,15 +704,23 @@ impl GeminiSSEParser {
             annotations: Vec::new(),
             used_websearch: false,
             usage: None,
+            finished: false,
         }
     }
 }
 
 impl SSEParser for GeminiSSEParser {
+    fn is_complete(&self) -> bool {
+        self.finished
+    }
+
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
         let Some(parsed) = parse_gemini_sse_event(data)? else {
             return Ok(());
         };
+        if parsed.finish_reason.is_some() {
+            self.finished = true;
+        }
 
         if let Some(reasoning) = parsed.reasoning.filter(|s| !s.is_empty()) {
             self.accumulated_reasoning.push_str(&reasoning);
@@ -797,6 +850,8 @@ impl OpenAIResponsesUsage {
 pub struct OpenAIResponsesResponse {
     #[serde(default)]
     pub usage: Option<OpenAIResponsesUsage>,
+    #[serde(default)]
+    pub error: Option<StreamErrorBody>,
 }
 
 /// SSE event types for OpenAI Responses API streaming
@@ -832,6 +887,17 @@ pub enum OpenAIResponsesSSEEvent {
     /// tokens spent so far, so it is billed the same
     #[serde(rename = "response.incomplete")]
     Incomplete { response: OpenAIResponsesResponse },
+
+    #[serde(rename = "response.failed")]
+    Failed { response: OpenAIResponsesResponse },
+
+    #[serde(rename = "error")]
+    Error {
+        #[serde(default)]
+        code: Option<serde_json::Value>,
+        #[serde(default)]
+        message: Option<String>,
+    },
 
     /// Response created
     #[serde(rename = "response.created")]
@@ -890,6 +956,7 @@ pub struct OpenAIResponsesSSEParser {
     pub usage: Option<OpenAIResponsesUsage>,
     /// Reasoning summary parts seen so far, to separate them as paragraphs
     reasoning_summary_parts: usize,
+    response_ended: bool,
 }
 
 impl OpenAIResponsesSSEParser {
@@ -906,11 +973,16 @@ impl OpenAIResponsesSSEParser {
             used_websearch: false,
             usage: None,
             reasoning_summary_parts: 0,
+            response_ended: false,
         }
     }
 }
 
 impl SSEParser for OpenAIResponsesSSEParser {
+    fn is_complete(&self) -> bool {
+        self.response_ended
+    }
+
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
         let event: Option<OpenAIResponsesSSEEvent> = serde_json::from_str(data)
             .inspect_err(|e| {
@@ -1010,9 +1082,19 @@ impl SSEParser for OpenAIResponsesSSEParser {
 
                 OpenAIResponsesSSEEvent::Completed { response }
                 | OpenAIResponsesSSEEvent::Incomplete { response } => {
+                    self.response_ended = true;
                     if let Some(usage) = response.usage {
                         self.usage = Some(usage);
                     }
+                }
+
+                OpenAIResponsesSSEEvent::Failed { response } => {
+                    return Err(response.error.unwrap_or_default().into_error("OpenAI"));
+                }
+
+                OpenAIResponsesSSEEvent::Error { code, message } => {
+                    return Err(StreamErrorBody { code, message, ..Default::default() }
+                        .into_error("OpenAI"));
                 }
 
                 OpenAIResponsesSSEEvent::ReasoningSummaryPartAdded {} => {
@@ -1037,9 +1119,10 @@ impl SSEParser for OpenAIResponsesSSEParser {
                     }
                 }
 
+                OpenAIResponsesSSEEvent::Done {} => self.response_ended = true,
+
                 // Ignore other event types
-                OpenAIResponsesSSEEvent::Done {}
-                | OpenAIResponsesSSEEvent::Created {}
+                OpenAIResponsesSSEEvent::Created {}
                 | OpenAIResponsesSSEEvent::InProgress {}
                 | OpenAIResponsesSSEEvent::OutputItemDone {}
                 | OpenAIResponsesSSEEvent::ContentPartAdded {}
@@ -1091,6 +1174,77 @@ mod tests {
         ) -> Result<(), Error> {
             Ok(())
         }
+    }
+
+    fn sse_response(chunks: Vec<Result<&'static str, std::io::Error>>) -> Response {
+        let body = reqwest::Body::wrap_stream(futures::stream::iter(chunks));
+        Response::from(http::Response::new(body))
+    }
+
+    /// A stream that breaks off, or reports a failure inside its 200, must fail the call
+    /// rather than hand back what arrived as if it were the whole answer.
+    #[tokio::test]
+    async fn stream_failures_are_errors_not_partial_answers() {
+        use crate::retry::as_transient;
+
+        const STARTED: &str = concat!(
+            "data: {\"type\":\"message_start\"}\n\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n",
+        );
+        let anthropic = |chunks| async move {
+            AnthropicSSEParser::new(Box::new(NoopSink))
+                .parse_events(sse_response(chunks))
+                .await
+        };
+
+        let overloaded = anthropic(vec![
+            Ok(STARTED),
+            Ok("data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n"),
+        ])
+        .await
+        .unwrap_err();
+        assert!(as_transient(&overloaded).is_some(), "{overloaded}");
+
+        let refused = anthropic(vec![
+            Ok(STARTED),
+            Ok("data: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad\"}}\n\n"),
+        ])
+        .await
+        .unwrap_err();
+        assert!(as_transient(&refused).is_none(), "{refused}");
+
+        let truncated = anthropic(vec![Ok(STARTED)]).await.unwrap_err();
+        assert!(as_transient(&truncated).is_some(), "{truncated}");
+
+        let dropped = anthropic(vec![
+            Ok(STARTED),
+            Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionReset,
+                "reset",
+            )),
+        ])
+        .await
+        .unwrap_err();
+        assert!(as_transient(&dropped).is_some(), "{dropped}");
+
+        anthropic(vec![
+            Ok(STARTED),
+            Ok("data: {\"type\":\"message_stop\"}\n\n"),
+        ])
+        .await
+        .unwrap();
+
+        // Not every OpenAI-compatible gateway sends `[DONE]`.
+        let mut openai = OpenAISSEParser::new(Box::new(NoopSink));
+        openai
+            .parse_events(sse_response(vec![Ok(concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            ))]))
+            .await
+            .unwrap();
+        assert_eq!(openai.accumulated_content, "Hi");
     }
 
     /// The prompt-side counts arrive only on `message_start` and the completion total

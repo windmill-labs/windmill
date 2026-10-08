@@ -326,6 +326,8 @@ pub struct GeminiSSEEvent {
     pub candidates: Option<Vec<GeminiSSECandidate>>,
     #[serde(rename = "usageMetadata")]
     pub usage_metadata: Option<GeminiUsageMetadata>,
+    #[serde(default)]
+    pub error: Option<crate::retry::StreamErrorBody>,
 }
 
 // ============================================================================
@@ -554,6 +556,7 @@ pub fn openai_tools_to_gemini(
 ///
 /// Returns `Ok(None)` for empty data or unrecognised payloads (e.g. `"[DONE]"`).
 /// Logs a warning and returns `Ok(None)` on JSON parse errors rather than propagating.
+/// An error the stream reports is returned as one.
 pub fn parse_gemini_sse_event(data: &str) -> Result<Option<GeminiParsedEvent>, Error> {
     if data.is_empty() || data == "[DONE]" {
         return Ok(None);
@@ -566,6 +569,10 @@ pub fn parse_gemini_sse_event(data: &str) -> Result<Option<GeminiParsedEvent>, E
             return Ok(None);
         }
     };
+
+    if let Some(error) = event.error {
+        return Err(error.into_error("Gemini"));
+    }
 
     let mut parsed = GeminiParsedEvent { usage: event.usage_metadata, ..Default::default() };
 
