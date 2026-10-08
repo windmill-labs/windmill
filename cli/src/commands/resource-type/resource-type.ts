@@ -99,7 +99,7 @@ function warnIfNotSyncedWithHub(resourceTypes: ResourceType[]) {
   const count = new Set(resourceTypes.map((rt) => rt.name)).size;
   if (count < UNSYNCED_RESOURCE_TYPE_COUNT) {
     log.warnAlways(
-      `Only ${count} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. A superadmin can sync resource types from the hub with "Sync resource types with Hub" in the Add resource dialog of the Resources page, or by running the u/admin/hub_sync script in the admins workspace.`
+      `Only ${count} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. A superadmin can sync resource types from the hub with "Sync resource types with Hub" in the Add resource dialog of the Resources page.`
     );
   }
 }

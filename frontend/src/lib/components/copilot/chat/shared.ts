@@ -1712,7 +1712,7 @@ function parseResourceTypeSchema(schema: unknown): unknown {
 }
 
 export const HUB_SYNC_INSTRUCTIONS =
-	'A superadmin can sync resource types from the hub with "Sync resource types with Hub" in the Add resource dialog of the Resources page, or by running the u/admin/hub_sync script in the admins workspace.'
+	'A superadmin can sync resource types from the hub with "Sync resource types with Hub" in the Add resource dialog of the Resources page.'
 
 async function missingResourceTypesNote(
 	workspace: string,
