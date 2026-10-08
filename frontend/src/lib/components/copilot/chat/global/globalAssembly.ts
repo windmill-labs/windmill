@@ -14,6 +14,7 @@ import {
 import { createMcpTools } from './mcpTools'
 import { getPipelinePromptSection, pipelineTools } from '../pipeline/core'
 import { getFolderInstructionsPromptSection, type FolderInstruction } from '../folderInstructions'
+import { BROWSER_TOOLS_PROMPT, browserTools } from './browserTools'
 
 // Derived, not retyped: an option added to prepareGlobalSystemMessage is reachable
 // here at once. Hand-listing the four would compile fine while leaving the new one
@@ -38,12 +39,19 @@ export function assembleGlobalSystemMessage(
 	if (opts.pipelineFolders?.length) {
 		systemMessage.content += getPipelinePromptSection(opts.pipelineFolders, opts.access)
 	}
+	if (opts.browserTools) {
+		systemMessage.content += BROWSER_TOOLS_PROMPT
+	}
 	return systemMessage
 }
 
 export function assembleGlobalTools(opts: GlobalAssemblyOpts): SessionTool<any>[] {
+	const global = globalToolsFor({ sessionPreview: opts.previewTools ?? false })
 	return [
-		...globalToolsFor({ sessionPreview: opts.previewTools ?? false }),
+		// The side panel has no page to open one in.
+		...(opts.browserTools
+			? [...global.filter((t) => t.def.function.name !== 'open_page'), ...browserTools]
+			: global),
 		...(opts.pipelineFolders?.length ? pipelineTools : []),
 		...createMcpTools(opts.mcpServers ?? [])
 	]

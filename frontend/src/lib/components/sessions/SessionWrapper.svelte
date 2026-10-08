@@ -53,11 +53,18 @@
 
 	let {
 		sessionId,
-		headerInPage = false
+		headerInPage = false,
+		onNewSession = undefined,
+		placeholder = undefined
 	}: {
 		sessionId: string
 		/** True for the session the page is showing: its header rides the page header bar. */
 		headerInPage?: boolean
+		/** Shows the fresh session that replaces an archived or deleted one, for a host that is
+		 * not the sessions page. */
+		onNewSession?: (id: string) => void
+		/** Composer placeholder for a host whose sessions do something narrower than build. */
+		placeholder?: string
 	} = $props()
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
@@ -132,6 +139,7 @@
 	// usable, and routing to a sibling would feel arbitrary.
 	async function resetToNewSession() {
 		const fresh = createSession()
+		if (onNewSession) return onNewSession(fresh.id)
 		selectSession(fresh.id)
 		// The page derives the visible session from the `session` query, not
 		// currentSessionId: navigate so the URL leaves the deleted/archived session,
@@ -466,6 +474,7 @@
 								? 'This session is archived. Unarchive it from the banner above to keep working.'
 								: ''}
 						emptyHint={sessionEmptyHint}
+						{placeholder}
 						{inputPreface}
 					/>
 				</div>

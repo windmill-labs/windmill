@@ -58,6 +58,10 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
 	import { goto } from '$lib/navigation'
+	import {
+		EXTENSION_PANEL_PATH,
+		extensionParentOrigin
+	} from '$lib/components/copilot/chat/global/extensionFrame'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import type UserSettings from '$lib/components/UserSettings.svelte'
 	import type SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
@@ -354,6 +358,11 @@
 	}
 
 	function onQueryChange() {
+		// The extension's side panel is the session chat alone: any other page lands back on it.
+		if (extensionParentOrigin() && !page.url.pathname.startsWith(base + EXTENSION_PANEL_PATH)) {
+			goto(`${EXTENSION_PANEL_PATH}?nomenubar=true`, { replaceState: true })
+			return
+		}
 		let queryWorkspace = page.url.searchParams.get('workspace')
 		if (queryWorkspace) {
 			$workspaceStore = queryWorkspace

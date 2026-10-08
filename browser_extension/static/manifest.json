@@ -1,0 +1,12 @@
+{
+	"manifest_version": 3,
+	"name": "Windmill",
+	"version": "0.1.0",
+	"description": "Windmill AI sessions in the side panel, with tools that act on the active tab.",
+	"permissions": ["sidePanel", "storage", "scripting", "tabs"],
+	"host_permissions": ["<all_urls>"],
+	"background": { "service_worker": "background.js", "type": "module" },
+	"action": { "default_title": "Open Windmill" },
+	"side_panel": { "default_path": "panel.html" },
+	"options_page": "options.html"
+}
