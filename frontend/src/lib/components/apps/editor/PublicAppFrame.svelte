@@ -35,7 +35,11 @@
 	import { EMBED_NAV_CONTEXT_KEY, type EmbedNav } from '../types'
 	import { loadAppPreview } from './loadAppPreview'
 	import RawAppSdkConsent from '$lib/components/raw_apps/RawAppSdkConsent.svelte'
-	import { hasStoredSdkConsent, storeSdkConsent } from '$lib/components/raw_apps/sdkScopes'
+	import {
+		hasStoredSdkConsent,
+		sdkConsentCovers,
+		storeSdkConsent
+	} from '$lib/components/raw_apps/sdkScopes'
 
 	type EmbedToken = {
 		token?: string | null
@@ -388,7 +392,7 @@
 			appPath = resp.app_path ?? appPath
 			workspaceId = resp.workspace_id ?? workspaceId
 			const granted = resp.sdk_scopes ?? []
-			if (!granted.every((s) => approved.includes(s))) {
+			if (!sdkConsentCovers(approved, granted)) {
 				// The app was redeployed with more scopes between the prompt and the
 				// mint. Never inject a token carrying scopes the viewer wasn't shown:
 				// drop it and ask again with the new set.
