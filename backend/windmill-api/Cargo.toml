@@ -20,7 +20,7 @@ benchmark = []
 embedding = ["windmill-api-embeddings/embedding"]
 parquet = ["dep:datafusion", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-worker?/parquet", "windmill-indexer?/parquet", "windmill-api-users/parquet", "windmill-api-settings/parquet", "windmill-api-workspaces/parquet", "windmill-api-npm-proxy/parquet", "dep:aws-sigv4", "dep:aws-sdk-config", "dep:quick-xml"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker?/prometheus", "windmill-api-scripts/prometheus"]
-openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
+openidconnect = ["dep:openidconnect", "dep:rsa", "dep:p256", "dep:tokio-rustls", "windmill-common/openidconnect", "windmill-store/openidconnect"]
 # The service log search handler reads the columnar store, so tantivy alone is
 # not enough for this crate to build on its own.
 tantivy = ["dep:windmill-indexer", "parquet"]
@@ -141,6 +141,8 @@ samael = { workspace = true, optional = true }
 libxml = { workspace = true, optional = true }
 async-recursion.workspace = true
 rsa = { workspace = true, optional = true}
+p256 = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
 uuid.workspace = true
 datafusion = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
@@ -188,5 +190,8 @@ tar.workspace = true
 flate2.workspace = true
 strum = { workspace = true, optional = true }
 dashmap.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
 
 [build-dependencies]

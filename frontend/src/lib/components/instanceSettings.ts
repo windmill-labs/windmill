@@ -798,6 +798,7 @@ export const settings: Record<string, Setting[]> = {
 		}
 	],
 	'DB Health': [],
+	'OIDC signing': [],
 	Registries: [
 		{
 			label: 'Instance Python Version',
@@ -1306,6 +1307,13 @@ export const instanceSettingsNavigationGroups = [
 				aiId: 'instance-settings-scim-saml',
 				aiDescription: 'Instance SCIM/SAML settings',
 				isEE: true
+			},
+			{
+				id: 'oidc_signing',
+				label: 'OIDC signing',
+				aiId: 'instance-settings-oidc-signing',
+				aiDescription: 'Keys that sign and verify the OIDC tokens Windmill issues',
+				isEE: true
 			}
 		]
 	},
@@ -1463,6 +1471,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket',
 	db_health: 'DB Health',
+	oidc_signing: 'OIDC signing',
 	lsp: 'LSP'
 }
 
@@ -1500,6 +1509,7 @@ export const categoryToTabMap: Record<string, string> = {
 	'GitHub App': 'github_enterprise_app',
 	WebSocket: 'websocket',
 	'DB Health': 'db_health',
+	'OIDC signing': 'oidc_signing',
 	LSP: 'lsp'
 }
 

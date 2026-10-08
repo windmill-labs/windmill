@@ -1019,6 +1019,8 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "rsa_keys",
     "jwt_secret",
     "min_keep_alive_version",
+    // Deleting it would let a worker sign OIDC tokens with a local key again.
+    "oidc_external_signer",
 ];
 
 /// Secrets the server signs with or generated for itself. `jwt_secret` signs API and job
@@ -1072,6 +1074,8 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     "custom_instance_replication_pwd",
     // Same for the passwords and database registry Windmill keeps for the external cluster.
     "external_instance_pg_state",
+    // Written by servers that sign OIDC tokens with an external signer.
+    "oidc_external_signer",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.

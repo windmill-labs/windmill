@@ -29,6 +29,7 @@
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 	import WorkspaceRegistries from './instanceSettings/WorkspaceRegistries.svelte'
 	import DbHealth from './instanceSettings/DbHealth.svelte'
+	import OidcSigningStatus from './instanceSettings/OidcSigningStatus.svelte'
 
 	interface Props {
 		tab?: string
@@ -1186,6 +1187,15 @@
 				description="On-demand database diagnostics. Analyze table sizes, job retention, connection pool health, vacuum status, and more."
 			/>
 			<DbHealth />
+		{:else if category == 'OIDC signing'}
+			<SettingsPageHeader
+				title="OIDC signing"
+				description="What signs the OIDC tokens Windmill issues, and the keys its JWKS serves to verifiers. Read-only: signing is configured with environment variables."
+				link="https://www.windmill.dev/docs/core_concepts/oidc#signing-key"
+			/>
+			{#if $enterpriseLicense}
+				<OidcSigningStatus />
+			{/if}
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths

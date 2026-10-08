@@ -596,6 +596,7 @@ const_format = { version = "0.2.35", features = ["rust_1_64", "rust_1_51"] }
 const-str = "0.5"
 constant_time_eq = "0.3.1"
 rsa = "^0"
+p256 = "0.13"
 spki = { version = "0.7", features = ["pem"] }
 pkcs1 = "0.7"
 aes-gcm = "0.10.3"

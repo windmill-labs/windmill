@@ -670,6 +670,7 @@ fn print_help() {
     println!("  cache-rt             Pre-cache hub resource types");
     println!("  sync-config <file>   Sync instance config from a YAML file to the database");
     println!("  operator             Run the Kubernetes operator (watches a ConfigMap)");
+    println!("  oidc-signer <conformance|test-signer>  (ee) Check an external OIDC signer, or run a file-backed one for tests");
     println!();
     println!("Environment variables (name = default):");
     println!("  DATABASE_URL = <required>              The Postgres database url.");
@@ -825,6 +826,12 @@ async fn windmill_main() -> anyhow::Result<()> {
             let db = crate::db_connect::initial_connection().await?;
             config.sync_to_db(&db).await?;
             tracing::info!("Synced instance config from {path}");
+            return Ok(());
+        }
+        #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+        "oidc-signer" => {
+            tracing_subscriber::fmt::init();
+            windmill_api::oidc_signer_tools_ee::run_cli(std::env::args().skip(2).collect()).await?;
             return Ok(());
         }
         #[cfg(feature = "operator")]
@@ -1233,6 +1240,15 @@ Windmill Community Edition {GIT_VERSION}
         // was down when a version was deleted would keep its code on disk: start from an
         // empty script cache, refilled from the database.
         windmill_common::cache::script::clear();
+
+        // Before the first load: it can sign a token for instance object storage.
+        #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+        windmill_common::oidc_ee::init_oidc_signing(
+            conn.as_sql(),
+            server_mode,
+            killpill_rx.resubscribe(),
+        )
+        .await?;
 
         initial_load(
             &conn,
