@@ -2269,14 +2269,29 @@ async fn store_raw_app_file<'a>(
 
     Ok(())
 }
+/// A builder app write is held to one set of rules whether it deploys or saves a draft: the
+/// editor previews a draft as whoever opens it, and an admin may deploy it as it stands. A deploy
+/// fills in what a draft must state, since it stores the policy it checked.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum BuilderAppWrite {
+    Deploy,
+    Draft,
+}
+
 /// The half of the builder-app check that needs no DB (see `docs/operator-builder-rights.md`).
 /// Returns every runnable the app can invoke, as `(is_flow, path)`, from both the policy's
 /// triggerables and the value's path runnables: they are not the same list.
 fn check_operator_composed_app(
+    write: BuilderAppWrite,
     raw_app: bool,
     value: Option<&RawValue>,
     policy: Option<&mut Policy>,
 ) -> Result<Vec<(bool, String)>> {
+    let verb = if write == BuilderAppWrite::Deploy {
+        "deploy"
+    } else {
+        "save"
+    };
     if !raw_app {
         return Err(Error::PermissionDenied(
             "Operators with builder rights can only author full-code apps".to_string(),
@@ -2288,38 +2303,53 @@ fn check_operator_composed_app(
         let value: serde_json::Value =
             serde_json::from_str(&strip_json_nul(value.get())).map_err(to_anyhow)?;
         if app_value_has_inline_script(&value) {
-            return Err(Error::PermissionDenied(
-                "Operators with builder rights cannot deploy an app carrying inline scripts"
-                    .to_string(),
-            ));
+            return Err(Error::PermissionDenied(format!(
+                "Operators with builder rights cannot {verb} an app carrying inline scripts"
+            )));
         }
         referenced.extend(app_value_runnable_paths(&value)?);
     }
     let Some(policy) = policy else {
-        return Err(Error::BadRequest(
-            "Operators with builder rights must deploy an app with its policy".to_string(),
-        ));
+        return Err(match write {
+            BuilderAppWrite::Deploy => Error::BadRequest(
+                "Operators with builder rights must deploy an app with its policy".to_string(),
+            ),
+            BuilderAppWrite::Draft => Error::PermissionDenied(
+                "Operators with builder rights can only save sandboxed apps".to_string(),
+            ),
+        });
     };
-    referenced.extend(checked_policy_runnable_paths(policy)?);
-    if policy.sandbox == Some(false) {
-        return Err(Error::PermissionDenied(
-            "Operators with builder rights can only deploy sandboxed apps".to_string(),
-        ));
+    // Every deploy of a draft rebuilds `triggerables_v2` from the runnables, so a draft's copy,
+    // stale since the last deploy, must not block autosave. A deploy path that skips the rebuild
+    // must stop exempting it here.
+    if write == BuilderAppWrite::Draft {
+        policy.triggerables_v2 = None;
     }
-    policy.sandbox = Some(true);
+    referenced.extend(checked_policy_runnable_paths(policy)?);
+    match (policy.sandbox, write) {
+        (Some(true), _) => {}
+        (None, BuilderAppWrite::Deploy) => policy.sandbox = Some(true),
+        _ => {
+            return Err(Error::PermissionDenied(format!(
+                "Operators with builder rights can only {verb} sandboxed apps"
+            )))
+        }
+    }
 
-    // Viewer mode would make the triggerables collected above non-exhaustive (see the docs). Pin an
-    // omitted mode: `update_app_internal` resolves it to the deployed app's, so a redeploy over an
-    // admin's viewer-mode app would otherwise inherit `Viewer` after this check passed.
+    // Viewer mode would make the triggerables collected above non-exhaustive (see the docs), and
+    // the deploy panel shows it as members-only, so an admin deploying a draft would not see it.
+    // Pin an omitted mode on deploy: `update_app_internal` resolves it to the deployed app's, so a
+    // redeploy over an admin's viewer-mode app would otherwise inherit `Viewer`.
     match policy.stated_execution_mode() {
         Some(ExecutionMode::Viewer) => {
-            return Err(Error::PermissionDenied(
-                "Operators with builder rights cannot deploy an app that runs as its viewer. Deploy it on behalf of yourself instead."
-                    .to_string(),
-            ))
+            return Err(Error::PermissionDenied(format!(
+                "Operators with builder rights cannot {verb} an app that runs as its viewer"
+            )))
         }
-        Some(_) => {}
-        None => policy.set_execution_mode(ExecutionMode::Publisher),
+        None if write == BuilderAppWrite::Deploy => {
+            policy.set_execution_mode(ExecutionMode::Publisher)
+        }
+        _ => {}
     }
 
     referenced.sort();
@@ -2330,7 +2360,7 @@ fn check_operator_composed_app(
 
 /// The runnables a builder app's policy authorizes, as `(is_flow, path)`; refuses a policy that
 /// pins inline code.
-pub(crate) fn checked_policy_runnable_paths(policy: &Policy) -> Result<Vec<(bool, String)>> {
+fn checked_policy_runnable_paths(policy: &Policy) -> Result<Vec<(bool, String)>> {
     // A `rawscript/<sha>` triggerable is the deployed app's authorization to run caller-supplied
     // `raw_code` hashing to it: pinning one hands a builder arbitrary code execution through an
     // app whose value passed the inline-script check. A composition-only app has none.
@@ -2371,7 +2401,7 @@ pub(crate) fn checked_policy_runnable_paths(policy: &Policy) -> Result<Vec<(bool
         .collect())
 }
 
-pub(crate) fn refuse_hub_runnables(referenced: &[(bool, String)]) -> Result<()> {
+fn refuse_hub_runnables(referenced: &[(bool, String)]) -> Result<()> {
     for (_, path) in referenced {
         if path.starts_with("hub/") {
             return Err(Error::PermissionDenied(format!(
@@ -2388,20 +2418,21 @@ pub(crate) fn refuse_hub_runnables(referenced: &[(bool, String)]) -> Result<()> 
 /// `execute_component` resolves the runnable it picks with the root DB handle, so a path the
 /// builder cannot read would still run, and in a `Viewer` app it would run as whoever opened it.
 /// RLS on this transaction is the check; refusing `Viewer` above is what makes it exhaustive.
-async fn validate_operator_composed_app(
+pub(crate) async fn validate_operator_composed_app(
     authed: &ApiAuthed,
     db: &DB,
     user_db: &UserDB,
     w_id: &str,
+    write: BuilderAppWrite,
     raw_app: bool,
     value: Option<&RawValue>,
     policy: Option<&mut Policy>,
 ) -> Result<()> {
-    let referenced = check_operator_composed_app(raw_app, value, policy)?;
+    let referenced = check_operator_composed_app(write, raw_app, value, policy)?;
     require_runnables_readable(authed, db, user_db, w_id, referenced).await
 }
 
-pub(crate) async fn require_runnables_readable(
+async fn require_runnables_readable(
     authed: &ApiAuthed,
     db: &DB,
     user_db: &UserDB,
@@ -2715,6 +2746,7 @@ async fn create_app_internal<'a>(
             &db,
             &user_db,
             w_id,
+            BuilderAppWrite::Deploy,
             raw_app,
             Some(&app.value.0),
             Some(&mut app.policy),
@@ -3730,6 +3762,7 @@ async fn update_app_internal<'a>(
             &db,
             &user_db,
             w_id,
+            BuilderAppWrite::Deploy,
             raw_app,
             ns.value.as_ref().map(|v| v.0.as_ref()),
             ns.policy.as_mut(),
@@ -6617,7 +6650,7 @@ mod embed_token_tests {
 
 #[cfg(test)]
 mod operator_app_tests {
-    use super::{check_operator_composed_app, Policy};
+    use super::{check_operator_composed_app, BuilderAppWrite, Policy};
     use windmill_common::error::Result;
     use windmill_common::worker::to_raw_value;
 
@@ -6637,7 +6670,7 @@ mod operator_app_tests {
 
     fn composed_app(value: serde_json::Value, policy: &mut Policy) -> Result<Vec<(bool, String)>> {
         let value = to_raw_value(&value);
-        check_operator_composed_app(true, Some(&value), Some(policy))
+        check_operator_composed_app(BuilderAppWrite::Deploy, true, Some(&value), Some(policy))
     }
 
     #[test]
@@ -6726,7 +6759,13 @@ mod operator_app_tests {
         // Low-code apps stay closed.
         let value = to_raw_value(&clean);
         let mut policy = builder_policy(serde_json::json!({}));
-        assert!(check_operator_composed_app(false, Some(&value), Some(&mut policy)).is_err());
+        assert!(check_operator_composed_app(
+            BuilderAppWrite::Deploy,
+            false,
+            Some(&value),
+            Some(&mut policy)
+        )
+        .is_err());
     }
 }
 

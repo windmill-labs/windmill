@@ -104,8 +104,13 @@ ignored into `inlineScript`.
 app's access and frontend scopes through it with no value. It reaches the same check, so a builder
 can no more switch the sandbox off there than on deploy.
 
+A builder's **draft** goes through the same `check_operator_composed_app` as its deploy, with
+`BuilderAppWrite::Draft`: an admin may open it in the editor or deploy it as it stands, so any
+rule added for deploys must hold for drafts too. Only where the two differ is `write` read: a
+deploy fills in an omitted sandbox or mode, since it stores the policy it checked.
+
 The raw-app editor previews an app isolated only when its policy has `sandbox`, and otherwise runs
-the bundle same-origin with the session of whoever opens it. A builder's **draft** is therefore
+the bundle same-origin with the session of whoever opens it. A builder's draft is therefore
 held to the same rule as its deploy: `update_draft` refuses one whose `policy.sandbox` is not
 `true`, so whatever an admin opens of an operator's, deployed or drafted, previews isolated.
 Turning the sandbox off in their own editor stays that admin's explicit choice. It also refuses

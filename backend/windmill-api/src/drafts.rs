@@ -496,50 +496,28 @@ async fn update_draft(
         }
     }
 
-    // The raw-app editor runs a draft as whoever opens it: the runnables it names, and its frontend
-    // code with their session unless the policy sandboxes the preview. So a builder's draft is
-    // held to what its deploy would be.
+    // A raw-app draft carries the app value and its policy side by side.
     if authed.is_operator && kind == UserDraftItemKind::RawApp {
         if let Some(value) = &req.value {
             let draft: serde_json::Value = serde_json::from_str(&strip_json_nul(value.0.get()))
                 .map_err(|e| Error::BadRequest(format!("Invalid app draft: {e}")))?;
-            if windmill_common::apps::app_value_has_inline_script(&draft) {
-                return Err(Error::PermissionDenied(
-                    "Operators with builder rights cannot save an app carrying inline scripts"
-                        .to_string(),
-                ));
-            }
-            if draft.pointer("/policy/sandbox") != Some(&serde_json::Value::Bool(true)) {
-                return Err(Error::PermissionDenied(
-                    "Operators with builder rights must keep an app draft sandboxed".to_string(),
-                ));
-            }
-            let mut referenced = windmill_common::apps::app_value_runnable_paths(&draft)?;
-            if let Some(policy) = draft.get("policy") {
-                // Not `triggerables_v2`: every deploy of a draft rebuilds it from the runnables, so
-                // a copy gone stale since the last deploy must not block autosave. A deploy path
-                // that skips the rebuild must check it here.
-                let mut policy = policy.clone();
-                if let Some(policy) = policy.as_object_mut() {
-                    policy.remove("triggerables_v2");
-                }
-                let policy: crate::apps::Policy = serde_json::from_value(policy)
-                    .map_err(|e| Error::BadRequest(format!("Invalid app draft policy: {e}")))?;
-                // An admin deploying the draft publishes its mode, and the deploy panel shows
-                // Viewer as members-only.
-                if policy.execution_mode() == crate::apps::ExecutionMode::Viewer {
-                    return Err(Error::PermissionDenied(
-                        "Operators with builder rights cannot save an app that runs as its viewer"
-                            .to_string(),
-                    ));
-                }
-                referenced.extend(crate::apps::checked_policy_runnable_paths(&policy)?);
-            }
-            referenced.sort();
-            referenced.dedup();
-            crate::apps::refuse_hub_runnables(&referenced)?;
-            crate::apps::require_runnables_readable(&authed, &db, &user_db, &w_id, referenced)
-                .await?;
+            let mut policy = draft
+                .get("policy")
+                .filter(|p| !p.is_null())
+                .map(|p| serde_json::from_value::<crate::apps::Policy>(p.clone()))
+                .transpose()
+                .map_err(|e| Error::BadRequest(format!("Invalid app draft policy: {e}")))?;
+            crate::apps::validate_operator_composed_app(
+                &authed,
+                &db,
+                &user_db,
+                &w_id,
+                crate::apps::BuilderAppWrite::Draft,
+                true,
+                Some(&value.0),
+                policy.as_mut(),
+            )
+            .await?;
         }
     }
 
