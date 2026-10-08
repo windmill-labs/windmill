@@ -37,40 +37,37 @@ pub fn app_value_has_inline_script(value: &Value) -> bool {
 /// Every workspace runnable the app value points a component at, as `(is_flow, path)`.
 ///
 /// This is what the deployed bundle actually asks `execute_component` to run: it resolves a
-/// `runnable_id` against the stored `runnables` and sends the referenced path. The policy's
-/// triggerables are a separate surface, so both have to be authorized. The client sends
-/// `{runType}/{path}`, so a `runType` outside the known ones would name another path entirely.
+/// `runnable_id` against the stored `runnables` and sends `{runType}/{path}`. The policy's
+/// triggerables are a separate surface, so both have to be authorized. Anything not plain text
+/// is refused, never skipped: the editor compares `type` loosely (`["path"] == "path"`) and
+/// interpolates `path` (`["u/x"]` → `u/x`), so a skipped entry still runs.
 pub fn app_value_runnable_paths(value: &Value) -> error::Result<Vec<(bool, String)>> {
-    fn walk(value: &Value, out: &mut Vec<(bool, String)>) -> error::Result<()> {
-        match value {
-            Value::Object(object) => {
-                let by_path = object
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .is_some_and(|t| t == "runnableByPath" || t == "path");
-                if by_path {
-                    if let Some(path) = object.get("path").and_then(Value::as_str) {
-                        let is_flow = match object.get("runType").and_then(Value::as_str) {
-                            Some("flow") => true,
-                            Some("script" | "hubscript") => false,
-                            run_type => {
-                                return Err(error::Error::BadRequest(format!(
-                                    "Unsupported runType {} for runnable {path}",
-                                    run_type.unwrap_or("(none)")
-                                )))
-                            }
-                        };
-                        out.push((is_flow, path.to_string()));
-                    }
-                }
-                object.values().try_for_each(|v| walk(v, out))
-            }
-            Value::Array(array) => array.iter().try_for_each(|v| walk(v, out)),
-            _ => Ok(()),
-        }
-    }
+    let bad = |msg: String| error::Error::BadRequest(msg);
+    let runnables = match value.get("runnables") {
+        None | Some(Value::Null) => return Ok(vec![]),
+        Some(Value::Object(runnables)) => runnables,
+        Some(_) => return Err(bad("App runnables must be an object".to_string())),
+    };
     let mut out = Vec::new();
-    walk(value, &mut out)?;
+    for (id, runnable) in runnables {
+        let Value::Object(runnable) = runnable else {
+            return Err(bad(format!("Runnable {id} must be an object")));
+        };
+        match runnable.get("type") {
+            Some(Value::String(t)) if t == "runnableByPath" || t == "path" => {}
+            None | Some(Value::String(_)) => continue,
+            Some(_) => return Err(bad(format!("Runnable {id} has a non-text type"))),
+        }
+        let Some(Value::String(path)) = runnable.get("path") else {
+            return Err(bad(format!("Runnable {id} must name its path as text")));
+        };
+        let is_flow = match runnable.get("runType") {
+            Some(Value::String(t)) if t == "flow" => true,
+            Some(Value::String(t)) if t == "script" || t == "hubscript" => false,
+            _ => return Err(bad(format!("Unsupported runType for runnable {path}"))),
+        };
+        out.push((is_flow, path.clone()));
+    }
     Ok(out)
 }
 

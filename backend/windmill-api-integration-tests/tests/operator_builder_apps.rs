@@ -393,6 +393,27 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
             400,
         ),
         (
+            json!({"r": {"type": "path", "runType": "script", "path": ["u/alice/private"]}}),
+            json!({"sandbox": true}),
+            400,
+        ),
+        (
+            json!({"r": {"type": ["path"], "runType": "script", "path": "u/alice/private"}}),
+            json!({"sandbox": true}),
+            400,
+        ),
+        (
+            json!([{"type": "path", "runType": "script", "path": "u/alice/private"}]),
+            json!({"sandbox": true}),
+            400,
+        ),
+        (
+            json!({"r": {"type": "path", "runType": "script", "path": "u/operator/some_script",
+                "fields": {"x": {"type": "static", "value": {"type": "path", "path": "/srv/out"}}}}}),
+            json!({"sandbox": true}),
+            200,
+        ),
+        (
             json!({}),
             json!({"sandbox": true, "triggerables": {"x:rawscript/abc": {}}}),
             403,

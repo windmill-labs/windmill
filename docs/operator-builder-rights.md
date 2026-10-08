@@ -67,8 +67,9 @@ referenced path under the caller's RLS and refuses hub ones. For a script it che
 run would pick: grants are per version, and a path reused after its versions were archived starts
 with none while the archived ones keep theirs. But it has to check **two** surfaces,
 because they are not the same list: the policy's `script/<path>` and `flow/<path>` triggerables,
-and the `runnableByPath` entries in the app value, which is what the deployed bundle resolves a
-`runnable_id` against and sends.
+and the by-path entries of the app value's `runnables` map, which is what the editor resolves a
+`runnable_id` against and sends. Read only that map, and refuse an entry whose `type`, `path` or
+`runType` is not text.
 
 Reading a triggerable key is not a `split_once(':')`: `execute_component` looks up
 `format!("{component}:{path}")` with an unrestricted component string, so `a:b:script/x` resolves
