@@ -72,44 +72,24 @@ export function formatResourceTypes(
 // so fewer than this means the instance never synced with the hub.
 const UNSYNCED_RESOURCE_TYPE_COUNT = 20
 
-/**
- * When the similarity search finds nothing, the instance's type names come back instead: the
- * index is rebuilt from the table once a day and builds without embeddings have none, so an
- * empty search does not mean no type fits. A query that is a type's name gets its schema.
- */
+/** When nothing matches, a note says whether the instance seems never to have synced with the hub. */
 export async function searchResourceTypes(
 	query: string,
 	workspace: string,
 	limit: number
 ): Promise<{ resourceTypes: Pick<ResourceType, 'name' | 'schema'>[]; note?: string }> {
-	const similar = await ResourceService.queryResourceTypes({ workspace, text: query, limit }).catch(
-		() => []
-	)
-	if (similar.length > 0) {
-		return { resourceTypes: similar }
+	const resourceTypes = await ResourceService.queryResourceTypes({ workspace, text: query, limit })
+	if (resourceTypes.length > 0) {
+		return { resourceTypes }
 	}
-
-	const names = [
-		...new Set(await ResourceService.listResourceTypeNames({ workspace }).catch(() => []))
-	]
-	const name = query.trim().toLowerCase()
-	const named = names.includes(name)
-		? await ResourceService.getResourceType({ workspace, path: name }).catch(() => undefined)
-		: undefined
-	if (named) {
-		return { resourceTypes: [{ name: named.name, schema: named.schema }] }
-	}
-	if (names.length === 0) {
-		return { resourceTypes: [] }
-	}
-
-	const unsynced =
-		names.length < UNSYNCED_RESOURCE_TYPE_COUNT
-			? `\n\nOnly ${names.length} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. ${HUB_SYNC_INSTRUCTIONS}`
-			: ''
+	const count = new Set(await ResourceService.listResourceTypeNames({ workspace }).catch(() => []))
+		.size
 	return {
-		resourceTypes: [],
-		note: `The resource types on this instance are: ${names.join(', ')}. Search again with one of these names to get its schema.${unsynced}`
+		resourceTypes,
+		note:
+			count > 0 && count < UNSYNCED_RESOURCE_TYPE_COUNT
+				? `Only ${count} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. ${HUB_SYNC_INSTRUCTIONS}`
+				: undefined
 	}
 }
 

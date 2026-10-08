@@ -12,7 +12,6 @@ import type {
 	ListableResource,
 	ListableVariable,
 	Resource,
-	ResourceType,
 	Script
 } from '../../../frontend/src/lib/gen'
 import type {
@@ -100,7 +99,7 @@ export interface BenchmarkWorkspaceResource {
 	description?: string
 }
 
-/** A resource type the instance holds. Without a schema, a lookup by name misses it. */
+/** A resource type the instance holds. */
 export interface BenchmarkWorkspaceResourceType {
 	name: string
 	schema?: unknown
@@ -352,18 +351,8 @@ export function listBenchmarkResourceTypeNames(workspace: string): string[] | nu
 	return benchmarkResourceTypes(workspace).map((rt) => rt.name)
 }
 
-/** A resource type of a benchmark workspace, as `ResourceService.getResourceType` returns it. */
-export function getBenchmarkResourceType(workspace: string, name: string): ResourceType | null {
-	const seed = benchmarkResourceTypes(workspace).find(
-		(rt) => rt.name === name && rt.schema !== undefined
-	)
-	return seed
-		? { workspace_id: 'admins', name: seed.name, schema: seed.schema, description: seed.description }
-		: null
-}
-
-/** Stands in for the embedding search: a type matches when a word of the query appears in its
- * name or description, ranked by how many do. */
+/** Stands in for the resource type search: a type matches when a word of the query appears in
+ * its name or description, ranked by how many do. */
 export function queryBenchmarkResourceTypes(
 	workspace: string,
 	text: string,

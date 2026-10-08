@@ -18,48 +18,16 @@ import { ResourceService } from '$lib/gen'
 import { editCodeToolWithDiff, searchResourceTypes } from './core'
 
 describe('searchResourceTypes', () => {
-	const syncedNames = Array.from({ length: 30 }, (_, i) => `type_${i}`)
-
-	// An empty search says nothing about whether a type exists (stale index, or no embeddings):
-	// read as "none", it sends the model to define a type the instance already has.
-	it('lists the instance types when the similarity search finds nothing', async () => {
-		vi.spyOn(ResourceService, 'queryResourceTypes').mockRejectedValue(new Error('500'))
-		vi.spyOn(ResourceService, 'listResourceTypeNames').mockResolvedValue([
-			...syncedNames,
-			'postgresql'
-		])
-
-		const { resourceTypes, note } = await searchResourceTypes('postgres database', 'ws', 5)
-
-		expect(resourceTypes).toEqual([])
-		expect(note).toContain('postgresql')
-		expect(note).not.toContain('never synced')
-	})
-
-	it('returns the schema of a type the query names', async () => {
+	it.each([
+		[['ai_skill', 'ai_instruction'], true],
+		[Array.from({ length: 30 }, (_, i) => `type_${i}`), false]
+	])('notes only an instance that never synced with the hub (%#)', async (names, noted) => {
 		vi.spyOn(ResourceService, 'queryResourceTypes').mockResolvedValue([])
-		vi.spyOn(ResourceService, 'listResourceTypeNames').mockResolvedValue([...syncedNames, 'stripe'])
-		vi.spyOn(ResourceService, 'getResourceType').mockResolvedValue({
-			name: 'stripe',
-			schema: { type: 'object' }
-		})
-
-		const { resourceTypes, note } = await searchResourceTypes('stripe', 'ws', 5)
-
-		expect(resourceTypes.map((rt) => rt.name)).toEqual(['stripe'])
-		expect(note).toBeUndefined()
-	})
-
-	it('notes an instance that never synced with the hub', async () => {
-		vi.spyOn(ResourceService, 'queryResourceTypes').mockResolvedValue([])
-		vi.spyOn(ResourceService, 'listResourceTypeNames').mockResolvedValue([
-			'ai_skill',
-			'ai_instruction'
-		])
+		vi.spyOn(ResourceService, 'listResourceTypeNames').mockResolvedValue(names)
 
 		const { note } = await searchResourceTypes('stripe', 'ws', 5)
 
-		expect(note).toContain('never synced')
+		expect(note?.includes('never synced') ?? false).toBe(noted)
 	})
 })
 
