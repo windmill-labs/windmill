@@ -14,7 +14,40 @@ vi.mock('@codingame/monaco-vscode-standalone-typescript-language-features', () =
 vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({ default: () => ({}) }))
 vi.mock('$lib/components/vscode', () => ({}))
 
-import { editCodeToolWithDiff } from './core'
+import { ResourceService } from '$lib/gen'
+import { editCodeToolWithDiff, searchResourceTypes } from './core'
+
+describe('searchResourceTypes', () => {
+	const syncedNames = Array.from({ length: 30 }, (_, i) => `type_${i}`)
+
+	// The similarity index trails the table by up to a day, and builds without embeddings
+	// have none, so a type the query names must still be found.
+	it('finds a type the query names when the similarity search misses it', async () => {
+		vi.spyOn(ResourceService, 'queryResourceTypes').mockResolvedValue([])
+		vi.spyOn(ResourceService, 'listResourceTypeNames').mockResolvedValue([...syncedNames, 'stripe'])
+		vi.spyOn(ResourceService, 'getResourceType').mockResolvedValue({
+			name: 'stripe',
+			schema: { type: 'object' }
+		})
+
+		const { resourceTypes, hubSyncNote } = await searchResourceTypes('Stripe payments', 'ws', 5)
+
+		expect(resourceTypes.map((rt) => rt.name)).toEqual(['stripe'])
+		expect(hubSyncNote).toBeUndefined()
+	})
+
+	it('notes an instance that never synced with the hub', async () => {
+		vi.spyOn(ResourceService, 'queryResourceTypes').mockResolvedValue([])
+		vi.spyOn(ResourceService, 'listResourceTypeNames').mockResolvedValue([
+			'ai_skill',
+			'ai_instruction'
+		])
+
+		const { hubSyncNote } = await searchResourceTypes('stripe', 'ws', 5)
+
+		expect(hubSyncNote).toContain('never synced')
+	})
+})
 
 describe('editCodeToolWithDiff', () => {
 	it('records the complete script diff after applying replacements', async () => {

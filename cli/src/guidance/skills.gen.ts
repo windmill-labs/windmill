@@ -95,6 +95,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -259,6 +260,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -383,6 +385,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -500,6 +503,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -1323,6 +1327,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -2158,6 +2163,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -2274,6 +2280,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -3099,6 +3106,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -3249,6 +3257,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -3382,6 +3391,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -3502,6 +3512,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -3615,6 +3626,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -3731,6 +3743,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -3848,6 +3861,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -3980,6 +3994,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -4095,6 +4110,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -4225,6 +4241,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -5234,6 +5251,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -5394,6 +5412,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -5544,6 +5563,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, don't fall back to a plain string parameter or a variable read inside the code. If looking up resource types reports that the instance is missing the Windmill Hub's types, tell the user so that a superadmin syncs: the hub has types for most services. Otherwise propose a resource type holding the service's connection fields and ask before creating it. Use a variable only if the user prefers one: a resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -7177,6 +7197,14 @@ The prefix must be on the string itself.
   }
 }
 \`\`\`
+
+## When No Resource Type Fits
+
+The Windmill Hub publishes resource types for most services, and an instance gets them by syncing with the hub. When none fits the service:
+
+- If looking up resource types reports that the instance is missing the hub's types, tell the user so that a superadmin syncs, and don't create a type for the service meanwhile: the hub most likely has one, and after the sync the workspace would hold two.
+- Otherwise propose a resource type holding the service's connection fields (base URL, account or region identifiers, credentials), as in "Custom Resource Types" below, and ask the user before creating it: every resource of that type and every script taking one depends on its fields.
+- Use a plain variable instead of a resource only when the user prefers it.
 
 ## Custom Resource Types
 

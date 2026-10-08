@@ -11,6 +11,7 @@ import type {
 	ListableResource,
 	ListableVariable,
 	Resource,
+	ResourceType,
 	Script
 } from '../../../frontend/src/lib/gen'
 import type {
@@ -98,6 +99,51 @@ export interface BenchmarkWorkspaceResource {
 	description?: string
 }
 
+/** A resource type the instance holds. Only a seeded one has a schema to look up by name. */
+export interface BenchmarkWorkspaceResourceType {
+	name: string
+	schema?: unknown
+	description?: string
+}
+
+/** Names a hub-synced instance holds, for cases that seed no resource types. Their schemas are
+ * not modelled, so a lookup by name misses them, as the similarity search does. */
+const SYNCED_RESOURCE_TYPE_NAMES = [
+	'ai_instruction',
+	'ai_skill',
+	'airtable',
+	'asana',
+	'aws',
+	'azure_blob',
+	'clickup',
+	'discord_webhook',
+	'gcal',
+	'gcp_service_account',
+	'github',
+	'gitlab',
+	'gmail',
+	'gsheets',
+	'hubspot',
+	'jira',
+	'linear',
+	'mailchimp',
+	'mongodb',
+	'mysql',
+	'notion',
+	'openai',
+	'postgresql',
+	's3',
+	'salesforce',
+	'sendgrid',
+	'shopify',
+	'slack',
+	'smtp',
+	'stripe',
+	'supabase',
+	'twilio',
+	'zendesk'
+]
+
 export interface BenchmarkWorkspaceJob {
 	/** Stable id so a case prompt can reference a specific run (e.g. for get_run). */
 	id?: string
@@ -118,6 +164,8 @@ export interface BenchmarkWorkspaceRunnables {
 	variables?: BenchmarkWorkspaceVariable[]
 	aiProviders?: BenchmarkWorkspaceAiProvider[]
 	resources?: BenchmarkWorkspaceResource[]
+	/** Unset means an instance synced with the hub. */
+	resourceTypes?: BenchmarkWorkspaceResourceType[]
 	datatables?: BenchmarkDatatableSeed[]
 	/** DuckLake catalog names, as `list_ducklakes` reports them. */
 	ducklakes?: string[]
@@ -326,6 +374,26 @@ export function listBenchmarkPlainResources(workspace: string): ListableResource
 		extra_perms: {},
 		edited_at: BENCHMARK_TIMESTAMP
 	}))
+}
+
+/** Resource type names of a benchmark workspace, as `ResourceService.listResourceTypeNames`
+ * returns them. Null when the workspace is not a benchmark one. */
+export function listBenchmarkResourceTypeNames(workspace: string): string[] | null {
+	if (!benchmarkWorkspaces.has(workspace)) {
+		return null
+	}
+	const seeded = benchmarkWorkspaceRunnables.get(workspace)?.resourceTypes
+	return seeded ? seeded.map((rt) => rt.name) : SYNCED_RESOURCE_TYPE_NAMES
+}
+
+/** A seeded resource type, as `ResourceService.getResourceType` returns it. */
+export function getBenchmarkResourceType(workspace: string, name: string): ResourceType | null {
+	const seed = benchmarkWorkspaceRunnables
+		.get(workspace)
+		?.resourceTypes?.find((rt) => rt.name === name && rt.schema !== undefined)
+	return seed
+		? { workspace_id: 'admins', name: seed.name, schema: seed.schema, description: seed.description }
+		: null
 }
 
 /** A seeded resource with its value, as `ResourceService.getResource` returns it. Covers both

@@ -104,7 +104,7 @@ import {
 	createInlineScriptSession,
 	findUnresolvedInlineScriptRefs
 } from '../flow/inlineScriptsUtils'
-import { searchNpmPackagesTool } from '../script/core'
+import { searchNpmPackagesTool, searchResourceTypes } from '../script/core'
 import type { McpServer } from './mcpTools'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { isSkillEnabled } from '../skills/enabledSkills'
@@ -4283,19 +4283,16 @@ export const globalTools: SessionTool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Searching resource types for "${parsed.query}"...`
 			})
-			const results = await ResourceService.queryResourceTypes({
+			const { resourceTypes, hubSyncNote } = await searchResourceTypes(
+				parsed.query,
 				workspace,
-				text: parsed.query,
-				limit: parsed.limit ?? 5
-			})
+				parsed.limit ?? 5
+			)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Found ${results.length} resource type(s) for "${parsed.query}"`
+				content: `Found ${resourceTypes.length} resource type(s) for "${parsed.query}"`
 			})
 			return JSON.stringify(
-				results.map((rt) => ({
-					name: rt.name,
-					schema: rt.schema
-				})),
+				hubSyncNote ? { resource_types: resourceTypes, note: hubSyncNote } : resourceTypes,
 				null,
 				2
 			)

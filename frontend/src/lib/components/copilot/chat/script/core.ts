@@ -19,7 +19,8 @@ import {
 	type ScriptLintResult,
 	formatScriptLintResult,
 	createSearchWorkspaceTool,
-	createGetRunnableDetailsTool
+	createGetRunnableDetailsTool,
+	HUB_SYNC_INSTRUCTIONS
 } from '../shared'
 import { createWorkspaceMutationTools } from '../workspaceTools'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
@@ -41,7 +42,7 @@ const TYPES_CONTEXT_PERCENTAGE = 1
 export const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = []
 
 export function formatResourceTypes(
-	allResourceTypes: ResourceType[],
+	allResourceTypes: Pick<ResourceType, 'name' | 'schema'>[],
 	lang: 'python3' | 'php' | 'bun' | 'deno' | 'nativets' | 'bunnative'
 ) {
 	if (lang === 'python3') {
@@ -67,14 +68,52 @@ export function formatResourceTypes(
 	}
 }
 
-async function getResourceTypes(prompt: string, workspace: string) {
-	const resourceTypes = await ResourceService.queryResourceTypes({
-		workspace: workspace,
-		text: prompt,
-		limit: 5
-	})
+// The hub publishes hundreds of resource types and an instance seeds only a few of its own,
+// so fewer than this means the instance never synced with the hub.
+const UNSYNCED_RESOURCE_TYPE_COUNT = 20
 
-	return resourceTypes
+/**
+ * Similarity matches, led by any resource type the query names exactly: the similarity index
+ * is rebuilt from the table once a day, and builds without embeddings have no index at all.
+ */
+export async function searchResourceTypes(
+	query: string,
+	workspace: string,
+	limit: number
+): Promise<{ resourceTypes: Pick<ResourceType, 'name' | 'schema'>[]; hubSyncNote?: string }> {
+	const [similar, names] = await Promise.all([
+		ResourceService.queryResourceTypes({ workspace, text: query, limit }).catch(() => []),
+		ResourceService.listResourceTypeNames({ workspace })
+			.then((listed) => new Set(listed))
+			.catch(() => undefined)
+	])
+
+	const normalized = query.trim().toLowerCase()
+	const candidates = new Set([
+		normalized.replace(/[\s-]+/g, '_'),
+		...normalized.split(/[^a-z0-9_]+/)
+	])
+	const exactNames = [...candidates].filter(
+		(name) => names?.has(name) && !similar.some((rt) => rt.name === name)
+	)
+	const exact = await Promise.all(
+		exactNames
+			.slice(0, limit)
+			.map((name) =>
+				ResourceService.getResourceType({ workspace, path: name }).catch(() => undefined)
+			)
+	)
+	const resourceTypes = [
+		...exact.flatMap((rt) => (rt ? [{ name: rt.name, schema: rt.schema }] : [])),
+		...similar
+	].slice(0, limit)
+
+	const hubSyncNote =
+		names && names.size < UNSYNCED_RESOURCE_TYPE_COUNT
+			? `Only ${names.size} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. ${HUB_SYNC_INSTRUCTIONS}`
+			: undefined
+
+	return { resourceTypes, hubSyncNote }
 }
 
 export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
@@ -149,13 +188,14 @@ export async function getFormattedResourceTypes(
 		case 'bunnative':
 		case 'python3':
 		case 'php': {
-			const resourceTypes = await getResourceTypes(prompt, workspace)
+			const { resourceTypes, hubSyncNote } = await searchResourceTypes(prompt, workspace, 5)
 
-			const intro = `RESOURCE_TYPES:\n`
+			const found =
+				resourceTypes.length > 0
+					? `RESOURCE_TYPES:\n${formatResourceTypes(resourceTypes, lang)}`
+					: `No resource type matches "${prompt}".`
 
-			const resourceTypesText = formatResourceTypes(resourceTypes, lang)
-
-			return intro + resourceTypesText
+			return hubSyncNote ? `${found}\n\n${hubSyncNote}` : found
 		}
 		default:
 			return ''

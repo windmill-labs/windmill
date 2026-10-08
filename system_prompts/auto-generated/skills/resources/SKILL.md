@@ -214,6 +214,14 @@ The prefix must be on the string itself.
 }
 ```
 
+## When No Resource Type Fits
+
+The Windmill Hub publishes resource types for most services, and an instance gets them by syncing with the hub. When none fits the service:
+
+- If looking up resource types reports that the instance is missing the hub's types, tell the user so that a superadmin syncs, and don't create a type for the service meanwhile: the hub most likely has one, and after the sync the workspace would hold two.
+- Otherwise propose a resource type holding the service's connection fields (base URL, account or region identifiers, credentials), as in "Custom Resource Types" below, and ask the user before creating it: every resource of that type and every script taking one depends on its fields.
+- Use a plain variable instead of a resource only when the user prefers it.
+
 ## Custom Resource Types
 
 Create custom resource types with JSON Schema:

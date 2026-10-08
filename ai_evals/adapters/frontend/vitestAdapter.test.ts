@@ -104,8 +104,10 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkVariableByPath,
 		hasBenchmarkWorkspace,
 		getBenchmarkResource,
+		getBenchmarkResourceType,
 		listBenchmarkAiProviderResources,
 		listBenchmarkPlainResources,
+		listBenchmarkResourceTypeNames,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
 		listBenchmarkDataMetrics,
@@ -463,7 +465,20 @@ vi.mock('$lib/gen', async () => {
 				return value
 			},
 			queryResourceTypes: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)
+				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data),
+			listResourceTypeNames: async (data: { workspace: string }) =>
+				listBenchmarkResourceTypeNames(data.workspace) ??
+				actual.ResourceService.listResourceTypeNames(data),
+			getResourceType: async (data: { workspace: string; path: string }) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) {
+					return actual.ResourceService.getResourceType(data)
+				}
+				const resourceType = getBenchmarkResourceType(data.workspace, data.path)
+				if (!resourceType) {
+					throw new Error(`Resource type "${data.path}" not found in benchmark workspace`)
+				}
+				return resourceType
+			}
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: async (data: { workspace: string; path: string }) =>
