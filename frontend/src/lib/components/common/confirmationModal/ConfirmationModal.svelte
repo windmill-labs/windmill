@@ -29,6 +29,8 @@
 		 * up confines it. Off by default: it moves the dialog out of its DOM position, so opt
 		 * in per call site rather than assuming every caller wants it. */
 		alwaysPortal?: boolean
+		/** For a notice with nothing to decide: the confirm button is the only one. */
+		hideCancel?: boolean
 		children?: Snippet
 		onConfirmed?: () => void | Promise<void>
 		onCanceled?: () => void
@@ -47,6 +49,7 @@
 		trashbin = false,
 		zIndexClass = 'z-[9999]',
 		alwaysPortal = false,
+		hideCancel = false,
 		children,
 		onConfirmed,
 		onCanceled
@@ -228,15 +231,17 @@
 								{/if}
 								<span class="min-w-20">{confirmationText} </span>
 							</Button>
-							<Button
-								disabled={loading}
-								on:click={() => (dispatch('canceled'), onCanceled?.())}
-								variant="default"
-								size="sm"
-								shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}
-							>
-								Cancel
-							</Button>
+							{#if !hideCancel}
+								<Button
+									disabled={loading}
+									on:click={() => (dispatch('canceled'), onCanceled?.())}
+									variant="default"
+									size="sm"
+									shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}
+								>
+									Cancel
+								</Button>
+							{/if}
 						</div>
 					</div>
 				</div>

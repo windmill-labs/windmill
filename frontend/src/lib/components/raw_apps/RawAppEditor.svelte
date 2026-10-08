@@ -50,7 +50,14 @@
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
-	import { dbSchemas } from '$lib/stores'
+	import { dbSchemas, userStore } from '$lib/stores'
+	import RawAppSdkConsent from './RawAppSdkConsent.svelte'
+	import {
+		hasStoredSdkConsent,
+		movePreviewSdkConsent,
+		sdkConsentCovers,
+		storeSdkConsent
+	} from './sdkScopes'
 	import {
 		MousePointerSquareDashed,
 		RefreshCw,
@@ -147,6 +154,8 @@
 		 *  it as `draft_path` so the home row shows the friendly name, not `draft_{uuid}`. */
 		pendingDraftPath?: string | undefined
 		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
+		/** `Exit & see details`: see RawAppEditorHeader. */
+		onDetails?: (e: { path: string }) => void
 		onResetToDeployed?: () => void | Promise<void>
 		/** The app_version the draft forked from, for the deploy-time "new version
 		 *  deployed" guard: deploying is refused with a confirmation while it is not
@@ -191,6 +200,8 @@
 		// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
 		// session preview to save vertical room.
 		condensedHeader?: boolean
+		/** True for the route's own editor: its top bar becomes the page header. */
+		ownsPageHeader?: boolean
 	}
 
 	let {
@@ -214,6 +225,7 @@
 		autosavePath = undefined,
 		defaultSplitWithPreview = true,
 		pendingDraftPath = $bindable(undefined),
+		onDetails,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -230,6 +242,7 @@
 		onRestore,
 		onSavedNewAppPath,
 		condensedHeader = false,
+		ownsPageHeader = false,
 		version = undefined,
 		onTakeLatest = undefined,
 		draftBaseVersion = undefined
@@ -414,6 +427,9 @@
 	// carry our origin, so they travel wrapped: listeners that trust a same-origin
 	// message must not see the isolated app's as their own.
 	let previewControllerUrl: string | undefined = undefined
+	// Editor-to-controller only, never relayed to the app: the consent prompt lives in
+	// the editor, so the pop-out says why it is blank.
+	const PREVIEW_NOTICE = 'wm:previewNotice'
 	onDestroy(() => {
 		if (previewControllerUrl) URL.revokeObjectURL(previewControllerUrl)
 	})
@@ -423,14 +439,19 @@
 				[
 					`<!DOCTYPE html><html><head><meta charset="utf-8"><title>App preview</title>
 <link rel="icon" href="${window.location.origin}/logo.svg">
-<style>html,body{margin:0;height:100%}iframe{display:block;border:0;width:100%;height:100%}</style>
+<style>html,body{margin:0;height:100%}iframe{display:block;border:0;width:100%;height:100%}
+#n{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;text-align:center;font:14px system-ui,sans-serif;color-scheme:light dark;background:Canvas;color:CanvasText}#n[hidden]{display:none}</style>
 <script>
 addEventListener('message', function (e) {
   var frame = document.querySelector('iframe').contentWindow
   if (e.source === frame && opener) opener.postMessage({ type: '${RAW_APP_PREVIEW_RELAY}', data: e.data }, location.origin, e.ports)
-  else if (e.source === opener) frame.postMessage(e.data, '*')
+  else if (e.source === opener && e.data && e.data.type === '${PREVIEW_NOTICE}') {
+    var n = document.getElementById('n')
+    n.textContent = e.data.text || ''
+    n.hidden = !e.data.text
+  } else if (e.source === opener) frame.postMessage(e.data, '*')
 })
-<\/script></head><body><iframe src="${window.location.origin}${sandboxedShellUrl}" sandbox="${RAW_APP_SANDBOX_FLAGS}" referrerpolicy="no-referrer"></iframe></body></html>`
+<\/script></head><body><div id="n" hidden></div><iframe src="${window.location.origin}${sandboxedShellUrl}" sandbox="${RAW_APP_SANDBOX_FLAGS}" referrerpolicy="no-referrer"></iframe></body></html>`
 				],
 				{ type: 'text/html' }
 			)
@@ -1636,15 +1657,22 @@ addEventListener('message', function (e) {
 	// omitting it would leave an old token in place.
 	type PreviewSdk = { token: string; baseUrl: string; workspace: string }
 	let previewSdk: PreviewSdk | undefined = undefined
-	// Identifies the request whose answer is still wanted. Toggling scopes starts a
-	// new mint while an older one is in flight, and an out-of-order answer would
-	// otherwise hand the preview the wrong scope set — or restore a token after all
-	// scopes were removed.
+	// The setup the preview last started from; an unchanged one is not redone.
 	let previewSdkKey: string | undefined = undefined
+	// Bumped on every new setup: only the newest mint's answer is used. Toggling scopes
+	// starts a new mint while an older one is in flight, and toggling back recreates the
+	// same key, so a key check alone would let an out-of-order answer hand the preview
+	// the wrong scope set, restore a removed token, or start a preview since declined.
+	let previewSdkGeneration = 0
 	// Holds the build back between dropping a credential and settling its
 	// replacement, so the app mounts once — with the final credential — instead of
 	// once tokenless and again tokenful, running mount-time side effects twice.
 	let previewSdkPending = $state(false)
+	// Holds the app back (with `previewSdkPending`) until the viewer answers.
+	let sdkPrompt = $state<{ scopes: string[]; ws: string; declined: boolean } | undefined>(undefined)
+	// What Continue granted in this editor session, kept the way a loaded deployed
+	// app keeps its token: only a scope beyond it asks again.
+	let sessionSdkConsent: { ws: string; scopes: string[] } | undefined = undefined
 
 	/** Discard the running app. The shell resets the DOM but keeps the JavaScript
 	 * realm, so only a reload drops the old bundle's timers, listeners and the
@@ -1690,6 +1718,7 @@ addEventListener('message', function (e) {
 		const key = `${sandboxed}|${ws ?? ''}|${scopes.join(',')}`
 		if (key === previewSdkKey) return
 		previewSdkKey = key
+		previewSdkGeneration++
 		// Drop the old credential before asking for its replacement, never after:
 		// a mint is asynchronous, and until it answers the running preview — and
 		// any build fed meanwhile — would keep scopes the policy just removed, or
@@ -1697,24 +1726,68 @@ addEventListener('message', function (e) {
 		const willMint = scopes.length > 0 && !!ws
 		previewSdkPending = willMint
 		previewSdk = undefined
+		sdkPrompt = undefined
 		restartPreviewRealm()
-		if (willMint) mintPreviewSdkToken(scopes, ws, key)
+		if (!willMint) return
+		// Ask before the app's code runs, as the deployed app does: the token acts
+		// as whoever has the editor open.
+		const granted =
+			(sessionSdkConsent?.ws === ws && sdkConsentCovers(sessionSdkConsent.scopes, scopes)) ||
+			untrack(() => hasStoredSdkConsent($userStore?.email ?? '', ws, path, scopes, true))
+		if (granted) {
+			mintPreviewSdkToken(scopes, ws)
+		} else {
+			sdkPrompt = { scopes, ws, declined: false }
+			if (externalPreviewWindow && !externalPreviewWindow.closed) {
+				untrack(() => select({ kind: 'preview' }))
+			}
+		}
 	})
 
-	async function mintPreviewSdkToken(scopes: string[], ws: string, key: string) {
+	$effect(() => {
+		sdkPrompt?.declined
+		untrack(syncExternalPreviewNotice)
+	})
+
+	function syncExternalPreviewNotice() {
+		if (!sandboxed || !externalPreviewWindow || externalPreviewWindow.closed) return
+		const text = !sdkPrompt
+			? ''
+			: sdkPrompt.declined
+				? 'The preview is blocked until you grant the permissions this app declares. You can review them in the editor window.'
+				: 'This app is waiting for you to approve its permissions in the editor window.'
+		externalPreviewWindow.postMessage({ type: PREVIEW_NOTICE, text }, window.location.origin)
+	}
+
+	async function onSdkConsentContinue(dontAskAgain: boolean) {
+		if (!sdkPrompt) return
+		const { scopes, ws } = sdkPrompt
+		sdkPrompt = undefined
+		// Recorded on the click, as the deployed app does, so a scope edit reverted while
+		// this mint is in flight is still approved and does not ask again.
+		sessionSdkConsent = { ws, scopes }
+		if (!(await mintPreviewSdkToken(scopes, ws))) return
+		const viewer = $userStore?.email
+		if (dontAskAgain && viewer) storeSdkConsent(viewer, ws, path, scopes, true)
+	}
+
+	async function mintPreviewSdkToken(scopes: string[], ws: string) {
+		const generation = previewSdkGeneration
 		try {
 			const token = await AppService.mintPreviewSdkToken({
 				workspace: ws,
 				requestBody: { path, scopes }
 			})
-			if (key !== previewSdkKey) return
+			if (generation !== previewSdkGeneration) return false
 			applyPreviewSdk({ token, baseUrl: window.location.origin, workspace: ws })
+			return true
 		} catch (e) {
 			// Already tokenless — the effect cleared the env before calling us — so
 			// this only releases the build. The key stays set, so a failed mint is not
 			// retried until the scopes or workspace actually change.
 			console.warn('Could not mint a preview SDK token', e)
-			if (key === previewSdkKey) applyPreviewSdk(undefined)
+			if (generation === previewSdkGeneration) applyPreviewSdk(undefined)
+			return false
 		}
 	}
 
@@ -1762,6 +1835,7 @@ addEventListener('message', function (e) {
 	// `syncExternalPreview` alone (the theme hasn't changed).
 	function feedExternalPreview() {
 		postToExternalPreview({ type: 'setDarkMode', dark: darkMode, variant: darkVariant })
+		syncExternalPreviewNotice()
 		syncExternalPreview()
 	}
 
@@ -1865,13 +1939,20 @@ addEventListener('message', function (e) {
 	const requestRuntimeLogs: RawAppRuntimeLogRequester = async (limit) => {
 		await buildTracker.wait()
 		if (editorDestroyed) {
-			return { entries: undefined, buildError: undefined, buildPending: false, buildLogs: '' }
+			return {
+				entries: undefined,
+				buildError: undefined,
+				buildPending: false,
+				buildLogs: '',
+				sdkConsentPending: false
+			}
 		}
 		return {
 			entries: await requestPreviewConsoleLogs(limit),
 			buildError,
 			buildPending: buildTracker.pending,
-			buildLogs: logs
+			buildLogs: logs,
+			sdkConsentPending: sdkPrompt !== undefined
 		}
 	}
 
@@ -2469,7 +2550,12 @@ addEventListener('message', function (e) {
 		{onTakeLatest}
 		{draftBaseVersion}
 		{onRestore}
-		{onSavedNewAppPath}
+		onSavedNewAppPath={(newAppPath) => {
+			if (opWorkspace && $userStore?.email) {
+				movePreviewSdkConsent($userStore.email, opWorkspace, path, newAppPath)
+			}
+			onSavedNewAppPath?.(newAppPath)
+		}}
 		{policy}
 		{diffDrawer}
 		{newApp}
@@ -2486,6 +2572,7 @@ addEventListener('message', function (e) {
 		{getBundle}
 		{onNavigate}
 		{onDeploy}
+		{onDetails}
 		{onResetToDeployed}
 		{loadedFromDraft}
 		{othersDraftsCount}
@@ -2498,6 +2585,7 @@ addEventListener('message', function (e) {
 		sidebarCollapsed={sidebarCollapsed.val}
 		onToggleSidebar={() => (sidebarCollapsed.val = !sidebarCollapsed.val)}
 		{condensedHeader}
+		{ownsPageHeader}
 	/>
 
 	<RawAppYamlEditor
@@ -2779,7 +2867,32 @@ addEventListener('message', function (e) {
 										></iframe>
 									{/key}
 								{/if}
-								{#if buildError}
+								{#if sdkPrompt}
+									<!-- top-10 leaves the tab bar usable. -->
+									<div class="absolute top-10 inset-x-0 bottom-0 z-30 bg-surface overflow-auto">
+										{#if sdkPrompt.declined}
+											<div class="px-4 mt-20 max-w-xl mx-auto flex flex-col items-start gap-4">
+												<p class="text-sm text-secondary">
+													The preview is blocked until you grant the permissions this app declares.
+												</p>
+												<Button
+													variant="default"
+													unifiedSize="md"
+													onclick={() => sdkPrompt && (sdkPrompt.declined = false)}
+												>
+													Review permissions
+												</Button>
+											</div>
+										{:else}
+											<RawAppSdkConsent
+												scopes={sdkPrompt.scopes}
+												declineLabel="Decline"
+												onContinue={onSdkConsentContinue}
+												onDecline={() => sdkPrompt && (sdkPrompt.declined = true)}
+											/>
+										{/if}
+									</div>
+								{:else if buildError}
 									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
 									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->
 									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">

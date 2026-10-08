@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte'
 	import { emptyString, isOwner } from '$lib/utils'
 	import { Alert, Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -27,7 +28,19 @@
 		inheritedLabels?: string[] | undefined
 		editable?: boolean
 		onSaved?: (newPath: string) => void
-		kind?: 'flow' | 'script'
+		/** What is being renamed. An agent is a resource, so the path field is scoped to one and
+		 *  the write goes through the agent branch of the rename manager. */
+		kind?: 'flow' | 'script' | 'agent'
+		/** Header variant: no path line (the host shows it) and a lighter summary. */
+		compact?: boolean
+		/** Rendered inside the trigger in place of the summary, for a host that hangs a second copy
+		 *  of this editor off something else it draws — the band's path segment. */
+		label?: Snippet
+		/** The trigger's own classes, for a host whose row has a look of its own. */
+		triggerClass?: string
+		/** Which field takes the cursor on open: the click says which half of the name the user came
+		 *  to change. `Path` is only reachable for an owner, so 'path' falls back to the summary. */
+		focusField?: 'summary' | 'path'
 	}
 
 	let {
@@ -37,37 +50,53 @@
 		inheritedLabels = undefined,
 		editable = false,
 		onSaved,
-		kind = 'flow'
+		kind = 'flow',
+		compact = false,
+		label,
+		triggerClass = 'block min-w-0 max-w-full px-1 py-0.5 rounded text-left cursor-pointer hover:bg-surface-hover transition-colors',
+		focusField = 'summary'
 	}: Props = $props()
+
+	// An agent lives at a resource path, so that is what the picker validates against; the
+	// placeholder still says "agent", which is what the reader is naming.
+	const pathKind = $derived(kind === 'agent' ? 'resource' : kind)
 
 	let editSummary = $state('')
 	let editPath = $state('')
 	let dirtyPath = $state(false)
 	let popoverOpen = $state(false)
-	let ownPath = $state<string | undefined>(undefined)
-	// Derived: ownership answers about the operating workspace, whose user resolves asynchronously.
-	const own = $derived(
-		ownPath === undefined ? false : isOwner(ownPath, actingUser, $operatingWorkspace)
-	)
+	// Resolved before the popover opens, not on opening it: the path field only exists for an owner,
+	// and `openFocus` looks for it in the same flush the popover renders in.
+	const own = $derived(isOwner(path ?? '', actingUser, $operatingWorkspace))
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let summaryInput: ReturnType<typeof TextInput> | undefined = $state()
 	let labelsDirty = $state(false)
 	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath) || labelsDirty)
 
-	$effect(() => {
-		if (popoverOpen && onSaved) {
-			editSummary = summary ?? ''
-			editPath = path ?? ''
-			labelsDirty = false
-			ownPath = path ?? ''
-			onBehalfOfEmail = undefined
-			if (kind === 'flow' && $operatingWorkspace && path) {
-				checkFlowOnBehalfOf($operatingWorkspace, path).then((email) => {
-					onBehalfOfEmail = email
-				})
-			}
-		}
-	})
+	/** Seeds the fields from the item and asks who a flow runs on behalf of. Called on the open
+	 *  transition rather than from an effect watching `popoverOpen`: that effect also read
+	 *  `summary`, `path` and the workspace, so a save or a rename landing while the popover was
+	 *  open reseeded the fields from the props — over whatever the user had typed. */
+	function onOpen() {
+		if (!onSaved) return
+		editSummary = summary ?? ''
+		editPath = path ?? ''
+		labelsDirty = false
+		onBehalfOfEmail = undefined
+		if (kind !== 'flow' || !$operatingWorkspace || !path) return
+		const askedFor = path
+		checkFlowOnBehalfOf($operatingWorkspace, path).then((email) => {
+			// The answer describes the path the popover opened on. Closed since, or moved to
+			// another path, it answers nothing on screen.
+			if (popoverOpen && path === askedFor) onBehalfOfEmail = email
+		})
+	}
+
+	/** The path's name field inside this popover. `Path` hardcodes `id="path"`, and melt resolves a
+	 *  string `openFocus` with a document-wide `querySelector`, so a popover portalled to the body
+	 *  would hand the keystrokes to whichever other `Path` the page happens to have mounted. */
+	const pathField = () =>
+		document.querySelector<HTMLInputElement>('[data-path-edit-path] #path') ?? null
 
 	async function save(close: () => void) {
 		const initialPath = path ?? ''
@@ -82,7 +111,7 @@
 				newSummary: editSummary,
 				labels
 			})
-			sendUserToast(`${kind === 'flow' ? 'Flow' : 'Script'} updated`)
+			sendUserToast(`${kind.charAt(0).toUpperCase()}${kind.slice(1)} updated`)
 			labelsDirty = false
 			close()
 			onSaved?.(newPath)
@@ -92,45 +121,48 @@
 	}
 </script>
 
-{#if editable || onSaved}
+{#snippet editor()}
+	<!-- Without naming the path's own field melt lands on the row's first button, so a popover
+	     opened from the path would not be typing into the path. -->
 	<Popover
-		class="min-w-0 max-w-full"
+		class={triggerClass}
 		placement="bottom-start"
 		contentClasses="p-4"
+		triggerAttrs={{ title: 'Edit summary and path', 'aria-label': 'Edit summary and path' }}
 		usePointerDownOutside
 		excludeSelectors=".drawer"
 		disableFocusTrap
-		openFocus={() => {
-			summaryInput?.focus()
-			return null
-		}}
-		bind:isOpen={popoverOpen}
+		openFocus={focusField === 'path' && own
+			? pathField
+			: () => {
+					summaryInput?.focus()
+					return null
+				}}
+		bind:isOpen={
+			() => popoverOpen,
+			(v) => {
+				const opening = v && !popoverOpen
+				popoverOpen = v
+				if (opening) onOpen()
+			}
+		}
 	>
 		{#snippet trigger()}
-			<div
-				class={'min-w-0 truncate flex flex-col items-start px-2 py-1 rounded-md transition-colors cursor-pointer hover:bg-surface-hover'}
-			>
-				<span class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
-					>{path}</span
+			<!-- Both of the popover's arms show the summary and the path, and ownership decides
+					     whether the path can be changed, not whether it is there. -->
+			{#if label}
+				{@render label()}
+			{:else}
+				<span
+					class="{compact
+						? 'text-xs font-medium'
+						: 'text-sm font-semibold'} block truncate {emptyString(summary)
+						? 'text-tertiary italic font-normal'
+						: 'text-emphasis'}"
 				>
-				<div class="flex items-center gap-3 max-w-full">
-					<span
-						class="text-sm font-semibold truncate {emptyString(summary)
-							? 'text-tertiary italic font-normal'
-							: 'text-emphasis'}"
-					>
-						{emptyString(summary) ? 'Add a summary...' : summary}
-					</span>
-					{#if labels?.length}
-						<div class="flex items-center gap-0.5">
-							{#each labels as label}
-								<Badge color="blue" verySmall class="px-1" title="Label: {label}">{label}</Badge>
-							{/each}
-						</div>
-					{/if}
-					<InheritedLabels labels={inheritedLabels} />
-				</div>
-			</div>
+					{emptyString(summary) ? 'Add a summary...' : summary}
+				</span>
+			{/if}
 		{/snippet}
 		{#snippet content({ close })}
 			<div class="flex flex-col gap-6 w-[480px]">
@@ -168,16 +200,18 @@
 					{/if}
 					<Label label="Path">
 						{#if own}
-							<Path
-								autofocus={false}
-								bind:path={editPath}
-								bind:dirty={dirtyPath}
-								initialPath={path ?? ''}
-								namePlaceholder={kind}
-								{kind}
-								size="sm"
-								drawerOffset={4000}
-							/>
+							<div data-path-edit-path>
+								<Path
+									autofocus={false}
+									bind:path={editPath}
+									bind:dirty={dirtyPath}
+									initialPath={path ?? ''}
+									namePlaceholder={kind}
+									kind={pathKind}
+									size="sm"
+									drawerOffset={4000}
+								/>
+							</div>
 						{:else}
 							<span class="text-xs font-mono text-secondary">{path}</span>
 							<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
@@ -216,27 +250,69 @@
 					</label>
 					<div class="block text-primary">
 						<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
-						<Path
-							autofocus={false}
-							bind:path
-							bind:dirty={dirtyPath}
-							initialPath={path ?? ''}
-							namePlaceholder={kind}
-							{kind}
-							size="sm"
-							drawerOffset={4000}
-						/>
+						<div data-path-edit-path>
+							<Path
+								autofocus={false}
+								bind:path
+								bind:dirty={dirtyPath}
+								initialPath={path ?? ''}
+								namePlaceholder={kind}
+								kind={pathKind}
+								size="sm"
+								drawerOffset={4000}
+							/>
+						</div>
 					</div>
 				{/if}
 			</div>
 		{/snippet}
 	</Popover>
+{/snippet}
+
+{#if label && (editable || onSaved)}
+	<!-- The host draws the row this hangs in — the band's path segment — so only the trigger comes
+	     from here: no path line above it, and no second copy of the labels. -->
+	{@render editor()}
+{:else if editable || onSaved}
+	<!-- The name itself opens the popover, the same way the editors do it. Only the name: the whole
+	     block was the trigger once, which meant a path or a label you only wanted to read answered
+	     a click. -->
+	<div
+		class="min-w-0 truncate flex {compact
+			? 'items-center px-1 py-0.5'
+			: 'flex-col items-start px-2 py-1'}"
+	>
+		{#if !compact}
+			<span class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
+				>{path}</span
+			>
+		{/if}
+		<div class="flex items-center gap-3 max-w-full min-w-0">
+			{@render editor()}
+			<!-- Outside the trigger: a label is read, not clicked through to a rename. -->
+			{#if labels?.length}
+				<div class="flex items-center gap-0.5">
+					{#each labels as labelText}
+						<Badge color="blue" verySmall class="px-1" title="Label: {labelText}">{labelText}</Badge
+						>
+					{/each}
+				</div>
+			{/if}
+			<InheritedLabels labels={inheritedLabels} />
+		</div>
+	</div>
+{:else if label}
+	<!-- Nothing to open, but the host still drew this into a slot of its own: give back what it
+	     handed over rather than this component's own block, which belongs in a row it owns. -->
+	{@render label()}
 {:else}
-	<div class="min-w-0 truncate flex flex-col px-2">
-		{#if !emptyString(summary)}
+	<div class="min-w-0 truncate flex items-center {compact ? '' : 'flex-col px-2'}">
+		{#if !emptyString(summary) && !compact}
 			<span class="text-[10px] leading-tight text-tertiary font-mono truncate">{path}</span>
 		{/if}
-		<span class="text-sm font-semibold text-emphasis truncate">
+		<span
+			class="{compact ? 'text-xs font-medium' : 'text-sm font-semibold'} text-emphasis truncate"
+		>
 			{emptyString(summary) ? (path ?? '') : summary}
 		</span>
 	</div>
