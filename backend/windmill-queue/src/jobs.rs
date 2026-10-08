@@ -1554,7 +1554,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let mut wac_parent_ready = false;
     if let Some(parent_job) = wac_parent {
         let Some(duration) = sqlx::query_scalar!(
-            "SELECT COALESCE(c.duration_ms, COALESCE($2::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(q.started_at, now()))))*1000)::bigint) AS \"duration_ms!\"
+            "SELECT COALESCE(c.duration_ms,
+                    (EXTRACT('epoch' FROM (now() - (q.extras->>'wac_first_started_at')::timestamptz))*1000)::bigint,
+                    COALESCE($2::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(q.started_at, now()))))*1000)::bigint) AS \"duration_ms!\"
              FROM v2_job_queue q LEFT JOIN v2_job_completed c ON c.id = q.id WHERE q.id = $1",
             job_id,
             duration,
@@ -1813,6 +1815,12 @@ impl Completion<'_> {
     /// Moves the job from the queue to the completed jobs and refreshes a flow step's parent
     /// ping, as one statement. Returns `None` when the job was no longer in the queue.
     ///
+    /// Returns the time the job's last run held a worker, which is what callers meter. For a
+    /// job that parked (a Workflow-as-Code parent, see `suspend_wac_parent`) the row stores
+    /// something else: `started_at` and `duration_ms` span the whole workflow from its first
+    /// start, and the last run goes to `extras.wac_last_segment_ms` for readers that sum
+    /// worker time from completed rows.
+    ///
     /// The completion takes its cancellation from the queue row it deletes, not only from
     /// `canceled_by`: that is what the worker last read, and the delete waits for a cancel still
     /// being written, so the deleted row is the final word on whether the job was canceled.
@@ -1854,13 +1862,16 @@ impl Completion<'_> {
             return sqlx::query_scalar!(
                 "WITH deleted AS (
                     DELETE FROM v2_job_queue WHERE id = $1
-                    RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason
+                    RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason,
+                        (extras->>'wac_first_started_at')::timestamptz AS first_started_at,
+                        COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000)::bigint AS run_ms
                 ), completed AS (
                     INSERT INTO v2_job_completed AS cj
                         ( workspace_id
                         , id
                         , started_at
                         , duration_ms
+                        , extras
                         , result
                         , result_columns
                         , canceled_by
@@ -1871,8 +1882,11 @@ impl Completion<'_> {
                         , status
                         , worker
                         )
-                    SELECT d.workspace_id, d.id, d.started_at,
-                        COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(d.started_at, now()))))*1000),
+                    SELECT d.workspace_id, d.id, COALESCE(d.first_started_at, d.started_at),
+                        CASE WHEN d.first_started_at IS NULL THEN d.run_ms
+                            ELSE EXTRACT('epoch' FROM (now() - d.first_started_at))*1000 END,
+                        CASE WHEN d.first_started_at IS NOT NULL
+                            THEN jsonb_build_object('wac_last_segment_ms', d.run_ms) END,
                         $3::text::jsonb, $10,
                         CASE WHEN $4::BOOL THEN $5 ELSE d.canceled_by END,
                         CASE WHEN $4::BOOL THEN $6 WHEN d.canceled_by IS NOT NULL THEN d.canceled_reason END,
@@ -1888,7 +1902,7 @@ impl Completion<'_> {
                             THEN EXCLUDED.canceled_by ELSE cj.canceled_by END,
                         canceled_reason = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
                             THEN EXCLUDED.canceled_reason ELSE cj.canceled_reason END
-                    RETURNING duration_ms
+                    RETURNING COALESCE((cj.extras->>'wac_last_segment_ms')::bigint, cj.duration_ms) AS duration_ms
                 )
                 SELECT duration_ms AS \"duration_ms!\" FROM completed",
                 /* $1 */ completed_job.id,
@@ -1913,13 +1927,16 @@ impl Completion<'_> {
         sqlx::query_scalar!(
         "WITH deleted AS (
             DELETE FROM v2_job_queue WHERE id = $1
-            RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason
+            RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason,
+                (extras->>'wac_first_started_at')::timestamptz AS first_started_at,
+                COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000)::bigint AS run_ms
         ), completed AS (
             INSERT INTO v2_job_completed AS cj
                 ( workspace_id
                 , id
                 , started_at
                 , duration_ms
+                , extras
                 , result
                 , result_columns
                 , canceled_by
@@ -1930,8 +1947,11 @@ impl Completion<'_> {
                 , status
                 , worker
                 )
-            SELECT d.workspace_id, d.id, d.started_at,
-                COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(d.started_at, now()))))*1000),
+            SELECT d.workspace_id, d.id, COALESCE(d.first_started_at, d.started_at),
+                CASE WHEN d.first_started_at IS NULL THEN d.run_ms
+                    ELSE EXTRACT('epoch' FROM (now() - d.first_started_at))*1000 END,
+                CASE WHEN d.first_started_at IS NOT NULL
+                    THEN jsonb_build_object('wac_last_segment_ms', d.run_ms) END,
                 $3::text::jsonb, $10,
                 CASE WHEN $4::BOOL THEN $5 ELSE d.canceled_by END,
                 CASE WHEN $4::BOOL THEN $6 WHEN d.canceled_by IS NOT NULL THEN d.canceled_reason END,
@@ -1947,7 +1967,7 @@ impl Completion<'_> {
                     THEN EXCLUDED.canceled_by ELSE cj.canceled_by END,
                 canceled_reason = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
                     THEN EXCLUDED.canceled_reason ELSE cj.canceled_reason END
-            RETURNING duration_ms
+            RETURNING COALESCE((cj.extras->>'wac_last_segment_ms')::bigint, cj.duration_ms) AS duration_ms
         ), parent_ping AS (
             UPDATE v2_job_runtime r SET ping = now()
             FROM v2_job_queue q
