@@ -157,7 +157,7 @@ async fn match_resource_types_by_text(
     let words: Vec<String> = text
         .to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
-        .filter(|word| word.len() >= 3)
+        .filter(|word| !word.is_empty())
         .map(str::to_string)
         .collect();
     let rows: Vec<(String, Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
@@ -187,15 +187,23 @@ async fn match_resource_types_by_text(
 
 /// A word found in the name counts twice a word found in the description: names are what
 /// a query for a service spells out ("postgres" in `postgresql`, "sheets" in `gsheets`).
+/// A word under 3 characters ("s3", "ai") would sit inside too many names, so it counts only
+/// as a whole name or one of its `_`-separated parts.
 fn text_match_score(words: &[String], name: &str, description: &str) -> f32 {
     let name = name.to_lowercase();
     let description = description.to_lowercase();
     words
         .iter()
         .map(|word| {
-            if name.contains(word.as_str()) {
+            let short = word.len() < 3;
+            let in_name = if short {
+                name.split('_').any(|part| part == word)
+            } else {
+                name.contains(word.as_str())
+            };
+            if in_name {
                 2.0
-            } else if description.contains(word.as_str()) {
+            } else if !short && description.contains(word.as_str()) {
                 1.0
             } else {
                 0.0
@@ -979,5 +987,15 @@ mod text_match_tests {
             1.0
         );
         assert_eq!(text_match_score(&words, "slack", "Slack bot token"), 0.0);
+    }
+
+    // Many services go by a short name; matching it inside other names would rank `ms365`
+    // with `s3`.
+    #[test]
+    fn matches_a_short_word_only_as_a_whole_name_part() {
+        let words = vec!["s3".to_string()];
+        assert_eq!(text_match_score(&words, "s3", "Amazon S3 bucket"), 2.0);
+        assert_eq!(text_match_score(&words, "aws_s3", ""), 2.0);
+        assert_eq!(text_match_score(&words, "ms365", "mentions s3"), 0.0);
     }
 }
