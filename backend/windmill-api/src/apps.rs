@@ -2438,8 +2438,9 @@ pub(crate) async fn validate_operator_composed_app(
     value: Option<&RawValue>,
     policy: Option<&mut Policy>,
 ) -> Result<()> {
-    // A deploy resets the run identity to its builder; a draft keeps whatever it names, which an
-    // admin's one-click draft deploy preserves without showing it.
+    // A deploy resets the run identity to its builder (unless they are in `wm_deployers`, see
+    // docs/operator-builder-rights.md); a draft keeps whatever it names, which an admin's
+    // one-click draft deploy preserves without showing it.
     if let (BuilderAppWrite::Draft, Some(policy)) = (write, policy.as_deref()) {
         let names_another = policy
             .on_behalf_of
