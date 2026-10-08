@@ -351,6 +351,23 @@ export function listBenchmarkResourceTypeNames(workspace: string): string[] | nu
 	return benchmarkResourceTypes(workspace).map((rt) => rt.name)
 }
 
+/** Adds a resource type to a benchmark workspace, as `ResourceService.createResourceType` does,
+ * so later searches in the same case find it. */
+export function createBenchmarkResourceType(
+	workspace: string,
+	resourceType: BenchmarkWorkspaceResourceType
+): void {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	if (!runnables) {
+		throw new Error(`Workspace "${workspace}" is not a benchmark workspace`)
+	}
+	const existing = benchmarkResourceTypes(workspace)
+	if (existing.some((rt) => rt.name === resourceType.name)) {
+		throw new Error(`Resource type ${resourceType.name} already exists`)
+	}
+	runnables.resourceTypes = [...existing, resourceType]
+}
+
 /** Stands in for the resource type search: a type matches when a word of the query appears in
  * its name or description, ranked by how many do. */
 export function queryBenchmarkResourceTypes(
