@@ -1912,6 +1912,7 @@ pub enum PingType {
     MainLoop,
     Job,
     InitScript,
+    Draining,
 }
 #[derive(Serialize, Deserialize)]
 pub struct Ping {
@@ -2014,7 +2015,18 @@ pub async fn update_ping_http(
             )
             .await?
         }
+        PingType::Draining => set_worker_draining_query(worker_name, db).await?,
     }
+    Ok(())
+}
+
+pub async fn set_worker_draining_query(worker_name: &str, db: &DB) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET draining = true WHERE worker = $1",
+        worker_name
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -2137,7 +2149,7 @@ pub async fn insert_ping_query(
     // literal below must stay equal to `external_ip::UNKNOWN_IP`.
     let previous_jobs_executed = sqlx::query_scalar!(
         "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = false
         RETURNING jobs_executed",
         worker_instance,
         worker_name,

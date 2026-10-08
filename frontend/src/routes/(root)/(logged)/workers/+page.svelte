@@ -1022,7 +1022,7 @@
 											</Cell>
 										</tr>
 										{#if workers}
-											{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage, native_mode }}
+											{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage, native_mode, draining }}
 												{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
 												{@const tagMismatchInfo = getTagMismatchInfo(
 													custom_tags,
@@ -1086,6 +1086,15 @@
 															{/if}
 															{#if native_mode}
 																<Badge color="blue" small>Native</Badge>
+															{/if}
+															{#if draining}
+																<MeltTooltip>
+																	<Badge color="yellow" small>Draining</Badge>
+																	{#snippet text()}
+																		This worker received a shutdown signal. It no longer pulls jobs
+																		and exits once its current job is done.
+																	{/snippet}
+																</MeltTooltip>
 															{/if}
 														</div>
 													</Cell>

@@ -379,6 +379,10 @@ pub fn workspaced_service() -> Router {
             get(get_wac_approval_urls).layer(cors.clone()),
         )
         .route(
+            "/worker_is_draining/{id}",
+            get(worker_is_draining).layer(cors.clone()),
+        )
+        .route(
             "/result_by_id/{job_id}/{node_id}",
             get(get_result_by_id).layer(cors.clone()),
         )
@@ -611,6 +615,29 @@ async fn get_root_job(
 ) -> windmill_common::error::JsonResult<String> {
     let res = compute_root_job_for_flow(&db, &w_id, id).await?;
     Ok(Json(res))
+}
+
+/// Whether the worker running this job has received its shutdown signal. A draining worker
+/// never interrupts its job, so a long-running script polls this to exit on its own terms.
+async fn worker_is_draining(
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> windmill_common::error::JsonResult<bool> {
+    let draining = sqlx::query_scalar!(
+        "SELECT wp.draining FROM v2_job_queue q JOIN worker_ping wp ON wp.worker = q.worker
+        WHERE q.id = $1 AND q.workspace_id = $2",
+        id,
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(false);
+    windmill_common::feature_usage::log_feature_usage(
+        "worker_draining",
+        "check",
+        if draining { "draining" } else { "not_draining" },
+    );
+    Ok(Json(draining))
 }
 
 async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {

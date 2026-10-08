@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT wp.draining FROM v2_job_queue q JOIN worker_ping wp ON wp.worker = q.worker\n        WHERE q.id = $1 AND q.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "draining",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b48507f385b2d1f8662dc089fc696e86426c4ee9bd61d0606d574fa3d082ce14"
+}

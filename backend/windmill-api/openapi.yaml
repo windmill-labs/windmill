@@ -17312,6 +17312,27 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/worker_is_draining/{id}:
+    get:
+      summary: whether the worker running this job is draining
+      description: |
+        True once the worker running the job has received its shutdown signal. The worker
+        still waits for the job to finish, so a long-running job can poll this to exit early.
+        False when the job is not currently running on a worker.
+      operationId: workerIsDraining
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: whether the worker running this job is draining
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /w/{workspace}/jobs_u/get_logs/{id}:
     get:
       summary: get job logs
@@ -35880,6 +35901,9 @@ components:
           type: string
         native_mode:
           type: boolean
+        draining:
+          type: boolean
+          description: the worker received its shutdown signal and exits once its current job is done
       required:
         - worker
         - worker_instance

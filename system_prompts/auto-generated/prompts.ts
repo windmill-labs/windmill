@@ -1676,6 +1676,14 @@ async setProgress(percent: number, jobId?: any): Promise<void>
 async getProgress(jobId?: any): Promise<number | null>
 
 /**
+ * Whether the worker running this job has received its shutdown signal.
+ * A draining worker waits for its current job to finish before exiting, so a
+ * long-running script can poll this and return early to let the worker be replaced.
+ * @param jobId? Job to check, defaults to the current job
+ */
+async workerIsDraining(jobId?: string): Promise<boolean>
+
+/**
  * Set a flow user state
  * @param key key of the state
  * @param value value of the state
@@ -2342,6 +2350,18 @@ def set_progress(value: int, job_id: Optional[str] = None)
 # Returns:
 #     Progress value (0-100) or None if not set
 def get_progress(job_id: Optional[str] = None) -> Any
+
+# Whether the worker running the job has received its shutdown signal.
+# 
+# A draining worker waits for its current job to finish before exiting. A long-running
+# script can poll this and return early so the worker can be replaced.
+# 
+# Args:
+#     job_id: Job ID (defaults to current WM_JOB_ID)
+# 
+# Returns:
+#     True if the worker running the job is draining
+def worker_is_draining(job_id: Optional[str] = None) -> bool
 
 # Set the user state of a flow at a given key
 def set_flow_user_state(key: str, value: Any) -> None

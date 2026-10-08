@@ -813,6 +813,23 @@ class Windmill:
         else:
             return r.json()
 
+    def worker_is_draining(self, job_id: Optional[str] = None) -> bool:
+        """Whether the worker running the job has received its shutdown signal.
+
+        A draining worker waits for its current job to finish before exiting. A long-running
+        script can poll this and return early so the worker can be replaced.
+
+        Args:
+            job_id: Job ID (defaults to current WM_JOB_ID)
+
+        Returns:
+            True if the worker running the job is draining
+        """
+        workspace = get_workspace()
+        job_id = job_id or os.environ.get("WM_JOB_ID")
+
+        return self.get(f"/w/{workspace}/jobs/worker_is_draining/{job_id}").json()
+
     def set_flow_user_state(self, key: str, value: Any) -> None:
         """Set the user state of a flow at a given key"""
         flow_id = self.get_root_job_id()
@@ -2008,6 +2025,17 @@ def get_progress(job_id: Optional[str] = None) -> Any:
     Get the progress
     """
     return _client.get_progress(job_id)
+
+
+@init_global_client
+def worker_is_draining(job_id: Optional[str] = None) -> bool:
+    """
+    Whether the worker running this job has received its shutdown signal.
+
+    A draining worker waits for its current job to finish before exiting. A long-running
+    script can poll this and return early so the worker can be replaced.
+    """
+    return _client.worker_is_draining(job_id)
 
 
 def set_shared_state_pickle(value: Any, path="state.pickle") -> None:

@@ -155,7 +155,7 @@ use crate::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
         tally_unfinished_dependency_deploy,
     },
-    worker_utils::{insert_ping, queue_vacuum, update_worker_ping_full},
+    worker_utils::{insert_ping, mark_worker_draining, queue_vacuum, update_worker_ping_full},
 };
 
 #[cfg(feature = "rust")]
@@ -3141,6 +3141,31 @@ pub async fn run_worker(
     let mut killed_but_draining_same_worker_jobs = false;
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
+
+    // The loop below only sees the killpill once the running job is done, which is too late
+    // for that job to learn its worker is going away.
+    {
+        let mut killpill_rx = killpill_rx.resubscribe();
+        let conn = conn.clone();
+        let worker_name = worker_name.clone();
+        tokio::spawn(async move {
+            if matches!(
+                killpill_rx.recv().await,
+                Err(broadcast::error::RecvError::Closed)
+            ) {
+                return;
+            }
+            for attempt in 1..=3 {
+                match mark_worker_draining(&conn, &worker_name).await {
+                    Ok(()) => return,
+                    Err(e) => {
+                        tracing::warn!(worker = %worker_name, "failed to mark worker as draining (attempt {attempt}/3): {e:#}");
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        });
+    }
 
     loop {
         let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
