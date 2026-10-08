@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO slack_channel_agent\n            (slack_team_id, channel_id, channel_name, workspace_id, agent_path)\n         VALUES ($1, $2, $3, $4, $5)\n         ON CONFLICT (slack_team_id, channel_id) DO UPDATE\n            SET channel_name = EXCLUDED.channel_name, agent_path = EXCLUDED.agent_path\n            WHERE slack_channel_agent.workspace_id = EXCLUDED.workspace_id\n         RETURNING channel_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "channel_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7c13828708fd11748db936bd8b8219ecdcd3fa38e1f3bc33b6f5c93a4d6fd58b"
+}

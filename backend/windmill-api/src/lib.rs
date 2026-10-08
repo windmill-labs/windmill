@@ -161,6 +161,9 @@ mod scim_oss;
 mod scripts;
 mod secret_backend_ext;
 mod service_logs;
+// Answering in Slack is only reached from the EE Slack event handlers.
+#[cfg_attr(not(all(feature = "oauth2", feature = "private")), allow(dead_code))]
+mod slack_agents;
 mod slack_approvals;
 #[cfg(all(feature = "smtp", feature = "private"))]
 pub mod smtp_server_ee;
@@ -251,7 +254,7 @@ lazy_static::lazy_static! {
     // Must be a subset of the bot scopes declared in the Slack app manifest. Default matches
     // Windmill's recommended manifest at docs.windmill.dev/docs/misc/setup_oauth.
     pub static ref SLACK_OAUTH_SCOPES: String = std::env::var("SLACK_OAUTH_SCOPES")
-        .unwrap_or_else(|_| "commands,chat:write,chat:write.public,channels:join,files:write,app_mentions:read,im:history,im:read".to_string());
+        .unwrap_or_else(|_| "commands,chat:write,chat:write.public,channels:join,files:write,app_mentions:read,im:history,im:read,users:read,users:read.email,channels:read".to_string());
 }
 
 // Compliance with cloud events spec.
@@ -678,6 +681,7 @@ pub async fn run_server(
                         .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest("/slack_agents", slack_agents::workspaced_service())
                         .nest("/runnables", runnables::workspaced_service())
                         .nest(
                             "/workspace_dependencies",

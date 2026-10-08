@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/state'
 	import { FlaskConical, FormInput, MessageSquare, Pen } from 'lucide-svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { resource } from 'runed'
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
 	import AgentEvalsModal from '$lib/components/flows/content/AgentEvalsModal.svelte'
+	import AgentUsePanel from '$lib/components/flows/content/AgentUsePanel.svelte'
+	import { SlackAgentsService } from '$lib/gen'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -41,6 +44,13 @@
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
+	let clientWidth = $state(window.innerWidth)
+
+	const slack = resource(
+		() => ({ workspace: ws, path }),
+		async ({ workspace, path }) =>
+			workspace ? await SlackAgentsService.getAgentSlackChannels({ workspace, path }) : undefined
+	)
 
 	async function remove() {
 		if (ws && (await deleteAgent(ws, path))) await goto(`${base}/?kind=agent`)
@@ -169,29 +179,47 @@
 			{/if}
 		{/snippet}
 	</DetailPageHeader>
-	<div class="flex-1 min-h-0">
-		{#key `${ws}:${path}:${reloaded}`}
-			<AgentEditorHost
-				bind:this={host}
-				{path}
-				workspace={ws}
-				enableAi={$copilotInfo.enabled}
-				view
-				onOpenConfig={() => configModal?.open()}
-			>
-				{#snippet viewForm({ schema, run, loading, actions })}
-					<RunForm
-						runnable={{ schema, path }}
-						runAction={run}
-						schedulable={false}
-						detailed={false}
-						autofocus
-						{loading}
-						{actions}
+	<div class="flex-1 min-h-0" bind:clientWidth>
+		<Splitpanes>
+			<Pane size={65} minSize={50}>
+				{#key `${ws}:${path}:${reloaded}`}
+					<AgentEditorHost
+						bind:this={host}
+						{path}
+						workspace={ws}
+						enableAi={$copilotInfo.enabled}
+						view
+						onOpenConfig={() => configModal?.open()}
+					>
+						{#snippet viewForm({ schema, run, loading, actions })}
+							<RunForm
+								runnable={{ schema, path }}
+								runAction={run}
+								schedulable={false}
+								detailed={false}
+								autofocus
+								{loading}
+								{actions}
+							/>
+						{/snippet}
+					</AgentEditorHost>
+				{/key}
+			</Pane>
+			<!-- ponytail: no panel below `lg`, where the split would squeeze the chat; give it a tab
+			     there, as a script's page does, once people use it from small screens. -->
+			{#if ws && config && clientWidth >= 1024}
+				<Pane size={35} minSize={15}>
+					<AgentUsePanel
+						agentPath={path}
+						workspace={ws}
+						isAdmin={!!($userStore?.is_admin || $userStore?.is_super_admin)}
+						slackTeamName={slack.current?.slack_team_name}
+						channels={slack.current?.channels ?? []}
+						onChanged={() => slack.refetch()}
 					/>
-				{/snippet}
-			</AgentEditorHost>
-		{/key}
+				</Pane>
+			{/if}
+		</Splitpanes>
 	</div>
 </main>
 
