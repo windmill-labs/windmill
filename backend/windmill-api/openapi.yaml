@@ -12012,6 +12012,7 @@ paths:
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/RunRetry"
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
           in: query
@@ -16016,6 +16017,7 @@ paths:
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/RunRetry"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
@@ -27827,6 +27829,12 @@ components:
     CacheTtl:
       name: cache_ttl
       description: Override the cache time to live (in seconds). Can not be used to disable caching, only override with a new cache ttl
+      in: query
+      schema:
+        type: string
+    RunRetry:
+      name: retry
+      description: JSON-encoded retry policy (same shape as a schedule's retry) re-running the job when it fails. The returned id is the first attempt's; each retry is a job of its own, recorded as a child of the first attempt. Not supported for hub scripts, with invisible_to_owner, or for a script whose preprocessor would run.
       in: query
       schema:
         type: string

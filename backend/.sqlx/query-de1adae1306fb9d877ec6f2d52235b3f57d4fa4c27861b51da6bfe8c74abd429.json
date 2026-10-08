@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT q.id FROM v2_job_queue q\n            JOIN native_retry_attempt n ON n.job_id = q.id\n            JOIN v2_job r ON r.id = q.id\n            JOIN v2_job a ON a.id = r.parent_job\n            WHERE q.workspace_id = $2 AND a.parent_job = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "de1adae1306fb9d877ec6f2d52235b3f57d4fa4c27861b51da6bfe8c74abd429"
+}
