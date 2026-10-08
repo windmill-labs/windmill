@@ -523,8 +523,16 @@ async fn update_draft(
                 if let Some(policy) = policy.as_object_mut() {
                     policy.remove("triggerables_v2");
                 }
-                let policy = serde_json::from_value(policy)
+                let policy: crate::apps::Policy = serde_json::from_value(policy)
                     .map_err(|e| Error::BadRequest(format!("Invalid app draft policy: {e}")))?;
+                // An admin deploying the draft publishes its mode, and the deploy panel shows
+                // Viewer as members-only.
+                if policy.execution_mode() == crate::apps::ExecutionMode::Viewer {
+                    return Err(Error::PermissionDenied(
+                        "Operators with builder rights cannot save an app that runs as its viewer"
+                            .to_string(),
+                    ));
+                }
                 referenced.extend(crate::apps::checked_policy_runnable_paths(&policy)?);
             }
             referenced.sort();

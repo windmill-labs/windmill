@@ -344,6 +344,11 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
             403,
         ),
         (json!({}), json!({"sandbox": false}), 403),
+        (
+            json!({}),
+            json!({"sandbox": true, "execution_mode": "viewer"}),
+            403,
+        ),
         (json!({}), json!(null), 403),
         (
             json!({"r": {"type": "runnableByPath", "runType": "script", "path": "u/operator/some_script"}}),

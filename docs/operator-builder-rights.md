@@ -115,7 +115,9 @@ policy's legacy `triggerables` too, `rawscript/` keys included: every deploy of 
 carries it through untouched, so an admin deploying the draft would publish it. Its
 `triggerables_v2` is not checked: every deploy of a draft rebuilds it from the runnables, the
 preview never reads it, and a copy gone stale since the last deploy would otherwise block
-autosave.
+autosave. `Viewer` mode is refused in a draft as on deploy: the deploy panel shows it as
+members-only, so an admin deploying the draft would publish it unawares. The builder's editor
+switches it to `Publisher` on load, since that panel offers no way out of it.
 
 ## Billing
 
