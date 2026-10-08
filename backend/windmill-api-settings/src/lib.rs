@@ -30,6 +30,7 @@ mod storage_usage;
 
 use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::hub_resource_types::{self, SyncSource};
 use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 use windmill_common::DB;
 
@@ -2576,95 +2577,6 @@ pub async fn get_jwks() -> JsonResult<JwksResponse> {
     Ok(Json(JwksResponse { keys: vec![] }))
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
-struct CachedResourceType {
-    #[allow(dead_code)]
-    id: i64,
-    name: String,
-    schema: Option<serde_json::Value>,
-    #[allow(dead_code)]
-    app: String,
-    description: Option<String>,
-    /// Doubly optional, and read through a wrapping deserializer: this struct also
-    /// decodes the on-disk cache, where an absent key means "written before the
-    /// column, leave the stored extension alone" and an explicit null means the hub
-    /// dropped it. Plain serde folds both into `None`.
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option"
-    )]
-    format_extension: Option<Option<String>>,
-    /// Doubly optional like `format_extension`: no key leaves the stored name alone, an explicit
-    /// null (the hub naming nothing) clears it.
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option"
-    )]
-    display_name: Option<Option<String>>,
-}
-
-#[derive(serde::Deserialize)]
-struct HubResourceTypeRaw {
-    id: i64,
-    name: String,
-    schema: Option<String>,
-    app: String,
-    description: Option<String>,
-    #[serde(default)]
-    format_extension: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option"
-    )]
-    display_name: Option<Option<String>>,
-}
-
-async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType>> {
-    let response = HTTP_CLIENT
-        .get(format!(
-            "{}/resource_types/list",
-            windmill_common::DEFAULT_HUB_BASE_URL
-        ))
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| error::Error::InternalErr(format!("Failed to fetch from hub: {}", e)))?;
-
-    if !response.status().is_success() {
-        return Err(error::Error::InternalErr(format!(
-            "Hub returned status {}",
-            response.status()
-        )));
-    }
-
-    let raw_types: Vec<HubResourceTypeRaw> = response
-        .json()
-        .await
-        .map_err(|e| error::Error::InternalErr(format!("Failed to parse hub response: {}", e)))?;
-
-    Ok(raw_types
-        .into_iter()
-        .filter_map(|rt| {
-            let schema = match rt.schema {
-                Some(s) => match serde_json::from_str(&s) {
-                    Ok(v) => Some(v),
-                    Err(_) => return None,
-                },
-                None => None,
-            };
-            Some(CachedResourceType {
-                id: rt.id,
-                name: rt.name,
-                schema,
-                app: rt.app,
-                description: rt.description,
-                format_extension: Some(rt.format_extension),
-                display_name: rt.display_name,
-            })
-        })
-        .collect())
-}
-
 #[derive(serde::Deserialize)]
 struct SyncResourceTypesQuery {
     name: Option<String>,
@@ -2677,118 +2589,24 @@ async fn sync_cached_resource_types(
 ) -> error::Result<String> {
     require_super_admin(&db, &authed).await?;
 
-    use windmill_common::worker::HUB_RT_CACHE_DIR;
-    let cache_path = format!("{}/resource_types.json", *HUB_RT_CACHE_DIR);
-
-    // Manual sync is hub-first so it lands newly-published hub types on demand. The
-    // on-disk cache is only a fallback for when the hub is unreachable (airgapped
-    // installs / network error); refreshing it is left to the daily cache-rt cron and
-    // the startup sync in main.rs, which own the offline path.
-    let (resource_types, from_hub) = match fetch_resource_types_from_hub().await {
-        Ok(types) => {
-            tracing::info!("Fetched {} resource types live from the hub", types.len());
-            (types, true)
-        }
-        Err(hub_err) => {
-            tracing::warn!(
-                "Live hub fetch failed ({hub_err}), falling back to on-disk cache at {cache_path}"
-            );
-            match tokio::fs::read_to_string(&cache_path).await {
-                Ok(content) => {
-                    let parsed = serde_json::from_str::<Vec<CachedResourceType>>(&content)
-                        .map_err(|e| {
-                            error::Error::InternalErr(format!(
-                                "Failed to parse cached resource types: {}",
-                                e
-                            ))
-                        })?;
-                    (parsed, false)
-                }
-                Err(_) => return Err(hub_err),
-            }
-        }
-    };
-
-    let mut synced_count = 0;
-
-    for rt in &resource_types {
-        // A name too long for the column counts as absent, leaving the stored one alone: one bad
-        // entry must not fail the upsert and end the rest of the sync.
-        let display_name = match &rt.display_name {
-            Some(Some(name)) if name.chars().count() > 100 => None,
-            other => other.clone(),
-        };
-        let exists: Option<bool> = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3 AND ($5 IS NOT TRUE OR format_extension IS NOT DISTINCT FROM $4) AND ($7 IS NOT TRUE OR display_name IS NOT DISTINCT FROM $6))",
-            &rt.name,
-            rt.schema.as_ref(),
-            rt.description.as_deref(),
-            rt.format_extension.clone().flatten(),
-            rt.format_extension.is_some(),
-            display_name.clone().flatten(),
-            display_name.is_some(),
-        )
-        .fetch_one(&db)
-        .await?;
-
-        if exists.unwrap_or(false) {
-            continue;
-        }
-
-        sqlx::query!(
-            // Whether the payload carried the key at all is what decides: present
-            // (even as null) is authoritative and may clear, absent means a cache
-            // written before the column and must leave the stored value alone.
-            "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, display_name, edited_at)
-             VALUES ('admins', $1, $2, $3, $4, $6, now())
-             ON CONFLICT (workspace_id, name) DO UPDATE
-             SET schema = EXCLUDED.schema, description = EXCLUDED.description,
-                 -- A fileset is a set of files, so it cannot also be one file.
-                 -- Create and update reject the pair; this writer bypasses both, so
-                 -- it declines the extension rather than persisting the forbidden
-                 -- combination onto a same-named local fileset.
-                 format_extension = CASE
-                     WHEN resource_type.is_fileset THEN NULL
-                     WHEN $5 THEN EXCLUDED.format_extension
-                     ELSE resource_type.format_extension END,
-                 display_name = CASE WHEN $7 THEN EXCLUDED.display_name ELSE resource_type.display_name END,
-                 edited_at = now()",
-            &rt.name,
-            rt.schema.as_ref(),
-            rt.description.as_deref(),
-            rt.format_extension.clone().flatten(),
-            rt.format_extension.is_some(),
-            display_name.clone().flatten(),
-            display_name.is_some(),
-        )
-        .execute(&db)
-        .await?;
-
-        synced_count += 1;
-    }
+    let outcome = hub_resource_types::sync(&db).await?;
 
     // If a specific type was requested and is still absent after syncing, surface an
     // explicit not-found instead of a silent "Synced 0". Word it by source so the
     // cache-fallback path does not claim it checked the hub.
     if let Some(name) = name.as_deref() {
-        if !resource_types.iter().any(|rt| rt.name == name) {
-            let source = if from_hub {
-                "on the hub"
-            } else {
-                "in the cached resource types (hub unreachable)"
+        if !outcome.listed.iter().any(|listed| listed == name) {
+            let source = match outcome.source {
+                SyncSource::Hub => "on the hub",
+                SyncSource::ImageCache => "in the cached resource types (hub unavailable)",
             };
             return Err(error::Error::NotFound(format!(
-                "resource type '{}' not found {}",
-                name, source
+                "resource type '{name}' not found {source}"
             )));
         }
     }
 
-    Ok(format!(
-        "Synced {} resource types ({} unchanged)",
-        synced_count,
-        resource_types.len() - synced_count
-    ))
+    Ok(outcome.summary())
 }
 
 #[cfg(test)]

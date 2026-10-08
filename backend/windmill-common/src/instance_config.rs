@@ -1063,6 +1063,7 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     "min_keep_alive_version",
     "automate_username_creation",
     "_restart_coordination",
+    "_hub_resource_type_sync",
     // Legacy ghost: worker configs live in the `config` table with a
     // `worker__` prefix, not as a single blob in `global_settings`. Older
     // Windmill versions stored them here and the row would be resurrected on
