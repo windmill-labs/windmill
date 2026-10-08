@@ -25,6 +25,8 @@
 		if (!nodesInitialized.current) return
 		if (!nodes.some((n) => n.type !== 'add')) return
 		fittedFor = fitKey
-		void fitView({ padding: 0.1, maxZoom: 1 })
+		// A re-fit over nodes that keep their ids finds them already measured, one
+		// render before their new positions reach the flow.
+		requestAnimationFrame(() => void fitView({ padding: 0.1, maxZoom: 1 }))
 	})
 </script>

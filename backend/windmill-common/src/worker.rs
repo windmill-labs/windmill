@@ -1952,6 +1952,7 @@ pub enum PingType {
     MainLoop,
     Job,
     InitScript,
+    Draining,
 }
 #[derive(Serialize, Deserialize)]
 pub struct Ping {
@@ -1974,6 +1975,8 @@ pub struct Ping {
     pub occupancy_rate_30m: Option<f32>,
     pub job_isolation: Option<String>,
     pub native_mode: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draining: Option<bool>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -2026,6 +2029,7 @@ pub async fn update_ping_http(
                 insert_ping.memory,
                 insert_ping.job_isolation,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.draining,
                 db,
             )
             .await?;
@@ -2054,7 +2058,18 @@ pub async fn update_ping_http(
             )
             .await?
         }
+        PingType::Draining => set_worker_draining_query(worker_name, db).await?,
     }
+    Ok(())
+}
+
+pub async fn set_worker_draining_query(worker_name: &str, db: &DB) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET draining = true WHERE worker = $1",
+        worker_name
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -2156,6 +2171,9 @@ pub async fn fetch_raw_script_from_app_query(
 /// `started_at` and `jobs_executed` are the only two columns carried over, being the
 /// continuity itself — plus `ip` for as long as `ip` is `None`, which means the external IP
 /// lookup has not resolved yet and the predecessor's address is still the best guess.
+///
+/// `draining` is `Some(false)` from a worker starting up and `None` from one re-registering
+/// mid-life, which must leave alone a flag its own shutdown may have set in the meantime.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
@@ -2169,6 +2187,7 @@ pub async fn insert_ping_query(
     memory: Option<i64>,
     job_isolation: Option<String>,
     native_mode: bool,
+    draining: Option<bool>,
     db: &DB,
 ) -> anyhow::Result<i32> {
     // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
@@ -2176,8 +2195,8 @@ pub async fn insert_ping_query(
     // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
     // literal below must stay equal to `external_ip::UNKNOWN_IP`.
     let previous_jobs_executed = sqlx::query_scalar!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode, draining) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, false)) ON CONFLICT (worker)
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = COALESCE($13, worker_ping.draining)
         RETURNING jobs_executed",
         worker_instance,
         worker_name,
@@ -2191,6 +2210,7 @@ pub async fn insert_ping_query(
         memory,
         job_isolation.as_deref(),
         native_mode,
+        draining,
         )
         .fetch_one(db)
         .await?;

@@ -779,7 +779,8 @@ const KIND_GATED_BY_DEPLOY_RULES: Record<Kind, boolean> = {
 	email_trigger: false,
 	datatable_migration: false,
 	trigger: false,
-	data_pipeline: false
+	// Deploying a pipeline deploys its scripts.
+	data_pipeline: true
 }
 
 // Every gated kind is spelled identically in `Kind` and `UserDraftItemKind`, so one lookup serves

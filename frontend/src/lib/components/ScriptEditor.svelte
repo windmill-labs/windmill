@@ -150,6 +150,7 @@
 			| 'powershell'
 			| 'bunnative'
 			| 'claudesandbox'
+			| 'pisandbox'
 			| 'wac_python'
 			| 'wac_typescript'
 			| 'ci_test_bun'
@@ -2100,43 +2101,15 @@
 							</div>
 						{/if}
 						{#if customUi?.previewPanel?.hideArgs}
-							<!-- Compact preview layout used by the pipeline editor:
-						     no args column (the script is known to take no
-						     inputs), LogPanel takes the full width, with a
-						     small Test/Cancel button at the top-left of the
-						     preview band. The earlier `-translate-y-1/2`
-						     "float onto the editor" version was clipped in
-						     Firefox (transform + overflow: visible interaction
-						     on the parent splitpane Pane), so the button is
-						     now positioned inside the panel — `top-1` keeps
-						     it visually pinned to the top edge without
-						     relying on cross-browser overflow behaviour. -->
-							<div class="relative h-full pt-9 flex flex-col">
-								{#if testJob?.id && testJob.type === 'CompletedJob' && opWs}
-									<!-- Right-side affordances when we're displaying a *completed*
-									     job (either the user just ran a test, or the on-mount
-									     last-run loader populated the panel). The job-id link
-									     opens the full run page in a new tab; the dispatch
-									     button mounts a popover that shows what downstream
-									     jobs this run triggered (rendered only when the run
-									     actually dispatched anything). -->
-									<div class="absolute top-1 right-2 z-10 flex items-center gap-2">
-										<a
-											class="text-3xs text-blue-600 hover:underline font-mono"
-											href={`${base}/run/${testJob.id}?workspace=${opWs}`}
-											target="_blank"
-											rel="noopener noreferrer"
-											title="Open this run"
-										>
-											{testJob.id.slice(0, 8)}… ↗
-										</a>
-										<DispatchEventsButton
-											workspace={testJob.workspace_id ?? opWs}
-											jobId={testJob.id}
-										/>
-									</div>
-								{/if}
-								<div class="absolute top-1 left-2 z-10">
+							<!-- Compact preview layout used by the pipeline editor: no args
+							     column (most pipeline scripts take no inputs) and a full-width
+							     LogPanel. The controls sit in normal flow rather than floating
+							     onto the editor band, which Firefox clipped (transform +
+							     overflow: visible on the parent splitpane Pane). -->
+							<div class="h-full flex flex-col">
+								<!-- Test sits at the top right, the last run's link under it. -->
+								<div class="shrink-0 flex flex-col items-end gap-1 px-2 pt-2 pb-1">
+								<div>
 									{#if testIsLoading}
 										{@render cancelTestButton('sm', 'shadow-md')}
 									{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0 || customUi?.previewPanel?.onBoundedRun}
@@ -2269,6 +2242,31 @@
 									{:else}
 										{@render runTestButton('sm', 'shadow-md')}
 									{/if}
+								</div>
+								{#if testJob?.id && testJob.type === 'CompletedJob' && opWs}
+									<!-- Right-side affordances when we're displaying a *completed*
+									     job (either the user just ran a test, or the on-mount
+									     last-run loader populated the panel). The job-id link
+									     opens the full run page in a new tab; the dispatch
+									     button mounts a popover that shows what downstream
+									     jobs this run triggered (rendered only when the run
+									     actually dispatched anything). -->
+									<div class="flex items-center gap-2">
+										<a
+											class="text-3xs text-blue-600 hover:underline font-mono"
+											href={`${base}/run/${testJob.id}?workspace=${opWs}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											title="Open this run"
+										>
+											{testJob.id.slice(0, 8)}… ↗
+										</a>
+										<DispatchEventsButton
+											workspace={testJob.workspace_id ?? opWs}
+											jobId={testJob.id}
+										/>
+									</div>
+								{/if}
 								</div>
 								{#if customUi?.previewPanel?.argsAboveLogs && schema?.properties && Object.keys(schema.properties).length > 0}
 									<div
