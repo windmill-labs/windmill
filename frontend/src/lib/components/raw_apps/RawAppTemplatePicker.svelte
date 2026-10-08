@@ -25,7 +25,7 @@
 	import { Alert, Badge } from '$lib/components/common'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-	import { react18Template, react19Template, svelte5Template } from './templates'
+	import { BUILDER_FRAMEWORK_TEMPLATES, FRAMEWORK_TEMPLATES } from './templates'
 	import type { Runnable } from './rawAppPolicy'
 	import {
 		type DataTableRef,
@@ -67,11 +67,14 @@
 		onStart: (result: RawAppTemplatePickerResult, mode: RawAppBuildMode) => void
 	} = $props()
 
-	const templates = [
-		{ name: 'React 19', icon: 'tsx', files: react19Template, recommended: true },
-		{ name: 'React 18', icon: 'tsx', files: react18Template },
-		{ name: 'Svelte 5', icon: 'svelte', files: svelte5Template }
-	]
+	const templates = $derived.by(() => {
+		const files = $operatorBuilderApps ? BUILDER_FRAMEWORK_TEMPLATES : FRAMEWORK_TEMPLATES
+		return [
+			{ name: 'React 19', icon: 'tsx', files: files.react19, recommended: true },
+			{ name: 'React 18', icon: 'tsx', files: files.react18 },
+			{ name: 'Svelte 5', icon: 'svelte', files: files.svelte5 }
+		]
+	})
 
 	let selectedTemplateIndex = $state(0)
 	let selectedDatatable = $state<string | undefined>(undefined)
