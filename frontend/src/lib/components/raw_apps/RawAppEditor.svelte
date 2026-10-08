@@ -1839,13 +1839,15 @@ addEventListener('message', function (e) {
 		syncExternalPreview()
 	}
 
-	onDestroy(() => {
-		// Don't leave a detached preview behind when the editor unmounts: it
-		// would stop receiving builds and, once refreshed, has no opener to
-		// re-feed it — a permanently blank orphan.
+	// Don't leave a detached preview behind when the editor goes away, by
+	// unmounting or by its tab reloading or closing (`pagehide`, which skips
+	// `onDestroy`): it would stop receiving builds, and its document is a blob
+	// URL owned by this page, so refreshing it gives "not found".
+	function closeExternalPreview() {
 		if (externalPreviewWindow && !externalPreviewWindow.closed) externalPreviewWindow.close()
 		externalPreviewWindow = null
-	})
+	}
+	onDestroy(closeExternalPreview)
 
 	function openExternalPreview() {
 		// Reuse an already-open window instead of spawning duplicates.
@@ -2512,7 +2514,7 @@ addEventListener('message', function (e) {
 	}
 </script>
 
-<svelte:window onmessage={listener} onkeydown={handleKeydown} />
+<svelte:window onmessage={listener} onkeydown={handleKeydown} onpagehide={closeExternalPreview} />
 <DarkModeObserver
 	bind:darkMode
 	on:change={() => {
