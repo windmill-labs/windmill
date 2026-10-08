@@ -135,8 +135,16 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	     where the user is.
 	     An embed (`navHidden`) keeps the page's own name but drops the workspace part around it:
 	     the trail would offer to navigate the host's workspace, while the name is what says which
-	     page the controls beside it belong to. -->
-	<div class="flex shrink-[0.3] min-w-[5rem]">
+	     page the controls beside it belong to.
+	     The 0.3 only holds against an actions box that shrinks too: alone, a factor sum below 1
+	     makes flex hand out only that share of the overflow, and the bar overflows instead. -->
+	<div
+		class={twMerge(
+			'flex shrink-[0.3] min-w-[5rem]',
+			(actions.length === 0 || (phone && !content?.actionsFlexible && !content?.actionsFill)) &&
+				'shrink'
+		)}
+	>
 		<!-- Bridged like the actions below: what a page hangs off its own name renders here, out of
 		     the tree that named it, and the rename editor in there asks that tree who the acting user
 		     is before it offers to rename anything. -->

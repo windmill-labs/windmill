@@ -397,7 +397,10 @@ not this component) — so the lead can run the whole line.
 		/>
 	{:else if section}
 		{#if section.parent}
-			<span class={twMerge(SEGMENT, LEAD, 'hover:bg-transparent hover:text-secondary')}>
+			<!-- Gives width back with the workspace part, before the section's own name does. -->
+			<span
+				class={twMerge(SEGMENT, LEAD, 'shrink-[999] hover:bg-transparent hover:text-secondary')}
+			>
 				<span class="truncate">{section.parent}</span>
 			</span>
 			{@render slash()}
