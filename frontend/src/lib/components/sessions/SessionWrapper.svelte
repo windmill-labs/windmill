@@ -54,7 +54,8 @@
 	let {
 		sessionId,
 		headerInPage = false,
-		onNewSession = undefined
+		onNewSession = undefined,
+		placeholder = undefined
 	}: {
 		sessionId: string
 		/** True for the session the page is showing: its header rides the page header bar. */
@@ -62,6 +63,8 @@
 		/** Shows the fresh session that replaces an archived or deleted one, for a host that is
 		 * not the sessions page. */
 		onNewSession?: (id: string) => void
+		/** Composer placeholder for a host whose sessions do something narrower than build. */
+		placeholder?: string
 	} = $props()
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
@@ -471,6 +474,7 @@
 								? 'This session is archived. Unarchive it from the banner above to keep working.'
 								: ''}
 						emptyHint={sessionEmptyHint}
+						{placeholder}
 						{inputPreface}
 					/>
 				</div>

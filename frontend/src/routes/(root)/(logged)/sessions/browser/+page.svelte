@@ -15,10 +15,8 @@
 	} from '$lib/components/sessions/sessionState.svelte'
 	import { getOrCreateRuntime } from '$lib/components/sessions/sessionRuntime.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import {
-		connectBrowserBridge,
-		extensionParentOrigin
-	} from '$lib/components/copilot/chat/global/browserTools'
+	import { connectBrowserBridge } from '$lib/components/copilot/chat/global/browserTools'
+	import { extensionParentOrigin } from '$lib/components/copilot/chat/global/extensionFrame'
 	import { goto } from '$lib/navigation'
 	import { userStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -93,7 +91,11 @@
 		</div>
 		{#if sessionId}
 			{#key sessionId}
-				<SessionWrapper {sessionId} onNewSession={open} />
+				<SessionWrapper
+					{sessionId}
+					onNewSession={open}
+					placeholder="Ask about this page, or run something on it"
+				/>
 			{/key}
 		{/if}
 	{/if}

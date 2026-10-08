@@ -34,7 +34,7 @@ describe('assembleGlobalTools', () => {
 	it('swaps page navigation for the browser tools in the extension side panel', () => {
 		const opts = {
 			browserTools: true,
-			access: new Set(['run_preview', 'deploy', 'manage_code', 'admin'] as const)
+			access: new Set(['deploy', 'manage_code', 'admin'] as const)
 		}
 		const names = assembleGlobalTools(opts).map((t) => t.def.function.name)
 		expect(names).toContain('browser_click')

@@ -21,7 +21,8 @@
 		emptyHint,
 		inputPreface,
 		initialInstructions = undefined,
-		onDraftChange = undefined
+		onDraftChange = undefined,
+		placeholder = undefined
 	}: {
 		hideHeader?: boolean
 		hideModeSelector?: boolean
@@ -40,6 +41,8 @@
 		// Seed / observe the composer's draft text (forwarded to AIChatDisplay).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
+		/** Composer placeholder, forwarded to AIChatDisplay. */
+		placeholder?: string
 	} = $props()
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
@@ -202,4 +205,5 @@
 	{inputPreface}
 	{initialInstructions}
 	{onDraftChange}
+	{placeholder}
 ></AIChatDisplay>

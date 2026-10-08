@@ -767,12 +767,13 @@ export class AIChatManager implements ChatViewHost {
 	 * capabilities do not cover; elsewhere `sessionAccess` is unset and nothing is dropped. */
 	#shipped = (planTools: Tool<any>[]): Tool<any>[] =>
 		filterSessionTools([...this.#assembledTools, ...planTools], this.#effectiveAccess())
-	/** Drafts live in the editor the side panel lacks, so its sessions are never offered them,
-	 * whatever the user's role. */
+	/** The side panel runs and reads what is deployed, whatever the user's role: drafts live
+	 * in the editor it lacks, and test runs exist to try drafts out. */
 	#effectiveAccess = (): SessionAccess | undefined => {
 		if (!this.browserTools) return this.sessionAccess
 		const access = new Set(this.sessionAccess ?? fullSessionAccess())
 		access.delete('write_draft')
+		access.delete('run_preview')
 		return access
 	}
 	/** What the request carries: the assembled tools plus the plan-mode transition the current
