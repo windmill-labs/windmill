@@ -222,7 +222,7 @@ The Windmill Hub publishes resource types for most services, and an instance get
 <!-- chat-only -->
 - You cannot create a resource type yourself: give the user the schema to add with **Add resource type** on the Resources page.
 <!-- /chat-only -->
-- Use a plain variable instead of a resource only when the user prefers it.
+- A plain variable instead of a resource is fine when the user asks for it; without that, default to the resource, its secret in a variable it references.
 
 ## Custom Resource Types
 
