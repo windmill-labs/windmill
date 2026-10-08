@@ -20,7 +20,7 @@
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 </script>
 
-<div class="flex shrink-0 flex-row gap-2 whitespace-nowrap">
+<div class="flex shrink-0 flex-row items-center gap-2 whitespace-nowrap">
 	{#if module.value.type === 'script'}
 		{#if customUi?.tagEdit != false}
 			<FlowModuleWorkerTagSelect

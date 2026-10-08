@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.826.0
+  version: 1.827.0
   title: Windmill API
 
   contact:
@@ -1765,6 +1765,12 @@ paths:
                   type: string
                 cluster:
                   $ref: "#/components/schemas/DatatableRoleCluster"
+                take_over:
+                  type: boolean
+                  description: >
+                    manage a Postgres role of that name that already exists on the cluster,
+                    replacing its password, instead of refusing it. A role with cluster-wide
+                    attributes or memberships is refused either way
       responses:
         "200":
           description: the created role
@@ -1772,6 +1778,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InstanceDatatableRole"
+        "409":
+          description: a Postgres role of that name already exists on the cluster and take_over was not set
 
   /settings/datatable_roles/{id}:
     post:
@@ -34525,6 +34533,11 @@ components:
           type: boolean
         cluster:
           $ref: "#/components/schemas/DatatableRoleCluster"
+        in_use:
+          type: boolean
+          description: >-
+            Whether any data table, in any workspace, lets someone connect as this role. Only set
+            in a data table's available_roles.
 
     DatatableRoleTenants:
       type: object

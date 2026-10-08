@@ -16,7 +16,8 @@
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 	import { devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { Badge, Button } from './common'
+	import { Button, ButtonType } from './common'
+	import { twMerge } from 'tailwind-merge'
 	import Popover from './meltComponents/Popover.svelte'
 	import Toggle from './Toggle.svelte'
 	import { GitFork, Lock, ShieldOff } from 'lucide-svelte'
@@ -83,28 +84,35 @@
 				? `Edits in ${devLabelKey(canonicalDev.dev_workspace_label)}`
 				: 'Edits restricted'
 	)
+
+	// The Popover renders its trigger as a <button>, so this wears the design system's subtle
+	// button rather than containing one — a <Button> here would nest a button inside a button.
+	const triggerClass = twMerge(
+		'inline-flex items-center gap-1 rounded-md whitespace-nowrap transition-all',
+		ButtonType.VariantStyles.subtle,
+		ButtonType.UnifiedSizingClasses.sm,
+		ButtonType.UnifiedHeightClasses.sm,
+		ButtonType.UnifiedFontSizes.sm,
+		'text-xs'
+	)
 </script>
 
 {#if !operatingUser.current?.operator && activeDeployRulesets.length > 0}
 	<div class="my-2">
 		<Popover
 			placement="bottom-start"
-			class="inline-flex items-center"
+			class={triggerClass}
 			triggerAttrs={{ 'aria-label': badgeLabel }}
 		>
 			{#snippet trigger()}
-				<!-- `clickable` is unusable here: it renders the badge as a <button>, nested inside the
-				     one Popover wraps its trigger in. -->
-				<Badge small color={bypassActive ? 'yellow' : 'blue'} class="cursor-pointer">
-					{#if bypassActive}
-						<ShieldOff class="h-3 w-3" />
-					{:else if canonicalDev}
-						<GitFork class="h-3 w-3" />
-					{:else}
-						<Lock class="h-3 w-3" />
-					{/if}
-					{badgeLabel}
-				</Badge>
+				{#if bypassActive}
+					<ShieldOff size={ButtonType.UnifiedIconSizes.sm} class="shrink-0" />
+				{:else if canonicalDev}
+					<GitFork size={ButtonType.UnifiedIconSizes.sm} class="shrink-0" />
+				{:else}
+					<Lock size={ButtonType.UnifiedIconSizes.sm} class="shrink-0" />
+				{/if}
+				{badgeLabel}
 			{/snippet}
 			{#snippet content()}
 				<div class="flex flex-col gap-3 p-4 text-xs max-w-sm">

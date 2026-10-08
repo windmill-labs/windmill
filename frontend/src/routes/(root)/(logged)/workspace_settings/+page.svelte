@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, CopyButton, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
@@ -13,7 +13,7 @@
 	import ErrorOrRecoveryHandler, {
 		handlerFullPath
 	} from '$lib/components/ErrorOrRecoveryHandler.svelte'
-	import PageHeader from '$lib/components/PageHeader.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -1459,24 +1459,19 @@
 	)
 </script>
 
-<CenteredPage wrapperClasses="pb-0 h-screen" handleOverflow={false} class="flex flex-col h-full">
+<CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
 	{#if canAdmin || isForkOwner}
-		<PageHeader title="Workspace settings: {$workspaceStore}">
-			{#snippet titleActions()}
-				{#if $workspaceStore}
-					<CopyButton value={$workspaceStore} title={`Copy id: ${$workspaceStore}`} />
-				{/if}
-			{/snippet}
-			{#if $superadmin}
-				<Button variant="default" size="sm" on:click={() => goto('#superadmin-settings')}>
-					Instance settings
-				</Button>
-			{/if}</PageHeader
-		>
+		<!-- No title of its own: the band already says which workspace's settings these are, and the
+		     two controls that sat beside the title are the page's actions. The panes below scroll
+		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
+		<PageHeaderContent actions={settingsActions} separator="always" />
 
 		<div class="flex grow min-h-0 pb-4">
 			<!-- Sidebar Navigation -->
-			<div class="w-60 shrink-0 h-full overflow-auto pb-4 pr-4 -ml-2">
+			<!-- The top padding belongs inside both scrollers, not above them: it is the gap under the
+			     separator at rest, and it has to travel with the content so what scrolls passes under
+			     the line rather than stopping short of it. -->
+			<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
 				<SidebarNavigation
 					groups={navigationGroups}
 					selectedId={tab}
@@ -1491,7 +1486,7 @@
 			<!-- Main Content -->
 			<div class="flex-1 min-w-0 h-full">
 				<div class="h-full overflow-auto">
-					<div class="h-fit px-6" style="scrollbar-gutter: stable both-edges;">
+					<div class="h-fit px-6 pt-6" style="scrollbar-gutter: stable both-edges;">
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
 						{:else if tab == 'users'}
@@ -2434,6 +2429,14 @@ export async function main(
 	triggerOnSearchParamsChange={true}
 	tabMode={true}
 />
+
+{#snippet settingsActions()}
+	{#if $superadmin}
+		<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
+			Instance settings
+		</Button>
+	{/if}
+{/snippet}
 
 <style>
 </style>
