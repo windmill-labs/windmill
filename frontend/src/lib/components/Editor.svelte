@@ -1523,6 +1523,9 @@
 		} catch (e) {
 			console.log('error initializing services', e)
 		}
+		// Unmounted while the services loaded: the container is detached, and
+		// creating the editor on it throws.
+		if (destroyed || !divEl?.isConnected) return
 
 		// vscode.languages.registerDefinitionProvider('*', {
 		// 	provideDefinition(document, position, token) {
