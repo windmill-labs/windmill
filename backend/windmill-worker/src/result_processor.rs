@@ -21,6 +21,7 @@ use windmill_common::{
     error::{self, Error},
     flow_status::FlowJobDuration,
     jobs::JobKind,
+    runnable_job_stats::{accumulate_runnable_job_stats, flush_runnable_job_stats},
     utils::WarnAfterExt,
     worker::{error_to_value, to_raw_value, Connection, WORKER_GROUP},
     worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap},
@@ -32,8 +33,8 @@ use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
     append_logs, asset_dispatch, get_mini_completed_job, is_pre_shaped_wm_failure_result,
-    parse_result_object, CanceledBy, FlowRunners, JobCompleted, MiniCompletedJob, MiniPulledJob,
-    ValidableJson, WrappedError, INIT_SCRIPT_TAG, MANUAL_FAILURE_ERROR_NAME,
+    parse_result_object, CanceledBy, FlowRunners, JobCompleted, JobResourceUsage, MiniCompletedJob,
+    MiniPulledJob, ValidableJson, WrappedError, INIT_SCRIPT_TAG, MANUAL_FAILURE_ERROR_NAME,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -231,6 +232,10 @@ async fn process_jc(
     let duration_ms = jc.duration.clone();
     let script_lang = jc.job.script_lang.clone();
     let workspace_id = jc.job.workspace_id.clone();
+    let job_kind = jc.job.kind;
+    let runnable_path = jc.job.runnable_path.clone();
+    let mem_peak = jc.mem_peak;
+    let resource_usage = jc.resource_usage.take();
 
     let root_job = handle_receive_completed_job(
         jc,
@@ -269,6 +274,17 @@ async fn process_jc(
             duration_ms,
         )
         .await;
+        accumulate_runnable_job_stats(
+            &workspace_id,
+            job_kind,
+            runnable_path.as_deref(),
+            resource_usage
+                .as_ref()
+                .map_or(WORKER_GROUP.as_str(), |u| u.worker_group.as_str()),
+            duration_ms,
+            mem_peak,
+            resource_usage.as_ref().and_then(|u| u.cpu_time_ms),
+        );
     }
 
     success
@@ -322,6 +338,9 @@ pub fn start_background_processor(
                     _ = interval.tick() => {
                         if let Err(e) = flush_stats_to_db(&db_clone, &stats_map_clone).await {
                             tracing::error!("Failed to flush worker group job stats: {}", e);
+                        }
+                        if let Err(e) = flush_runnable_job_stats(&db_clone).await {
+                            tracing::error!("Failed to flush runnable job stats: {}", e);
                         }
                     }
                     _ = killpill_rx_clone.recv() => {
@@ -524,6 +543,18 @@ pub fn start_background_processor(
             Ok(Err(join_err)) => tracing::error!("Stats flush task failed: {}", join_err),
             Err(_) => tracing::error!("Stats flush timed out after 10 seconds"),
         }
+        // The periodic task stops at the killpill, before the jobs drained above were
+        // accumulated: without this a short-lived worker would lose its whole rollup.
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            flush_runnable_job_stats(&db),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::error!("Failed to flush runnable job stats: {}", e),
+            Err(_) => tracing::error!("Runnable job stats flush timed out after 10 seconds"),
+        }
 
         job_completed_processor_is_done.store(true, Ordering::SeqCst);
 
@@ -565,6 +596,10 @@ pub async fn process_result(
     has_stream: bool,
     flow_runners: Option<Arc<FlowRunners>>,
 ) -> error::Result<crate::worker::JobOutcome> {
+    let resource_usage = Some(JobResourceUsage {
+        worker_group: WORKER_GROUP.clone(),
+        cpu_time_ms: crate::handle_child::take_job_cpu_time_ms(&job.id),
+    });
     match result {
         Ok(result) => {
             send_job_completed(
@@ -575,6 +610,7 @@ pub async fn process_result(
                     result,
                     result_columns,
                     mem_peak,
+                    resource_usage,
                     canceled_by,
                     success: true,
                     cached_res_path,
@@ -658,6 +694,7 @@ pub async fn process_result(
                     result_columns: None,
                     preprocessed_args: None,
                     mem_peak,
+                    resource_usage,
                     canceled_by,
                     success: false,
                     cached_res_path,

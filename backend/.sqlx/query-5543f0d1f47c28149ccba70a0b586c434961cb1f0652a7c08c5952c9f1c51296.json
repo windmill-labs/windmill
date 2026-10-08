@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO runnable_job_stats\n            (hour, workspace_id, runnable_path, worker_group, job_count, total_duration_ms,\n             max_memory_peak, sum_memory_peak, memory_sample_count, total_cpu_ms)\n        SELECT s.hour, s.workspace_id, s.runnable_path, s.worker_group, s.job_count,\n               s.total_duration_ms, s.max_memory_peak, s.sum_memory_peak,\n               s.memory_sample_count, s.total_cpu_ms\n        FROM UNNEST($1::bigint[], $2::text[], $3::text[], $4::text[], $5::int[], $6::bigint[],\n                    $7::int[], $8::bigint[], $9::int[], $10::bigint[])\n            AS s(hour, workspace_id, runnable_path, worker_group, job_count, total_duration_ms,\n                 max_memory_peak, sum_memory_peak, memory_sample_count, total_cpu_ms)\n        JOIN workspace w ON w.id = s.workspace_id\n        ON CONFLICT (hour, workspace_id, runnable_path, worker_group) DO UPDATE SET\n            job_count = runnable_job_stats.job_count + EXCLUDED.job_count,\n            total_duration_ms = runnable_job_stats.total_duration_ms + EXCLUDED.total_duration_ms,\n            max_memory_peak = GREATEST(runnable_job_stats.max_memory_peak, EXCLUDED.max_memory_peak),\n            sum_memory_peak = runnable_job_stats.sum_memory_peak + EXCLUDED.sum_memory_peak,\n            memory_sample_count = runnable_job_stats.memory_sample_count + EXCLUDED.memory_sample_count,\n            total_cpu_ms = runnable_job_stats.total_cpu_ms + EXCLUDED.total_cpu_ms\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Int4Array",
+        "Int8Array",
+        "Int4Array",
+        "Int8Array",
+        "Int4Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5543f0d1f47c28149ccba70a0b586c434961cb1f0652a7c08c5952c9f1c51296"
+}

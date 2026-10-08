@@ -2247,6 +2247,7 @@ pub async fn handle_all_job_kind_error(
                         ))),
                         result_columns: None,
                         mem_peak: 0,
+                        resource_usage: None,
                         canceled_by: None,
                         success: false,
                         cached_res_path: None,
@@ -3772,6 +3773,7 @@ pub async fn run_worker(
                                 result: Arc::new(empty_result()),
                                 result_columns: None,
                                 mem_peak: 0,
+                                resource_usage: None,
                                 cached_res_path: None,
                                 token: "".to_string(),
                                 canceled_by: None,
@@ -4763,6 +4765,7 @@ pub async fn handle_queued_job(
                             result,
                             result_columns: None,
                             mem_peak: 0,
+                            resource_usage: None,
                             canceled_by: None,
                             success: true,
                             cached_res_path: None,
@@ -5121,6 +5124,7 @@ pub async fn handle_queued_job(
             .as_ref()
             .is_err_and(|err| matches!(err, &Error::AlreadyCompleted(_)))
         {
+            crate::handle_child::take_job_cpu_time_ms(&cjob.id);
             return Ok(JobOutcome::AlreadyCompleted);
         }
         if result
