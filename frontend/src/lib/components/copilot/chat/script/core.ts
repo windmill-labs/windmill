@@ -80,9 +80,13 @@ export async function searchResourceTypes(
 	query: string,
 	workspace: string,
 	limit: number
-): Promise<{ resourceTypes: Pick<ResourceType, 'name' | 'schema'>[]; hubSyncNote?: string }> {
+): Promise<{ resourceTypes: Pick<ResourceType, 'name' | 'schema'>[]; note?: string }> {
+	let similarityFailed = false
 	const [similar, names] = await Promise.all([
-		ResourceService.queryResourceTypes({ workspace, text: query, limit }).catch(() => []),
+		ResourceService.queryResourceTypes({ workspace, text: query, limit }).catch(() => {
+			similarityFailed = true
+			return []
+		}),
 		ResourceService.listResourceTypeNames({ workspace })
 			.then((listed) => new Set(listed))
 			.catch(() => undefined)
@@ -108,12 +112,18 @@ export async function searchResourceTypes(
 		...similar
 	].slice(0, limit)
 
-	const hubSyncNote =
+	// Without the similarity search, an empty result says nothing about whether a type exists,
+	// so the model gets the names to search again with rather than concluding there is none.
+	const notes = [
+		similarityFailed && names
+			? `The similarity search is unavailable on this instance, so only a type named in the query can be found. Search again with one of the instance's resource types: ${[...names].join(', ')}.`
+			: undefined,
 		names && names.size < UNSYNCED_RESOURCE_TYPE_COUNT
 			? `Only ${names.size} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. ${HUB_SYNC_INSTRUCTIONS}`
 			: undefined
+	].filter((note) => note !== undefined)
 
-	return { resourceTypes, hubSyncNote }
+	return { resourceTypes, note: notes.length > 0 ? notes.join('\n\n') : undefined }
 }
 
 export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
@@ -188,14 +198,14 @@ export async function getFormattedResourceTypes(
 		case 'bunnative':
 		case 'python3':
 		case 'php': {
-			const { resourceTypes, hubSyncNote } = await searchResourceTypes(prompt, workspace, 5)
+			const { resourceTypes, note } = await searchResourceTypes(prompt, workspace, 5)
 
 			const found =
 				resourceTypes.length > 0
 					? `RESOURCE_TYPES:\n${formatResourceTypes(resourceTypes, lang)}`
-					: `No resource type matches "${prompt}".`
+					: `No resource type found for "${prompt}".`
 
-			return hubSyncNote ? `${found}\n\n${hubSyncNote}` : found
+			return note ? `${found}\n\n${note}` : found
 		}
 		default:
 			return ''

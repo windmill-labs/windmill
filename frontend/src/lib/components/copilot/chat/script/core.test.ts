@@ -30,10 +30,25 @@ describe('searchResourceTypes', () => {
 			schema: { type: 'object' }
 		})
 
-		const { resourceTypes, hubSyncNote } = await searchResourceTypes('Stripe payments', 'ws', 5)
+		const { resourceTypes, note } = await searchResourceTypes('Stripe payments', 'ws', 5)
 
 		expect(resourceTypes.map((rt) => rt.name)).toEqual(['stripe'])
-		expect(hubSyncNote).toBeUndefined()
+		expect(note).toBeUndefined()
+	})
+
+	// An empty result from a failed search says nothing about whether a type exists: read as
+	// "none", it sends the model to define a type the instance already has.
+	it('hands back the type names when the similarity search fails', async () => {
+		vi.spyOn(ResourceService, 'queryResourceTypes').mockRejectedValue(new Error('500'))
+		vi.spyOn(ResourceService, 'listResourceTypeNames').mockResolvedValue([
+			...syncedNames,
+			'postgresql'
+		])
+
+		const { resourceTypes, note } = await searchResourceTypes('postgres database', 'ws', 5)
+
+		expect(resourceTypes).toEqual([])
+		expect(note).toContain('postgresql')
 	})
 
 	it('notes an instance that never synced with the hub', async () => {
@@ -43,9 +58,9 @@ describe('searchResourceTypes', () => {
 			'ai_instruction'
 		])
 
-		const { hubSyncNote } = await searchResourceTypes('stripe', 'ws', 5)
+		const { note } = await searchResourceTypes('stripe', 'ws', 5)
 
-		expect(hubSyncNote).toContain('never synced')
+		expect(note).toContain('never synced')
 	})
 })
 

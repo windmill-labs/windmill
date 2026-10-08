@@ -4283,7 +4283,7 @@ export const globalTools: SessionTool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Searching resource types for "${parsed.query}"...`
 			})
-			const { resourceTypes, hubSyncNote } = await searchResourceTypes(
+			const { resourceTypes, note } = await searchResourceTypes(
 				parsed.query,
 				workspace,
 				parsed.limit ?? 5
@@ -4291,11 +4291,7 @@ export const globalTools: SessionTool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Found ${resourceTypes.length} resource type(s) for "${parsed.query}"`
 			})
-			return JSON.stringify(
-				hubSyncNote ? { resource_types: resourceTypes, note: hubSyncNote } : resourceTypes,
-				null,
-				2
-			)
+			return JSON.stringify(note ? { resource_types: resourceTypes, note } : resourceTypes, null, 2)
 		}
 	},
 	createDbSchemaTool<{}>({

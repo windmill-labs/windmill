@@ -108,6 +108,7 @@ vi.mock('$lib/gen', async () => {
 		listBenchmarkAiProviderResources,
 		listBenchmarkPlainResources,
 		listBenchmarkResourceTypeNames,
+		queryBenchmarkResourceTypes,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
 		listBenchmarkDataMetrics,
@@ -464,8 +465,10 @@ vi.mock('$lib/gen', async () => {
 				}
 				return value
 			},
-			queryResourceTypes: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data),
+			queryResourceTypes: async (data: { workspace: string; text: string; limit?: number }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? queryBenchmarkResourceTypes(data.workspace, data.text, data.limit)
+					: actual.ResourceService.queryResourceTypes(data),
 			listResourceTypeNames: async (data: { workspace: string }) =>
 				listBenchmarkResourceTypeNames(data.workspace) ??
 				actual.ResourceService.listResourceTypeNames(data),
