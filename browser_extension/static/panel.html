@@ -3,14 +3,11 @@
 	<head>
 		<meta charset="utf-8" />
 		<title>Windmill</title>
+		<link rel="stylesheet" href="style.css" />
 		<style>
 			html,
 			body {
-				margin: 0;
 				height: 100%;
-				font:
-					13px system-ui,
-					sans-serif;
 			}
 			body {
 				display: flex;
@@ -22,20 +19,11 @@
 				width: 100%;
 			}
 			#setup {
-				padding: 16px;
+				margin: 24px 16px;
 			}
-			#confirm {
-				padding: 12px;
-				border-top: 2px solid #c2410c;
-				background: #fff7ed;
-				color: #1c1917;
-			}
-			#confirm p {
-				margin: 0 0 8px;
-				word-break: break-word;
-			}
-			#confirm .host {
-				color: #57534e;
+			#setup p {
+				margin: 0 0 16px;
+				color: var(--secondary);
 			}
 			[hidden] {
 				display: none !important;
@@ -43,17 +31,15 @@
 		</style>
 	</head>
 	<body>
-		<div id="setup" hidden>
-			<p>Set the URL of your Windmill instance to start.</p>
-			<button id="open-options">Open settings</button>
+		<div id="setup" class="card" hidden>
+			<div class="brand">
+				<img src="logo.svg" alt="" />
+				<h1>Windmill</h1>
+			</div>
+			<p>Connect the extension to your Windmill instance to start a session.</p>
+			<button id="open-options">Set up</button>
 		</div>
 		<iframe id="frame" title="Windmill" hidden></iframe>
-		<div id="confirm" role="alertdialog" aria-labelledby="confirm-text" hidden>
-			<p id="confirm-text"></p>
-			<p class="host" id="confirm-host"></p>
-			<button id="allow">Allow</button>
-			<button id="deny">Deny</button>
-		</div>
 		<script type="module" src="panel.js"></script>
 	</body>
 </html>

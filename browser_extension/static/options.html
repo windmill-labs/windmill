@@ -3,29 +3,36 @@
 	<head>
 		<meta charset="utf-8" />
 		<title>Windmill extension settings</title>
+		<link rel="stylesheet" href="style.css" />
 		<style>
 			body {
-				font:
-					14px system-ui,
-					sans-serif;
-				margin: 24px;
-				max-width: 480px;
+				padding: 48px 16px;
 			}
-			input {
-				width: 100%;
-				padding: 6px;
-				margin: 8px 0;
-				box-sizing: border-box;
+			main {
+				max-width: 440px;
+				margin: 0 auto;
 			}
 		</style>
 	</head>
 	<body>
-		<form id="form">
-			<label for="url">Windmill instance URL</label>
-			<input id="url" type="url" placeholder="https://app.windmill.dev" required />
-			<button type="submit">Save</button>
-			<p id="status"></p>
-		</form>
+		<main class="card">
+			<div class="brand">
+				<img src="logo.svg" alt="" />
+				<div>
+					<h1>Windmill</h1>
+					<p>AI sessions in your browser's side panel</p>
+				</div>
+			</div>
+			<form id="form" novalidate>
+				<label for="url">Instance URL</label>
+				<p class="help">The address you open Windmill at, including any base path.</p>
+				<input id="url" type="url" placeholder="https://app.windmill.dev" autocomplete="url" />
+				<div class="actions">
+					<button id="save" type="submit">Save</button>
+					<p id="status" class="status" role="status"></p>
+				</div>
+			</form>
+		</main>
 		<script type="module" src="options.js"></script>
 	</body>
 </html>

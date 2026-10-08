@@ -25,9 +25,13 @@ icon to open the panel.
 ## Guardrails
 
 - Only the active tab of the panel's window is read or acted on.
-- Reading and screenshots run without asking. Each click, type and navigation waits for
-  Allow in a bar the extension draws below the frame, which neither the chat nor the page
-  can answer.
+- Reading and screenshots run without asking. Each click, type and navigation waits for the
+  chat's own approval card, which lives in Windmill's frame where the page cannot reach it.
+  YOLO auto-approval is unavailable in the panel.
+- Approval runs in two steps. When the card opens, the extension pins the target (tab,
+  document and element, the element held in the extension's isolated world) and describes
+  it for the card. After approval it acts only on that target, and refuses if the tab is no
+  longer active, the page navigated or reloaded, or the element changed.
 - Both sides check the bridge's origins. The panel accepts messages only from its own frame
   at the configured instance origin. Windmill accepts them only from its parent window,
   when that parent is a `chrome-extension://` origin (`location.ancestorOrigins`).

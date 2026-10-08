@@ -1,15 +1,24 @@
 // Hosts Windmill's chat-only session route in an iframe and executes the browser tools it
 // relays (frontend `global/browserTools.ts`) on the active tab of this window.
+//
+// Click, type and navigate run in two steps around the chat's own approval card: `prepare`
+// pins the tab, document and element and describes them for the card, and `act` runs only a
+// prepared action, after re-checking that what was described is still there.
 
 type Target = { ref?: number; selector?: string }
-type Call =
-	| { tool: 'read'; args: {} }
-	| { tool: 'screenshot'; args: {} }
+type Action =
 	| { tool: 'click'; args: Target }
 	| { tool: 'type'; args: Target & { text: string; submit?: boolean } }
 	| { tool: 'navigate'; args: { url: string } }
+type Call =
+	| { tool: 'read'; args: {} }
+	| { tool: 'screenshot'; args: {} }
+	| { tool: 'prepare'; args: Action }
+	| { tool: 'act'; args: { approvalId: string } }
+type Prepared = Action & { tab: chrome.tabs.Tab; documentId?: string; nonce: string }
 
 const frame = document.getElementById('frame') as HTMLIFrameElement
+const prepared = new Map<string, Prepared>()
 
 async function main() {
 	const { instanceUrl } = (await chrome.storage.sync.get('instanceUrl')) as { instanceUrl?: string }
@@ -31,11 +40,10 @@ async function main() {
 		if (msg?.type === 'wm-browser:hello') {
 			reply({ type: 'wm-browser:ready' })
 		} else if (msg?.type === 'wm-browser:cancel') {
-			generation++
-			declineOpen?.()
+			prepared.clear()
 		} else if (msg?.type === 'wm-browser:call' && typeof msg.id === 'string') {
 			try {
-				const result = await run({ tool: msg.tool, args: msg.args ?? {} } as Call, generation)
+				const result = await run({ tool: msg.tool, args: msg.args ?? {} } as Call)
 				reply({ type: 'wm-browser:result', id: msg.id, ok: true, result })
 			} catch (err) {
 				const error = err instanceof Error ? err.message : String(err)
@@ -45,7 +53,8 @@ async function main() {
 	})
 }
 
-async function run(call: Call, gen: number): Promise<unknown> {
+async function run(call: Call): Promise<unknown> {
+	if (call.tool === 'act') return act(call.args.approvalId)
 	const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
 	if (tab?.id === undefined) throw new Error('No active tab')
 	const tabId = tab.id
@@ -54,46 +63,59 @@ async function run(call: Call, gen: number): Promise<unknown> {
 			return (await exec({ tabId }, readPage, [30_000]))[0]
 		case 'screenshot':
 			return chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 })
-		case 'click':
-		case 'type': {
-			// Only the element described for the approval is acted on after Allow.
-			const nonce = crypto.randomUUID()
-			const [label, documentId] = await exec({ tabId }, pageAction, ['describe', call.args, nonce])
-			const submit = call.tool === 'type' && call.args.submit ? ' and submit' : ''
-			await confirmAction(
-				call.tool === 'click'
-					? `Click ${label}`
-					: `Type "${call.args.text}" into ${label}${submit}`,
-				tab,
-				gen
-			)
-			await stillApproved(tab, documentId)
-			const target = { tabId, documentIds: [documentId] }
-			const [result] = await exec(target, pageAction, [call.tool, call.args, nonce]).catch(
-				(e: Error) => {
-					throw /No document with id/.test(e.message) ? new Error(PAGE_CHANGED) : e
-				}
-			)
-			return result
-		}
-		case 'navigate': {
-			const url = new URL(call.args.url)
-			if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-				throw new Error('Only http(s) URLs can be opened')
-			}
-			// A page the extension cannot script (a browser page) is pinned by its URL alone.
-			const documentId = await exec({ tabId }, () => ({ result: null }), []).then(
-				([, id]) => id,
-				() => undefined
-			)
-			await confirmAction(`Open ${url.href}`, tab, gen)
-			await stillApproved(tab, documentId)
-			await chrome.tabs.update(tabId, { url: url.href })
-			return `Navigating to ${url.href}`
-		}
+		case 'prepare':
+			return prepare(call.args, tab)
 		default:
 			throw new Error(`Unknown browser tool ${(call as { tool: string }).tool}`)
 	}
+}
+
+async function prepare(action: Action, tab: chrome.tabs.Tab) {
+	const tabId = tab.id!
+	const nonce = crypto.randomUUID()
+	const host = tab.url ? new URL(tab.url).host : 'the active tab'
+	let label: string
+	let documentId: string | undefined
+	if (action.tool === 'navigate') {
+		const url = new URL(action.args.url)
+		if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+			throw new Error('Only http(s) URLs can be opened')
+		}
+		// A page the extension cannot script (a browser page) is pinned by its URL alone.
+		documentId = await exec({ tabId }, () => ({ result: null }), []).then(
+			([, id]) => id,
+			() => undefined
+		)
+		label = `Open ${url.href}`
+	} else {
+		const [target, id] = await exec({ tabId }, pageAction, ['describe', action.args, nonce])
+		documentId = id
+		const submit = action.tool === 'type' && action.args.submit ? ' and submit' : ''
+		label =
+			action.tool === 'click'
+				? `Click ${target} on ${host}`
+				: `Type "${action.args.text}" into ${target} on ${host}${submit}`
+	}
+	const approvalId = crypto.randomUUID()
+	prepared.set(approvalId, { ...action, tab, documentId, nonce })
+	return { approvalId, label }
+}
+
+async function act(approvalId: string): Promise<unknown> {
+	const p = prepared.get(approvalId)
+	prepared.delete(approvalId)
+	if (!p) throw new Error('This action was withdrawn. Ask again.')
+	await stillApproved(p.tab, p.documentId)
+	const tabId = p.tab.id!
+	if (p.tool === 'navigate') {
+		await chrome.tabs.update(tabId, { url: new URL(p.args.url).href })
+		return `Navigating to ${p.args.url}`
+	}
+	const target = { tabId, documentIds: [p.documentId!] }
+	const [result] = await exec(target, pageAction, [p.tool, p.args, p.nonce]).catch((e: Error) => {
+		throw /No document with id/.test(e.message) ? new Error(PAGE_CHANGED) : e
+	})
+	return result
 }
 
 // Injected functions run in the page and must be self-contained; they report failure as
@@ -126,41 +148,6 @@ async function stillApproved(tab: chrome.tabs.Tab, documentId: string | undefine
 			}
 		)
 	}
-}
-
-let confirmQueue: Promise<unknown> = Promise.resolve()
-// Bumped when the chat stops its turn: a confirmation asked before that is never shown, and
-// the open one is declined.
-let generation = 0
-let declineOpen: (() => void) | undefined
-
-/** Shown outside the Windmill frame, so neither the chat nor the page can answer it. */
-function confirmAction(text: string, tab: chrome.tabs.Tab, gen: number): Promise<void> {
-	const ask = () =>
-		new Promise<void>((resolve, reject) => {
-			if (gen !== generation) return reject(new Error('Stopped by the user'))
-			const box = document.getElementById('confirm')!
-			document.getElementById('confirm-text')!.textContent = text
-			document.getElementById('confirm-host')!.textContent = `On ${tab.url ?? 'the active tab'}`
-			box.hidden = false
-			const allow = document.getElementById('allow') as HTMLButtonElement
-			const deny = document.getElementById('deny') as HTMLButtonElement
-			const done = (ok: boolean) => {
-				box.hidden = true
-				allow.onclick = deny.onclick = null
-				declineOpen = undefined
-				if (ok) resolve()
-				// The frontend matches this exact message to count declines.
-				else reject(new Error('The user declined this action'))
-			}
-			allow.onclick = () => done(true)
-			deny.onclick = () => done(false)
-			declineOpen = () => done(false)
-			// Nothing is focused: a keystroke meant for the chat composer must not approve.
-		})
-	const next = confirmQueue.then(ask, ask)
-	confirmQueue = next.catch(() => {})
-	return next
 }
 
 function readPage(maxChars: number) {
@@ -222,6 +209,7 @@ function pageAction(
 			el.getAttribute('aria-label') ||
 			el.innerText ||
 			input.placeholder ||
+			(input.type === 'submit' || input.type === 'button' ? input.value : '') ||
 			input.name ||
 			''
 		)

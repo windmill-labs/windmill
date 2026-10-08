@@ -1,0 +1,140 @@
+/* Windmill's surface, text and accent tokens (frontend/brand-guidelines.md). */
+:root {
+	--surface: #fbfbfd;
+	--card: #ffffff;
+	--input: #ffffff;
+	--text: #3d4758;
+	--emphasis: #1d2430;
+	--secondary: #718096;
+	--hint: #8d93a1;
+	--border: #e5e7eb;
+	--border-input: #d1d5db;
+	--accent: #758ff8;
+	--accent-hover: #5074f6;
+	--focus: #2c5beb;
+	--success: #16a34a;
+	--error: #dc2626;
+	color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--surface: #2e3441;
+		--card: #353c4a;
+		--input: #292e38;
+		--text: #d4d7dd;
+		--emphasis: #eeeff2;
+		--secondary: #a9b0ba;
+		--hint: #8d93a1;
+		--border: #374457;
+		--border-input: #4b5567;
+		--accent: #7085db;
+		--accent-hover: #5670d5;
+		--focus: #a0affa;
+		--success: #22c55e;
+		--error: #ef4444;
+		color-scheme: dark;
+	}
+}
+* {
+	box-sizing: border-box;
+}
+body {
+	margin: 0;
+	background: var(--surface);
+	color: var(--text);
+	font:
+		13px/1.5 Inter,
+		system-ui,
+		-apple-system,
+		sans-serif;
+}
+.card {
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 24px;
+}
+.brand {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 20px;
+}
+.brand img {
+	width: 28px;
+	height: 28px;
+}
+.brand h1 {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 600;
+	color: var(--emphasis);
+}
+.brand p {
+	margin: 0;
+	color: var(--secondary);
+	font-size: 12px;
+}
+label {
+	display: block;
+	font-weight: 600;
+	color: var(--emphasis);
+	margin-bottom: 4px;
+}
+.help {
+	color: var(--secondary);
+	font-size: 12px;
+	margin: 0 0 8px;
+}
+input {
+	width: 100%;
+	height: 32px;
+	padding: 0 10px;
+	font: inherit;
+	color: var(--emphasis);
+	background: var(--input);
+	border: 1px solid var(--border-input);
+	border-radius: 6px;
+	outline: none;
+}
+input::placeholder {
+	color: var(--hint);
+}
+input:focus {
+	border-color: var(--focus);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 20%, transparent);
+}
+.actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-top: 16px;
+}
+button {
+	height: 32px;
+	padding: 0 14px;
+	font: inherit;
+	font-weight: 600;
+	color: #fff;
+	background: var(--accent);
+	border: 0;
+	border-radius: 6px;
+	cursor: pointer;
+}
+button:hover {
+	background: var(--accent-hover);
+}
+button:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+.status {
+	margin: 0;
+	font-size: 12px;
+}
+.status.ok {
+	color: var(--success);
+}
+.status.error {
+	color: var(--error);
+}
