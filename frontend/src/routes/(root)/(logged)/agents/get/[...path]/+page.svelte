@@ -15,6 +15,7 @@
 	import AgentEditorHost from '$lib/components/flows/content/AgentEditorHost.svelte'
 	import AgentConfigModal from '$lib/components/flows/content/AgentConfigModal.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import { Alert } from '$lib/components/common'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
@@ -180,6 +181,14 @@
 				onOpenConfig={() => configModal?.open()}
 			>
 				{#snippet viewForm({ schema, run, loading, actions })}
+					{#if config && !chatAvailable}
+						<Alert type="info" size="xs" title="Managed memory is off" class="mb-4">
+							Each run is answered on its own inputs, so this agent has no chat. That suits reusing
+							it as a step in a flow.{canEdit
+								? ' Turn on managed memory in its configuration to chat with it.'
+								: ''}
+						</Alert>
+					{/if}
 					<RunForm
 						runnable={{ schema, path }}
 						runAction={run}
