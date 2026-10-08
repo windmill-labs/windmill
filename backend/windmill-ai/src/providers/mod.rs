@@ -62,9 +62,13 @@ const REASONING_RULES: &[ReasoningRule] = &[
         can_disable: false,
         completions_tools_need_off: false,
     },
-    // Live-verified: astra takes low..max only, where sol and luna also take `none`.
+    // Live-verified: gpt-6-astra and gpt-6.1-sol take low..max only, where gpt-6-sol and
+    // gpt-6-luna also take `none`.
     ReasoningRule {
-        matches: |m| base_id(m).starts_with("gpt-6-astra"),
+        matches: |m| {
+            let base = base_id(m);
+            base.starts_with("gpt-6-astra") || base.starts_with("gpt-6.1-sol")
+        },
         can_disable: false,
         completions_tools_need_off: true,
     },

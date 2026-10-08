@@ -25,6 +25,12 @@ export function setOverlayHost(host: OverlayHostContext) {
 	setContext<OverlayHostContext>(OVERLAY_HOST_KEY, host)
 }
 
+/** Hand this subtree's overlays back to the viewport, for one that speaks for the whole
+ *  page rather than the pane it happens to be opened from. */
+export function clearOverlayHost() {
+	setContext<OverlayHostContext | undefined>(OVERLAY_HOST_KEY, undefined)
+}
+
 export function getOverlayHost(): OverlayHostContext | undefined {
 	return getContext<OverlayHostContext | undefined>(OVERLAY_HOST_KEY)
 }

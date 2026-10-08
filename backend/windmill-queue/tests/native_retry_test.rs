@@ -561,4 +561,123 @@ mod native_retry {
                 .unwrap();
         assert_eq!(status, "failure", "resolving must not change job status");
     }
+
+    // A script dispatched from another job keeps that job as its parent, so its chain is
+    // rooted at the first attempt itself: sibling dispatches must not share retry ids, and
+    // a parented first attempt is still resolved once its retry succeeds.
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn parented_first_attempts_root_their_own_chains(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let retry = Retry {
+            constant: ConstantDelay { attempts: 1, seconds: 0 },
+            exponential: Default::default(),
+            retry_if: None,
+        };
+        let handle = insert_rs(
+            RunnableSettings {
+                debouncing_settings: None,
+                concurrency_settings: None,
+                retry_settings: RetrySettings::from(&retry).insert_cached(&db).await?,
+            },
+            &db,
+        )
+        .await?;
+        let dispatcher = Uuid::new_v4();
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        for first in [a, b] {
+            let attempt = mini(first, Some(dispatcher), handle);
+            assert!(maybe_enqueue_native_script_retry(&db, &attempt, &None, &no_result).await?);
+        }
+        assert!(
+            retry_by_attempt(&db, a, 1).await.is_some(),
+            "a's retry hangs off a"
+        );
+        assert!(
+            retry_by_attempt(&db, b, 1).await.is_some(),
+            "b's retry is not mistaken for a's"
+        );
+
+        let (c, c_retry, c_sibling) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        seed_job(&db, c, Some(dispatcher), false, "failure").await;
+        seed_job(&db, c_sibling, Some(dispatcher), false, "failure").await;
+        seed_job(&db, c_retry, Some(c), true, "success").await;
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, c, WS, None).await?;
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, dispatcher, WS, None).await?;
+        let resolved: Vec<Uuid> = sqlx::query_scalar("SELECT job_id FROM job_resolution")
+            .fetch_all(&db)
+            .await?;
+        assert_eq!(
+            resolved,
+            vec![c],
+            "only the parented first attempt resolves, not its sibling"
+        );
+        Ok(())
+    }
+
+    // Cancelling the job that dispatched a script reaches that script's pending retry, which
+    // hangs off a first attempt that has already completed.
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn cancelling_the_caller_cancels_a_pending_retry(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let retry = Retry {
+            constant: ConstantDelay { attempts: 2, seconds: 60 },
+            exponential: Default::default(),
+            retry_if: None,
+        };
+        let handle = insert_rs(
+            RunnableSettings {
+                debouncing_settings: None,
+                concurrency_settings: None,
+                retry_settings: RetrySettings::from(&retry).insert_cached(&db).await?,
+            },
+            &db,
+        )
+        .await?;
+        let (caller, first) = (Uuid::new_v4(), Uuid::new_v4());
+        sqlx::query(
+            "INSERT INTO v2_job (id, workspace_id, kind, runnable_path) VALUES ($1, $2, 'script', $3)",
+        )
+        .bind(caller)
+        .bind(WS)
+        .bind(SCRIPT)
+        .execute(&db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running) VALUES ($1, $2, now(), true)",
+        )
+        .bind(caller)
+        .bind(WS)
+        .execute(&db)
+        .await?;
+        seed_job(&db, first, Some(caller), false, "failure").await;
+        let attempt = mini(first, Some(caller), handle);
+        assert!(maybe_enqueue_native_script_retry(&db, &attempt, &None, &no_result).await?);
+        let (retry_id, ..) = retry_by_attempt(&db, first, 1)
+            .await
+            .expect("retry is queued");
+
+        let tx = db.begin().await?;
+        let (tx, _) =
+            windmill_queue::jobs::cancel_job("test-user", None, caller, WS, tx, &db, false, false)
+                .await?;
+        tx.commit().await?;
+
+        let canceled_by: Option<String> =
+            sqlx::query_scalar("SELECT canceled_by FROM v2_job_queue WHERE id = $1")
+                .bind(retry_id)
+                .fetch_one(&db)
+                .await?;
+        assert_eq!(canceled_by.as_deref(), Some("test-user"));
+
+        // The worker that pulls the canceled retry completes it without a `canceled_by`.
+        let (_, _, _, _, retry_handle) = retry_by_attempt(&db, first, 1).await.unwrap();
+        let canceled_retry = mini(retry_id, Some(first), retry_handle);
+        assert!(
+            !maybe_enqueue_native_script_retry(&db, &canceled_retry, &None, &no_result).await?,
+            "a canceled retry does not enqueue the next attempt"
+        );
+        Ok(())
+    }
 }

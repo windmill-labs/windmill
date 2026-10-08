@@ -10,7 +10,7 @@
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
 	import Row from '../table/Row.svelte'
-	import { KeyRound } from 'lucide-svelte'
+	import { CircleHelp, KeyRound } from 'lucide-svelte'
 	import {
 		FolderService,
 		GroupService,
@@ -25,7 +25,13 @@
 	import { deepEqual } from 'fast-equals'
 	import { ADMIN_DATATABLE_ROLE, isDatatableRoleName } from '../dbTypes'
 	import PgAclEditor from '../datatableAcl/PgAclEditor.svelte'
-	import InstanceRolesButton from './InstanceRolesButton.svelte'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
+	import {
+		pgInstanceName as pgInstanceNameOf,
+		handleRoleCreationError,
+		offerUnusedRoleDrop
+	} from './datatableRoleModals'
 
 	let {
 		workspace,
@@ -44,10 +50,8 @@
 	} = $props()
 
 	// `id` is the instance role's catalog id (or the reserved `admin`), which is what the tenant
-	// lists are keyed by — so renaming a role instance-side moves nothing here. A row without an id
-	// names a role the instance does not define yet: it cannot be saved until a superadmin creates
-	// it, and takes the new role's id once they have.
-	type EditedRole = { id: string | undefined; name: string | undefined; tenants: string[] }
+	// lists are keyed by — so renaming a role instance-side moves nothing here.
+	type EditedRole = { id: string; name: string | undefined; tenants: string[] }
 	type Edited = { permissioned: boolean; roles: EditedRole[]; defaultRoleId: string }
 
 	let drawerOpen = $state(false)
@@ -72,7 +76,7 @@
 
 	const editable = $derived(!!info?.editable)
 	const governing = $derived(info?.governing_workspace_id)
-	// The instance catalog, read again after the instance roles drawer changes it.
+	// The instance catalog, with the roles created from this drawer since it was loaded.
 	let catalog = $state<InstanceDatatableRole[] | undefined>(undefined)
 	const availableRoles: InstanceDatatableRole[] = $derived(catalog ?? info?.available_roles ?? [])
 	// A role is a login on one cluster, and this drawer's is the data table's: name it, or the
@@ -80,11 +84,10 @@
 	const clusterName = $derived(
 		info?.cluster === 'external_instance' ? 'the external cluster' : "Windmill's database"
 	)
+	const pgInstanceName = $derived(pgInstanceNameOf(info?.cluster))
 	const unusedRoles = $derived(availableRoles.filter((r) => !roles.some((row) => row.id === r.id)))
-	const pendingRoles = $derived(roles.filter((r) => r.id === undefined))
-	let instanceRoles: InstanceRolesButton | undefined = $state(undefined)
-
-	const roleKey = (role: EditedRole) => role.id ?? `pending:${role.name}`
+	const confirmationModal = createAsyncConfirmationModal()
+	let aclEditor = $state<PgAclEditor | undefined>(undefined)
 
 	const hasUnsavedChanges = $derived(
 		!deepEqual($state.snapshot(saved), {
@@ -152,9 +155,9 @@
 		roles.push({ id: role.id, name: role.name, tenants: [] })
 	}
 
-	/** Adds a role by name: the instance's role of that name, or a pending row for one it does not
-	 * define yet. */
-	function addRoleByName(typed: string) {
+	/** Adds the instance's role of that name. One the instance does not define is created first,
+	 * which only a superadmin may do. */
+	async function addRoleByName(typed: string) {
 		const name = typed.trim()
 		if (!isDatatableRoleName(name) || name.toLowerCase() === ADMIN_DATATABLE_ROLE) {
 			sendUserToast(
@@ -165,35 +168,70 @@
 		}
 		if (roles.some((r) => r.name === name)) return
 		const existing = availableRoles.find((r) => r.name === name)
-		roles.push({ id: existing?.id, name, tenants: [] })
+		if (existing) {
+			roles.push({ id: existing.id, name, tenants: [] })
+			return
+		}
+		if (!$superadmin) {
+			await confirmationModal.ask({
+				title: `Role ${name} does not exist`,
+				children: `This role doesn't exist in ${pgInstanceName}. Ask a superadmin to create it.`,
+				confirmationText: 'OK',
+				type: 'info',
+				hideCancel: true
+			})
+			return
+		}
+		let created: InstanceDatatableRole | undefined
+		let failure: unknown
+		await confirmationModal.ask({
+			title: `Role ${name} does not exist`,
+			children: `(Superadmin) Create this role in ${pgInstanceName}?`,
+			confirmationText: 'Create role',
+			type: 'info',
+			onConfirmed: async () => {
+				try {
+					created = await SettingService.createInstanceDatatableRole({
+						requestBody: { name, cluster: info?.cluster }
+					})
+				} catch (e) {
+					failure = e
+				}
+			}
+		})
+		if (created) addCreatedRole(created)
+		// Handled once this modal has closed: the take-over offer opens in the same one.
+		if (failure) {
+			await handleRoleCreationError(failure, {
+				name,
+				cluster: info?.cluster,
+				confirmationModal,
+				onTakenOver: addCreatedRole
+			})
+		}
+	}
+
+	function addCreatedRole(created: InstanceDatatableRole) {
+		catalog = [...availableRoles, created]
+		if (!roles.some((r) => r.id === created.id)) {
+			roles.push({ id: created.id, name: created.name, tenants: [] })
+		}
 	}
 
 	function removeRole(role: EditedRole) {
-		const key = roleKey(role)
-		roles = roles.filter((r) => roleKey(r) !== key)
-		if (role.id !== undefined && defaultRoleId === role.id) defaultRoleId = ADMIN_DATATABLE_ROLE
-	}
-
-	/** Reads the instance catalog again and gives each pending row the id of the role now defined
-	 * under its name. */
-	async function refreshCatalog() {
-		let fresh: InstanceDatatableRole[]
-		try {
-			fresh = await SettingService.listInstanceDatatableRoles({ cluster: info?.cluster })
-		} catch (e) {
-			sendUserToast(e?.body ?? e?.message ?? String(e), true)
-			return
-		}
-		catalog = fresh
-		for (const row of roles) {
-			if (row.id !== undefined) continue
-			const created = fresh.find((r) => r.name === row.name)
-			if (created) row.id = created.id
-		}
+		roles = roles.filter((r) => r.id !== role.id)
+		if (defaultRoleId === role.id) defaultRoleId = ADMIN_DATATABLE_ROLE
 	}
 
 	async function save() {
 		saving = true
+		// Turning roles off clears the whole block, so every role it named is removed.
+		const kept = permissioned ? roles.map((r) => r.id) : []
+		const removedIds = saved.permissioned
+			? saved.roles
+					.map((r) => r.id)
+					.filter((id) => id !== ADMIN_DATATABLE_ROLE && !kept.includes(id))
+			: []
 		try {
 			const msg = await WorkspaceService.setDatatablePermissions({
 				workspace,
@@ -201,17 +239,44 @@
 				requestBody: {
 					permissioned,
 					default_role: defaultRoleId,
-					roles: roles.map((r) => ({ id: r.id!, tenants: $state.snapshot(r.tenants) }))
+					roles: roles.map((r) => ({ id: r.id, tenants: $state.snapshot(r.tenants) }))
 				}
 			})
 			sendUserToast(msg)
 			await load()
+			// A role is a login of the whole Postgres instance: whether this was the last data table
+			// naming it is only known once the save has landed.
+			const unused = availableRoles.filter((r) => removedIds.includes(r.id) && r.in_use === false)
+			let dropped = false
+			for (const role of unused) {
+				dropped =
+					(await offerUnusedRoleDrop({
+						role,
+						cluster: info?.cluster,
+						superadmin: !!$superadmin,
+						confirmationModal
+					})) || dropped
+			}
+			if (dropped) await load()
+			// The grants list the roles they can name, which the save just changed.
+			aclEditor?.refresh()
 			onSaved?.()
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 		} finally {
 			saving = false
 		}
+	}
+
+	/** Whether the drawer may close: unsaved roles are only lost once the user says so. */
+	async function confirmDiscard(): Promise<boolean> {
+		if (!hasUnsavedChanges || !drawerOpen) return true
+		return await confirmationModal.ask({
+			title: 'Discard unsaved changes?',
+			children: `The roles of ${datatable} have changes that are not saved. Closing the drawer discards them.`,
+			confirmationText: 'Discard changes',
+			type: 'danger'
+		})
 	}
 
 	export function open() {
@@ -232,10 +297,12 @@
 	/>
 {/if}
 
-<Drawer bind:open={drawerOpen} size="900px">
+<Drawer bind:open={drawerOpen} size="900px" confirmClose={confirmDiscard}>
 	<DrawerContent
-		title="Roles — {datatable}"
-		on:close={() => (drawerOpen = false)}
+		title="Roles: {datatable}"
+		on:close={async () => {
+			if (await confirmDiscard()) drawerOpen = false
+		}}
 		tooltip="A data table role is a Postgres login. A job that names one connects as it, and Postgres decides what it may touch — grant it privileges under Access. Roles are defined for the whole instance; here you say who may use each one on this data table."
 	>
 		{#snippet titleExtra()}
@@ -293,10 +360,13 @@
 				{/if}
 
 				{#if permissioned}
-					{#if editable && availableRoles.length === 0}
-						<Alert type="warning" title="No role defined on this instance" size="xs">
-							Only <span class="font-mono">admin</span> can be used until a superadmin creates a data
-							table role. Type a name below to add one.
+					{#if editable && !$superadmin}
+						<Alert type="info" title="Only superadmins can create roles" size="xs">
+							A data table role is a Postgres login on {pgInstanceName}, so only a superadmin can
+							create one. Ask a superadmin for any role you need that is not listed.
+							{#if availableRoles.length === 0}
+								Until then, only <span class="font-mono">admin</span> can be used.
+							{/if}
 						</Alert>
 					{/if}
 
@@ -329,7 +399,7 @@
 							</tr>
 						</Head>
 						<tbody class="divide-y bg-surface-tertiary">
-							{#each roles as role (roleKey(role))}
+							{#each roles as role (role.id)}
 								{@const isAdmin = role.id === ADMIN_DATATABLE_ROLE}
 								<Row>
 									<Cell first class="w-56 align-top">
@@ -339,23 +409,6 @@
 												<span class="text-2xs text-secondary italic">
 													no longer defined on {clusterName}
 												</span>
-											{:else if role.id === undefined}
-												<Alert type="warning" title="This role does not exist yet" size="xs">
-													{#if $superadmin}
-														<div class="flex flex-col items-start gap-1">
-															<span>Create it on {clusterName} to use it here.</span>
-															<Button
-																unifiedSize="xs"
-																variant="default"
-																on:click={() => instanceRoles?.open(role.name)}
-															>
-																Create it
-															</Button>
-														</div>
-													{:else}
-														Only a superadmin can create it on {clusterName}.
-													{/if}
-												</Alert>
 											{/if}
 										</div>
 									</Cell>
@@ -371,11 +424,11 @@
 									<Cell class="w-20 align-top">
 										<div class="flex justify-center pt-2">
 											<Checkbox
-												checked={role.id !== undefined && defaultRoleId === role.id}
-												disabled={!editable || role.id === undefined}
+												checked={defaultRoleId === role.id}
+												disabled={!editable}
 												title="Use this role when a job names none"
 												onChange={() => {
-													if (role.id !== undefined) defaultRoleId = role.id
+													defaultRoleId = role.id
 												}}
 											/>
 										</div>
@@ -388,7 +441,7 @@
 								</Row>
 							{/each}
 							{#if editable}
-								<Row class="!border-0">
+								<Row>
 									<Cell colspan={4} class="pt-2 pb-2">
 										<div class="flex justify-center">
 											<Select
@@ -418,9 +471,32 @@
 
 			<!-- Grants only matter to a data table under roles: without them every job connects as the
 			default login, whatever is granted here. -->
-			{#if info?.supported && permissioned && !hasUnsavedChanges}
+			{#if info?.supported && permissioned}
 				<div class="mt-6 pt-6 border-t">
-					<PgAclEditor {workspace} {datatable} target={{ kind: 'database' }} />
+					<PgAclEditor
+						bind:this={aclEditor}
+						{workspace}
+						{datatable}
+						target={{ kind: 'database' }}
+						disabledReason={hasUnsavedChanges ? 'Save the new roles to continue' : undefined}
+					/>
+					<div class="mt-3">
+						<Button
+							unifiedSize="xs"
+							variant="subtle"
+							startIcon={{ icon: CircleHelp }}
+							on:click={() =>
+								confirmationModal.ask({
+									title: 'Permissions on schemas and tables',
+									children: `<p>In the database manager, click the <b>⋮</b> menu of a schema or a table, then <b>Access</b>, to add grants on it or change its owner.</p>`,
+									confirmationText: 'OK',
+									type: 'info',
+									hideCancel: true
+								})}
+						>
+							How to use permissions on schemas and tables?
+						</Button>
+					</div>
 				</div>
 			{/if}
 		{/if}
@@ -430,10 +506,7 @@
 				<Button
 					variant="accent"
 					unifiedSize="md"
-					disabled={!hasUnsavedChanges || loading || !!loadError || pendingRoles.length > 0}
-					title={pendingRoles.length > 0
-						? 'Create the roles that do not exist yet, or remove them'
-						: undefined}
+					disabled={!hasUnsavedChanges || loading || !!loadError}
 					loading={saving}
 					on:click={save}
 				>
@@ -444,11 +517,4 @@
 	</DrawerContent>
 </Drawer>
 
-{#if $superadmin}
-	<InstanceRolesButton
-		bind:this={instanceRoles}
-		hideTrigger
-		cluster={info?.cluster}
-		onChanged={refreshCatalog}
-	/>
-{/if}
+<ConfirmationModal {...confirmationModal.props} />

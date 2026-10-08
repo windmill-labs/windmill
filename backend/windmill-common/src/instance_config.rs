@@ -963,6 +963,9 @@ pub struct WorkerGroupConfig {
     pub autoscaling: Option<AutoscalingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub native_mode: Option<bool>,
+    /// Workers of the group pull no new job while this is set; queued jobs wait.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paused: Option<bool>,
     /// Object store this group's dependency cache uses instead of the instance one. Same shape
     /// as the instance `object_store_cache_config`.
     #[serde(skip_serializing_if = "Option::is_none")]

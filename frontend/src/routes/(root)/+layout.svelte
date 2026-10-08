@@ -1,4 +1,6 @@
 <script lang="ts">
+	// First, so its rules precede every component's.
+	import '$lib/assets/app.css'
 	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'

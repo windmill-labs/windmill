@@ -4698,6 +4698,129 @@ async fn test_run_wait_result_early_return_with_failure_module(
     Ok(())
 }
 
+/// `recover: true` from the error handler of a step that fails inside a loop turns the flow
+/// green, as it does for a top-level step, without changing which steps run: a loop that
+/// stops at a failed iteration still stops there, one that skips failures still carries on.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let failing_loop = |skip_failures: bool| {
+        json!({
+            "id": "loop",
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "static", "value": [1, 2, 3] },
+                "skip_failures": skip_failures,
+                "modules": [{
+                    "id": "a",
+                    "value": {
+                        "input_transforms": {},
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main() { throw new Error('boom'); }",
+                    },
+                }],
+            },
+        })
+    };
+    let run = |loop_step: serde_json::Value| {
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [loop_step, {
+                "id": "b",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return { ran_b: true } }",
+                },
+            }],
+            "failure_module": {
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return { handled: true, recover: true } }",
+                },
+            },
+        }))
+        .unwrap();
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, port)
+    };
+    let handler_runs = || {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM v2_job_completed c JOIN v2_job j USING (id)
+             WHERE j.kind = 'preview' AND c.result @> '{\"handled\": true}'::jsonb",
+        )
+        .fetch_one(&db)
+    };
+
+    let stopped = run(failing_loop(false)).await;
+    let stopped_handler_runs = handler_runs().await?;
+    let skipping = run(failing_loop(true)).await;
+    let skipping_handler_runs = handler_runs().await? - stopped_handler_runs;
+    // A parallel node counts its iterations' stored status: an iteration that ended on a
+    // recovered failure must still be stored as failed there.
+    let parallel = run(json!({
+        "id": "par",
+        "value": {
+            "type": "forloopflow",
+            "iterator": { "type": "static", "value": [1, 2] },
+            "parallel": true,
+            "skip_failures": false,
+            "modules": [failing_loop(false)],
+        },
+    }))
+    .await;
+    // A recovery the inner loop absorbs, then an error raised starting the next step: that
+    // error is a new failure and must leave the flow failed.
+    #[cfg(feature = "quickjs")]
+    let chaining_error = run(json!({
+        "id": "outer",
+        "value": {
+            "type": "forloopflow",
+            "iterator": { "type": "static", "value": [1] },
+            "skip_failures": false,
+            "modules": [failing_loop(true), {
+                "id": "guarded",
+                "skip_if": { "expr": "missingFunction()" },
+                "value": { "input_transforms": {}, "type": "identity" },
+            }],
+        },
+    }))
+    .await;
+
+    server.close().await.unwrap();
+
+    #[cfg(feature = "quickjs")]
+    assert!(!chaining_error.success, "an error no handler recovered must keep the flow failed");
+
+    assert!(stopped.success, "a recovered failure inside a loop should end the flow as a success");
+    assert!(
+        stopped.json_result().unwrap().get("ran_b").is_none(),
+        "the step after the loop must not run, as without recovery"
+    );
+    assert_eq!(stopped_handler_runs, 1, "the loop must stop at the first failed iteration");
+
+    assert!(skipping.success);
+    assert_eq!(
+        skipping.json_result().unwrap(),
+        json!({ "ran_b": true }),
+        "a loop that skips failures runs every iteration and the following step"
+    );
+    assert_eq!(skipping_handler_runs, 3);
+
+    assert!(
+        !parallel.json_result().unwrap().to_string().contains("ran_b"),
+        "the parallel loop fails as without recovery, so the step after it must not run"
+    );
+    Ok(())
+}
+
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
