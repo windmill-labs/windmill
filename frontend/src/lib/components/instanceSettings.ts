@@ -212,7 +212,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'API base url',
 			description:
-				'Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, MCP), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway.',
+				'Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, the CLI remote), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway.',
 			key: 'api_base_url',
 			fieldType: 'text',
 			placeholder: 'https://api.windmill.company.com',

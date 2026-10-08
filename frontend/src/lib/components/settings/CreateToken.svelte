@@ -15,7 +15,6 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -246,11 +245,13 @@
 	// Undefined wherever the workspace is: `/api/mcp/w/undefined/mcp` reads like a real URL
 	// and is copyable, so the OAuth panel withholds it rather than showing a broken one. The
 	// token branch guards the same case by disabling its generate button.
+	// On the browsing origin, not the API base url: the OAuth metadata the server
+	// publishes for this URL is built from `base_url`, and a client rejects a mismatch.
 	const mcpUrl = $derived(
 		isAllWorkspaces
-			? `${apiBaseUrl()}/api/mcp/gateway`
+			? `${window.location.origin}/api/mcp/gateway`
 			: newTokenWorkspace
-				? `${apiBaseUrl()}/api/mcp/w/${newTokenWorkspace}/mcp`
+				? `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp`
 				: undefined
 	)
 	const mcpBaseUrl = $derived(`${mcpUrl ?? ''}?token=`)

@@ -12,8 +12,8 @@ export function resolveApiBaseUrl(setting: unknown, fallback: string): string {
 
 /**
  * Base of every URL shown for an external client to call (webhooks, HTTP routes, push
- * trigger endpoints, MCP): the `api_base_url` instance setting, else the origin being
- * browsed. Append `/api/...` to it.
+ * trigger endpoints, the CLI remote): the `api_base_url` instance setting, else the
+ * origin being browsed. Append `/api/...` to it.
  *
  * Not for URLs the editor itself calls or opens (captures, previews, OAuth popups, links
  * to pages): those must stay on the browsing origin, where the session cookie lives.

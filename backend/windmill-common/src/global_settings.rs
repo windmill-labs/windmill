@@ -182,7 +182,7 @@ pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 /// from GitHub and a separate ingress fronts the API for inbound webhooks.
 pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
 /// Base URL the UI shows for the endpoints external clients call (webhooks, HTTP
-/// routes, push trigger endpoints, MCP), instead of the origin the UI is browsed on.
+/// routes, push trigger endpoints, the CLI), instead of the origin the UI is browsed on.
 /// For deployments that serve the API on a separate domain or behind a gateway.
 /// EE only. Readable by any authenticated user, like [`INSTANCE_BANNER_SETTING`]:
 /// every user is shown URLs built from it.
