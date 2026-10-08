@@ -670,6 +670,7 @@ fn print_help() {
     println!("  cache-rt             Pre-cache hub resource types");
     println!("  sync-config <file>   Sync instance config from a YAML file to the database");
     println!("  operator             Run the Kubernetes operator (watches a ConfigMap)");
+    #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
     println!("  oidc-signer <conformance|test-signer>  (ee) Check an external OIDC signer, or run a file-backed one for tests");
     println!();
     println!("Environment variables (name = default):");
