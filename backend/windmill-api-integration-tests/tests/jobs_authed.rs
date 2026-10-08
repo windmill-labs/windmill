@@ -718,8 +718,8 @@ async fn test_worker_is_draining_follows_the_job_worker(db: Pool<Postgres>) -> a
     .execute(&db)
     .await?;
     sqlx::query(
-        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag, running, worker)
-         VALUES ($1, 'test-workspace', now(), 'deno', true, 'wk-drain-test')",
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag, running, started_at, worker)
+         VALUES ($1, 'test-workspace', now(), 'deno', true, now(), 'wk-drain-test')",
     )
     .bind(job)
     .execute(&db)
@@ -740,6 +740,13 @@ async fn test_worker_is_draining_follows_the_job_worker(db: Pool<Postgres>) -> a
 
     windmill_common::worker::set_worker_draining_query("wk-drain-test", &db).await?;
     assert!(draining().await?);
+
+    // A parked job keeps its last worker on the queue row without running on it.
+    sqlx::query("UPDATE v2_job_queue SET started_at = NULL WHERE id = $1")
+        .bind(job)
+        .execute(&db)
+        .await?;
+    assert!(!draining().await?);
 
     Ok(())
 }

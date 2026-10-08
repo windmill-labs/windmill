@@ -630,7 +630,7 @@ async fn worker_is_draining(
     let draining = if authed.job_id == Some(id) {
         sqlx::query_scalar!(
             "SELECT wp.draining FROM v2_job_queue q JOIN worker_ping wp ON wp.worker = q.worker
-            WHERE q.id = $1 AND q.workspace_id = $2",
+            WHERE q.id = $1 AND q.workspace_id = $2 AND q.running AND q.started_at IS NOT NULL",
             id,
             w_id
         )
@@ -644,7 +644,8 @@ async fn worker_is_draining(
             "SELECT wp.draining FROM v2_job j
             JOIN v2_job_queue q ON q.id = j.id
             JOIN worker_ping wp ON wp.worker = q.worker
-            WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
+            WHERE j.id = $1 AND j.workspace_id = $2 AND q.running AND q.started_at IS NOT NULL
+            AND ($3::text[] IS NULL OR j.tag = ANY($3))",
             id,
             w_id,
             tags.as_deref()

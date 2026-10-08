@@ -633,6 +633,10 @@ pub fn is_cloud_production_host() -> bool {
 /// Use this for hot-path checks (e.g. per-job dispatch) to avoid read-locking WORKER_CONFIG.
 pub static NATIVE_MODE_RESOLVED: AtomicBool = AtomicBool::new(false);
 
+/// Set once this process has received its killpill. A registration sent after that point
+/// must not report the worker as fresh again.
+pub static WORKER_DRAINING: AtomicBool = AtomicBool::new(false);
+
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 #[derive(Clone)]
 pub struct HttpClient {
@@ -1975,6 +1979,8 @@ pub struct Ping {
     pub occupancy_rate_30m: Option<f32>,
     pub job_isolation: Option<String>,
     pub native_mode: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draining: Option<bool>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -2027,6 +2033,7 @@ pub async fn update_ping_http(
                 insert_ping.memory,
                 insert_ping.job_isolation,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.draining.unwrap_or(false),
                 db,
             )
             .await?;
@@ -2181,6 +2188,7 @@ pub async fn insert_ping_query(
     memory: Option<i64>,
     job_isolation: Option<String>,
     native_mode: bool,
+    draining: bool,
     db: &DB,
 ) -> anyhow::Result<i32> {
     // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
@@ -2188,8 +2196,8 @@ pub async fn insert_ping_query(
     // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
     // literal below must stay equal to `external_ip::UNKNOWN_IP`.
     let previous_jobs_executed = sqlx::query_scalar!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = false
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode, draining) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (worker)
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = EXCLUDED.draining
         RETURNING jobs_executed",
         worker_instance,
         worker_name,
@@ -2203,6 +2211,7 @@ pub async fn insert_ping_query(
         memory,
         job_isolation.as_deref(),
         native_mode,
+        draining,
         )
         .fetch_one(db)
         .await?;

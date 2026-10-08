@@ -3173,6 +3173,7 @@ pub async fn run_worker(
             ) {
                 return;
             }
+            windmill_common::worker::WORKER_DRAINING.store(true, Ordering::Relaxed);
             for attempt in 1..=3 {
                 match mark_worker_draining(&conn, &worker_name).await {
                     Ok(()) => return,

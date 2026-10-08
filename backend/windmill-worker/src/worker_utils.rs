@@ -9,7 +9,7 @@ use windmill_common::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
         insert_ping_query, set_worker_draining_query, update_job_ping_query,
         update_worker_ping_from_job_query, update_worker_ping_main_loop_query, Connection, Ping,
-        PingType, NATIVE_MODE_RESOLVED, WORKER_CONFIG, WORKER_GROUP,
+        PingType, NATIVE_MODE_RESOLVED, WORKER_CONFIG, WORKER_DRAINING, WORKER_GROUP,
     },
     KillpillSender, DB,
 };
@@ -164,6 +164,7 @@ async fn update_worker_ping_full_inner(
                         wm_memory_usage: get_windmill_memory_usage(),
                         job_isolation: None,
                         native_mode: Some(native_mode),
+                        draining: None,
                         ping_type: PingType::MainLoop,
                     },
                 )
@@ -224,6 +225,7 @@ pub async fn insert_ping(
                 memory,
                 job_isolation,
                 native_mode,
+                WORKER_DRAINING.load(std::sync::atomic::Ordering::Relaxed),
                 db,
             )
             .await;
@@ -256,6 +258,7 @@ pub async fn insert_ping(
                         wm_memory_usage: get_windmill_memory_usage(),
                         job_isolation,
                         native_mode: Some(native_mode),
+                        draining: Some(WORKER_DRAINING.load(std::sync::atomic::Ordering::Relaxed)),
                         ping_type: PingType::Initial,
                     },
                 )
@@ -314,6 +317,7 @@ pub async fn update_worker_ping_from_job(
                     &Ping {
                         last_job_executed: Some(job_id.clone()),
                         last_job_workspace_id: Some(w_id.to_string()),
+                        draining: None,
                         ping_type: PingType::Job,
                         worker_instance: None,
                         ip: None,
@@ -355,6 +359,7 @@ pub async fn mark_worker_draining(conn: &Connection, worker_name: &str) -> anyho
                     &Ping {
                         last_job_executed: None,
                         last_job_workspace_id: None,
+                        draining: None,
                         ping_type: PingType::Draining,
                         worker_instance: None,
                         ip: None,
