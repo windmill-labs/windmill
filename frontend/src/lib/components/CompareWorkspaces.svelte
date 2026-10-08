@@ -1,9 +1,9 @@
 <script lang="ts">
 	import {
 		AlertTriangle,
-		ArrowDownRight,
+		ArrowDown,
 		ArrowRight,
-		ArrowUpRight,
+		ArrowUp,
 		Building,
 		CircleCheck,
 		CircleX,
@@ -16,7 +16,7 @@
 		RefreshCw,
 		UserPlus
 	} from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import type { CiTestResult } from '$lib/gen'
 	import { Alert, Badge } from './common'
 	import {
@@ -97,6 +97,8 @@
 		onRetry?: () => void
 		onSelectTarget?: (target: string) => void
 		comparison: WorkspaceComparison | undefined
+		/** The comparison is still in flight, so an empty list says nothing yet. */
+		comparisonLoading?: boolean
 		/** Set when the comparison request failed (e.g. not an admin of the target). */
 		comparisonError?: string
 		/** Initial merge direction; lets the page restore the chosen direction when
@@ -144,6 +146,7 @@
 		onRetry,
 		onSelectTarget,
 		comparison,
+		comparisonLoading = false,
 		comparisonError,
 		initialMergeIntoParent = true,
 		deployCount = 0,
@@ -486,6 +489,12 @@
 	// Summary cache: stores summaries from both workspaces
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
 	let summaryCache = $state<SummaryCache>({})
+	// What has already been asked for. Deliberately not `$state`: the fetchers below run inside an
+	// effect, and a guard that reads reactive state makes that effect depend on what it writes —
+	// which is a loop. A plain Set is also what tells "asked, and the answer was nothing" from
+	// "never asked", which a value map cannot when the value for both is `undefined`.
+	const summariesRequested = new Set<string>()
+	const onBehalfOfRequested = new Set<string>()
 
 	// On-behalf-of tracking for flows and scripts
 	// Source workspace on_behalf_of emails (keyed by workspace/kind:path)
@@ -499,51 +508,101 @@
 		return `${diff.kind}:${diff.path}`
 	}
 
+	/** The two things a row needs from an item — the name it shows and who it runs as — are fields
+	 *  of the same object, so it is read once per item per workspace and awaited by both loops.
+	 *
+	 *  `SHARED_READ_KINDS` is the kinds that carry both. A folder has a summary and no identity; a
+	 *  schedule or a trigger has an identity read from its own endpoint, which `getOnBehalfOf`
+	 *  dispatches. */
+	const SHARED_READ_KINDS = ['script', 'flow', 'app', 'raw_app']
+	type ItemRead = { summary?: string; onBehalfOf?: string }
+	const itemReads = new Map<string, Promise<ItemRead>>()
+
+	function readItem(kind: string, path: string, workspace: string): Promise<ItemRead> {
+		const key = `${workspace}/${kind}:${path}`
+		let pending = itemReads.get(key)
+		if (!pending) {
+			// A failure is not an answer, so it is not kept: held, it would read as "this item has
+			// no identity", which is what decides whether the deploy offers to preserve one — and
+			// an item deployed without it silently becomes the deployer's. Each caller swallows its
+			// own, as both did before they shared a read.
+			pending = loadItem(kind, path, workspace).catch((error) => {
+				itemReads.delete(key)
+				throw error
+			})
+			itemReads.set(key, pending)
+		}
+		return pending
+	}
+
+	async function loadItem(kind: string, path: string, workspace: string): Promise<ItemRead> {
+		if (kind === 'script') {
+			const script = await ScriptService.getScriptByPath({ workspace, path })
+			return { summary: script.summary, onBehalfOf: script.on_behalf_of_email }
+		} else if (kind === 'flow') {
+			const flow = await FlowService.getFlowByPath({ workspace, path })
+			return { summary: flow.summary, onBehalfOf: flow.on_behalf_of_email }
+		} else if (kind === 'app' || kind === 'raw_app') {
+			const app = await AppService.getAppByPath({ workspace, path })
+			return { summary: app.summary, onBehalfOf: app.policy?.on_behalf_of_email }
+		} else if (kind === 'folder') {
+			const folder = await FolderService.getFolder({ workspace, name: path.replace(/^f\//, '') })
+			return { summary: folder.summary }
+		}
+		return {}
+	}
+
 	async function fetchSummary(
 		kind: string,
 		path: string,
 		workspace: string
 	): Promise<string | undefined> {
 		try {
-			if (kind === 'script') {
-				const script = await ScriptService.getScriptByPath({ workspace, path })
-				return script.summary
-			} else if (kind === 'flow') {
-				const flow = await FlowService.getFlowByPath({ workspace, path })
-				return flow.summary
-			} else if (kind === 'app' || kind === 'raw_app') {
-				const app = await AppService.getAppByPath({ workspace, path })
-				return app.summary
-			} else if (kind === 'folder') {
-				const folder = await FolderService.getFolder({ workspace, name: path.replace(/^f\//, '') })
-				return folder.summary
-			}
+			return (await readItem(kind, path, workspace)).summary
 		} catch (error) {
 			console.error(`Failed to fetch summary for ${kind}:${path}`, error)
+			return undefined
 		}
-		return undefined
 	}
+
+	// Both loops below run one item at a time and outlive the mount that started them: the page
+	// remounts this component when either side of the pair changes, and whatever was in flight then
+	// still resolves. It must not be stored — the summary key is kind and path, which the other
+	// pair spells the same way — and the loop must not keep asking for a pair nobody is looking at.
+	let alive = true
+	onDestroy(() => {
+		alive = false
+	})
 
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
 		// Only fetch summaries for scripts, flows, and apps
 		const itemsToFetch = diffs.filter((diff) =>
 			['script', 'flow', 'app', 'raw_app', 'folder'].includes(diff.kind)
 		)
+		// Read once, so every request in this pass names the pair the pass was started for. Named
+		// the way the diff names the two sides: `exists_in_fork` is this workspace, `exists_in_source`
+		// the one it is compared against.
+		const forkWs = currentWorkspaceId
+		const sourceWs = parentWorkspaceId
 
 		for (const diff of itemsToFetch) {
+			if (!alive) return
 			const key = getItemKey(diff)
 
-			// Skip if already cached or loading
-			if (summaryCache[key]) continue
+			// Asked for already — including one still in flight, and one whose answer was nothing.
+			if (summariesRequested.has(key)) continue
+			summariesRequested.add(key)
 
-			// Mark as loading
 			summaryCache[key] = { loading: true }
 
-			// Fetch from both workspaces in parallel
+			// Only the sides that have the item. An item that is only ahead does not exist in the
+			// other workspace, so asking it there is a 404 by construction — a guaranteed-failing
+			// request per one-sided row, and a console error for each.
 			const [currentSummary, parentSummary] = await Promise.all([
-				fetchSummary(diff.kind, diff.path, currentWorkspaceId),
-				fetchSummary(diff.kind, diff.path, parentWorkspaceId)
+				diff.exists_in_fork ? fetchSummary(diff.kind, diff.path, forkWs) : undefined,
+				diff.exists_in_source ? fetchSummary(diff.kind, diff.path, sourceWs) : undefined
 			])
+			if (!alive) return
 
 			summaryCache[key] = {
 				current: currentSummary,
@@ -561,18 +620,32 @@
 			(d) =>
 				['flow', 'script', 'app', 'raw_app'].includes(d.kind) || isTriggerOrScheduleKind(d.kind)
 		)
+		const pair = [
+			{ workspace: currentWorkspaceId, side: 'fork' as const },
+			{ workspace: parentWorkspaceId, side: 'source' as const }
+		]
 		for (const diff of itemsWithOnBehalfOf) {
-			for (const workspace of [currentWorkspaceId, parentWorkspaceId]) {
+			for (const { workspace, side } of pair) {
+				if (!alive) return
 				const workspacedKey = getWorkspacedKey(workspace, getItemKey(diff))
-				if (onBehalfOfInfo[workspacedKey] !== undefined) continue
+				// Marked before the request, not after it answers: a guard keyed on the value it
+				// stores (`undefined` either way) would ask again on every pass, forever.
+				if (onBehalfOfRequested.has(workspacedKey)) continue
+				onBehalfOfRequested.add(workspacedKey)
+				// The side that does not have the item has nothing to say about who it runs as, and
+				// asking produces a 404 rather than an answer.
+				if (!(side === 'fork' ? diff.exists_in_fork : diff.exists_in_source)) continue
 
 				try {
-					onBehalfOfInfo[workspacedKey] = await getOnBehalfOf(
-						diff.kind as Kind,
-						diff.path,
-						workspace
-					)
+					// The same read the summary loop does, for the kinds that answer both from one
+					// object; the rest keep their own endpoint.
+					const email = SHARED_READ_KINDS.includes(diff.kind)
+						? (await readItem(diff.kind, diff.path, workspace)).onBehalfOf
+						: await getOnBehalfOf(diff.kind as Kind, diff.path, workspace)
+					if (!alive) return
+					onBehalfOfInfo[workspacedKey] = email
 				} catch {
+					if (!alive) return
 					onBehalfOfInfo[workspacedKey] = undefined
 				}
 			}
@@ -1004,11 +1077,16 @@
 		)
 	)
 
-	// Fetch summaries and on_behalf_of_email when comparison data loads
+	// Fetch summaries and on_behalf_of_email when comparison data loads. `untrack`: both fetchers
+	// write the state they also read, and without this the effect depends on their writes and
+	// re-runs on each one.
 	$effect(() => {
-		if (comparison?.diffs) {
-			fetchSummaries(comparison.diffs)
-			fetchOnBehalfOfInfo(comparison.diffs)
+		const diffs = comparison?.diffs
+		if (diffs) {
+			untrack(() => {
+				fetchSummaries(diffs)
+				fetchOnBehalfOfInfo(diffs)
+			})
 		}
 	})
 
@@ -1229,6 +1307,7 @@
 				onSelectAll={selectAll}
 				onDeselectAll={deselectAll}
 				emptyMessage={emptyDeployMessage}
+				loading={comparisonLoading}
 			>
 				{#snippet header()}
 					<div class="flex items-center justify-between bg-surface-tertiary">
@@ -1650,13 +1729,13 @@
 							{#if isConflict || existsInBothWorkspaces}
 								{#if diff.ahead > 0}
 									<Badge color="green" size="xs">
-										<ArrowUpRight class="w-3 h-3 inline" />
+										<ArrowUp class="w-3 h-3 inline" />
 										{diff.ahead} ahead
 									</Badge>
 								{/if}
 								{#if diff.behind > 0}
 									<Badge color="blue" size="xs">
-										<ArrowDownRight class="w-3 h-3 inline" />
+										<ArrowDown class="w-3 h-3 inline" />
 										{diff.behind} behind
 									</Badge>
 								{/if}

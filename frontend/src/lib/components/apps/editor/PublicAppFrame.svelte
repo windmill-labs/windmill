@@ -665,7 +665,7 @@
 		bind:this={iframeEl}
 		src={buildViewerUrl()}
 		title="App"
-		class="w-full h-screen border-0 block"
+		class="w-full h-full border-0 block"
 		sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation"
 		allow="clipboard-read; clipboard-write; fullscreen"
 		referrerpolicy="no-referrer"

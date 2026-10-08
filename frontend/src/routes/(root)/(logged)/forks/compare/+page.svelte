@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import CompareWorkspaces from '$lib/components/CompareWorkspaces.svelte'
 	import CompareDrafts from '$lib/components/CompareDrafts.svelte'
 	import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
@@ -31,10 +32,22 @@
 
 	type CompareMode = 'fork' | 'draft'
 
-	let comparison: WorkspaceComparison | undefined = $state(undefined)
+	/** The last comparison that came back, with the pair it describes. Kept together: a comparison
+	 *  is only an answer about the two workspaces it was asked about. */
+	let comparisonResult = $state<{ pair: string; value: WorkspaceComparison } | undefined>(undefined)
 
-	let currentWorkspaceId: string | undefined = $state(
-		page.url.searchParams.get('workspace_id') ?? $workspaceStore ?? undefined
+	// Which workspace this page compares, read rather than followed. The URL answers it when it
+	// names one: `?workspace=` is a switch already made, which the root layout applies to the
+	// store, and `?workspace_id=` is the workspace a link asked to compare — a session's Review
+	// button passes the fork it committed to while deliberately leaving the navigation workspace
+	// alone (SessionChangesBar), as does the prod→dev link in UpdateDevWorkspaceModal, so it has
+	// to outrank the store. With neither param the store is the answer, and a switch in the trail
+	// moves the page because `fixupUrlAfterWorkspaceSwitch` rewrites whichever param is there.
+	const currentWorkspaceId = $derived(
+		page.url.searchParams.get('workspace') ??
+			page.url.searchParams.get('workspace_id') ??
+			$workspaceStore ??
+			undefined
 	)
 
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === currentWorkspaceId))
@@ -44,8 +57,21 @@
 	// one-off migration the lineage cannot express. It is one-way (current →
 	// target): nothing tallies such a pair, so a cold diff has no deploy history
 	// telling which side a change came from.
+	//
+	// Read whatever the URL holds, including on a page opened with no workspace param at all —
+	// which is how the migration starts, from "Merge into another workspace" in the workspace
+	// settings, and where the picker below is the only thing that sets this.
 	const targetParam = $derived(page.url.searchParams.get('target') ?? undefined)
 	const compareTargetId = $derived(targetParam ?? parentWorkspaceId ?? undefined)
+	/** The pair on screen, as one value: what a comparison has to describe to be about it. */
+	const pairKey = $derived(`${currentWorkspaceId}->${compareTargetId}`)
+	/** The comparison, but only while it describes the pair on screen. A switch changes the pair
+	 *  during render and the card is remounted in that same render, so a comparison handed over
+	 *  without this check would be the previous pair's — and the card would fetch that pair's item
+	 *  paths from the new workspace, where every one of them is a 404 by construction. */
+	const comparison = $derived(
+		comparisonResult?.pair === pairKey ? comparisonResult.value : undefined
+	)
 	const isArbitraryTarget = $derived(!!compareTargetId && compareTargetId !== parentWorkspaceId)
 	// Fork/dev workspaces are identified by their parent link, not the `wm-fork-` id
 	// prefix. Distinct from having a compare target: a root workspace has no parent
@@ -229,27 +255,40 @@
 			return
 		}
 		const seq = ++comparisonReq
+		// The pair this request is about, read before the await: by the time it answers the page
+		// may be on another one, and the answer belongs to the pair that was asked.
+		const pair = pairKey
+		comparisonLoading = true
 
 		try {
 			const result = await fetchWorkspaceComparison(compareTargetId, currentWorkspaceId)
 			if (seq !== comparisonReq) return
-			comparison = result
+			comparisonResult = { pair, value: result }
 			comparisonError = undefined
 		} catch (e: any) {
 			if (seq !== comparisonReq) return
 			comparisonError = e?.body ?? e?.message ?? String(e)
 			console.error('Failed to compare workspaces:', e)
+		} finally {
+			// Only the request still being waited on clears the flag: an older one landing late
+			// would otherwise report the newer pair as answered.
+			if (seq === comparisonReq) comparisonLoading = false
 		}
 	}
 
 	let comparisonError = $state<string | undefined>(undefined)
+	/** Tracked rather than inferred from an absent comparison: a failed one is also absent, and a
+	 *  spinner that never stops is worse than a message. */
+	let comparisonLoading = $state(false)
 
 	$effect(() => {
 		;[currentWorkspaceId, compareTargetId]
 
 		untrack(() => {
-			comparison = undefined
 			comparisonError = undefined
+			// The flag belongs to `checkForChanges`, which raises it per request and lowers it for
+			// the one still being waited on. Raising it here too left it stuck on the pair that
+			// function refuses — no workspace, or no target yet.
 			checkForChanges()
 		})
 	})
@@ -257,33 +296,48 @@
 	// Seeding the candidate set is what makes an arbitrary pair comparable at all;
 	// the comparison that follows is the expensive part, since it evaluates every
 	// candidate. Both are driven from here so the button reports the whole wait.
-	let scanning = $state(false)
+	/** The pair being scanned, so the button reports the wait for the pair it belongs to and not
+	 *  for whichever one the trail moved to meanwhile. */
+	let scanningPair = $state<string | undefined>(undefined)
+	const scanning = $derived(scanningPair === pairKey)
 	async function computeFullScan() {
 		if (!currentWorkspaceId || !compareTargetId) return
-		scanning = true
+		// Captured before the await, and used afterwards in place of the live values: the scan
+		// seeded this pair, so this is the pair to invalidate, re-compare and name in the toast.
+		const scanWorkspace = currentWorkspaceId
+		const scanTarget = compareTargetId
+		const pair = pairKey
+		scanningPair = pair
 		comparisonError = undefined
 		try {
 			const res = await WorkspaceService.seedFullDiffScan({
-				workspace: currentWorkspaceId,
-				targetWorkspaceId: compareTargetId
+				workspace: scanWorkspace,
+				targetWorkspaceId: scanTarget
 			})
-			invalidateWorkspaceComparison(compareTargetId)
-			await checkForChanges()
-			// The seed succeeded but the comparison that reads it may not have. Saying
-			// "compared" then would be a lie, and the seeded candidates are still there
-			// for the retry the card offers.
-			if (comparisonError) {
+			invalidateWorkspaceComparison(scanTarget)
+			// Only worth re-asking while the page is still on the pair that was scanned; it asks
+			// for the pair it moved to on its own.
+			if (pairKey === pair) await checkForChanges()
+			// Each outcome says what actually happened. Off the scanned pair nothing was compared —
+			// the re-ask above is skipped — so only the seed can be reported; `comparisonError`
+			// there belongs to another pair and says nothing about this one. On it, the seed can
+			// still have succeeded while the comparison reading it failed, and claiming "compared"
+			// would be a lie with the seeded candidates sitting there for the retry the card offers.
+			if (pairKey !== pair) {
+				sendUserToast(`Seeded ${res.candidates} items for ${scanTarget}`)
+			} else if (comparisonError) {
 				sendUserToast(
 					`Seeded ${res.candidates} items but the comparison failed: ${comparisonError}`,
 					true
 				)
 			} else {
-				sendUserToast(`Compared ${res.candidates} items with ${compareTargetId}`)
+				sendUserToast(`Compared ${res.candidates} items with ${scanTarget}`)
 			}
 		} catch (e: any) {
 			sendUserToast(`Failed to compute the diff: ${e?.body ?? e}`, true)
 		} finally {
-			scanning = false
+			// Only the scan still being waited on stops the button; a later one owns it now.
+			if (scanningPair === pair) scanningPair = undefined
 		}
 	}
 
@@ -390,6 +444,17 @@
 	}
 </script>
 
+<!-- Named here rather than left to the route: the breadcrumb's fallback reads the first segment,
+     which would call this page "Forks" — the thing it compares, not what it is.
+     `actingWorkspaceId` only when the page is comparing a workspace other than the one the app is
+     pointed at, which is how a session's Review button and the prod→dev link open it: the trail
+     would otherwise name the parent while the page compares the fork, and its home link would
+     lead somewhere the page is not. -->
+<PageHeaderContent
+	section={{ label: 'Compare' }}
+	actingWorkspaceId={currentWorkspaceId !== $workspaceStore ? currentWorkspaceId : undefined}
+/>
+
 <CenteredPage>
 	<PageHeader title="Compare & Deploy">
 		<div class="flex flex-row gap-2 items-center">
@@ -440,10 +505,12 @@
 			onModeSelected={selectMode}
 		/>
 	{:else if compareTargetId}
-		<!-- Remount on a target change: the merge card owns a selection, a deploy
-		     direction and per-item deployment statuses, none of which carry over to a
-		     different destination. -->
-		{#key compareTargetId}
+		<!-- Remount on either side of the pair changing: the merge card owns a selection, a deploy
+		     direction, per-item deployment statuses, item summaries, pinned rows, deploy
+		     permissions and CI results — none of which carry over to a different pair. Keyed on
+		     the target alone, two forks of one parent shared a mount, since the target is the
+		     parent they have in common. -->
+		{#key pairKey}
 			<CompareWorkspaces
 				{currentWorkspaceId}
 				parentWorkspaceId={compareTargetId}
@@ -456,6 +523,7 @@
 				onSelectTarget={selectTarget}
 				{comparison}
 				{comparisonError}
+				{comparisonLoading}
 				initialMergeIntoParent={forkDirection === 'deploy_to'}
 				{deployCount}
 				{updateCount}

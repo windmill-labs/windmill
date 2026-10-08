@@ -163,14 +163,20 @@
 {:else if app}
 	{#key app}
 		{#if app.raw_app && effectiveWorkspace}
-			<RawAppPreview
-				workspace={effectiveWorkspace}
-				user={ctxUser}
-				secret={app.bundle_secret}
-				path={app.path}
-				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
-				{syncHashToUrl}
-			/>
+			<!-- The bundle's iframe is `h-full`, so every host has to give this box a height to
+			     resolve against: in the workspace the layout hands one down, and the share, embed
+			     and custom-path routes floor themselves at the viewport. An iframe with no height
+			     above it falls back to 150px. -->
+			<div class="h-full w-full">
+				<RawAppPreview
+					workspace={effectiveWorkspace}
+					user={ctxUser}
+					secret={app.bundle_secret}
+					path={app.path}
+					runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
+					{syncHashToUrl}
+				/>
+			</div>
 		{:else if app.raw_app && !effectiveWorkspace}
 			<div class="px-4 mt-20">
 				<Alert type="error" title="Configuration error">
@@ -181,10 +187,12 @@
 			<div
 				class={twMerge(
 					// `flex-col` matches the pre-sandbox in-workspace viewer exactly;
-					// the public viewer always used a plain `flex` wrapper.
-					inWorkspace
-						? 'min-h-screen h-full w-full flex flex-col'
-						: 'min-h-screen h-full w-full flex',
+					// the public viewer always used a plain `flex` wrapper. `min-h-full`, not
+					// `h-full`: the box has to reach the bottom of what the host gives it so the
+					// app's own background covers the window, and still grow with a grid taller
+					// than that. A viewport floor instead would overhang the page box by the
+					// height of the page header band.
+					inWorkspace ? 'min-h-full w-full flex flex-col' : 'min-h-full w-full flex',
 					app?.value?.['css']?.['app']?.['viewer']?.class,
 					'wm-app-viewer'
 				)}

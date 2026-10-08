@@ -154,6 +154,8 @@
 		 *  it as `draft_path` so the home row shows the friendly name, not `draft_{uuid}`. */
 		pendingDraftPath?: string | undefined
 		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
+		/** `Exit & see details`: see RawAppEditorHeader. */
+		onDetails?: (e: { path: string }) => void
 		onResetToDeployed?: () => void | Promise<void>
 		/** The app_version the draft forked from, for the deploy-time "new version
 		 *  deployed" guard: deploying is refused with a confirmation while it is not
@@ -198,6 +200,8 @@
 		// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
 		// session preview to save vertical room.
 		condensedHeader?: boolean
+		/** True for the route's own editor: its top bar becomes the page header. */
+		ownsPageHeader?: boolean
 	}
 
 	let {
@@ -221,6 +225,7 @@
 		autosavePath = undefined,
 		defaultSplitWithPreview = true,
 		pendingDraftPath = $bindable(undefined),
+		onDetails,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -237,6 +242,7 @@
 		onRestore,
 		onSavedNewAppPath,
 		condensedHeader = false,
+		ownsPageHeader = false,
 		version = undefined,
 		onTakeLatest = undefined,
 		draftBaseVersion = undefined
@@ -2564,6 +2570,7 @@ addEventListener('message', function (e) {
 		{getBundle}
 		{onNavigate}
 		{onDeploy}
+		{onDetails}
 		{onResetToDeployed}
 		{loadedFromDraft}
 		{othersDraftsCount}
@@ -2576,6 +2583,7 @@ addEventListener('message', function (e) {
 		sidebarCollapsed={sidebarCollapsed.val}
 		onToggleSidebar={() => (sidebarCollapsed.val = !sidebarCollapsed.val)}
 		{condensedHeader}
+		{ownsPageHeader}
 	/>
 
 	<RawAppYamlEditor
