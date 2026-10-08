@@ -284,8 +284,8 @@
 			instance is billed.
 		</span>
 		<span>
-			They can create, edit and delete flows and raw apps wherever their folder permissions already
-			let them write. Review those permissions before enabling.
+			They can create, edit and delete flows and full-code apps wherever their folder permissions
+			already let them write. Review those permissions before enabling.
 		</span>
 	</div>
 </ConfirmationModal>
