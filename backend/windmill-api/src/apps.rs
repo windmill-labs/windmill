@@ -2469,11 +2469,16 @@ async fn require_runnables_readable(
                 None => false,
             }
         };
+        // One message for every cause: telling "no runnable version" apart from "not readable"
+        // would reveal that a path the caller cannot read exists.
         if !readable {
-            return Err(Error::PermissionDenied(format!(
-                "{} {path} does not exist or is not readable by you",
-                if is_flow { "Flow" } else { "Script" }
-            )));
+            return Err(Error::PermissionDenied(if is_flow {
+                format!("Flow {path} does not exist or is not readable by you")
+            } else {
+                format!(
+                    "Script {path} does not exist, is not readable by you, or has not finished deploying"
+                )
+            }));
         }
     }
     tx.commit().await?;
