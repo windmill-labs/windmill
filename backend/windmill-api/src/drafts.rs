@@ -514,7 +514,7 @@ async fn update_draft(
                     "Operators with builder rights must keep an app draft sandboxed".to_string(),
                 ));
             }
-            let mut referenced = windmill_common::apps::app_value_runnable_paths(&draft);
+            let mut referenced = windmill_common::apps::app_value_runnable_paths(&draft)?;
             referenced.sort();
             referenced.dedup();
             crate::apps::refuse_hub_runnables(&referenced)?;

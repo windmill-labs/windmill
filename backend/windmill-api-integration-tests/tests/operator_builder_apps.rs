@@ -350,6 +350,11 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
             json!({"sandbox": true}),
             403,
         ),
+        (
+            json!({"r": {"type": "path", "runType": "script/u/alice", "path": "u/operator/some_script"}}),
+            json!({"sandbox": true}),
+            400,
+        ),
     ] {
         let resp = c
             .post(format!("{api}/drafts/update/raw_app/u/operator/d1"))

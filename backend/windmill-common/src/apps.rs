@@ -38,9 +38,10 @@ pub fn app_value_has_inline_script(value: &Value) -> bool {
 ///
 /// This is what the deployed bundle actually asks `execute_component` to run: it resolves a
 /// `runnable_id` against the stored `runnables` and sends the referenced path. The policy's
-/// triggerables are a separate surface, so both have to be authorized.
-pub fn app_value_runnable_paths(value: &Value) -> Vec<(bool, String)> {
-    fn walk(value: &Value, out: &mut Vec<(bool, String)>) {
+/// triggerables are a separate surface, so both have to be authorized. The client sends
+/// `{runType}/{path}`, so a `runType` outside the known ones would name another path entirely.
+pub fn app_value_runnable_paths(value: &Value) -> error::Result<Vec<(bool, String)>> {
+    fn walk(value: &Value, out: &mut Vec<(bool, String)>) -> error::Result<()> {
         match value {
             Value::Object(object) => {
                 let by_path = object
@@ -49,22 +50,28 @@ pub fn app_value_runnable_paths(value: &Value) -> Vec<(bool, String)> {
                     .is_some_and(|t| t == "runnableByPath" || t == "path");
                 if by_path {
                     if let Some(path) = object.get("path").and_then(Value::as_str) {
-                        let is_flow =
-                            object.get("runType").and_then(Value::as_str) == Some("flow");
+                        let is_flow = match object.get("runType").and_then(Value::as_str) {
+                            Some("flow") => true,
+                            Some("script" | "hubscript") => false,
+                            run_type => {
+                                return Err(error::Error::BadRequest(format!(
+                                    "Unsupported runType {} for runnable {path}",
+                                    run_type.unwrap_or("(none)")
+                                )))
+                            }
+                        };
                         out.push((is_flow, path.to_string()));
                     }
                 }
-                for value in object.values() {
-                    walk(value, out);
-                }
+                object.values().try_for_each(|v| walk(v, out))
             }
-            Value::Array(array) => array.iter().for_each(|v| walk(v, out)),
-            _ => {}
+            Value::Array(array) => array.iter().try_for_each(|v| walk(v, out)),
+            _ => Ok(()),
         }
     }
     let mut out = Vec::new();
-    walk(value, &mut out);
-    out
+    walk(value, &mut out)?;
+    Ok(out)
 }
 
 /// Traverse FlowValue while invoking provided by caller callback on leafs

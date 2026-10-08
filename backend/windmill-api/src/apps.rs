@@ -2293,7 +2293,7 @@ fn check_operator_composed_app(
                     .to_string(),
             ));
         }
-        referenced.extend(app_value_runnable_paths(&value));
+        referenced.extend(app_value_runnable_paths(&value)?);
     }
     let Some(policy) = policy else {
         return Err(Error::BadRequest(
