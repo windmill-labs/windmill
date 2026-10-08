@@ -6,13 +6,13 @@
 		List,
 		Ban,
 		ExternalLinkIcon,
-		Loader2,
 		Code,
-		MessagesSquare,
-		WandSparkles
+		Database,
+		Loader2
 	} from 'lucide-svelte'
-	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
-	import type { Policy } from '$lib/gen'
+	import { WorkerService, type Policy } from '$lib/gen'
+	import MissingWorkerTagAlert from '$lib/components/jobs/MissingWorkerTagAlert.svelte'
+	import { hasWorkerForTag, queuedWithoutWorkerMessage } from '$lib/components/jobs/missingWorker'
 	import { superadmin, userStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
@@ -22,8 +22,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { Alert } from '$lib/components/common'
-	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { Alert, Badge } from '$lib/components/common'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { react18Template, react19Template, svelte5Template } from './templates'
@@ -52,11 +51,10 @@
 		files: Record<string, string>
 		runnables: Record<string, Runnable>
 		data: RawAppData
-		summary: string
 		policy: Policy
 	}
 
-	/** `ai` hands the new app to the AI right away; `code` opens the editor on the setup's choices. */
+	/** Where the set-up app opens: `ai` hands it to the AI, `code` opens it in the editor. */
 	export type RawAppBuildMode = 'ai' | 'code'
 
 	let {
@@ -68,18 +66,16 @@
 	} = $props()
 
 	const templates = [
-		{ name: 'React 19', icon: 'tsx', files: react19Template },
+		{ name: 'React 19', icon: 'tsx', files: react19Template, recommended: true },
 		{ name: 'React 18', icon: 'tsx', files: react18Template },
 		{ name: 'Svelte 5', icon: 'svelte', files: svelte5Template }
 	]
 
-	let step = $state<'choice' | 'setup'>('choice')
 	let selectedTemplateIndex = $state(0)
 	let selectedDatatable = $state<string | undefined>(undefined)
 	let schemaMode = $state<'none' | 'new' | 'existing'>('new')
 	let selectedSchema = $state<string | undefined>(undefined)
 	let newSchemaName = $state('')
-	let appSummary = $state('')
 	let preWhitelistedTables = $state<DataTableRef[]>([])
 	/** The role each pre-whitelisted table's data table was browsed as. */
 	let preWhitelistedRoles = $state<Record<string, string>>({})
@@ -271,12 +267,7 @@
 	// would announce AI as unconfigured while it is merely unknown. Gate on the
 	// config describing opWs, and load it here so the claim owns its own evidence.
 	const aiConfigLoaded = $derived(!!opWs && $copilotWorkspace === opWs)
-	// Say where the card leads: the route hands the app to a fresh AI session for
-	// everyone who has one, and opens the docked chat for the rest.
-	const handsOffToSession = $derived(prefersSessionHandoff($userStore?.operator))
 	const isAiEnabled = $derived(aiConfigLoaded && $copilotInfo.enabled)
-	// The AI starts on the default data table and its role, so both must have answered.
-	const dataSettled = $derived(hasNoDatatables || (rolesSettled && accessSettled))
 
 	$effect(() => {
 		if (open && opWs && !aiConfigLoaded) {
@@ -285,9 +276,11 @@
 	})
 
 	// With AI turned off for the workspace there is nothing to choose between.
-	const shownStep = $derived($copilotInfo.workspaceDisabled ? 'setup' : step)
-	const choiceCardClasses =
-		'h-full flex-col items-start justify-start gap-3 rounded-lg p-6 text-left whitespace-normal'
+	const aiOffered = $derived(!$copilotInfo.workspaceDisabled)
+
+	const canStart = $derived(
+		!!templates[selectedTemplateIndex] && !newSchemaAlreadyExists && rolesSettled && accessSettled
+	)
 
 	function appPolicy(): Policy {
 		return {
@@ -299,60 +292,103 @@
 		}
 	}
 
-	/** The AI builds on the default template and the default data table: it picks the framework
-	 * and creates the tables it needs itself. */
-	function buildWithAI() {
-		const datatable = usableDatatable
-		const role = rolesAnswered ? effectiveRole : undefined
-		open = false
-		onStart(
-			{
-				files: templates[0].files,
-				runnables: {},
-				data: {
-					tables: [],
-					datatable,
-					schema: undefined,
-					roles: datatable && role ? { [datatable]: role } : undefined
-				},
-				summary: '',
-				policy: appPolicy()
-			},
-			'ai'
+	const startCardClasses =
+		'relative h-full flex-col items-start justify-start gap-1.5 rounded-lg p-3 text-left whitespace-normal'
+
+	async function createSchema(input: {
+		workspace: string
+		datatable: string
+		schema: string
+		role: string | undefined
+		migrationRole: string | undefined
+	}) {
+		try {
+			const { dbSchemaOpsWithPreviewScripts } = await import('$lib/components/dbOps')
+			const dbOps = dbSchemaOpsWithPreviewScripts({
+				workspace: input.workspace,
+				input: {
+					type: 'database',
+					resourceType: 'postgresql',
+					resourcePath: `datatable://${input.datatable}`,
+					role: input.role,
+					migrationRole: input.migrationRole
+				}
+			})
+			await dbOps.onCreateSchema({ schema: input.schema })
+		} catch (e) {
+			console.error('Failed to create schema:', e)
+			sendUserToast(`Failed to create schema ${input.schema}: ${e}`, true)
+		}
+	}
+
+	// The start that is in flight, and the schema it is waiting on: creating one is a job,
+	// which can sit in the queue long enough for a silent modal to look dead.
+	let starting = $state<{ mode: RawAppBuildMode; schema?: string } | undefined>(undefined)
+
+	const SCHEMA_JOB_TAG = 'postgresql'
+
+	/** Whether a worker can pick up the job that creates a schema. Only a definite "no"
+	 * counts: with per-workspace default tags the job runs on a variant of the tag, and a
+	 * failed lookup establishes nothing. */
+	async function schemaJobsServed(workspace: string): Promise<boolean> {
+		try {
+			if (await WorkerService.isDefaultTagsPerWorkspace()) return true
+			return await hasWorkerForTag(workspace, SCHEMA_JOB_TAG)
+		} catch {
+			return true
+		}
+	}
+
+	// Existing tables go with an existing schema: under the other modes the list is not shown,
+	// and what is not shown is not saved.
+	const tablesToUse = $derived(schemaMode === 'existing' ? preWhitelistedTables : [])
+
+	function exploreDatatable() {
+		dataTableDrawer?.openDrawer(
+			selectedDatatable
+				? {
+						datatable: selectedDatatable,
+						schema: schemaMode === 'existing' ? selectedSchema : undefined
+					}
+				: undefined
 		)
 	}
 
-	async function start() {
+	async function start(mode: RawAppBuildMode) {
+		if (starting) return
 		const template = templates[selectedTemplateIndex]
 
 		if (schemaMode === 'new' && newSchemaName && usableDatatable && opWs) {
-			try {
-				const { dbSchemaOpsWithPreviewScripts } = await import('$lib/components/dbOps')
-				const dbOps = dbSchemaOpsWithPreviewScripts({
-					workspace: opWs,
-					input: {
-						type: 'database',
-						resourceType: 'postgresql',
-						resourcePath: `datatable://${usableDatatable}`,
-						role: effectiveRole,
-						migrationRole: defaultMigrationRole(
-							usableDatatable,
-							roles.current.permissioned,
-							roles.current.defaultRole
-						)
-					}
-				})
-				await dbOps.onCreateSchema({ schema: newSchemaName })
-			} catch (e) {
-				console.error('Failed to create schema:', e)
-				sendUserToast(`Failed to create schema: ${e}`, true)
+			starting = { mode, schema: newSchemaName }
+			const creation = createSchema({
+				workspace: opWs,
+				datatable: usableDatatable,
+				schema: newSchemaName,
+				role: effectiveRole,
+				migrationRole: defaultMigrationRole(
+					usableDatatable,
+					roles.current.permissioned,
+					roles.current.defaultRole
+				)
+			})
+			if (await schemaJobsServed(opWs)) {
+				await creation
+			} else {
+				// The job stays queued for as long as no worker serves its tag: waiting on it
+				// would hold the app back for nothing, so say why the schema is missing instead.
+				sendUserToast(
+					`Schema "${newSchemaName}" is not created yet. ${queuedWithoutWorkerMessage(SCHEMA_JOB_TAG)}`,
+					true
+				)
 			}
 		}
 
-		const formattedTables = preWhitelistedTables.map(formatDataTableRef)
+		starting = undefined
+
+		const formattedTables = tablesToUse.map(formatDataTableRef)
 		const keepsDatatable = usableDatatable !== undefined
 		// The roles shown, for the data tables the app ends up using.
-		const usedDatatables = new Set(preWhitelistedTables.map((t) => t.datatable))
+		const usedDatatables = new Set(tablesToUse.map((t) => t.datatable))
 		if (keepsDatatable) usedDatatables.add(usableDatatable!)
 		const shownRoles = Object.entries(pickerRoles ?? {}).filter(([dt]) => usedDatatables.has(dt))
 		const appRoles = shownRoles.length > 0 ? Object.fromEntries(shownRoles) : undefined
@@ -371,10 +407,9 @@
 				files: template.files,
 				runnables: {},
 				data,
-				summary: appSummary.trim(),
 				policy: appPolicy()
 			},
-			'code'
+			mode
 		)
 	}
 </script>
@@ -385,240 +420,181 @@
 	     Modal closes its own UI but the picker's `open` prop stays true,
 	     so the route's `templatePicker → false` watcher never fires and
 	     autosave stays suspended after the dismissal. -->
-	<Modal kind="X" bind:open title={shownStep === 'choice' ? 'New app' : 'New app setup'}>
-		{#if shownStep === 'choice'}
-			<div class="flex flex-col gap-4 min-w-sm">
-				<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-					<Button
-						variant="default"
-						onClick={buildWithAI}
-						disabled={!isAiEnabled || !dataSettled}
-						btnClasses="{choiceCardClasses} border-ai/30 bg-ai/5 hover:bg-ai/10 disabled:opacity-50 disabled:cursor-not-allowed"
-					>
-						{#if aiConfigLoaded && dataSettled}
-							<Sparkles size={28} class="text-ai" />
-						{:else}
-							<Loader2 size={28} class="text-ai animate-spin" />
-						{/if}
-						<span class="text-base font-semibold text-emphasis">Start with AI</span>
-						<span class="text-xs text-secondary">
-							{handsOffToSession
-								? 'Describe your app in an AI session and let it build the frontend, backend and tables.'
-								: 'Describe your app to the AI chat and let it build the frontend, backend and tables.'}
-						</span>
-					</Button>
-					<Button variant="default" onClick={() => (step = 'setup')} btnClasses={choiceCardClasses}>
-						<Code size={28} class="text-primary" />
-						<span class="text-base font-semibold text-emphasis">Start with code editor</span>
-						<span class="text-xs text-secondary">
-							Pick a framework and data configuration, then write the app in the editor.
-						</span>
-					</Button>
+	<Modal kind="X" bind:open title="New app">
+		<div class="flex flex-col gap-6 min-w-sm">
+			<div>
+				<h2 class="text-xs font-semibold text-emphasis mb-3">Framework</h2>
+				<div class="flex flex-wrap gap-3">
+					{#each templates as t, i}
+						<button
+							onclick={() => (selectedTemplateIndex = i)}
+							class="relative w-20 h-[4.5rem] flex justify-between py-3 flex-col {selectedTemplateIndex ===
+							i
+								? 'bg-surface-accent-selected border border-accent'
+								: ''} hover:bg-surface-hover border rounded-lg transition-all"
+						>
+							<div class="w-full flex items-center justify-center">
+								<FileEditorIcon file={'.' + t.icon} size={22} />
+							</div>
+							<div class="center-center w-full text-xs text-secondary">{t.name}</div>
+							{#if t.recommended}
+								<div class="absolute -top-3 left-1/2 -translate-x-1/2">
+									<Badge color="blue" small>Recommended</Badge>
+								</div>
+							{/if}
+						</button>
+					{/each}
 				</div>
-				<p class="text-xs text-hint text-center">You can always switch later.</p>
-				{#if aiConfigLoaded && !isAiEnabled}
-					<Alert type="info" title="AI is not configured.">
-						You can still create an app manually but using AI is highly recommended.
+			</div>
+
+			<div class="pt-6">
+				<h2 class="text-xs font-semibold text-emphasis mb-1">Data configuration</h2>
+
+				{#if hasNoDatatables}
+					<Alert type="warning" title="No datatables configured.">
+						You can still create an app, but for data storage you won't be able to use data tables
+						which are <b>highly recommended</b>.
 						<br />
 						{#if $userStore?.is_admin}
-							Configure AI in
+							Configure datatables in
 							<a
-								href="{base}/workspace_settings?tab=ai"
+								href="/workspace_settings?tab=windmill_data_tables"
 								target="_blank"
-								class="inline-flex items-center gap-1 font-semibold"
+								class="inline-flex items-center gap-1"
 								>workspace settings <ExternalLinkIcon size={16} />
-							</a>
-							{#if $superadmin}
-								or
-								<a
-									href="{base}/?workspace=admins#superadmin-settings"
-									target="_blank"
-									class="inline-flex items-center gap-1 font-semibold"
-									>instance settings <ExternalLinkIcon size={16} />
-								</a>
-							{/if} to enable this feature.
-						{:else if $superadmin}
-							Configure AI in
-							<a
-								href="{base}/?workspace=admins#superadmin-settings"
-								target="_blank"
-								class="inline-flex items-center gap-1 font-semibold"
-								>instance settings <ExternalLinkIcon size={16} />
 							</a> to enable this feature.
 						{:else}
-							Ask your workspace admin to configure AI in workspace settings to enable this feature.
+							Ask your workspace admin to configure datatables in workspace settings to enable this
+							feature.
 						{/if}
 					</Alert>
-				{/if}
-			</div>
-		{:else}
-			<div class="flex flex-col gap-6 min-w-sm">
-				<div>
-					<h2 class="text-xs font-semibold text-emphasis mb-1">Summary</h2>
-					<TextInput
-						bind:value={appSummary}
-						inputProps={{
-							placeholder: "Brief description of the app (e.g., 'Todo list with authentication')"
-						}}
-					/>
-				</div>
-
-				<div class="pt-6">
-					<h2 class="text-xs font-semibold text-emphasis mb-1">Framework</h2>
-					<div class="flex flex-wrap gap-3">
-						{#each templates as t, i}
-							<button
-								onclick={() => (selectedTemplateIndex = i)}
-								class="w-24 h-24 flex justify-between py-5 flex-col {selectedTemplateIndex === i
-									? 'bg-surface-accent-selected border border-accent'
-									: ''} hover:bg-surface-hover border rounded-lg transition-all"
-							>
-								<div class="w-full flex items-center justify-center">
-									<FileEditorIcon file={'.' + t.icon} size={32} />
-								</div>
-								<div class="center-center w-full text-sm text-secondary">{t.name}</div>
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<div class="pt-6">
-					<h2 class="text-xs font-semibold text-emphasis mb-1">Data configuration</h2>
-
-					{#if hasNoDatatables}
-						<Alert type="warning" title="No datatables configured.">
-							You can still create an app, but for data storage you won't be able to use data tables
-							which are <b>highly recommended</b>.
-							<br />
-							{#if $userStore?.is_admin}
-								Configure datatables in
-								<a
-									href="/workspace_settings?tab=windmill_data_tables"
-									target="_blank"
-									class="inline-flex items-center gap-1"
-									>workspace settings <ExternalLinkIcon size={16} />
-								</a> to enable this feature.
-							{:else}
-								Ask your workspace admin to configure datatables in workspace settings to enable
-								this feature.
-							{/if}
-						</Alert>
-					{:else}
-						<div class="flex flex-col gap-4">
-							<div class="flex flex-col gap-1">
-								<span class="text-xs text-secondary mb-1 block"
-									>Default settings for new tables</span
-								>
-								<div class="flex flex-col gap-4 rounded-md p-4 border">
-									<div class="flex flex-col gap-4">
-										<div class="flex flex-col gap-1">
-											<label class="text-xs text-emphasis font-semibold" for="datatable"
-												>Datatable</label
-											>
-											<div class="flex flex-row items-center gap-2">
+				{:else}
+					<div class="flex flex-col gap-4">
+						<MissingWorkerTagAlert
+							tag={SCHEMA_JOB_TAG}
+							subject="Data table queries and schema changes"
+						/>
+						<div class="flex flex-col gap-1">
+							<span class="text-xs text-secondary mb-1 block">Default settings for new tables</span>
+							<div class="flex flex-col gap-4 rounded-md p-4 border">
+								<div class="flex flex-col gap-4">
+									<div class="flex flex-col gap-1">
+										<label class="text-xs text-emphasis font-semibold" for="datatable"
+											>Datatable</label
+										>
+										<div class="flex flex-row items-center gap-2">
+											<Select
+												id="datatable"
+												disablePortal
+												items={datatableItems}
+												bind:value={selectedDatatable}
+												placeholder="Datatable"
+												size="sm"
+												class="w-40"
+											/>
+											{#if showRolePicker}
+												<!-- Reads as one phrase, "main as analyst", so the role needs no label. -->
+												<span class="text-xs text-secondary">as</span>
 												<Select
-													id="datatable"
+													id="datatable-role"
 													disablePortal
-													items={datatableItems}
-													bind:value={selectedDatatable}
-													placeholder="Datatable"
+													items={loadedRoles.map((r) => ({ value: r, label: r }))}
+													bind:value={() => selectedRole, pickRole}
+													clearable={false}
+													placeholder="Role"
 													size="sm"
 													class="w-40"
 												/>
-												{#if showRolePicker}
-													<!-- Reads as one phrase, "main as analyst", so the role needs no label. -->
-													<span class="text-xs text-secondary">as</span>
-													<Select
-														id="datatable-role"
-														disablePortal
-														items={loadedRoles.map((r) => ({ value: r, label: r }))}
-														bind:value={() => selectedRole, pickRole}
-														clearable={false}
-														placeholder="Role"
-														size="sm"
-														class="w-40"
-													/>
-												{/if}
-												{#if noUsableRole || rolesUnknown || accessUnknown}
-													<span
-														class="text-xs text-red-600 dark:text-red-400"
-														title={access.current.error}
-													>
-														{rolesUnknown
-															? 'could not read its roles'
-															: noUsableRole
-																? 'no role you can use'
-																: 'could not reach it'}; the app is created without a default data
-														table
-													</span>
-												{/if}
-											</div>
-										</div>
-										<div>
-											<span class="text-xs text-emphasis font-semibold">Schema</span>
-											<div class="flex flex-row gap-1 w-full items-center">
-												<div>
-													<ToggleButtonGroup bind:selected={schemaMode} noWFull>
-														{#snippet children({ item })}
-															<ToggleButton value="none" label="None" icon={Ban} {item} size="sm" />
-															<ToggleButton
-																value="new"
-																label="New"
-																icon={Plus}
-																disabled={!canCreateSchema}
-																tooltip={canCreateSchema
-																	? undefined
-																	: noUsableRole
-																		? `You can use no role of ${selectedDatatable}`
-																		: accessUnknown
-																			? `Could not read what may be created in ${selectedDatatable}`
-																			: `${effectiveRole ?? 'This connection'} cannot create schemas in ${selectedDatatable}`}
-																{item}
-																size="sm"
-															/>
-															<ToggleButton
-																value="existing"
-																label="Existing"
-																icon={List}
-																{item}
-																size="sm"
-															/>
-														{/snippet}
-													</ToggleButtonGroup>
-												</div>
-												{#if schemaMode === 'new'}
-													<TextInput
-														bind:value={newSchemaName}
-														inputProps={{
-															placeholder: 'Schema name',
-															oninput: () => (userEditedSchemaName = true)
-														}}
-														class="flex-1"
-														error={newSchemaAlreadyExists}
-														size="sm"
-													/>
-												{:else if schemaMode === 'existing'}
-													<div class="flex-1">
-														<Select
-															disablePortal
-															items={schemaItems}
-															bind:value={selectedSchema}
-															placeholder="Schema"
-															size="sm"
-														/>
-													</div>
-												{/if}
-											</div>
-											{#if newSchemaAlreadyExists}
-												<span class="text-xs text-red-500"
-													>Schema "{newSchemaName}" already exists</span
+											{/if}
+											{#if noUsableRole || rolesUnknown || accessUnknown}
+												<span
+													class="text-xs text-red-600 dark:text-red-400"
+													title={access.current.error}
 												>
+													{rolesUnknown
+														? 'could not read its roles'
+														: noUsableRole
+															? 'no role you can use'
+															: 'could not reach it'}; the app is created without a default data
+													table
+												</span>
 											{/if}
 										</div>
 									</div>
+									<div>
+										<span class="text-xs text-emphasis font-semibold">Schema</span>
+										<div class="flex flex-row gap-1 w-full items-center">
+											<div>
+												<ToggleButtonGroup bind:selected={schemaMode} noWFull>
+													{#snippet children({ item })}
+														<ToggleButton value="none" label="None" icon={Ban} {item} size="sm" />
+														<ToggleButton
+															value="new"
+															label="New"
+															icon={Plus}
+															disabled={!canCreateSchema}
+															tooltip={canCreateSchema
+																? undefined
+																: noUsableRole
+																	? `You can use no role of ${selectedDatatable}`
+																	: accessUnknown
+																		? `Could not read what may be created in ${selectedDatatable}`
+																		: `${effectiveRole ?? 'This connection'} cannot create schemas in ${selectedDatatable}`}
+															{item}
+															size="sm"
+														/>
+														<ToggleButton
+															value="existing"
+															label="Existing"
+															icon={List}
+															{item}
+															size="sm"
+														/>
+													{/snippet}
+												</ToggleButtonGroup>
+											</div>
+											<Button
+												variant="default"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: Database }}
+												title="Explore {selectedDatatable ?? 'the data table'}"
+												onclick={exploreDatatable}
+											/>
+											{#if schemaMode === 'new'}
+												<TextInput
+													bind:value={newSchemaName}
+													inputProps={{
+														placeholder: 'Schema name',
+														oninput: () => (userEditedSchemaName = true)
+													}}
+													class="flex-1"
+													error={newSchemaAlreadyExists}
+													size="sm"
+												/>
+											{:else if schemaMode === 'existing'}
+												<div class="flex-1">
+													<Select
+														disablePortal
+														items={schemaItems}
+														bind:value={selectedSchema}
+														placeholder="Schema"
+														size="sm"
+													/>
+												</div>
+											{/if}
+										</div>
+										{#if newSchemaAlreadyExists}
+											<span class="text-xs text-red-500"
+												>Schema "{newSchemaName}" already exists</span
+											>
+										{/if}
+									</div>
 								</div>
 							</div>
+						</div>
 
+						{#if schemaMode === 'existing'}
 							<div class="pt-6">
 								<RawAppDataTableList
 									dataTableRefs={preWhitelistedTables}
@@ -627,51 +603,122 @@
 									roles={pickerRoles}
 									standalone
 									hideDefaultSelector
-									onAdd={() => dataTableDrawer?.openDrawer()}
+									onAdd={exploreDatatable}
 									onRemove={(index) => {
 										preWhitelistedTables = preWhitelistedTables.filter((_, i) => i !== index)
 									}}
 								/>
 							</div>
-						</div>
-					{/if}
-				</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
 
-				<div class="pt-6 flex items-center justify-end gap-3">
-					{#if isAiEnabled}
-						{@const AiIcon = handsOffToSession ? MessagesSquare : WandSparkles}
-						<p class="mr-auto text-xs text-hint">
-							Click on
-							<span
-								class="mx-0.5 inline-flex h-5 w-5 items-center justify-center rounded-md border align-middle {AIBtnClasses(
-									'default'
-								)}"
-								aria-label="AI"
-							>
-								<AiIcon size={12} />
-							</span>
-							in the editor to {handsOffToSession ? 'switch to AI sessions' : 'open the AI chat'} later
-							on.
-						</p>
+			{#if aiOffered && aiConfigLoaded && !isAiEnabled}
+				<Alert type="info" title="AI is not configured.">
+					You can still create an app manually but using AI is highly recommended.
+					<br />
+					{#if $userStore?.is_admin}
+						Configure AI in
+						<a
+							href="{base}/workspace_settings?tab=ai"
+							target="_blank"
+							class="inline-flex items-center gap-1 font-semibold"
+							>workspace settings <ExternalLinkIcon size={16} />
+						</a>
+						{#if $superadmin}
+							or
+							<a
+								href="{base}/?workspace=admins#superadmin-settings"
+								target="_blank"
+								class="inline-flex items-center gap-1 font-semibold"
+								>instance settings <ExternalLinkIcon size={16} />
+							</a>
+						{/if} to enable this feature.
+					{:else if $superadmin}
+						Configure AI in
+						<a
+							href="{base}/?workspace=admins#superadmin-settings"
+							target="_blank"
+							class="inline-flex items-center gap-1 font-semibold"
+							>instance settings <ExternalLinkIcon size={16} />
+						</a> to enable this feature.
+					{:else}
+						Ask your workspace admin to configure AI in workspace settings to enable this feature.
 					{/if}
-					{#if !$copilotInfo.workspaceDisabled}
-						<Button variant="subtle" unifiedSize="md" onclick={() => (step = 'choice')}>Back</Button
+				</Alert>
+			{/if}
+
+			{#if aiOffered}
+				<div class="pt-6 flex flex-col gap-2">
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+						<Button
+							variant="default"
+							onClick={() => start('ai')}
+							disabled={!canStart || !isAiEnabled || starting !== undefined}
+							btnClasses="{startCardClasses} border-ai/40 bg-ai/5 hover:bg-ai/10 disabled:opacity-50 disabled:cursor-not-allowed"
 						>
+							<span class="flex w-full items-center gap-2">
+								{#if !aiConfigLoaded || starting?.mode === 'ai'}
+									<Loader2 size={18} class="text-ai animate-spin" />
+								{:else}
+									<Sparkles size={18} class="text-ai" />
+								{/if}
+								<span class="text-sm font-semibold text-emphasis whitespace-nowrap"
+									>Start with AI</span
+								>
+							</span>
+							<span class="text-xs font-normal text-secondary">
+								Describe your app and let the AI build it.
+							</span>
+							<span class="absolute -top-3 right-3">
+								<Badge color="blue" small>Recommended</Badge>
+							</span>
+						</Button>
+						<Button
+							variant="default"
+							onClick={() => start('code')}
+							disabled={!canStart || starting !== undefined}
+							btnClasses="{startCardClasses} disabled:opacity-50 disabled:cursor-not-allowed"
+						>
+							<span class="flex w-full items-center gap-2">
+								{#if starting?.mode === 'code'}
+									<Loader2 size={18} class="text-primary animate-spin" />
+								{:else}
+									<Code size={18} class="text-primary" />
+								{/if}
+								<span class="text-sm font-semibold text-emphasis whitespace-nowrap">
+									Start with code editor
+								</span>
+							</span>
+							<span class="text-xs font-normal text-secondary">
+								Write the app yourself in the editor.
+							</span>
+						</Button>
+					</div>
+					<p class="text-xs text-center {starting?.schema ? 'text-secondary' : 'text-hint'}">
+						{starting?.schema
+							? `Creating schema ${starting.schema}…`
+							: 'You can always switch later.'}
+					</p>
+				</div>
+			{:else}
+				<div class="pt-6 flex items-center justify-end gap-3">
+					{#if starting?.schema}
+						<p class="mr-auto text-xs text-secondary">Creating schema {starting.schema}…</p>
 					{/if}
 					<Button
 						variant="accent"
 						unifiedSize="md"
-						onclick={() => start()}
-						disabled={!templates[selectedTemplateIndex] ||
-							newSchemaAlreadyExists ||
-							!rolesSettled ||
-							!accessSettled}
+						onclick={() => start('code')}
+						loading={starting?.mode === 'code'}
+						disabled={!canStart || starting !== undefined}
 					>
 						Create app
 					</Button>
 				</div>
-			</div>
-		{/if}
+			{/if}
+		</div>
 	</Modal>
 {/if}
 
@@ -686,6 +733,8 @@
 			...refs
 		]
 		preWhitelistedRoles = { ...preWhitelistedRoles, ...browsedRoles }
+		// Tables picked while exploring are existing ones to use: show them.
+		if (refs.length > 0) schemaMode = 'existing'
 		if (selectedDatatable !== undefined && browsedRoles[selectedDatatable] !== undefined) {
 			selectedRole = browsedRoles[selectedDatatable]
 		}

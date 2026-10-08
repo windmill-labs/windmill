@@ -113,4 +113,6 @@ export interface ScriptBuilderProps {
 	// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
 	// session preview to save vertical room.
 	condensedHeader?: boolean
+	/** True for the route's own editor: its top bar becomes the page header. */
+	ownsPageHeader?: boolean
 }

@@ -86,7 +86,8 @@
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
 		onRestore,
-		onDeploy
+		onDeploy,
+		ownsPageHeader = false
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
@@ -885,6 +886,7 @@
 {#if !$userStore?.operator}
 	{#if $appStore}
 		<AppEditorHeader
+			{ownsPageHeader}
 			{newPath}
 			{newApp}
 			{labels}
@@ -914,7 +916,7 @@
 			onHideBottomPanel={() => hideBottomPanel()}
 		/>
 		{#if $mode === 'preview'}
-			<SplitPanesWrapper class="border-t">
+			<SplitPanesWrapper>
 				<div
 					class={twMerge(
 						'h-full w-full relative',
@@ -959,7 +961,7 @@
 				</div>
 			{/if}
 
-			<SplitPanesWrapper class="border-t">
+			<SplitPanesWrapper>
 				<Splitpanes id="o1" class="max-w-full overflow-hidden">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
 						<div

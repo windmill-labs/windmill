@@ -55,7 +55,7 @@
 			case 'aiagent':
 				return 'AI Agent'
 			case 'aidecision':
-				return 'AI decision'
+				return 'AI Decision'
 			default:
 				return stepDetail.id
 		}

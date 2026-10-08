@@ -44,6 +44,11 @@ lazy_static::lazy_static! {
 /// Use `tracing::info!(target: windmill_common::tracing_init::VERBOSE_TARGET, ...)` for logs that should be suppressed in quiet mode.
 pub const VERBOSE_TARGET: &str = "windmill_verbose";
 
+/// Target of audit events, so a log pipeline can route them without matching on content.
+/// It keeps the `windmill` prefix because that is what a `RUST_LOG` of `info` or `debug`
+/// is rewritten to filter on.
+pub const AUDIT_TARGET: &str = "windmill:audit";
+
 /// Prefix used by user scripts to emit a log line as an OTEL tracing event
 /// when `OTEL_JOB_LOGS=true`. Stripped before forwarding to the tracing layer.
 pub const OTEL_PREFIX: &str = "OTEL: ";
