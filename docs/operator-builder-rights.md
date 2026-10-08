@@ -122,7 +122,10 @@ carries it through untouched, so an admin deploying the draft would publish it. 
 preview never reads it, and a copy gone stale since the last deploy would otherwise block
 autosave. `Viewer` mode is refused in a draft as on deploy: the deploy panel shows it as
 members-only, so an admin deploying the draft would publish it unawares. The builder's editor
-switches it to `Publisher` on load, since that panel offers no way out of it.
+switches it to `Publisher` on load, since that panel offers no way out of it. A draft naming a
+run identity other than its builder is refused for the same reason: a builder's own deploy resets
+it, but an admin's one-click draft deploy preserves it without showing it. The builder's editor
+drops another user's identity on load, which an app that user deployed carries.
 
 Reading a triggerable key at every colon copies it once per colon, so the check refuses a key
 over 512 bytes before splitting: a quadratic walk otherwise lets a sub-megabyte key allocate

@@ -531,11 +531,21 @@
 
 	// The backend refuses an unsandboxed draft or deploy from an operator with builder rights:
 	// whoever opens their app, here or deployed, would otherwise run its code with their session.
-	// It refuses Viewer mode too, which the deploy panel cannot switch off.
+	// It refuses Viewer mode too, which the deploy panel cannot switch off, and a draft that runs
+	// as someone else, which an app another user deployed carries from its policy.
 	$effect(() => {
 		if (!$operatorBuilderApps || !policy) return
 		if (policy.sandbox !== true) policy.sandbox = true
 		if (policy.execution_mode === 'viewer') policy.execution_mode = 'publisher'
+		const username = $userStore?.username
+		const self = username?.includes('@') ? username : `u/${username}`
+		if (
+			(policy.on_behalf_of != undefined && policy.on_behalf_of !== self) ||
+			(policy.on_behalf_of_email != undefined && policy.on_behalf_of_email !== $userStore?.email)
+		) {
+			delete policy.on_behalf_of
+			delete policy.on_behalf_of_email
+		}
 	})
 
 	async function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {

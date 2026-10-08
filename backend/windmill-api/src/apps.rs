@@ -2438,6 +2438,24 @@ pub(crate) async fn validate_operator_composed_app(
     value: Option<&RawValue>,
     policy: Option<&mut Policy>,
 ) -> Result<()> {
+    // A deploy resets the run identity to its builder; a draft keeps whatever it names, which an
+    // admin's one-click draft deploy preserves without showing it.
+    if let (BuilderAppWrite::Draft, Some(policy)) = (write, policy.as_deref()) {
+        let names_another = policy
+            .on_behalf_of
+            .as_deref()
+            .is_some_and(|p| p != username_to_permissioned_as(&authed.username))
+            || policy
+                .on_behalf_of_email
+                .as_deref()
+                .is_some_and(|e| e != authed.email);
+        if names_another {
+            return Err(Error::PermissionDenied(
+                "Operators with builder rights cannot save an app that runs as someone else"
+                    .to_string(),
+            ));
+        }
+    }
     let referenced = check_operator_composed_app(write, raw_app, value, policy)?;
     require_runnables_readable(authed, db, user_db, w_id, referenced).await
 }

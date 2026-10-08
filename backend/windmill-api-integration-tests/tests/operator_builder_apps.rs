@@ -352,6 +352,16 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
         (json!({}), json!(null), 403),
         (
             json!({}),
+            json!({"sandbox": true, "on_behalf_of": "u/alice", "on_behalf_of_email": "alice@windmill.dev"}),
+            403,
+        ),
+        (
+            json!({}),
+            json!({"sandbox": true, "on_behalf_of": "u/operator"}),
+            200,
+        ),
+        (
+            json!({}),
             json!({"sandbox": true, "triggerables": {
                 format!("{}script/u/operator/some_script", "a:".repeat(300)): {}
             }}),
