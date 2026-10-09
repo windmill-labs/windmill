@@ -165,10 +165,12 @@
 	}
 
 	// One effect for every reason to reload (filters, workspace, user), so that mounting
-	// issues a single load rather than one per reason.
+	// issues a single load rather than one per reason. Waits for the user lookup to settle,
+	// not for a user: a failed lookup still lists, read-only.
 	$effect(() => {
 		filters.val
-		if ($operatingWorkspace && operatingUser.current) {
+		operatingUser.current
+		if ($operatingWorkspace && operatingUser.resolved($operatingWorkspace)) {
 			untrack(() => loadSchedules())
 		}
 	})
