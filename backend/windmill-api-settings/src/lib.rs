@@ -58,10 +58,10 @@ use windmill_common::{
     error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
-        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING,
-        AUTOMATE_USERNAME_CREATION_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXTERNAL_INSTANCE_PG_SETTING,
+        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, API_BASE_URL_SETTING,
+        APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS, EXTERNAL_INSTANCE_PG_SETTING,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
@@ -1238,26 +1238,22 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
-        GITHUB_APP_WEBHOOK_BASE_URL_SETTING => {
-            // A bad value here yields a webhook GitHub can never deliver to, and the
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING | API_BASE_URL_SETTING => {
+            // A bad webhook base yields a webhook GitHub can never deliver to, and the
             // failure only shows up much later as "falling back to polling" on a
-            // repository — so reject it at the boundary instead.
+            // repository; a bad API base puts an unreachable URL in front of every user.
+            // So reject both at the boundary instead.
             match value {
                 // Clearing (delete row) is handled by the caller; allow it through.
                 serde_json::Value::Null => {}
                 serde_json::Value::String(s) if s.trim().is_empty() => {}
                 serde_json::Value::String(s) => {
-                    windmill_common::global_settings::validate_webhook_base_url(s).map_err(
-                        |e| {
-                            error::Error::BadRequest(format!(
-                                "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING}: {e}"
-                            ))
-                        },
-                    )?;
+                    windmill_common::global_settings::validate_webhook_base_url(s)
+                        .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
                 }
                 _ => {
                     return Err(error::Error::BadRequest(format!(
-                        "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING} must be a URL string"
+                        "{key} must be a URL string"
                     )));
                 }
             }
@@ -1394,8 +1390,12 @@ async fn set_instance_config(
 
         // Applied and audited one setting at a time: the writes are not transactional, so a
         // batch that fails midway must not leave the settings it did write unrecorded.
-        let instance_config::SettingsDiff { upserts, deletes, mut previous_values, unchanged_count } =
-            settings_diff;
+        let instance_config::SettingsDiff {
+            upserts,
+            deletes,
+            mut previous_values,
+            unchanged_count,
+        } = settings_diff;
         let steps = upserts
             .into_iter()
             .map(|(k, v)| (k, Some(v)))

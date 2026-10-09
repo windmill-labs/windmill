@@ -996,6 +996,7 @@ pub fn is_own_job_runtime_route(route_path: &str, http_method: &str, job_id: uui
         ["job_metrics", "set_progress", ..] => (http_method == "POST", 2),
         ["job_metrics", "get_progress", ..] => (http_method == "GET", 2),
         ["jobs" | "jobs_u", "resume_urls" | "wac_approval_urls", ..] => (http_method == "GET", 2),
+        ["jobs", "worker_is_draining", ..] => (http_method == "GET", 2),
         ["jobs", "wac", "inline_checkpoint", ..] => (http_method == "POST", 3),
         ["jobs", "run", "workflow_as_code", ..] => (http_method == "POST", 3),
         _ => return false,

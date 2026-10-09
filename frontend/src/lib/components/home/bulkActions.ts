@@ -8,18 +8,19 @@
  * addresses the deployed row. A draft-only item is therefore not deletable —
  * there is nothing deployed at its path.
  */
-import { AppService, DraftService, FlowService, ScriptService } from '$lib/gen'
+import { AppService, DraftService, FlowService, ResourceService, ScriptService } from '$lib/gen'
 import type { UserDraftItemKind } from '$lib/gen'
 import { updateItemPathAndSummary } from '$lib/components/moveRenameManager'
 import { discardDraft } from '$lib/utils_draft_deploy'
 import type { BulkItem } from './homeSelection.svelte'
 
-/** The draft overlay is the one place a raw app is its own kind. Narrowed to the
- * four kinds `moveDraft` accepts — a `BulkItem` is never anything else, and
- * saying so lets the compiler check that rather than trusting it. */
+/** The draft overlay is the one place a raw app is its own kind, and an agent's
+ * draft is filed as the resource it is. Narrowed so the compiler checks that a
+ * `BulkItem` never maps to anything else. */
 function draftKind(
 	item: BulkItem
-): Extract<UserDraftItemKind, 'script' | 'flow' | 'app' | 'raw_app'> {
+): Extract<UserDraftItemKind, 'script' | 'flow' | 'app' | 'raw_app' | 'resource'> {
+	if (item.kind === 'agent') return 'resource'
 	return item.kind === 'app' && item.rawApp ? 'raw_app' : item.kind
 }
 
@@ -43,6 +44,9 @@ export function blockedReason(
 	switch (action) {
 		case 'move':
 			if (item.archived) return 'archived items cannot be moved'
+			// The server moves only script, flow and app drafts.
+			if (item.kind === 'agent' && item.draftOnly)
+				return 'a draft-only agent is moved by changing its path in the editor'
 			if (!item.owner) return notOwner
 			if (!item.canWrite) return 'you do not have write permission on this path'
 			return undefined
@@ -94,9 +98,11 @@ async function moveItem(ctx: BulkContext, item: BulkItem, target: string): Promi
 	if (item.draftOnly) {
 		// Nothing is deployed at this path, so there is no deploy to re-run: the
 		// item IS its draft row, and moving it rewrites that row.
+		const kind = draftKind(item)
+		if (kind === 'resource') throw new Error('a draft-only agent cannot be moved here')
 		await DraftService.moveDraft({
 			workspace: ctx.workspace,
-			kind: draftKind(item),
+			kind,
 			path: item.path,
 			requestBody: { new_path: newPath }
 		})
@@ -138,6 +144,8 @@ async function deleteItem(ctx: BulkContext, item: BulkItem): Promise<void> {
 		await ScriptService.deleteScriptByPath({ workspace: ctx.workspace, path: item.path })
 	} else if (item.kind === 'flow') {
 		await FlowService.deleteFlowByPath({ workspace: ctx.workspace, path: item.path })
+	} else if (item.kind === 'agent') {
+		await ResourceService.deleteResource({ workspace: ctx.workspace, path: item.path })
 	} else {
 		await AppService.deleteApp({ workspace: ctx.workspace, path: item.path })
 	}

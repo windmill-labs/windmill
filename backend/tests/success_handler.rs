@@ -239,3 +239,70 @@ export async function main(path: string, email: string, job_id: string, is_flow:
 
     Ok(())
 }
+
+/// A hub script run at the top level (a schedule, a trigger, the API) is a `script_hub` job,
+/// and its success must reach the workspace success handler like a workspace script's.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_success_handler_triggered_on_hub_script_success(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::jobs::JobPayload;
+
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+
+    let version = "990000003";
+    let hub_dir = &*windmill_common::worker::HUB_CACHE_DIR;
+    tokio::fs::create_dir_all(hub_dir).await?;
+    tokio::fs::write(
+        format!("{hub_dir}/{version}"),
+        r#"{"content":"echo ok","lockfile":null,"language":"bash","schema":{},"summary":null}"#,
+    )
+    .await?;
+
+    // The workspace handler settings are cached per workspace id across the tests of this
+    // binary, so this reuses the handler path every other test here configures.
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
+         VALUES ('test-workspace', 1234567891, 'f/test/success_handler', 'echo handled', 'bash', 'script', 'test-user', '{}', '', '', '')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        r#"UPDATE workspace_settings SET success_handler = '{"path": "script/f/test/success_handler"}'::jsonb
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let completed_job = RunJob::from(JobPayload::ScriptHub {
+        path: format!("hub/{version}/test/ok"),
+        apply_preprocessor: false,
+    })
+    .run_until_complete(&db, false, server.addr.port())
+    .await;
+    assert!(completed_job.success, "Hub script should have succeeded");
+
+    let mut handler_parent = None;
+    for _ in 0..50 {
+        handler_parent = sqlx::query_scalar::<_, Option<uuid::Uuid>>(
+            "SELECT parent_job FROM v2_job
+             WHERE workspace_id = 'test-workspace' AND permissioned_as_email = 'success_handler@windmill.dev'",
+        )
+        .fetch_optional(&db)
+        .await?;
+        if handler_parent.is_some() {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        handler_parent,
+        Some(Some(completed_job.id)),
+        "Workspace success handler should handle the successful hub script"
+    );
+
+    Ok(())
+}
