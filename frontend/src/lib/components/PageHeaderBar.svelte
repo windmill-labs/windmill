@@ -12,6 +12,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
+	import BreadcrumbNavPicker from './BreadcrumbNavPicker.svelte'
 	import { BAR_HEIGHT, pageHeader, PHONE_BAR } from './pageHeaderRegistry.svelte'
 	import ContextBridge from './ContextBridge.svelte'
 	import { afterNavigate } from '$app/navigation'
@@ -178,6 +179,10 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 				</svelte:boundary>
 			{:else}
 				<span class="min-w-0 truncate text-xs font-medium text-emphasis">{item.summary}</span>
+			{/if}
+			<!-- The summary ends the trail here, so the breadcrumb's chevron follows it instead. -->
+			{#if !navHidden}
+				<BreadcrumbNavPicker {item} actingWorkspaceId={content?.actingWorkspaceId} />
 			{/if}
 		</div>
 	{/if}
