@@ -27,6 +27,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import DBTable from './DBTable.svelte'
+	import type { IDbTableOps } from './dbOps'
 	import { resource } from 'runed'
 	import { staticDbTableOps } from './staticDbTableOps'
 	import {
@@ -34,7 +35,8 @@
 		isJsonFile,
 		JSON_TABLE_MAX_BYTES,
 		s3TableOps,
-		serverTableFormat
+		serverTableFormat,
+		type S3TableSource
 	} from './s3TableOps'
 	import {
 		CancelablePromise,
@@ -228,20 +230,35 @@
 			inBrowser
 		}
 	})
+	let tableKey = $derived(tableSource && JSON.stringify(tableSource))
 	let tableOps = resource(
 		() => (viewMode === 'table' ? tableSource : undefined),
-		async (source) => {
+		async (source, _previous, { signal }) => {
 			if (!source) return undefined
-			if (!source.inBrowser) return s3TableOps(source)
-			const rows = await fetchJsonTableRows(source)
-			return rows && staticDbTableOps(rows, 'duckdb', source.fileKey.split('/').pop() ?? '')
+			const key = JSON.stringify(source)
+			// A response for a file or options since left must not replace the current one;
+			// the resource drops a fetch that throws an AbortError.
+			const superseded = () => new DOMException('Superseded', 'AbortError')
+			try {
+				const table = source.inBrowser ? await jsonTable(source) : await s3TableOps(source)
+				if (signal.aborted) throw superseded()
+				return { key, ops: table?.ops, csvSeparator: table?.csvSeparator }
+			} catch (e) {
+				throw signal.aborted ? superseded() : e
+			}
 		}
 	)
+	async function jsonTable(
+		source: S3TableSource
+	): Promise<{ ops: IDbTableOps; csvSeparator?: string } | undefined> {
+		const rows = await fetchJsonTableRows(source)
+		return rows && { ops: staticDbTableOps(rows, 'duckdb', source.fileKey.split('/').pop() ?? '') }
+	}
+	/** The loaded table, once it belongs to the selected file and options. */
+	let currentTable = $derived(tableOps.current?.key === tableKey ? tableOps.current : undefined)
 	/** A JSON file that turns out not to be an array has no table to show. */
 	let showTable = $derived(
-		viewMode === 'table' &&
-			!!tableSource &&
-			(tableOps.loading || !!tableOps.error || tableOps.current !== undefined)
+		viewMode === 'table' && !!tableSource && !(currentTable && !currentTable.ops)
 	)
 	// Each file starts on the separator the server guesses from its first bytes.
 	$effect(() => {
@@ -254,14 +271,8 @@
 	/** Kept while the file stays selected, so the text view still shows what was guessed. */
 	let detectedCsvSeparator: string | undefined = $state(undefined)
 	$effect(() => {
-		const current = tableOps.current
-		if (current && 'ops' in current && current.csvSeparator) {
-			detectedCsvSeparator = current.csvSeparator
-		}
+		if (currentTable?.csvSeparator) detectedCsvSeparator = currentTable.csvSeparator
 	})
-	let currentTableOps = $derived(
-		tableOps.current && 'ops' in tableOps.current ? tableOps.current.ops : tableOps.current
-	)
 
 	/** Identifies the metadata request that currently owns the preview pane. */
 	let metadataRequestId = 0
@@ -1511,9 +1522,9 @@
 			     plumbing pre-loaded state through component boundaries. -->
 			{#if showTable}
 				<div class="flex-1 min-h-0 relative">
-					{#if currentTableOps}
-						{#key currentTableOps}
-							<DBTable dbTableOps={currentTableOps} />
+					{#if currentTable?.ops}
+						{#key currentTable.ops}
+							<DBTable dbTableOps={currentTable.ops} />
 						{/key}
 					{:else if tableOps.error}
 						<div class="p-3 text-xs text-red-600 dark:text-red-400 break-words">

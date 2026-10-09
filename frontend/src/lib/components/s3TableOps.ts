@@ -28,7 +28,7 @@ type Chunk = {
 }
 
 /** An Arrow type as the SQL type name the grid filters and formats by. */
-function datatypeOf(arrowType: string | undefined): string {
+export function datatypeOf(arrowType: string | undefined): string {
 	const t = arrowType ?? ''
 	if (/^U?Int\d+$/.test(t)) return 'bigint'
 	if (/^Float\d+$/.test(t)) return 'double'
@@ -88,6 +88,8 @@ export async function s3TableOps(
 	const colDefs: ColumnDef[] = head.columns.map((field, i) => ({
 		field,
 		datatype: datatypeOf(head.column_types?.[i]),
+		// The server cannot read a struct, map or union as text to filter it.
+		filterable: !/^(Struct|Map|Union)/.test(head.column_types?.[i] ?? ""),
 		defaultvalue: '',
 		isprimarykey: false,
 		isidentity: ColumnIdentity.No,
