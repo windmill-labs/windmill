@@ -900,13 +900,15 @@
 	// each row carries its server fetch ordinal (`ord`), which already reflects the
 	// chosen order, the (path, kind) tiebreaks, full-precision timestamps, the database
 	// collation, and starred-first pinning. Sorting by it can never disagree with the
-	// server, so a later page never jumps above shown rows on "load more". Depends on
+	// server, so a later page never jumps above shown rows on "load more". Agents lead the
+	// runnables (see loadAgents) everywhere but among the starred, which all come first. Depends on
 	// `sortOrder` only so its identity changes when the order does (re-grouping the tree,
 	// whose leaves also sort by ord); the actual reordering comes from the reload that
 	// restamps ord.
 	let compareItems = $derived.by(() => {
 		sortOrder
-		return (a: { ord?: number }, b: { ord?: number }): number => (a.ord ?? 0) - (b.ord ?? 0)
+		return (a: { ord?: number; starred?: boolean }, b: { ord?: number; starred?: boolean }) =>
+			Number(!!b.starred) - Number(!!a.starred) || (a.ord ?? 0) - (b.ord ?? 0)
 	})
 
 	const opts: uFuzzy.Options = {

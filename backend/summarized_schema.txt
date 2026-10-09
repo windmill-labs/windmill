@@ -10,7 +10,7 @@ autoscaling_event_type: full_scaleout, scalein, scaleout
 aws_auth_resource_type: oidc, credentials
 delivery_mode: push, pull
 draft_type: script, flow, app
-favorite_kind: app, script, flow, raw_app, asset
+favorite_kind: app, script, flow, raw_app, asset, agent
 gcp_subscription_mode: create_update, existing
 http_method: get, post, put, delete, patch
 importer_kind: script, flow, app

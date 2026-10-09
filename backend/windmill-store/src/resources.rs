@@ -225,6 +225,10 @@ pub struct ListedResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub draft_path: Option<String>,
+    /// Whether the authed user starred this `ai_agent`; unset on every other type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub starred: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -261,6 +265,8 @@ pub struct ListResourceQuery {
     /// When true, append per-user draft-only rows; picker callers leave it off
     /// to stay deployed-only. See list synthesis in scripts.rs.
     pub include_draft_only: Option<bool>,
+    /// Only the `ai_agent` resources the authed user starred.
+    pub starred_only: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -374,6 +380,12 @@ async fn list_resources(
               AND draft.email = ?) as is_draft"
                 .bind(&authed.email),
         )
+        .field(
+            &"CASE WHEN resource.resource_type = 'ai_agent' THEN EXISTS(SELECT 1 FROM favorite \
+              WHERE favorite.workspace_id = resource.workspace_id AND favorite.path = resource.path \
+              AND favorite.favorite_kind = 'agent' AND favorite.usr = ?) END as starred"
+                .bind(&authed.username),
+        )
         .left()
         .join("variable")
         .on("variable.path = resource.path AND variable.workspace_id = resource.workspace_id")
@@ -437,6 +449,14 @@ async fn list_resources(
         );
     }
 
+    if lq.starred_only.unwrap_or(false) {
+        sqlb.and_where(
+            "EXISTS(SELECT 1 FROM favorite WHERE favorite.workspace_id = resource.workspace_id \
+             AND favorite.path = resource.path AND favorite.favorite_kind = 'agent' AND favorite.usr = ?)"
+                .bind(&authed.username),
+        );
+    }
+
     if let Some(label) = &lq.label {
         for l in label.split(',') {
             sqlb.and_where(
@@ -472,6 +492,7 @@ async fn list_resources(
         && lq.value.is_none()
         && lq.broad_filter.is_none()
         && lq.label.is_none()
+        && !lq.starred_only.unwrap_or(false)
     {
         let rt_filter: Option<Vec<&str>> = lq
             .resource_type
@@ -560,7 +581,7 @@ async fn list_resources(
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
             };
-            rows.push(ListedResource { resource, agent_memory, draft_path });
+            rows.push(ListedResource { resource, agent_memory, draft_path, starred: None });
         }
     }
 

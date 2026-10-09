@@ -1,8 +1,10 @@
-import { FileUp, Shield, Trash } from 'lucide-svelte'
+import { Copy, Eye, FileUp, List, Shield, Trash } from 'lucide-svelte'
 import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import type { Item } from '$lib/utils'
+import { copyToClipboard, type Item } from '$lib/utils'
 import { isDeployable } from '$lib/utils_deployable'
+import { base } from '$lib/base'
+import { goto } from '$lib/navigation'
 import type { WorkspaceDeployUISettings } from '$lib/gen'
 
 /** Deletes a saved agent, saying how it went. Resolves whether it was deleted. */
@@ -24,6 +26,8 @@ export function agentMenuItems(agent: {
 	/** Never deployed: no resource yet to hold permissions or to deploy onward. */
 	draftOnly?: boolean
 	wsSpecific?: boolean
+	/** Hides what an operator has no page for, as on a flow's menu. */
+	operator?: boolean
 	/** Undefined until loaded, when nothing is offered for deploy. */
 	deployUiSettings: WorkspaceDeployUISettings | undefined
 	onPermissions: () => void
@@ -35,6 +39,28 @@ export function agentMenuItems(agent: {
 		!agent.draftOnly &&
 		isDeployable('resource', agent.path, agent.deployUiSettings)
 	return [
+		// A draft-only agent has no runs, no audit trail, and only a placeholder path yet.
+		...(agent.draftOnly
+			? []
+			: [
+					{
+						// Chat turns are filed under `<path>.chat` (agent_runs.rs) and listed by the agent's
+						// own chat, so this is the form runs.
+						displayName: 'View runs',
+						icon: List,
+						action: () => goto(`${base}/runs/${agent.path}`)
+					},
+					...(agent.operator
+						? []
+						: [
+								{
+									displayName: 'Audit logs',
+									icon: Eye,
+									action: () => goto(`${base}/audit_logs?resource=${agent.path}`)
+								}
+							]),
+					{ displayName: 'Copy path', icon: Copy, action: () => copyToClipboard(agent.path) }
+				]),
 		{
 			displayName: 'Permissions',
 			icon: Shield,

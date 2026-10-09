@@ -9280,6 +9280,12 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: starred_only
+          description: Only the `ai_agent` resources the caller starred
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: resource list
@@ -24454,7 +24460,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app, asset]
+                  enum: [flow, app, script, raw_app, asset, agent]
       responses:
         "200":
           description: star item
@@ -24477,7 +24483,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app, asset]
+                  enum: [flow, app, script, raw_app, asset, agent]
       responses:
         "200":
           description: unstar item
@@ -32381,6 +32387,9 @@ components:
             On a draft-only row, the path its editor has staged when it
             differs from the storage path (e.g. a never-deployed item parked at
             `u/{user}/draft_{uuid}`).
+        starred:
+          type: boolean
+          description: For an `ai_agent` resource only, whether the caller starred it.
       required:
         - path
         - resource_type

@@ -260,7 +260,7 @@
 		</div>
 	{/if}
 
-	{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow')}
+	{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow' || kind == 'agent')}
 		<div class="center-center h-full text-xs font-semibold text-secondary w-9">
 			<Star {kind} {path} {workspaceId} {summary} />
 		</div>
