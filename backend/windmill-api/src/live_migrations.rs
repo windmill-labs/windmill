@@ -10,6 +10,7 @@ use sqlx::{PgConnection, Postgres};
 use tokio::task::JoinHandle;
 use windmill_common::{
     db::DB, error::Error, global_settings::DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING,
+    hub_resource_types::RETIRE_LEGACY_HUB_SYNC,
 };
 
 use crate::db::CustomMigrator;
@@ -199,7 +200,6 @@ async fn run_background_migrations(db: &DB) -> Result<(), Error> {
 
 const AUDIT_OPERATION_INDEX: &str = "audit_partitioned_workspace_operation_index";
 const RETIRE_LEGACY_AUDIT: &str = "retire_legacy_audit_table";
-const RETIRE_LEGACY_HUB_SYNC: &str = "retire_legacy_hub_sync_script";
 
 // Short on purpose: a statement waiting for its lock is also a wait for every audit insert
 // queued behind it.

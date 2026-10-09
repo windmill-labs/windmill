@@ -34,6 +34,8 @@ const CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(600);
 const SYNC_LOCK_ID: i64 = 737_483_925;
 /// `background_task_state.name` of the sync's last attempt and last hub sync.
 const SYNC_STATE_TASK: &str = "hub_resource_type_sync";
+/// The background migration retiring `u/admin/hub_sync`, recorded in `windmill_migrations`.
+pub const RETIRE_LEGACY_HUB_SYNC: &str = "retire_legacy_hub_sync_script";
 
 pub fn cache_path() -> String {
     format!("{}/resource_types.json", *HUB_RT_CACHE_DIR)
@@ -431,6 +433,16 @@ async fn sync_if_due(db: &DB) -> Result<()> {
     {
         return Ok(());
     }
+    // The retirement is what turns a disabled `u/admin/hub_sync` schedule into the setting
+    // above. Syncing before it has run would overwrite the edits that schedule was protecting.
+    let retired: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM windmill_migrations WHERE name = $1)")
+            .bind(RETIRE_LEGACY_HUB_SYNC)
+            .fetch_one(db)
+            .await?;
+    if !retired {
+        return Ok(());
+    }
     // A transaction-scoped lock: a dropped transaction rolls back and releases it, so a
     // pass cut short cannot leave it held on a pooled connection. The transaction only
     // owns the lock; the sync runs on other connections.
@@ -548,6 +560,24 @@ mod tests {
         .await?;
         assert!(sync_from_cache_file(&db, path).await?.is_none());
         assert_eq!(description().await?.as_deref(), Some("hub copy"));
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn no_daily_sync_before_the_legacy_sync_is_retired(db: DB) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM windmill_migrations WHERE name = $1")
+            .bind(RETIRE_LEGACY_HUB_SYNC)
+            .execute(&db)
+            .await?;
+
+        sync_if_due(&db).await?;
+
+        let state: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT value FROM background_task_state WHERE name = $1")
+                .bind(SYNC_STATE_TASK)
+                .fetch_optional(&db)
+                .await?;
+        assert_eq!(state, None);
         Ok(())
     }
 }
