@@ -36,6 +36,18 @@ pub fn init_telemetry(
     rt_config: deno_telemetry::OtelRuntimeConfig,
     config: deno_telemetry::OtelConfig,
 ) -> anyhow::Result<()> {
+    // The caller points `OTEL_EXPORTER_OTLP_ENDPOINT` at its own collector only
+    // while this runs. The HTTP exporter reads it once, here; the gRPC exporter
+    // reads it again on every export and the console one never does, so either
+    // would send job telemetry somewhere else than that collector.
+    if let Ok(protocol) = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL") {
+        if !matches!(protocol.as_str(), "" | "http/protobuf" | "http/json") {
+            anyhow::bail!(
+                "native script telemetry only supports an HTTP OTLP exporter, \
+                 but OTEL_EXPORTER_OTLP_PROTOCOL is {protocol:?}"
+            );
+        }
+    }
     deno_telemetry::init(&sys_traits::impls::RealSys, rt_config, config)
 }
 

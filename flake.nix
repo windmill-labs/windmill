@@ -78,7 +78,8 @@
         ];
 
         # ---------------------------------------------------------------
-        # Prebuilt V8 binary (must match the `v8` version in backend/Cargo.lock)
+        # Prebuilt V8 binary (must match the `v8` version in backend/Cargo.lock).
+        # The simdutf variant: deno_core enables that feature of the v8 crate.
         # ---------------------------------------------------------------
 
         rustyV8Archive = let
@@ -86,7 +87,7 @@
           target = stdenv.hostPlatform.rust.rustcTarget;
           sha256 = {
             x86_64-linux =
-              "sha256-WGn9twcbHyHyAKl86X0gElh34PMc2ALtmd4sU/SIsGw=";
+              "sha256-9IdiyhDR8fxgWkQcWuQw7Izh6egPFNePvELLh4wwtHY=";
             aarch64-linux = lib.fakeHash;
             x86_64-darwin = lib.fakeHash;
             aarch64-darwin = lib.fakeHash;
@@ -94,7 +95,7 @@
         in pkgs.fetchurl {
           name = "librusty_v8-${version}";
           url =
-            "https://github.com/denoland/rusty_v8/releases/download/v${version}/librusty_v8_release_${target}.a.gz";
+            "https://github.com/denoland/rusty_v8/releases/download/v${version}/librusty_v8_simdutf_release_${target}.a.gz";
           inherit sha256;
         };
 

@@ -182,8 +182,17 @@ globalThis.AbortSignal = abortSignal.AbortSignal;
 // heap is not attached while this module runs at snapshot-build time.
 Object.defineProperty(globalThis, "crypto", {
   configurable: true,
-  enumerable: false,
+  enumerable: true,
   get: () => crypto.crypto,
+  // Assignment has to keep working, as it does on a plain property.
+  set(value) {
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value,
+    });
+  },
 });
 globalThis.Crypto = crypto.Crypto;
 globalThis.CryptoKey = crypto.CryptoKey;
