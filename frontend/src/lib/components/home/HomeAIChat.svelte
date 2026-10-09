@@ -181,7 +181,9 @@
 		try {
 			await startSessionWithPrompt(value, {
 				autoSend: true,
-				actingOn: pickHere,
+				// Always the displayed workspace, picked or not: createSession may reuse an
+				// untouched draft parked elsewhere, and the session must act where Home said.
+				actingOn: actingOnId ? { workspaceId: actingOnId, fork: pickHere?.fork } : undefined,
 				autonomyMode: pickedAutonomyMode
 			})
 		} finally {
