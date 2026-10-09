@@ -80,7 +80,7 @@ highlighted, a workspace page inside Pages with that page highlighted.
 	bind:isOpen
 	openFocus="[data-workspace-picker-search]"
 	contentClasses="flex flex-col overflow-hidden"
-	class="shrink-0 flex items-center p-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
+	class="shrink-0 flex items-center h-9 px-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
 	triggerAttrs={{ 'aria-label': 'Navigate to', title: 'Navigate to' }}
 >
 	{#snippet trigger()}
