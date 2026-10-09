@@ -16,6 +16,7 @@ highlighted, a workspace page inside Pages with that page highlighted.
 	import { pageKey, parsePreviewItemRoute, type PreviewTarget } from './sessions/previewRouter'
 	import { editPathFor, leafKeyFor, viewPathFor, type WorkspaceItem } from './workspacePicker'
 	import { base } from '$lib/base'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import type { PageHeaderItem } from './pageHeaderRegistry.svelte'
 
 	let {
@@ -77,10 +78,23 @@ highlighted, a workspace page inside Pages with that page highlighted.
 		return undefined
 	}
 
+	/** The whole vocabulary of the `header_nav` / `pick` counter: what kind of destination was
+	 *  picked, never which one. */
+	type PickKey = 'page' | 'item_view' | 'item_edit'
+
+	function pickKey(target: PreviewTarget): PickKey | undefined {
+		if (target.type === 'page') return 'page'
+		if (target.type === 'item') return target.mode === 'view' ? 'item_view' : 'item_edit'
+		return undefined
+	}
+
 	function pick(target: PreviewTarget) {
 		isOpen = false
 		const href = hrefFor(target)
-		if (href) goto(withWorkspace(href))
+		if (!href) return
+		const key = pickKey(target)
+		if (key) logFeatureUsage('header_nav', 'pick', { key, workspace: actingWorkspaceId })
+		goto(withWorkspace(href))
 	}
 </script>
 
