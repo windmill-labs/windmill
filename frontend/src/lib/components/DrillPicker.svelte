@@ -204,6 +204,9 @@ leaves and ignores the current scope.
 		)
 	)
 
+	/** Whether any row in this list has a second line, which sets every row's height. */
+	const entriesTwoLine = $derived(entryList.some((e) => e.type === 'leaf' && !!e.node.secondary))
+
 	// Browse rows annotated with the section header rendered above them. A
 	// header is emitted when a leaf's section differs from the previous LEAF's
 	// section — comparing against the previous entry of any type would insert a
@@ -502,7 +505,12 @@ leaves and ignores the current scope.
 	{/if}
 {/snippet}
 
-{#snippet leafRow(leaf: DrillLeaf<L>, secondary: string | undefined, baseClass: string)}
+{#snippet leafRow(
+	leaf: DrillLeaf<L>,
+	secondary: string | undefined,
+	baseClass: string,
+	twoLineHeight: boolean
+)}
 	{@const key = leaf.key}
 	{@const isHl = key === highlightedKey}
 	{@const isCur = !!leaf.current}
@@ -541,9 +549,12 @@ leaves and ignores the current scope.
 			onclick={(e) => pick(leaf, e.metaKey || e.ctrlKey)}
 		>
 			{@render defaultLeafIcon(leaf)}
-			<!-- Centred in the row's full height so a one-line leaf sits where a two-line
-			     one's pair does, rather than riding high against the top. -->
-			<div class="min-w-0 flex-1 flex flex-col justify-center min-h-[2.25rem]">
+			<!-- Centred in a two-line row's height so a one-line leaf sits where a two-line
+			     one's pair does, rather than riding high against the top. A list with no
+			     second line anywhere (a picker's pages) keeps its rows one line tall. -->
+			<div
+				class="min-w-0 flex-1 flex flex-col justify-center {twoLineHeight ? 'min-h-[2.25rem]' : ''}"
+			>
 				{#if leaf.secondary}
 					<div class="text-xs text-primary font-normal truncate">{leaf.label}</div>
 					<div class="text-2xs text-hint font-normal font-mono truncate">
@@ -657,6 +668,7 @@ leaves and ignores the current scope.
 				<div role="status" class="px-3 py-2 text-xs text-tertiary">No matches</div>
 			{:else}
 				{#each searchResultsByGroup as { key, label, items } (key)}
+					{@const twoLineHeight = items.some((r) => !!r.leaf.secondary)}
 					{#if label}
 						<div
 							class="px-3 pt-3 pb-1 mt-2 first:mt-0 text-3xs uppercase tracking-wide text-hint font-medium"
@@ -666,7 +678,9 @@ leaves and ignores the current scope.
 					{/if}
 					<ul class="pb-1">
 						{#each items as r (r.leaf.key)}
-							<li>{@render leafRow(r.leaf, r.leaf.secondary ?? r.leaf.label, 'py-1.5')}</li>
+							<li>
+								{@render leafRow(r.leaf, r.leaf.secondary ?? r.leaf.label, 'py-1.5', twoLineHeight)}
+							</li>
 						{/each}
 					</ul>
 				{/each}
@@ -692,7 +706,8 @@ leaves and ignores the current scope.
 						{@render leafRow(
 							entry.node,
 							leafSecondary?.(entry.node, scope) ?? entry.node.secondary,
-							'py-1.5'
+							'py-1.5',
+							entriesTwoLine
 						)}
 					{:else}
 						<button
