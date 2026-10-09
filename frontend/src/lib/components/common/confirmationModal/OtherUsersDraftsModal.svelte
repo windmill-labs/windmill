@@ -18,6 +18,9 @@
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { displayDate } from '$lib/utils'
 	import { userStore } from '$lib/stores'
+	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
+	import { goto } from '$app/navigation'
+	import { base } from '$app/paths'
 
 	export type OtherDraftUser = { username?: string | null; draft_saved_at?: string }
 
@@ -74,14 +77,34 @@
 				path,
 				username: username ?? undefined
 			})
-			sendUserToast(username ? `Deleted ${username}'s draft` : `Deleted all drafts at ${path}`)
-			deleting = undefined
-			isOpen = false
-			await onReload?.()
 		} catch (e) {
 			sendUserToast(`Could not delete draft: ${e.body ?? e.message}`, true)
+			return
 		} finally {
 			deleteBusy = false
+		}
+		sendUserToast(username ? `Deleted ${username}'s draft` : `Deleted all drafts at ${path}`)
+		deleting = undefined
+		isOpen = false
+
+		// A path-wide delete took our own draft too: drop the editor's copy with
+		// autosave muted, or its next write would save that draft right back.
+		if (target === 'all') {
+			discardDraftAfterDeploy({ workspace, itemKind, path })
+		}
+		// Nothing is left at a never-deployed path once its last draft is gone, so
+		// there is no item to reload the editor on.
+		const lastDraftGone =
+			target === 'all' ||
+			(!hasOwnDraft && otherDraftsUsers.every((o) => ownerKey(o) === ownerKey(target)))
+		if (draftOnly && lastDraftGone) {
+			await goto(`${base}/`)
+			return
+		}
+		try {
+			await onReload?.()
+		} catch (e) {
+			sendUserToast(`Could not reload the editor: ${e.body ?? e.message}`, true)
 		}
 	}
 
