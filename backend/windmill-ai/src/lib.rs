@@ -11,6 +11,7 @@ pub mod model_context;
 pub mod providers;
 pub mod proxy;
 pub mod query_builder;
+pub mod retry;
 pub mod sse;
 pub mod types;
 pub mod utils;

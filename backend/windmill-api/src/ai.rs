@@ -40,6 +40,7 @@ use windmill_ai::proxy::{
     fim::maybe_transform_fim_request, proxy_execution_mode, ProxyBuildArgs, ProxyExecutionMode,
     ProxyRequest,
 };
+use windmill_ai::retry::send_with_retries;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::db::UserDB;
 use windmill_common::error::{to_anyhow, Error, Result};
@@ -1188,15 +1189,11 @@ async fn global_proxy(
         }
     };
 
-    let response = request.send().await.map_err(to_anyhow)?;
+    let response = send_with_retries(request).await;
 
     audit_global_ai_request(&db, &authed).await?;
 
-    if response.error_for_status_ref().is_err() {
-        let err_msg = response.text().await.unwrap_or("".to_string());
-        return Err(Error::AIError(err_msg));
-    }
-
+    let response = response?;
     let status_code = response.status();
     let headers = response.headers().clone();
     let stream = response.bytes_stream();
@@ -1576,7 +1573,7 @@ async fn proxy(
         }
     };
 
-    let response = request.send().await.map_err(to_anyhow)?;
+    let response = send_with_retries(request).await;
 
     let mut tx = db.begin().await?;
 
@@ -1592,11 +1589,7 @@ async fn proxy(
     .await?;
     tx.commit().await?;
 
-    if response.error_for_status_ref().is_err() {
-        let err_msg = response.text().await.unwrap_or("".to_string());
-        return Err(Error::AIError(err_msg));
-    }
-
+    let response = response?;
     let status_code = response.status();
     let headers = response.headers().clone();
     let is_sse = is_sse_response(&headers);
