@@ -21,6 +21,8 @@
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TextInput from './text_input/TextInput.svelte'
+	import Select from './select/Select.svelte'
+	import Toggle from './Toggle.svelte'
 	import {
 		CancelablePromise,
 		HelpersService,
@@ -156,6 +158,12 @@
 
 	let csvSeparatorChar: string = $state(',')
 	let csvHasHeader: boolean = $state(true)
+	const CSV_SEPARATORS = [
+		{ value: ',', label: ',' },
+		{ value: ';', label: ';' },
+		{ value: '\t', label: 'Tab' },
+		{ value: '|', label: '|' }
+	]
 
 	let dispatch = createEventDispatcher<{
 		close: { s3: string; storage: string | undefined } | undefined
@@ -1292,7 +1300,9 @@
 			</Pane>
 		{/if}
 		<Pane class="flex flex-col min-h-0 overflow-hidden">
-			<div class="flex items-center gap-3 px-3 py-3 min-h-[3.75rem]">
+			<div
+				class="flex items-center gap-3 px-3 py-3 min-h-[3.75rem] shrink-0 border-b bg-surface-secondary"
+			>
 				{#if fileMetadata === undefined}
 					<div class="flex items-center gap-2 text-xs text-tertiary">
 						{#if fileInfoLoading}
@@ -1316,7 +1326,7 @@
 						fileMetadata.lastModified && `Modified ${fileMetadata.lastModified}`
 					].filter(Boolean)}
 					<div
-						class="shrink-0 flex items-center justify-center w-9 h-9 rounded-md bg-surface-secondary text-secondary"
+						class="shrink-0 flex items-center justify-center w-9 h-9 rounded-md border bg-surface text-secondary"
 					>
 						<FileKindIcon size={18} />
 					</div>
@@ -1338,6 +1348,21 @@
 							</div>
 						{/if}
 					</div>
+					{#if filePreview?.contentType === 'Csv'}
+						<div class="flex items-center gap-4 shrink-0 text-xs text-secondary">
+							<div class="flex items-center gap-2">
+								<span>Separator</span>
+								<Select
+									size="sm"
+									class="w-20"
+									items={CSV_SEPARATORS}
+									bind:value={csvSeparatorChar}
+								/>
+							</div>
+							<Toggle size="xs" bind:checked={csvHasHeader} options={{ right: 'Header row' }} />
+						</div>
+						<div class="w-px h-6 border-l shrink-0"></div>
+					{/if}
 					{#if filePreview !== undefined && (!hideS3SpecificDetails || !readOnlyMode || allowDelete)}
 						<div class="flex gap-1 shrink-0">
 							{#if !hideS3SpecificDetails}
@@ -1402,17 +1427,17 @@
 			     above for the download/move toolbar; S3FilePreview does an
 			     independent load — fine on this non-hot path, and avoids
 			     plumbing pre-loaded state through component boundaries. -->
-			<div class="flex-1 min-h-0 mx-3 mb-3 rounded-md border overflow-hidden">
-				<S3FilePreview
-					fileKey={fileMetadata?.fileKey}
-					{storage}
-					{s3ResourcePath}
-					workspace={ws}
-					{loadFilePreviewRequest}
-					{loadFileMetadataRequest}
-					class="h-full"
-				/>
-			</div>
+			<S3FilePreview
+				fileKey={fileMetadata?.fileKey}
+				{storage}
+				{s3ResourcePath}
+				workspace={ws}
+				{loadFilePreviewRequest}
+				{loadFileMetadataRequest}
+				class="flex-1 min-h-0"
+				csvOptions={{ separator: csvSeparatorChar, hasHeader: csvHasHeader }}
+				bodyClass="bg-transparent px-3"
+			/>
 		</Pane>
 	</Splitpanes>
 {/if}
