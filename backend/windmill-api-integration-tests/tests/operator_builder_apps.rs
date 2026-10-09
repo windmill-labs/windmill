@@ -1,8 +1,11 @@
 use serde_json::json;
+use serial_test::serial;
 use sqlx::{Pool, Postgres};
 use windmill_common::workspaces::invalidate_operator_rights_cache;
 use windmill_test_utils::*;
 
+/// Every test here must be `#[serial]`: the rights cache is process-global and keyed by workspace id
+/// alone, so parallel tests under this same id read each other's rights.
 const WS: &str = "test-workspace";
 
 fn client(token: &str) -> reqwest::Client {
@@ -88,6 +91,7 @@ fn composition_flow(path: &str) -> serde_json::Value {
 /// gate reading "either" would authorize the kind its workspace never granted, which is the whole
 /// point of splitting them.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
 async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
@@ -533,6 +537,7 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
 /// The readability check must not hold its RLS transaction while it takes a second connection,
 /// or a one-connection pool (`DATABASE_CONNECTIONS=1`) stalls every builder draft naming a script.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
 async fn test_operator_builder_app_check_fits_one_connection(
     pool_opts: sqlx::postgres::PgPoolOptions,
     connect_opts: sqlx::postgres::PgConnectOptions,
