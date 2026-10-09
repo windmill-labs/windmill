@@ -225,10 +225,6 @@ pub struct ListedResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub draft_path: Option<String>,
-    /// Whether the authed user starred this `ai_agent`; unset on every other type.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[sqlx(default)]
-    pub starred: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -379,12 +375,6 @@ async fn list_resources(
               AND draft.path = resource.path AND draft.typ = 'resource' \
               AND draft.email = ?) as is_draft"
                 .bind(&authed.email),
-        )
-        .field(
-            &"CASE WHEN resource.resource_type = 'ai_agent' THEN EXISTS(SELECT 1 FROM favorite \
-              WHERE favorite.workspace_id = resource.workspace_id AND favorite.path = resource.path \
-              AND favorite.favorite_kind = 'agent' AND favorite.usr = ?) END as starred"
-                .bind(&authed.username),
         )
         .left()
         .join("variable")
@@ -581,7 +571,7 @@ async fn list_resources(
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
             };
-            rows.push(ListedResource { resource, agent_memory, draft_path, starred: None });
+            rows.push(ListedResource { resource, agent_memory, draft_path });
         }
     }
 
