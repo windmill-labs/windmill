@@ -81,6 +81,10 @@ export class McpMenu {
 					editedAt: r.edited_at,
 					enabled: isMcpEnabled(ws, r.path)
 				}))
+				// Enabled first: those are the ones a quick visit is most likely about.
+				// Sorted here, once per load, not in `items()`: the open submenu re-derives
+				// from `items()`, so a toggle would move rows under the cursor.
+				.sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.path.localeCompare(b.path))
 			this.#rowsWorkspace = ws
 			void this.#loadIcons(ws, seq)
 		} catch {
@@ -166,10 +170,7 @@ export class McpMenu {
 		const ws = this.#ws
 		if (!ws) return []
 		if (this.#rowsWorkspace !== ws) return [loadingItem]
-		// Enabled first: those are the ones a quick visit is most likely about.
-		const ordered = [...this.#rows].sort(
-			(a, b) => Number(b.enabled) - Number(a.enabled) || a.path.localeCompare(b.path)
-		)
+		const ordered = this.#rows
 		const shown = ordered.slice(0, MAX_MENU_SERVERS)
 		const manage = () => {
 			closeMenu?.()
