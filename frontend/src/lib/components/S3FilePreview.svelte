@@ -50,7 +50,7 @@
 		class?: string
 		/** CSV parsing options owned by the caller, which then renders its own controls:
 		 * the preview hides its own and reloads when these change. */
-		csvOptions?: { separator: string; hasHeader: boolean }
+		csvOptions?: { separator: string | undefined; hasHeader: boolean }
 		/** Merged onto the preview body, below the metadata strip. */
 		bodyClass?: string
 		// Bump this to force a re-fetch (metadata + preview). Used by the
@@ -188,7 +188,7 @@
 				fileKey: key,
 				fileSizeInBytes: size,
 				fileMimeType: mimeType,
-				csvSeparator: csvOptions?.separator ?? csvSeparatorChar,
+				csvSeparator: csvOptions ? csvOptions.separator : csvSeparatorChar,
 				csvHasHeader: csvOptions?.hasHeader ?? csvHasHeader,
 				readBytesFrom: 0,
 				readBytesLength: 128 * 1024,

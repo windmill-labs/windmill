@@ -17,12 +17,25 @@
 		FileImage,
 		FileArchive,
 		FilePlay,
-		FileAudio
+		FileAudio,
+		Table2
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TextInput from './text_input/TextInput.svelte'
 	import Select from './select/Select.svelte'
 	import Toggle from './Toggle.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import DBTable from './DBTable.svelte'
+	import { resource } from 'runed'
+	import { staticDbTableOps } from './staticDbTableOps'
+	import {
+		fetchJsonTableRows,
+		isJsonFile,
+		JSON_TABLE_MAX_BYTES,
+		s3TableOps,
+		serverTableFormat
+	} from './s3TableOps'
 	import {
 		CancelablePromise,
 		HelpersService,
@@ -156,7 +169,7 @@
 	let rootPath = $state(initialRootPath)
 	let rootPathNestingLevel = $derived(1 * (rootPath.split('/').length - 1))
 
-	let csvSeparatorChar: string = $state(',')
+	let csvSeparatorChar: string | undefined = $state(undefined)
 	let csvHasHeader: boolean = $state(true)
 	const CSV_SEPARATORS = [
 		{ value: ',', label: ',' },
@@ -196,6 +209,51 @@
 				contentType: string | undefined
 		  }
 		| undefined = $state(undefined)
+
+	let viewMode: 'table' | 'text' = $state('table')
+	/** The selected file, when it can be shown as a table. Its own requests can't read
+	 * files behind a custom listing (git repos), so those keep the text preview. */
+	let tableSource = $derived.by(() => {
+		if (hideS3SpecificDetails || !fileMetadata || !ws) return undefined
+		const fileKey = fileMetadata.fileKey
+		const inBrowser = isJsonFile(fileKey) && (fileMetadata.size ?? Infinity) <= JSON_TABLE_MAX_BYTES
+		if (!inBrowser && !serverTableFormat(fileKey)) return undefined
+		return {
+			workspace: ws,
+			fileKey,
+			storage,
+			s3ResourcePath,
+			csvSeparator: csvSeparatorChar,
+			csvHasHeader,
+			inBrowser
+		}
+	})
+	let tableOps = resource(
+		() => (viewMode === 'table' ? tableSource : undefined),
+		async (source) => {
+			if (!source) return undefined
+			if (!source.inBrowser) return s3TableOps(source)
+			const rows = await fetchJsonTableRows(source)
+			return rows && staticDbTableOps(rows, 'duckdb', source.fileKey.split('/').pop() ?? '')
+		}
+	)
+	/** A JSON file that turns out not to be an array has no table to show. */
+	let showTable = $derived(
+		viewMode === 'table' &&
+			!!tableSource &&
+			(tableOps.loading || !!tableOps.error || tableOps.current !== undefined)
+	)
+	// Each file starts on the separator the server guesses from its first bytes.
+	$effect(() => {
+		fileMetadata?.fileKey
+		untrack(() => (csvSeparatorChar = undefined))
+	})
+	let detectedCsvSeparator = $derived(
+		tableOps.current && 'ops' in tableOps.current ? tableOps.current.csvSeparator : undefined
+	)
+	let currentTableOps = $derived(
+		tableOps.current && 'ops' in tableOps.current ? tableOps.current.ops : tableOps.current
+	)
 
 	/** Identifies the metadata request that currently owns the preview pane. */
 	let metadataRequestId = 0
@@ -1348,6 +1406,19 @@
 							</div>
 						{/if}
 					</div>
+					{#if tableSource}
+						<ToggleButtonGroup
+							noWFull
+							selected={viewMode}
+							onSelected={(v) => (viewMode = v)}
+							class="shrink-0"
+						>
+							{#snippet children({ item })}
+								<ToggleButton value="table" label="Table" icon={Table2} small {item} />
+								<ToggleButton value="text" label="Text" icon={FileText} small {item} />
+							{/snippet}
+						</ToggleButtonGroup>
+					{/if}
 					{#if filePreview?.contentType === 'Csv'}
 						<div class="flex items-center gap-4 shrink-0 text-xs text-secondary">
 							<div class="flex items-center gap-2">
@@ -1358,6 +1429,8 @@
 									RightIcon={ChevronDown}
 									items={CSV_SEPARATORS}
 									bind:value={csvSeparatorChar}
+									placeholder={CSV_SEPARATORS.find((s) => s.value === detectedCsvSeparator)?.label ??
+										'Auto'}
 								/>
 							</div>
 							<Toggle size="xs" bind:checked={csvHasHeader} options={{ right: 'Header row' }} />
@@ -1428,17 +1501,35 @@
 			     above for the download/move toolbar; S3FilePreview does an
 			     independent load — fine on this non-hot path, and avoids
 			     plumbing pre-loaded state through component boundaries. -->
-			<S3FilePreview
-				fileKey={fileMetadata?.fileKey}
-				{storage}
-				{s3ResourcePath}
-				workspace={ws}
-				{loadFilePreviewRequest}
-				{loadFileMetadataRequest}
-				class="flex-1 min-h-0"
-				csvOptions={{ separator: csvSeparatorChar, hasHeader: csvHasHeader }}
-				bodyClass="bg-transparent px-3"
-			/>
+			{#if showTable}
+				<div class="flex-1 min-h-0 relative">
+					{#if currentTableOps}
+						{#key currentTableOps}
+							<DBTable dbTableOps={currentTableOps} />
+						{/key}
+					{:else if tableOps.error}
+						<div class="p-3 text-xs text-red-600 dark:text-red-400 break-words">
+							Could not read this file as a table: {tableOps.error.message}
+						</div>
+					{:else}
+						<div class="flex items-center gap-2 p-3 text-xs text-tertiary">
+							<Loader2 size={14} class="animate-spin" /> Loading table...
+						</div>
+					{/if}
+				</div>
+			{:else}
+				<S3FilePreview
+					fileKey={fileMetadata?.fileKey}
+					{storage}
+					{s3ResourcePath}
+					workspace={ws}
+					{loadFilePreviewRequest}
+					{loadFileMetadataRequest}
+					class="flex-1 min-h-0"
+					csvOptions={{ separator: csvSeparatorChar, hasHeader: csvHasHeader }}
+					bodyClass="bg-transparent px-3"
+				/>
+			{/if}
 		</Pane>
 	</Splitpanes>
 {/if}

@@ -5498,6 +5498,10 @@ impl AppLoadCountQuery {
                 search_col: self.search_col,
                 search_term: self.search_term,
                 storage: self.storage,
+                s3_resource_path: None,
+                csv_separator: None,
+                csv_has_header: None,
+                filters: None,
             },
         )
     }
@@ -5531,6 +5535,9 @@ impl AppLoadPreviewQuery {
                 search_term: self.search_term,
                 storage: self.storage,
                 csv_separator: self.csv_separator,
+                s3_resource_path: None,
+                csv_has_header: None,
+                filters: None,
             },
         )
     }
@@ -5618,7 +5625,9 @@ async fn app_load_table_count(
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp =
-        crate::job_helpers_oss::load_table_count_internal(job_authed, &db, &w_id, file_key, inner)
+        crate::job_helpers_oss::load_table_count_internal(
+            job_authed, &db, None, &w_id, file_key, inner,
+        )
             .await?;
     Ok(Json(resp).into_response())
 }
@@ -5637,7 +5646,7 @@ async fn app_load_parquet_preview(
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp = crate::job_helpers_oss::load_preview_internal(
-        job_authed, &db, &w_id, file_key, inner, true,
+        job_authed, &db, None, &w_id, file_key, inner, true,
     )
     .await?;
     Ok(Json(resp).into_response())
@@ -5657,7 +5666,7 @@ async fn app_load_csv_preview(
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp = crate::job_helpers_oss::load_preview_internal(
-        job_authed, &db, &w_id, file_key, inner, false,
+        job_authed, &db, None, &w_id, file_key, inner, false,
     )
     .await?;
     Ok(Json(resp).into_response())

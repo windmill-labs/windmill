@@ -25231,9 +25231,12 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
-          description: Parquet Preview
+          description: >
+            Parquet Preview: `columns`, `column_types` (Arrow type names) and `rows`.
           content:
             application/json: {}
 
@@ -25258,6 +25261,13 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/TablePreviewCsvHasHeader"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
           description: Table count
@@ -25306,13 +25316,20 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
         - name: csv_separator
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewCsvHasHeader"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
-          description: Csv Preview
+          description: >
+            Csv Preview: `columns`, `column_types` (Arrow type names), `rows`, and the
+            `csv_separator` the file was read with, guessed from its first bytes when
+            none is given.
+            A `.jsonl` or `.ndjson` file is read as newline-delimited JSON.
           content:
             application/json: {}
 
@@ -27670,6 +27687,28 @@ components:
       name: workspace
       in: path
       required: true
+      schema:
+        type: string
+    TablePreviewS3ResourcePath:
+      name: s3_resource_path
+      description: Read the file from this object storage resource instead of the workspace storage.
+      in: query
+      schema:
+        type: string
+    TablePreviewCsvHasHeader:
+      name: csv_has_header
+      description: Whether the first CSV line names the columns. Defaults to true.
+      in: query
+      schema:
+        type: boolean
+    TablePreviewFilters:
+      name: filters
+      description: >
+        JSON object, column name to filter. A number column takes an optional comparison
+        operator and a number (`>=10`), a boolean column a boolean, and any other column a
+        case-insensitive substring, or `=value` for an exact match. A `search_term` without
+        a `search_col` matches any column, case-insensitively.
+      in: query
       schema:
         type: string
     HubPublishFolder:
