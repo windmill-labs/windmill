@@ -4,6 +4,7 @@
 	import type { FlowNodeColorClasses } from '$lib/components/graph'
 	import { twMerge } from 'tailwind-merge'
 	import { getContext } from 'svelte'
+	import { AGENT_STEP_ID } from '../conversations/agentEditorChat'
 
 	// Detached mode (sessions): a step's editor is hidden until asked for, so add the
 	// hint to the name tooltip. Provided by FlowEditor; absent (=> false) elsewhere.
@@ -69,7 +70,8 @@
 	</Popover>
 
 	<div class="flex items-center space-x-2 relative" bind:clientWidth={idBadgeWidth}>
-		{#if id && id !== 'preprocessor' && !id.startsWith('failure') && !id.startsWith('subflow:')}
+		<!-- A saved agent's run is that one step, already named by the run page. -->
+		{#if id && id !== 'preprocessor' && id !== AGENT_STEP_ID && !id.startsWith('failure') && !id.startsWith('subflow:')}
 			<Badge
 				color="transparent"
 				class="border-none"
