@@ -71,7 +71,7 @@ async fn spawn_capturing_http(captured: Arc<Mutex<Vec<Vec<u8>>>>) -> u16 {
 /// drifts away from `tracing_enabled + Capture`, this test breaks
 /// before the customer-facing panic does.
 fn init_with_ee_otel_config() {
-    deno_telemetry::init(
+    windmill_runtime_nativets::init_telemetry(
         deno_telemetry::OtelRuntimeConfig {
             runtime_name: "windmill-nativets".into(),
             runtime_version: "0".into(),
@@ -157,13 +157,12 @@ export async function main(): Promise<number> {{
         "fetch target should have been hit exactly once"
     );
 
-    // 4. Force the BatchSpanProcessor to flush so the exporter posts
-    //    to our mock collector synchronously (default flush interval
-    //    is ~5s; tests can't wait that long).
-    deno_telemetry::flush();
-    // Exporter is async over the OTel runtime; give it a beat to
-    // actually send the HTTP request.
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // 4. The BatchSpanProcessor exports on its own schedule (about 5s by
+    //    default) and deno_telemetry exposes no flush, so wait for it.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while otlp_hits.lock().await.is_empty() && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 
     let otlp_captured = otlp_hits.lock().await;
     assert!(

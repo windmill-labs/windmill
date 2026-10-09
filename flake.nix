@@ -78,15 +78,15 @@
         ];
 
         # ---------------------------------------------------------------
-        # Prebuilt V8 binary (must match version in Cargo.toml)
+        # Prebuilt V8 binary (must match the `v8` version in backend/Cargo.lock)
         # ---------------------------------------------------------------
 
         rustyV8Archive = let
-          version = "137.1.0";
+          version = "150.4.0";
           target = stdenv.hostPlatform.rust.rustcTarget;
           sha256 = {
             x86_64-linux =
-              "sha256-Tiscfy2bzYGR3s0T+SC1IB3xWvTVpVcSEdjq3MCRoRw=";
+              "sha256-WGn9twcbHyHyAKl86X0gElh34PMc2ALtmd4sU/SIsGw=";
             aarch64-linux = lib.fakeHash;
             x86_64-darwin = lib.fakeHash;
             aarch64-darwin = lib.fakeHash;

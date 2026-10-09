@@ -451,7 +451,7 @@ headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 hyper-tls = "^0.6"
 hyper-util = { version = "^0.1", features = ["client-legacy", "http1", "tokio"] }
-tokio = { version = "=1.46.1", features = ["full", "tracing", "time"] }
+tokio = { version = "=1.47.1", features = ["full", "tracing", "time"] }
 tokio-stream = { version = "0.1.17" }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
@@ -519,33 +519,26 @@ aws-sdk-rds = "^1"
 async-trait = "0.1.88"
 
 
-v8 = "=137.1.0"  # Exact version NOTE: Do not forget to update version and hash in flake.nix
-# deno_* pin set: deno v2.4.0 base, with deno_ast force-overridden to =0.51.0.
-# Rationale: deno_ast 0.51.0 is the first version pulling swc_common =14.0.4,
-# the first swc_common patch that dropped `pub use serde::__private as serde;`
-# (the line that capped our workspace serde pin at =1.0.220). v2.4.0's other
-# pins keep deno_tls at 0.196.0 which uses permissive `rustls ^0.23.11`,
-# compatible with aws-sdk-bedrockruntime's `^0.23.31` requirement. deno_tls
-# 0.198+ tightened that to exact `=0.23.28`, which would have made any
-# meaningful deno bump resolver-impossible against aws-sdk.
-deno_fetch = "0.233.0"
-deno_tls = "0.196.0"
-deno_console = "0.209.0"
-deno_url = "0.209.0"
-deno_webidl = "0.209.0"
-deno_web = "0.240.0"
-# Sibling release of the pinned deno_core 0.352 / deno_web 0.240 stack
-# (its deps are deno_core ^0.352, deno_web ^0.240, deno_error =0.6.1). A newer
-# deno_crypto would force bumping the whole deno stack.
-deno_crypto = "0.223.0"
-deno_io = "0.119.0"
-deno_fs = "0.119.0"
-deno_net = "0.201.0"
-deno_core = "0.352.0"
+# deno_* pin set: the crates deno published together on 2026-09-16 (deno_core
+# 0.412), which resolve V8 to 150.4.0. Update the version and hash in flake.nix
+# with any bump that moves V8.
+# These release as a matched set: each pins its siblings, deno_error exactly,
+# and deno_tls pins rustls exactly (=0.23.40, the workspace `rustls` pin below
+# must equal it). A bump moves all of them at once.
+# deno_ast is independent of that set and stays at 0.51.0: a newer one pulls
+# swc_common 17, which would force bumping every swc_* pin the parsers use.
+deno_fetch = "0.283.0"
+deno_tls = "0.246.0"
+deno_webidl = "0.259.0"
+deno_web = "0.290.0"
+deno_crypto = "0.273.0"
+deno_net = "0.251.0"
+deno_core = "0.412.0"
 deno_ast = { version = "=0.51.0", features = ["transpiling"] }
-deno_permissions = "0.68.0"
-deno_telemetry = "0.31.0"
-deno_error = "=0.6.1"
+deno_permissions = "0.118.0"
+deno_telemetry = "0.81.0"
+deno_error = "=0.7.1"
+sys_traits = { version = "0.1.28", features = ["real", "libc", "winapi"] }
 rustls-pemfile = "2.2.0"
 
 # only used with special deno_core_mac feature to prevent ffi issue on macos, requires libffi to be installed
@@ -682,7 +675,7 @@ aws-sdk-sqs = "^1.89.0"
 aws-sdk-sts = "^1.91.0"
 aws-sdk-sso = "=1.77.0"
 aws-sdk-ssooidc = "=1.78.0"
-rustls = "=0.23.35"
+rustls = "=0.23.40"
 async-once-cell = "0.5.4"
 size = "0.5.0"
 
