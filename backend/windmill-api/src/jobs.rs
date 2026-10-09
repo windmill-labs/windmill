@@ -379,6 +379,10 @@ pub fn workspaced_service() -> Router {
             get(get_wac_approval_urls).layer(cors.clone()),
         )
         .route(
+            "/worker_is_draining/{id}",
+            get(worker_is_draining).layer(cors.clone()),
+        )
+        .route(
             "/result_by_id/{job_id}/{node_id}",
             get(get_result_by_id).layer(cors.clone()),
         )
@@ -611,6 +615,53 @@ async fn get_root_job(
 ) -> windmill_common::error::JsonResult<String> {
     let res = compute_root_job_for_flow(&db, &w_id, id).await?;
     Ok(Json(res))
+}
+
+/// Whether the worker running this job has received its shutdown signal. A draining worker
+/// never interrupts its job, so a long-running script polls this to exit on its own terms.
+async fn worker_is_draining(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> windmill_common::error::JsonResult<bool> {
+    // A job always may ask about itself. Anyone else must be able to see the job: the
+    // caller's row policies on v2_job decide, narrowed by the token's tag filter.
+    let draining = if authed.job_id == Some(id) {
+        sqlx::query_scalar!(
+            "SELECT wp.draining FROM v2_job_queue q JOIN worker_ping wp ON wp.worker = q.worker
+            WHERE q.id = $1 AND q.workspace_id = $2 AND q.running AND q.started_at IS NOT NULL",
+            id,
+            w_id
+        )
+        .fetch_optional(&db)
+        .await?
+    } else {
+        let tags = get_scope_tags(&authed)
+            .map(|tags| tags.into_iter().map(str::to_string).collect::<Vec<_>>());
+        let mut tx = user_db.begin(&authed).await?;
+        let draining = sqlx::query_scalar!(
+            "SELECT wp.draining FROM v2_job j
+            JOIN v2_job_queue q ON q.id = j.id
+            JOIN worker_ping wp ON wp.worker = q.worker
+            WHERE j.id = $1 AND j.workspace_id = $2 AND q.running AND q.started_at IS NOT NULL
+            AND ($3::text[] IS NULL OR j.tag = ANY($3))",
+            id,
+            w_id,
+            tags.as_deref()
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        draining
+    }
+    .unwrap_or(false);
+    windmill_common::feature_usage::log_feature_usage(
+        "worker_draining",
+        "check",
+        if draining { "draining" } else { "not_draining" },
+    );
+    Ok(Json(draining))
 }
 
 async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
@@ -7775,6 +7826,7 @@ pub async fn run_workflow_as_code(
             )
         };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, mut tx) = push(
         &db,
@@ -7803,7 +7855,7 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         None,
         None,
         scope_ceiling.as_deref(),
@@ -8090,6 +8142,7 @@ pub async fn run_wait_result_job_by_path_get(
             )
         };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -8118,7 +8171,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),
@@ -8240,6 +8293,7 @@ pub async fn run_wait_result_script_by_path_internal(
             )
         };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -8268,7 +8322,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),
@@ -8358,6 +8412,7 @@ pub async fn run_wait_result_script_by_hash(
         )
     };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -8400,7 +8455,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),
@@ -10505,6 +10560,7 @@ pub async fn run_job_by_hash_inner(
     };
     let job_payload = with_run_retry(&run_query, job_payload, &push_args, &tag)?;
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, trigger.as_ref()).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -10533,7 +10589,7 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),

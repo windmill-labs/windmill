@@ -1,0 +1,230 @@
+import { DraftService, ScriptService, type Script } from '$lib/gen'
+import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
+import type { PipelineTriggerDraft } from './types'
+import type { Schema } from '$lib/common'
+import { emptySchema } from '$lib/utils'
+import { inferArgs, inferAssets } from '$lib/infer'
+import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
+import type { PipelineDraft } from './pipelineAiHelpers'
+import type { PipelineEditorState } from './pipelineEditorState.svelte'
+import { deployTriggerDraft } from './pipelineTriggerDraftDeploy'
+
+// Deploying a pipeline's drafts: the scripts first, then the trigger drafts whose
+// script is now deployed. Shared by the pipeline page's "Save all" and the AI
+// session's "Deploy pipeline", so both deploy exactly the same way.
+
+/** Deploy one pipeline script draft; resolves to the new version's hash. */
+export async function deployPipelineScript(
+	draft: PipelineDraft,
+	workspace: string
+): Promise<string> {
+	const script = structuredClone($state.snapshot(draft.script) as Script)
+	script.schema = script.schema ?? emptySchema()
+	try {
+		const result = await inferArgs(script.language, script.content, script.schema as Schema)
+		;(script as any).auto_kind = result?.auto_kind || undefined
+		script.has_preprocessor = result?.has_preprocessor ?? false
+	} catch {
+		// Inference failures don't block deploys (the same fallback the per-pane
+		// save uses): createScript is the real validation gate.
+	}
+	// Re-infer the lineage from the CURRENT body. `script.assets` is a snapshot
+	// that isn't refreshed on edit, so a renamed/removed output would otherwise be
+	// re-deployed as a phantom write edge.
+	let assets: AssetWithAltAccessType[] = []
+	try {
+		const inferred = await inferAssets(script.language, script.content)
+		if (inferred?.status !== 'error') assets = (inferred?.assets ?? []) as AssetWithAltAccessType[]
+	} catch {
+		// An unparsable body deploys with no lineage rather than the stale snapshot.
+	}
+	return await ScriptService.createScript({
+		workspace,
+		requestBody: {
+			...script,
+			language: script.language,
+			description: script.description ?? '',
+			// A brand-new draft has an empty hash (the backend rejects an empty hex
+			// string); a draft of a deployed script chains off its hash, since
+			// createScript rejects a parentless deploy to an occupied path.
+			parent_hash: script.hash ? String(script.hash) : undefined,
+			is_template: false,
+			tag: script.tag,
+			kind: script.kind as Script['kind'] | undefined,
+			lock: undefined,
+			assets: assets as any
+		}
+	})
+}
+
+// Every field a deploy sends: a draft differing from the live script in any of
+// them still has something to deploy.
+const DEPLOYED_FIELDS = [
+	'content',
+	'language',
+	'summary',
+	'description',
+	'tag',
+	'kind',
+	'labels'
+] as const
+
+/** Whether two versions of a script agree on everything a deploy sends. */
+function sameDeployedFields(a: Partial<Script>, b: Partial<Script>): boolean {
+	const norm = (v: unknown) => JSON.stringify(Array.isArray(v) && v.length === 0 ? null : (v ?? null))
+	return DEPLOYED_FIELDS.every(
+		(f) =>
+			norm(f === 'description' ? (a[f] ?? '') : a[f]) ===
+			norm(f === 'description' ? (b[f] ?? '') : b[f])
+	)
+}
+
+/** Whether a draft equals the live script at its path, i.e. has nothing to deploy. */
+export async function matchesDeployedScript(
+	path: string,
+	d: PipelineDraft,
+	workspace: string
+): Promise<boolean> {
+	try {
+		const live = await ScriptService.getScriptByPath({ workspace, path })
+		return sameDeployedFields(live, d.script)
+	} catch {
+		return false
+	}
+}
+
+/**
+ * A folder's draft bundle against what is deployed, one entry per node (and the
+ * trigger drafts), for a diff viewer: the unit a session reviews and deploys.
+ */
+export async function loadPipelineDraftDiff(
+	workspace: string,
+	folder: string
+): Promise<{ before: unknown; after: unknown }> {
+	const row = await DraftService.getOwnDraft({
+		workspace,
+		kind: PIPELINE_DRAFT_KIND,
+		path: pipelineBundlePath(folder)
+	}).catch(() => undefined)
+	const bundle = (row?.value ?? {}) as {
+		drafts?: Array<[string, PipelineDraft]>
+		triggerDrafts?: PipelineTriggerDraft[]
+	}
+	const drafts = Array.isArray(bundle.drafts) ? bundle.drafts : []
+	const before: Record<string, string> = {}
+	const after: Record<string, string> = {}
+	await Promise.all(
+		drafts.map(async ([path, d]) => {
+			after[path] = d.script?.content ?? ''
+			const live = await ScriptService.getScriptByPath({ workspace, path }).catch(() => undefined)
+			if (live) before[path] = live.content
+		})
+	)
+	const triggers = (bundle.triggerDrafts ?? []).map((t) => ({
+		kind: t.kind,
+		path: t.config.path,
+		script_path: t.config.script_path
+	}))
+	return {
+		before: { nodes: before },
+		after: { nodes: after, ...(triggers.length > 0 ? { new_triggers: triggers } : {}) }
+	}
+}
+
+export type PipelineDeployOutcome = {
+	savedPaths: string[]
+	/** Keys of the trigger drafts that deployed. */
+	savedTriggers: string[]
+	/** Failures by script or trigger path. */
+	errors: Map<string, string>
+}
+
+/**
+ * Deploy every draft of `editor` into `workspace`, dropping from it what deployed:
+ * failed drafts stay so they can be fixed and retried. The open pane's unsaved
+ * keystrokes are deployed with their draft.
+ */
+export async function deployPipelineDrafts(
+	editor: PipelineEditorState,
+	workspace: string
+): Promise<PipelineDeployOutcome> {
+	// Closing the pane lands an open deployed script's edits as its draft, so they
+	// deploy too. It reopens on that script once the deploy is done, unless another
+	// one was opened meanwhile.
+	const reopen =
+		editor.liveEditPath != undefined || editor.activeDraftPath != undefined
+			? await editor.closePane()
+			: undefined
+	const entries = [...editor.drafts.entries()]
+	const errors = new Map<string, string>()
+	const savedPaths: string[] = []
+	const hashes = new Map<string, string>()
+	// Parallel: every createScript is independent, and one bad body must not block
+	// the others.
+	const results = await Promise.allSettled(
+		entries.map(([, d]) => deployPipelineScript(d, workspace))
+	)
+	for (let i = 0; i < results.length; i++) {
+		const r = results[i]
+		const [path, d] = entries[i]
+		if (r.status === 'fulfilled') {
+			savedPaths.push(path)
+			if (r.value) hashes.set(path, r.value)
+			continue
+		}
+		// A refused draft that equals the deployed script has nothing left to deploy.
+		// A duplicate refusal alone does not prove it: it is checked against every
+		// past version, not just the live one.
+		if (await matchesDeployedScript(path, d, workspace)) {
+			savedPaths.push(path)
+			continue
+		}
+		const msg = String((r.reason as any)?.body ?? (r.reason as any)?.message ?? r.reason)
+		errors.set(
+			path,
+			/same hash/i.test(msg)
+				? 'This is the content of an earlier version, which cannot be deployed again as is. Change anything in it (a comment will do) to deploy it.'
+				: msg
+		)
+	}
+
+	// A trigger's `script_path` must already exist, so triggers whose script is
+	// still an undeployed draft stay drafts.
+	const ready = [...editor.triggerDrafts].filter(
+		([, d]) => !editor.drafts.has(d.config.script_path) || savedPaths.includes(d.config.script_path)
+	)
+	const triggerResults = await Promise.all(ready.map(([, d]) => deployTriggerDraft(d, workspace)))
+	const savedTriggers: string[] = []
+	triggerResults.forEach((ok, i) => {
+		const [key, d] = ready[i]
+		if (ok) savedTriggers.push(key)
+		else errors.set(d.config.path, `Could not create the ${d.kind} trigger, see the notification`)
+	})
+	for (const key of savedTriggers) editor.discardTriggerDraft(key)
+
+	if (savedPaths.length > 0) {
+		// A draft edited again while it deployed (its node reopened from the canvas)
+		// keeps the newer edits, now on top of the version just deployed; only a draft
+		// still holding exactly what was sent is done.
+		const sent = new Map(entries.map(([p, d]) => [p, d.script]))
+		const next = new Map<string, PipelineDraft>()
+		for (const [k, d] of editor.drafts) {
+			if (!savedPaths.includes(k)) {
+				next.set(k, d)
+				continue
+			}
+			const open = editor.liveContent.scriptPath === k ? editor.liveContent.content : undefined
+			const now = open === undefined ? d.script : { ...d.script, content: open }
+			const was = sent.get(k)
+			if (was && sameDeployedFields(now, was)) continue
+			const hash = hashes.get(k)
+			next.set(k, hash ? { ...d, script: { ...d.script, hash } } : d)
+		}
+		editor.drafts = next
+	}
+	if (reopen && editor.activeDraftPath === undefined && editor.selection === undefined) {
+		if (editor.drafts.has(reopen)) editor.activeDraftPath = reopen
+		else editor.selection = { kind: 'runnable', runnable_kind: 'script', path: reopen }
+	}
+	return { savedPaths, savedTriggers, errors }
+}

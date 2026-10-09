@@ -41,6 +41,7 @@ pub fn global_service() -> Router {
         .route("/queue_metrics", get(get_queue_metrics))
         .route("/queue_metrics_series", get(get_queue_metrics_series))
         .route("/queue_status", get(get_queue_status))
+        .route("/runnable_stats", get(get_runnable_stats))
         .route("/queue_counts", get(get_queue_counts))
         .route("/queue_running_counts", get(get_queue_running_counts))
         .route(
@@ -86,6 +87,7 @@ struct WorkerPing {
     job_isolation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     native_mode: Option<bool>,
+    draining: bool,
 }
 
 // #[derive(Serialize, Deserialize)]
@@ -118,7 +120,7 @@ async fn list_worker_pings(
         WorkerPing,
         "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed,
         CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as last_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as last_job_workspace_id,
-        custom_tags, worker_group, wm_version, occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, memory, vcpus, memory_usage, wm_memory_usage, job_isolation, native_mode
+        custom_tags, worker_group, wm_version, occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, memory, vcpus, memory_usage, wm_memory_usage, job_isolation, native_mode, draining
         FROM worker_ping
         WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
         ORDER BY ping_at desc LIMIT $2 OFFSET $3",
@@ -296,6 +298,81 @@ async fn get_queue_metrics(
     .await?;
 
     Ok(Json(queue_metrics))
+}
+
+#[derive(Deserialize)]
+struct RunnableStatsQuery {
+    window_secs: Option<i64>,
+    worker_group: Option<String>,
+    workspace: Option<String>,
+    order_by: Option<String>,
+    limit: Option<i64>,
+}
+
+#[derive(Serialize)]
+struct RunnableStats {
+    workspace_id: String,
+    runnable_path: String,
+    worker_group: String,
+    job_count: i64,
+    total_duration_ms: i64,
+    max_memory_peak: i32,
+    sum_memory_peak: i64,
+    memory_sample_count: i64,
+    total_cpu_ms: i64,
+}
+
+async fn get_runnable_stats(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<RunnableStatsQuery>,
+) -> JsonResult<Vec<RunnableStats>> {
+    require_devops_role(&db, &authed).await?;
+
+    let window = query.window_secs.unwrap_or(24 * 3600).clamp(
+        3600,
+        windmill_common::runnable_job_stats::RETENTION_DAYS * 24 * 3600,
+    );
+    // Rows are hourly buckets keyed by their start, so the bucket the window begins in
+    // is included whole.
+    let from_hour = (chrono::Utc::now().timestamp() - window) / 3600 * 3600;
+    let order_by = match query.order_by.as_deref() {
+        Some("max_memory") => "max_memory",
+        Some("cpu") => "cpu",
+        _ => "total_duration",
+    };
+
+    let rows = sqlx::query_as!(
+        RunnableStats,
+        r#"
+        SELECT workspace_id, runnable_path, worker_group,
+            SUM(job_count)::bigint AS "job_count!",
+            SUM(total_duration_ms)::bigint AS "total_duration_ms!",
+            MAX(max_memory_peak) AS "max_memory_peak!",
+            SUM(sum_memory_peak)::bigint AS "sum_memory_peak!",
+            SUM(memory_sample_count)::bigint AS "memory_sample_count!",
+            SUM(total_cpu_ms)::bigint AS "total_cpu_ms!"
+        FROM runnable_job_stats
+        WHERE hour >= $1
+            AND ($2::text IS NULL OR worker_group = $2)
+            AND ($3::text IS NULL OR workspace_id = $3)
+        GROUP BY workspace_id, runnable_path, worker_group
+        ORDER BY CASE $4::text
+            WHEN 'max_memory' THEN MAX(max_memory_peak)::numeric
+            WHEN 'cpu' THEN SUM(total_cpu_ms)
+            ELSE SUM(total_duration_ms)
+        END DESC, workspace_id, runnable_path, worker_group
+        LIMIT $5
+        "#,
+        from_hour,
+        query.worker_group,
+        query.workspace,
+        order_by,
+        query.limit.unwrap_or(100).clamp(1, 1000),
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(rows))
 }
 
 #[derive(Deserialize)]

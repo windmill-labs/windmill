@@ -17,6 +17,8 @@
 		bgClass?: string | undefined
 		bgStyle?: string | undefined
 		iconClass?: string | undefined
+		/** Drop the type's icon; the text starts at the alert's edge. */
+		hideIcon?: boolean
 		iconStyle?: string | undefined
 		titleClass?: string | undefined
 		titleStyle?: string | undefined
@@ -41,6 +43,7 @@
 		bgClass = undefined,
 		bgStyle = undefined,
 		iconClass = undefined,
+		hideIcon = false,
 		iconStyle = undefined,
 		titleClass = undefined,
 		titleStyle = undefined,
@@ -78,14 +81,16 @@
 	<div class="flex flex-row items-center">
 		<!-- shrink-0: the badge's min-content width is the 16px icon, so without it a
 		     narrow container squeezes the circle into an oval. -->
-		<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full">
-			<SvelteComponent
-				class={twMerge(classes[type].iconClass, iconClass)}
-				style={iconStyle}
-				size={16}
-			/>
-		</div>
-		<div class={twMerge('ml-1 w-full')}>
+		{#if !hideIcon}
+			<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full">
+				<SvelteComponent
+					class={twMerge(classes[type].iconClass, iconClass)}
+					style={iconStyle}
+					size={16}
+				/>
+			</div>
+		{/if}
+		<div class={twMerge(!hideIcon && 'ml-1', 'w-full')}>
 			{#if hasTitleRow}
 				<div class={twMerge('w-full flex flex-row items-center justify-between')}>
 					<span

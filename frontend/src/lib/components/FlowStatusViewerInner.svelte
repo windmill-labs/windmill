@@ -69,6 +69,7 @@
 		retainLinkedToolsScope
 	} from './flows/linkedAgentToolsStore.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { AGENT_STEP_ID, agentStepLabel } from './flows/conversations/agentEditorChat'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -1238,6 +1239,8 @@
 		id: string
 		type: FlowModuleValue['type']
 		suspend?: boolean
+		/** Shown in place of the id. */
+		label?: string
 	}
 
 	function allModulesForTimeline(
@@ -1250,7 +1253,8 @@
 				({
 					id: x.id,
 					type: x.value.type,
-					suspend: x.suspend != undefined
+					suspend: x.suspend != undefined,
+					label: x.id === AGENT_STEP_ID ? agentStepLabel(job?.script_path) : undefined
 				}) as FlowModuleForTimeline,
 			{
 				skipToolNodes: true

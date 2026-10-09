@@ -132,3 +132,36 @@ pub fn otel_set_health_status_phase(_phase: &str) {}
 
 #[cfg(not(feature = "private"))]
 pub fn otel_set_health_db_unresponsive(_unresponsive: bool) {}
+
+#[cfg(not(feature = "private"))]
+pub fn otel_set_worker_memory(
+    _worker: &str,
+    _worker_group: &str,
+    _usage: Option<i64>,
+    _windmill_usage: Option<i64>,
+    _limit: Option<i64>,
+) {
+}
+
+#[cfg(not(feature = "private"))]
+pub fn otel_add_worker_cpu(
+    _worker: &str,
+    _worker_group: &str,
+    _usage_secs: f64,
+    _periods: u64,
+    _throttled_periods: u64,
+    _throttled_secs: f64,
+) {
+}
+
+#[cfg(not(feature = "private"))]
+pub fn otel_set_worker_occupancy_rate(
+    _worker: &str,
+    _worker_group: &str,
+    _window: &'static str,
+    _rate: f64,
+) {
+}
+
+#[cfg(not(feature = "private"))]
+pub fn otel_record_job_memory_peak(_tag: &str, _bytes: u64) {}

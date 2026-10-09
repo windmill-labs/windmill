@@ -20,6 +20,7 @@
 		PanelLeftClose
 	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
 	import { HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
 	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
@@ -55,6 +56,23 @@
 		label: string
 		icon: typeof PythonIcon
 		onSelect: () => void
+		badge?: { label: string; class: string }
+		/** opened in a new tab from a link beside the variant */
+		docHref?: string
+		/** shown in the doc panel while the variant is hovered, instead of its option's */
+		doc?: Doc
+	}
+
+	/** what the doc panel shows */
+	type Doc = {
+		label: string
+		/** a lucide icon or a brand mark; rendered at 26px through both size APIs */
+		icon: any
+		accent: string
+		tagline: string
+		description: string
+		bullets: string[]
+		badge?: { label: string; class: string }
 	}
 
 	/** an importable artifact kind handled by the shared YAML/JSON import drawer */
@@ -87,6 +105,9 @@
 	const badgeAdvanced = 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
 	const badgeLegacy = 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
 	const badgeAlpha = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+	const badgeRecommended = 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+
+	const DBT_DOCS = 'https://www.windmill.dev/docs/getting_started/scripts_quickstart/dbt'
 
 	const allOptions: Option[] = [
 		{
@@ -200,7 +221,34 @@
 							'Asset-aware lineage'
 						],
 						onSelect: () => goto(`${base}/pipeline`),
-						badge: { label: 'Alpha', class: badgeAlpha }
+						badge: { label: 'Alpha', class: badgeAlpha },
+						variants: [
+							{
+								label: 'Windmill pipelines',
+								icon: Workflow,
+								badge: { label: 'Recommended', class: badgeRecommended },
+								onSelect: () => goto(`${base}/pipeline`)
+							},
+							{
+								label: 'dbt',
+								icon: DbtIcon,
+								docHref: DBT_DOCS,
+								onSelect: () => goto(`${base}/scripts/add?lang=dbt`),
+								doc: {
+									label: 'dbt',
+									icon: DbtIcon,
+									accent: 'orange',
+									tagline: 'Run an existing dbt project',
+									description:
+										'A pipeline is Windmill’s own abstraction; an existing dbt project stays a dbt project, and runs here unchanged as its own kind of script, with dbt still owning its models, refs and tests. All it needs is a warehouse configured under Settings → dbt. Its models show up in the asset graph as dbt:// nodes, next to whatever pipelines you do build, so you can adopt pipelines later, or never.',
+									bullets: [
+										'Your dbt project, unchanged',
+										'Needs a warehouse under Settings → dbt',
+										'Models appear as dbt:// assets'
+									]
+								}
+							}
+						]
 					}
 				] as Option[])
 			: []),
@@ -301,18 +349,25 @@
 	// per-row fan-out submenus: open to the right when there's room. The popover hugs
 	// the right viewport edge on most screens, so the default flip (right → left) would
 	// cover the doc panel — fall back below the trigger row instead.
+	const variantSubmenu = () =>
+		builders.createSubmenu({
+			positioning: {
+				placement: 'right-start',
+				gutter: 4,
+				flip: { fallbackPlacements: ['bottom-end', 'bottom-start', 'top-end', 'top-start'] },
+				fitViewport: true,
+				overflowPadding: 8
+			}
+		})
 	const {
 		elements: { subTrigger: wacSubTrigger, subMenu: wacSubMenu },
 		states: { subOpen: wacSubOpen }
-	} = builders.createSubmenu({
-		positioning: {
-			placement: 'right-start',
-			gutter: 4,
-			flip: { fallbackPlacements: ['bottom-end', 'bottom-start', 'top-end', 'top-start'] },
-			fitViewport: true,
-			overflowPadding: 8
-		}
-	})
+	} = variantSubmenu()
+	const {
+		elements: { subTrigger: pipelineSubTrigger, subMenu: pipelineSubMenu },
+		states: { subOpen: pipelineSubOpen }
+	} = variantSubmenu()
+	let variantSubOpen = $derived($wacSubOpen || $pipelineSubOpen)
 	const {
 		elements: { subTrigger: importSubTrigger, subMenu: importSubMenu },
 		states: { subOpen: importSubOpen }
@@ -378,7 +433,10 @@
 		if (isOpen && !wasOpen) {
 			logFeatureUsage('home', 'new_menu_open', { key: source })
 		}
-		if (!isOpen) activeKey = undefined
+		if (!isOpen) {
+			activeKey = undefined
+			activeVariantDoc = undefined
+		}
 		wasOpen = isOpen
 	})
 
@@ -389,17 +447,25 @@
 		// only persist the non-default (hidden) state, so a cleared key means "shown"
 		storeLocalSetting(SHOW_DOC_SETTING, value ? undefined : 'false')
 	}
-	// The pointer crosses the gutter outside the menu on its way into the Workflow-as-Code
-	// submenu, so leaving the menu keeps the panel while that submenu is open; it clears
-	// once the submenu closes with neither pointer nor focus left on the menu.
+	// The pointer crosses the gutter outside the menu on its way into a variant submenu,
+	// so leaving the menu keeps the panel while that submenu is open; it clears once the
+	// submenu closes with neither pointer nor focus left on the menu.
 	let menuEl: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
-		if ($wacSubOpen || !menuEl) return
+		if (variantSubOpen || !menuEl) return
 		if (!menuEl.matches(':hover') && !menuEl.contains(document.activeElement)) {
 			activeKey = undefined
 		}
 	})
-	let active = $derived(options.find((o) => o.key === activeKey))
+	// A hovered variant with its own doc (dbt under Data pipelines) takes over the panel.
+	let activeVariantDoc: Doc | undefined = $state(undefined)
+	function highlightOption(key: string | undefined) {
+		activeKey = key
+		activeVariantDoc = undefined
+	}
+	let active: Doc | undefined = $derived(
+		activeVariantDoc ?? options.find((o) => o.key === activeKey)
+	)
 	let activeAc = $derived(active ? accentClasses[active.accent] : undefined)
 
 	// shared YAML/JSON import drawer, reused by every "Import …" extra
@@ -476,7 +542,7 @@
 		style={showDoc ? 'width: 780px;' : ''}
 		bind:this={menuEl}
 		onpointerleave={() => {
-			if (!$wacSubOpen) activeKey = undefined
+			if (!variantSubOpen) highlightOption(undefined)
 		}}
 	>
 		<div
@@ -492,7 +558,7 @@
 						<div
 							class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 {activeAc.tile}"
 						>
-							<active.icon size={26} class={activeAc.iconText} />
+							<active.icon size={26} width={26} height={26} class={activeAc.iconText} />
 						</div>
 						<div class="min-w-0">
 							<div class="flex flex-row items-center gap-2">
@@ -551,48 +617,92 @@
 						</span>
 					{/if}
 				{/snippet}
+				{#snippet variantRow(
+					option: Option,
+					ac: (typeof accentClasses)[string],
+					rowClass: string,
+					subTrigger: any,
+					subMenu: any,
+					subOpen: boolean
+				)}
+					<button
+						use:melt={subTrigger}
+						class={rowClass}
+						onfocusin={() => highlightOption(option.key)}
+						onpointerenter={() => highlightOption(option.key)}
+					>
+						{@render rowBody(option, ac)}
+						<ChevronRight size={14} class="shrink-0 text-tertiary" />
+					</button>
+					{#if subOpen}
+						<!-- The invisible `before:` margin bridges the gutter to the trigger row: when
+						     the submenu falls below its row, that gutter lies over the next row, and
+						     crossing it highlights that item, which closes the submenu. -->
+						<div
+							use:melt={subMenu}
+							use:hugViewportRight
+							class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 min-w-52 w-max rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none before:absolute before:-inset-2 before:-z-10 before:content-['']"
+						>
+							{#each option.variants ?? [] as variant (variant.label)}
+								{@const VariantIcon = variant.icon}
+								<div class="flex flex-row items-center gap-1">
+									<button
+										use:melt={$item}
+										class="flex flex-row flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+										onclick={() => variant.onSelect()}
+										onfocusin={() => (activeVariantDoc = variant.doc)}
+										onpointerenter={() => (activeVariantDoc = variant.doc)}
+									>
+										<VariantIcon width={14} height={14} size={14} />
+										<span class="text-xs font-medium text-primary whitespace-nowrap">
+											{variant.label}
+										</span>
+										{#if variant.badge}
+											<span
+												class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {variant
+													.badge.class}"
+											>
+												{variant.badge.label}
+											</span>
+										{/if}
+									</button>
+									{#if variant.docHref}
+										<a
+											href={variant.docHref}
+											target="_blank"
+											rel="noreferrer"
+											class="px-2 text-[10px] text-tertiary hover:text-secondary hover:underline whitespace-nowrap"
+											onpointerenter={() => (activeVariantDoc = variant.doc)}
+										>
+											See documentation
+										</a>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+				{/snippet}
 				{#each options as option (option.key)}
 					{@const ac = accentClasses[option.accent]}
 					{@const rowClass =
 						'w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover'}
-					{#if option.variants}
-						<button
-							use:melt={$wacSubTrigger}
-							class={rowClass}
-							onfocusin={() => (activeKey = option.key)}
-							onpointerenter={() => (activeKey = option.key)}
-						>
-							{@render rowBody(option, ac)}
-							<ChevronRight size={14} class="shrink-0 text-tertiary" />
-						</button>
-						{#if $wacSubOpen}
-							<!-- The invisible `before:` margin bridges the gutter to the trigger row: when
-							     the submenu falls below its row, that gutter lies over the next row, and
-							     crossing it highlights that item, which closes the submenu. -->
-							<div
-								use:melt={$wacSubMenu}
-								use:hugViewportRight
-								class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none before:absolute before:-inset-2 before:-z-10 before:content-['']"
-							>
-								{#each option.variants ?? [] as variant (variant.label)}
-									{@const VariantIcon = variant.icon}
-									<button
-										use:melt={$item}
-										class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
-										onclick={() => variant.onSelect()}
-									>
-										<VariantIcon width={14} height={14} />
-										<span class="text-xs font-medium text-primary">{variant.label}</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
+					{#if option.variants && option.key === 'pipeline'}
+						{@render variantRow(
+							option,
+							ac,
+							rowClass,
+							$pipelineSubTrigger,
+							$pipelineSubMenu,
+							$pipelineSubOpen
+						)}
+					{:else if option.variants}
+						{@render variantRow(option, ac, rowClass, $wacSubTrigger, $wacSubMenu, $wacSubOpen)}
 					{:else}
 						<button
 							use:melt={$item}
 							class={rowClass}
-							onfocusin={() => (activeKey = option.key)}
-							onpointerenter={() => (activeKey = option.key)}
+							onfocusin={() => highlightOption(option.key)}
+							onpointerenter={() => highlightOption(option.key)}
 							onclick={() => option.onSelect()}
 						>
 							{@render rowBody(option, ac)}
@@ -605,8 +715,8 @@
 				<button
 					use:melt={$importSubTrigger}
 					class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
-					onfocusin={() => (activeKey = undefined)}
-					onpointerenter={() => (activeKey = undefined)}
+					onfocusin={() => highlightOption(undefined)}
+					onpointerenter={() => highlightOption(undefined)}
 				>
 					<div
 						class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"

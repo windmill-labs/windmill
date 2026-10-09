@@ -124,6 +124,7 @@
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { AGENT_STEP_ID } from '$lib/components/flows/conversations/agentEditorChat'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -1144,7 +1145,8 @@
 					showStepId
 				>
 					{#snippet errorAction()}
-						{#if failedTopLevelStep}
+						<!-- A saved agent's run is its one step: naming it adds nothing. -->
+						{#if failedTopLevelStep && failedTopLevelStep !== AGENT_STEP_ID}
 							<span>at step {failedTopLevelStep}</span>
 							{#if $enterpriseLicense && canRestart(failedRestart)}
 								<span>·</span>

@@ -40,6 +40,7 @@
 		 * editor has to pass it: every other editor renders with a `trigger`,
 		 * whose `type` is the same value. */
 		triggerKind?: TriggerType
+		saveLabel?: string
 	}
 
 	let {
@@ -60,7 +61,8 @@
 		suspendedJobsModal,
 		disableSuspendedMode = false,
 		triggerPath,
-		triggerKind
+		triggerKind,
+		saveLabel = 'Save'
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
 	const wsId = $derived($operatingWorkspace)
@@ -120,7 +122,7 @@
 			}}
 			loading={isLoading}
 		>
-			Save
+			{saveLabel}
 		</Button>
 	{/if}
 {:else}
