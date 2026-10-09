@@ -66,12 +66,7 @@
 	}
 
 	export async function setArgs(nargs: Record<string, any>) {
-		// Only when the section is offered: taking them aside is what lets it edit them. A form
-		// without it neither offers these nor carries them — `SchemaForm` holds `args` to the
-		// keys the schema declares.
-		const { scriptArgs, commonParams } = showPsCommonParams
-			? extractPsCommonParams(nargs)
-			: { scriptArgs: nargs, commonParams: {} }
+		const { scriptArgs, commonParams } = extractPsCommonParams(nargs)
 		args = scriptArgs
 		psCommonParams = commonParams
 		reloadArgs++
@@ -89,12 +84,6 @@
 		if (blockedByUnparseable) {
 			return
 		}
-		// Captured for the whole press: what they stand for — a chat tool call waiting on this
-		// form — can settle and be replaced across the await below, and a press that picked up
-		// the replacement would run it without its reader ever confirming it.
-		const claim = claimRun
-		const action = runAction
-		if (claim && !claim.claim()) return
 		let processedArgs: Record<string, any>
 		const { args: withDefaults, resetKeys } = enforceDisabledDefaults(args ?? {}, runnable?.schema)
 		if (resetKeys.length > 0) {
@@ -103,7 +92,6 @@
 		try {
 			processedArgs = await processSecretArgs(withDefaults, runnable?.schema, $operatingWorkspace)
 		} catch (e) {
-			claim?.release()
 			sendUserToast('Failed to process sensitive args: ' + e, true)
 			return
 		}
@@ -114,7 +102,7 @@
 				}
 			}
 		}
-		action(
+		runAction(
 			overrideScheduledForStr === null ? undefined : (overrideScheduledForStr ?? scheduledForStr),
 			processedArgs,
 			invisible_to_owner,
@@ -139,23 +127,17 @@
 					extra_perms?: Record<string, boolean>
 			  }
 			| undefined
+		/** Take no writes from the reader: no edits, no dynamic-select helper, no JSON. All
+		 * three write before Run is pressed — a `password` mints as it is typed, the helper
+		 * runs its entrypoint on mount — so gating Run cannot stop them. For a form standing
+		 * in for a chat card under plan mode, which promised none of it. */
+		argsReadonly?: boolean
 		runAction: (
 			scheduledForStr: string | undefined,
 			args: Record<string, any>,
 			invisible_to_owner: boolean | undefined,
 			overrideTag: string | undefined
 		) => void
-		/** Asked before anything is written, for a `runAction` whose guards must beat
-		 * `processSecretArgs` to the workspace: false abandons the press. `release` follows a
-		 * press that then ends before `runAction`. */
-		claimRun?: { claim: () => boolean; release: () => void }
-		/** Whether the PowerShell common-parameter section is offered. Off for a form standing
-		 * in for a chat card, which carries arguments and nothing else. */
-		commonParams?: boolean
-		/** Take no writes from the reader: no edits, no dynamic-select helper. Both write before
-		 * Run is pressed — a `password` mints as it is typed, the helper runs on mount — so
-		 * gating Run cannot stop them. For a form under plan mode, which promised neither. */
-		argsReadonly?: boolean
 		buttonText?: string
 		schedulable?: boolean
 		detailed?: boolean
@@ -183,8 +165,6 @@
 	let {
 		runnable,
 		runAction,
-		claimRun = undefined,
-		commonParams = true,
 		argsReadonly = false,
 		buttonText = 'Run',
 		schedulable = true,
@@ -204,21 +184,16 @@
 		actions = undefined
 	}: Props = $props()
 
-	// Kept out while the form stands in for a chat card: a call carries arguments and nothing
-	// else, so these would be chosen here and dropped if the run is confirmed on the card.
 	let showPsCommonParams = $derived(
-		commonParams &&
-			runnable?.language === 'powershell' &&
-			runnable?.schema?.['x-windmill-ps-cmd-binding'] === true
+		runnable?.language === 'powershell' && runnable?.schema?.['x-windmill-ps-cmd-binding'] === true
 	)
 
 	$effect.pre(() => {
 		if (args == undefined) {
 			args = {}
 		}
-		// Extract _wm_ps_* keys from args on initial load (e.g. "Run again" via URL hash),
-		// and only when this form offers the section — see `setArgs`.
-		if (showPsCommonParams && args && Object.keys(args).some((k) => k.startsWith('_wm_ps_'))) {
+		// Extract _wm_ps_* keys from args on initial load (e.g. "Run again" via URL hash)
+		if (args && Object.keys(args).some((k) => k.startsWith('_wm_ps_'))) {
 			const { scriptArgs, commonParams } = extractPsCommonParams(args)
 			args = scriptArgs
 			psCommonParams = commonParams
@@ -365,9 +340,7 @@
 				<JsonInputs
 					bind:this={jsonEditor}
 					on:select={(e) => {
-						// The other way into the arguments, and the one the disabled fields do not
-						// cover: a password set here is a plain literal until the schema field mounts
-						// onto it, and that field mints on mount whether or not it is disabled.
+						// The other way into the arguments, and the one disabling the fields misses.
 						if (argsReadonly) return
 						blockedByUnparseable = false
 						if (e.detail) {

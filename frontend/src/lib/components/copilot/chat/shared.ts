@@ -610,6 +610,12 @@ export type RunFormDisplay = {
 /** What a run form is being filled with while it waits. Held by the chat manager, not by
  * the form, so the chat card and the preview pane edit one draft rather than two copies.
  * The schema rides along because SchemaForm binds and reorders it. */
+/** How a parked run form is answered. `args` for a form the tool then runs itself; `job` for
+ * a run the reader already started on the item's own page, which the tool follows instead. */
+export type RunFormAnswer =
+	| { kind: 'args'; args: Record<string, any> }
+	| { kind: 'job'; jobId: string }
+
 export type RunFormDraft = {
 	args: Record<string, any>
 	schema: Record<string, any>
@@ -1441,7 +1447,7 @@ export interface ToolCallbacks {
 		toolId: string,
 		form: RunFormDisplay,
 		opts?: { autoAccepted?: boolean }
-	) => Promise<Record<string, any> | undefined>
+	) => Promise<RunFormAnswer | undefined>
 	/** The submitted form's job is queued. Wired alongside requestRunArgs. */
 	markRunFormStarted?: (toolId: string) => void
 	/** The submitted form will never produce a job: the server refused it, a sensitive

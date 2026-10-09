@@ -148,6 +148,7 @@ import {
 	SPECIAL_MODULE_IDS,
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
+	type RunFormAnswer,
 	type RunFormDisplay,
 	type ToolCallbacks,
 	type ToolCodeDiff,
@@ -6263,10 +6264,10 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	})
 
 	// `form`, not `persisted`: a password field mints from what it opens with.
-	const submitted = toolCallbacks.requestRunArgs
+	const answer: RunFormAnswer | undefined = toolCallbacks.requestRunArgs
 		? await toolCallbacks.requestRunArgs(toolId, form, { autoAccepted })
-		: proposed
-	if (!submitted) {
+		: { kind: 'args', args: proposed }
+	if (!answer) {
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Run of "${spec.path}" cancelled by user`,
 			isLoading: false,
@@ -6277,7 +6278,13 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		return runFormCancelled(spec.toolName, noun)
 	}
 
-	const blockedBeforeRun = blockedByPlanMode()
+	// A run the reader started on the item's own page. It is already going, with that page's
+	// own arguments and version, so there is nothing here to gate, mint or redact — only a job
+	// to follow, which is what makes the chat able to report on it.
+	const adopted = answer.kind === 'job' ? answer.jobId : undefined
+	const submitted = answer.kind === 'args' ? answer.args : {}
+
+	const blockedBeforeRun = adopted ? undefined : blockedByPlanMode()
 	if (blockedBeforeRun) {
 		toolCallbacks.markRunFormEnded?.(toolId)
 		return blockedBeforeRun
@@ -6289,7 +6296,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// the two that already minted pay a walk and no round trip.
 	let toRun: Record<string, any>
 	try {
-		toRun = await processSecretArgs(submitted, schema as any, workspace)
+		toRun = adopted ? submitted : await processSecretArgs(submitted, schema as any, workspace)
 	} catch (e) {
 		const message = `Failed to store the sensitive arguments of "${spec.path}": ${e}`
 		toolCallbacks.setToolStatus(toolId, {
@@ -6311,12 +6318,17 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// job instead. Only once there is a job to read them from: substituting the marker any
 	// earlier would leave a run that never started showing nothing but the marker.
 	const oversized = JSON.stringify(forCard).length > MAX_PERSISTED_ARGS_LENGTH
-	if (!oversized) {
+	// An adopted job's arguments are the page's, not these: the card reads them off the job.
+	if (!oversized && !adopted) {
 		toolCallbacks.setToolStatus(toolId, { parameters: forCard })
 	}
 
 	const outcome = await executeTestRun({
 		jobStarter: async () => {
+			if (adopted) {
+				toolCallbacks.markRunFormStarted?.(toolId)
+				return adopted
+			}
 			let jobId: string
 			try {
 				jobId = await spec.startJob(toRun)

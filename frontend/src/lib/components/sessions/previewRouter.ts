@@ -95,6 +95,9 @@ export type PreviewTarget =
 			mode?: PreviewItemMode
 			version?: string
 			pendingRunId?: string
+			/** Prefilled run arguments, written into the url's hash — the form the deployed
+			 * page already builds from "Run again" fills itself from it. */
+			runArgs?: Record<string, any>
 	  }
 	| { type: 'artifact'; id: string; name: string; version?: ArtifactVersionTarget }
 	| { type: 'runform'; toolCallId: string; label: string }

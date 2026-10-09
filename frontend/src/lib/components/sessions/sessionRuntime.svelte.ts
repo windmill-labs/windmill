@@ -1,4 +1,4 @@
-import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { SvelteMap } from 'svelte/reactivity'
 import type { PendingRun } from '$lib/components/details/pendingRun'
 import { get } from 'svelte/store'
 import { base } from '$lib/base'
@@ -29,8 +29,6 @@ import {
 // the response type still need an explicit cast).
 type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScript }
 type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
-import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
-import { sendUserToast } from '$lib/toast'
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
@@ -600,44 +598,16 @@ function createRuntime(session: Session): SessionRuntime {
 		onTabOpened: logTabUsage
 	})
 
-	/** Calls whose Run has been pressed on a page and whose job has not landed yet. */
-	const heldPresses = new SvelteSet<string>()
-
 	/** The call a viewer tab was opened to answer, for the page that renders it. Built from
 	 * the id the tab carries rather than from state of our own, so there is nothing to keep in
 	 * step: the tab names the call, and the manager says whether it is still waiting. */
 	function pendingRunFor(toolCallId: string): PendingRun | undefined {
-		// Asked of the manager rather than tracked here, which covers the ends that reach no
-		// hook — a submit whose job never started. A press counts as waiting: the call stops
-		// being pending the instant Run is pressed, and a page that went back to running on
-		// its own in that gap would start a second job on a second press.
-		if (!manager.isRunFormPending(toolCallId) && !heldPresses.has(toolCallId)) return undefined
+		if (!manager.isRunFormPending(toolCallId)) return undefined
 		return {
 			toolCallId,
-			draftArgs: manager.pendingRunFormArgs(toolCallId),
-			setDraftArgs: (args) => manager.setRunFormArgs(toolCallId, args),
-			// Read here rather than on the page, so the page's own `$derived` rebuilds when the
-			// posture changes while its form sits open.
+			// Read here, so the page's `$derived` rebuilds when the posture changes under it.
 			planModeActive: manager.planModeActive,
-			// Ahead of the form's `processSecretArgs`, which writes ephemeral variables: plan
-			// mode can be switched on while the form sits here, and a second press would mint
-			// a second set.
-			claim: () => {
-				if (manager.planModeActive) {
-					sendUserToast(PLAN_MODE_MESSAGES.runFormRefused, true)
-					return false
-				}
-				if (!manager.beginRunFormSubmit(toolCallId)) return false
-				heldPresses.add(toolCallId)
-				return true
-			},
-			release: () => {
-				heldPresses.delete(toolCallId)
-				manager.endRunFormSubmit(toolCallId)
-			},
-			// False when the call is no longer waiting — a turn stopped out from under the page,
-			// or a job that failed to start. The page says so rather than leaving Run dead.
-			submit: (args) => manager.handleRunFormSubmit(toolCallId, args),
+			adopt: (jobId) => manager.handleRunFormJob(toolCallId, jobId),
 			decline: () => manager.handleRunFormCancel(toolCallId)
 		}
 	}
@@ -661,7 +631,7 @@ function createRuntime(session: Session): SessionRuntime {
 	}
 	// Show a deployed run on the item's own page. With `carries`, that page answers the call:
 	// its Run hands the arguments back, so the tool still owns the run.
-	manager.openRunOnDeployedPage = ({ toolCallId, kind, path, summary, carries }) => {
+	manager.openRunOnDeployedPage = ({ toolCallId, kind, path, summary, args, carries }) => {
 		// Through the shared adapter: a session target spells a code-based app `raw_app` and a
 		// workspace item spells it `app` with a flag, and one place should know that.
 		const target = previewTargetForSessionTarget(kind, path)
@@ -670,7 +640,8 @@ function createRuntime(session: Session): SessionRuntime {
 			...target,
 			item: { ...target.item, summary },
 			mode: 'view' as const,
-			pendingRunId: carries ? toolCallId : undefined
+			pendingRunId: carries ? toolCallId : undefined,
+			runArgs: args
 		}
 		// Re-pointed rather than focused: the url is what hands the tab the call, and
 		// rebuilding it also drops whatever version the reader had pinned.
@@ -693,13 +664,11 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.closeRunForm = (toolCallId) => {
 		// A page carrying the call outlives it, and stops carrying it because the call stops
 		// being pending. Only the chat's own form tab, which is the call, goes with it.
-		heldPresses.delete(toolCallId)
 		previewTabs.closeRunForm(toolCallId)
 	}
 	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
 		const runHref = `${base}/run/${jobId}?workspace=${workspace}`
 		// Either surface the call was waiting on becomes the run it started, in place.
-		heldPresses.delete(toolCallId)
 		const carrying = previewTabs.tabs.find((t) => pendingRunIdOf(t.url) === toolCallId)
 		if (carrying) previewTabs.retargetById(carrying.id, runHref)
 		previewTabs.retargetRunForm(toolCallId, runHref)

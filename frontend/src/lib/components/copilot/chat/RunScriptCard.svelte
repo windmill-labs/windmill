@@ -426,6 +426,7 @@
 				kind: runnableKind === 'flow' ? 'flow' : 'script',
 				path,
 				summary: label,
+				args: aiChatManager.runFormDraft(message.tool_call_id, runForm!).args ?? {},
 				carries
 			})
 			return

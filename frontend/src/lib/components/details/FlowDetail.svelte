@@ -33,6 +33,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -296,6 +297,12 @@
 		invisibleToOwner: boolean | undefined,
 		overrideTag: string | undefined
 	) {
+		// The page runs its own job, so nothing downstream gates this: the chat asked for the
+		// run and then promised not to make one.
+		if (pendingRun?.planModeActive) {
+			sendUserToast(PLAN_MODE_MESSAGES.runFormRefused, true)
+			return
+		}
 		loading = true
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 		try {
@@ -308,6 +315,8 @@
 				tag: overrideTag,
 				skipPreprocessor: true
 			})
+			// The call asked for this run; it follows the job rather than starting one.
+			pendingRun?.adopt(run)
 			await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} catch (e) {
 			throw e
@@ -341,16 +350,7 @@
 		return run
 	}
 
-	// While a call is carried here the form edits that call's own draft, the one the card
-	// edits, so there is nothing to keep in step and nothing to carry back.
-	let ownArgs: Record<string, any> | undefined = $state(undefined)
-	// Falls back once the draft is gone: Run settles the call before the job exists, and the
-	// form must go on showing what it submitted — including when the start is refused.
-	const args = $derived(pendingRun?.draftArgs ?? ownArgs)
-	function setArgs(next: Record<string, any> | undefined) {
-		if (pendingRun) pendingRun.setDraftArgs(next ?? {})
-		else ownArgs = next
-	}
+	let args: Record<string, any> | undefined = $state(undefined)
 
 	// Read once on purpose: these args seed the form, so tracking the fragment would
 	// overwrite what the user has typed whenever it changes.
@@ -364,7 +364,7 @@
 				k,
 				JSON.parse(v)
 			])
-			setArgs(Object.fromEntries(params))
+			args = Object.fromEntries(params)
 		} catch (e) {
 			console.error('Was not able to transform hash as args', e)
 		}
@@ -377,21 +377,6 @@
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let runForm: RunForm | undefined = $state()
-
-	// Run hands the arguments to the waiting call instead of starting a job; the tool starts
-	// one when it resumes. Bound to the call it was built for: a press runs across
-	// `processSecretArgs`, inside which that call can settle and be replaced by the next
-	// request for this item, and submitting to whatever is current would run it unconfirmed.
-	const runAction = $derived.by(() => {
-		const call = pendingRun
-		if (!call) return runFlow
-		return (_scheduledForStr: string | undefined, a: Record<string, any>) => {
-			ownArgs = a
-			if (!call.submit(a)) {
-				sendUserToast('That request is no longer waiting on this form', true)
-			}
-		}
-	})
 
 	// The dev workspace's editor is not one the session panel can host, so from a preview tab
 	// it opens in a new browser tab, as the session editors' own entry does.
@@ -933,12 +918,10 @@
 										detailed={false}
 										bind:isValid
 										runnable={flow}
-										{runAction}
-										claimRun={pendingRun}
+										runAction={runFlow}
 										argsReadonly={pendingRun?.planModeActive}
-										bind:args={() => args, setArgs}
+										bind:args
 										schedulable={!pendingRun}
-										commonParams={!pendingRun}
 										bind:this={runForm}
 										{jsonView}
 										actions={promptForAi ? undefined : aiAssistant}
@@ -992,7 +975,7 @@
 			bind:inputSelected
 			on:selected_args={(e) => {
 				const nargs = JSON.parse(JSON.stringify(e.detail))
-				setArgs(nargs)
+				args = nargs
 				if (jsonView) {
 					runForm?.syncJsonEditor()
 				}

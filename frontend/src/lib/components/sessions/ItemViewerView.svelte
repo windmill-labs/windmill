@@ -29,6 +29,7 @@
 		path,
 		version,
 		pendingRunId,
+		locationHash = '',
 		workspaceId,
 		tabId,
 		container,
@@ -45,6 +46,8 @@
 		version?: string
 		/** The chat tool call this tab was opened to answer, from its URL's `?pending_run=`. */
 		pendingRunId?: string
+		/** The tab url's hash, which the deployed pages read as prefilled run arguments. */
+		locationHash?: string
 		workspaceId: string
 		/** Whether this side is the one on screen. Hidden sides stay mounted, so this gates
 		 * the window-level keyboard handler — several instances listen on the window. */
@@ -225,6 +228,7 @@
 			{active}
 			embedded
 			{pendingRun}
+			{locationHash}
 			onLoadState={setLoadState}
 		/>
 	{:else if kind === 'flow'}
@@ -236,6 +240,7 @@
 			{active}
 			embedded
 			{pendingRun}
+			{locationHash}
 			onLoadState={setLoadState}
 		/>
 	{:else}

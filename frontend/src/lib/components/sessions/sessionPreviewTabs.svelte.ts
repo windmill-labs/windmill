@@ -123,7 +123,11 @@ function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 	if (target.version) params.set('version', target.version)
 	if (target.pendingRunId) params.set('pending_run', target.pendingRunId)
 	const query = params.size > 0 ? `?${params}` : ''
-	return `${base}${viewPathFor(target.item)}${query}`
+	// Values are JSON, as the deployed pages parse them.
+	const hashed = new URLSearchParams()
+	for (const [k, v] of Object.entries(target.runArgs ?? {})) hashed.set(k, JSON.stringify(v))
+	const hash = hashed.size > 0 ? `#${hashed}` : ''
+	return `${base}${viewPathFor(target.item)}${query}${hash}`
 }
 
 // Point a tab at a new destination. Clears `friendlyLabel`/`friendlyPath`

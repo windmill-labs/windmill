@@ -25,6 +25,7 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayMessage,
 	type UserQuestionDisplay,
+	type RunFormAnswer,
 	type RunFormDisplay,
 	type RunFormDraft,
 	type ChatJob,
@@ -220,7 +221,7 @@ const settledRunForm = (runForm: RunFormDisplay): RunFormDisplay =>
 type PendingRunForm = {
 	/** Absent once the loop is no longer waiting: a card restored from history still mounts
 	 * its form and still holds edits, but nothing is left to receive them. */
-	resolve?: (args: Record<string, any> | undefined) => void
+	resolve?: (answer: RunFormAnswer | undefined) => void
 	draft: RunFormDraft
 	submitting: boolean
 }
@@ -587,6 +588,8 @@ export class AIChatManager implements ChatViewHost {
 		kind: 'script' | 'flow'
 		path: string
 		summary: string
+		/** Prefilled into the page's own run form. */
+		args: Record<string, any>
 		carries: boolean
 	}) => boolean
 	closeRunForm?: (toolCallId: string) => void
@@ -2031,7 +2034,7 @@ export class AIChatManager implements ChatViewHost {
 		toolId: string,
 		form: RunFormDisplay,
 		opts?: { autoAccepted?: boolean }
-	): Promise<Record<string, any> | undefined> => {
+	): Promise<RunFormAnswer | undefined> => {
 		// The tool reads the schema before it asks, so a stop during that read drains the
 		// callbacks and settles the card before this runs. Installing one then would park
 		// the turn on a form the settled card no longer renders, leaving nothing able to
@@ -2048,7 +2051,7 @@ export class AIChatManager implements ChatViewHost {
 		// Ahead of the wait, not of the stop above: the caller settled this form before
 		// attaching it, so its card renders no fields and nothing here could ever resolve.
 		if (opts?.autoAccepted) {
-			return Promise.resolve(form.args)
+			return Promise.resolve({ kind: 'args' as const, args: form.args })
 		}
 		// Seeded from the caller's copy, before the card renders: the file arguments on
 		// `displayMessages` are redacted, so a draft built from those would open the form on
@@ -2121,7 +2124,15 @@ export class AIChatManager implements ChatViewHost {
 	 * leaving its submit button spinning on a run that will never start. */
 	handleRunFormSubmit = (toolId: string, args: Record<string, any>): boolean => {
 		if (!this.isRunFormPending(toolId)) return false
-		this.#settleRunForm(toolId, args)
+		this.#settleRunForm(toolId, { kind: 'args', args })
+		return true
+	}
+
+	/** The reader ran the item on its own page; the tool follows that job rather than
+	 * starting one. False when the call is no longer waiting. */
+	handleRunFormJob = (toolId: string, jobId: string): boolean => {
+		if (!this.isRunFormPending(toolId)) return false
+		this.#settleRunForm(toolId, { kind: 'job', jobId })
 		return true
 	}
 
@@ -2159,9 +2170,10 @@ export class AIChatManager implements ChatViewHost {
 	 */
 	#settleRunForm = (
 		toolId: string,
-		submitted: Record<string, any> | undefined,
+		answer: RunFormAnswer | undefined,
 		card?: (runForm: RunFormDisplay) => Partial<ToolDisplayMessage>
 	) => {
+		const submitted = answer?.kind === 'args' ? answer.args : answer ? {} : undefined
 		const entry = this.#runForms.get(toolId)
 		// Its draft holds whatever was typed into the form, a minted password included.
 		this.#runForms.delete(toolId)
@@ -2175,7 +2187,7 @@ export class AIChatManager implements ChatViewHost {
 			submitted ? { submitted: true } : { canceled: true },
 			cancelledArgs ? (runForm) => ({ ...card?.(runForm), parameters: cancelledArgs }) : card
 		)
-		entry?.resolve?.(submitted)
+		entry?.resolve?.(answer)
 	}
 
 	/**
