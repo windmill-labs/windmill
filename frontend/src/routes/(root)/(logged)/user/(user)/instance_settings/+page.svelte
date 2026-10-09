@@ -18,7 +18,7 @@
 	import { ChevronRight, ArrowLeft } from 'lucide-svelte'
 	import { superadmin } from '$lib/stores'
 	import { onDestroy, tick } from 'svelte'
-	import { UserService } from '$lib/gen'
+	import { SettingService, UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -114,6 +114,15 @@
 			rtSyncStatus = 'error'
 		}
 	}
+
+	// --- Daily resource type sync (saved on finish) ---
+	const SYNC_DAILY_SETTING = 'sync_hub_resource_types_daily'
+	let syncResourceTypesDaily = $state(true)
+	SettingService.getGlobal({ key: SYNC_DAILY_SETTING })
+		.then((value) => {
+			if (typeof value === 'boolean') syncResourceTypesDaily = value
+		})
+		.catch(() => {})
 
 	$effect(() => {
 		if (
@@ -254,6 +263,12 @@
 		accountError = ''
 		accountSubmitting = true
 		try {
+			// Before the account switch: on CE it fails and setup ends with the default account.
+			await SettingService.setGlobal({
+				key: SYNC_DAILY_SETTING,
+				requestBody: { value: syncResourceTypesDaily }
+			})
+
 			let oldEmail = $superadmin
 			if (!oldEmail) {
 				oldEmail = await UserService.getCurrentEmail()
@@ -348,7 +363,7 @@
 
 		<SettingCard
 			label="Resource Types"
-			description="Resource types are synced from the Hub when you reach this step, then by the server every day. Without access to a Hub, the ones bundled with the Docker image are used."
+			description="Resource types are synced from the Hub when you reach this step. Without access to a Hub, the ones bundled with the Docker image are used."
 		>
 			<div class="flex flex-col gap-3 mt-1">
 				{#if rtSyncStatus === 'loading'}
@@ -373,6 +388,15 @@
 						Sync latest from hub
 					</Button>
 				</div>
+				<Toggle
+					bind:checked={syncResourceTypesDaily}
+					options={{ right: 'Sync resource types every day' }}
+					size="xs"
+				/>
+				<p class="text-tertiary text-2xs">
+					The server updates them from the Hub once a day, overwriting local edits to the types the
+					Hub also defines. You can change this later in the instance settings.
+				</p>
 			</div>
 		</SettingCard>
 
