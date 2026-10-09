@@ -47,13 +47,7 @@ services:
         condition: service_healthy
 
   windmill_worker:
-    # Deno ships only in the full images, which are built on release tags; the suite
-    # still runs Deno scripts, so it is added on top of the image under test.
-    build:
-      dockerfile_inline: |
-        FROM ${WM_IMAGE}:${WM_VERSION}
-        COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
-    image: windmill-integration-worker:${WM_VERSION}
+    image: ${WM_IMAGE}:${WM_VERSION}
     labels:
       dev.windmill.role: worker
     deploy:
