@@ -8141,6 +8141,7 @@ pub async fn run_wait_result_job_by_path_get(
             )
         };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -8169,7 +8170,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),
@@ -8291,6 +8292,7 @@ pub async fn run_wait_result_script_by_path_internal(
             )
         };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -8319,7 +8321,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),
@@ -8409,6 +8411,7 @@ pub async fn run_wait_result_script_by_hash(
         )
     };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -8451,7 +8454,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),
@@ -10556,6 +10559,7 @@ pub async fn run_job_by_hash_inner(
     };
     let job_payload = with_run_retry(&run_query, job_payload, &push_args, &tag)?;
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, trigger.as_ref()).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -10584,7 +10588,7 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),
