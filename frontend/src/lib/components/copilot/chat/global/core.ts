@@ -729,7 +729,7 @@ const createResourceTypeSchema = z.object({
 	name: z
 		.string()
 		.describe(
-			'Type name, 1 to 50 letters, digits, "_" or "-", e.g. acme_billing. Resources and resource-typed parameters refer to it by this name.'
+			'Type name with the c_ prefix of custom types, e.g. c_acme_billing (added when missing): 1 to 50 letters, digits, "_" or "-". Resources and resource-typed parameters refer to it by this name.'
 		),
 	description: z.string().describe('What a resource of this type connects to.'),
 	schema: z
@@ -4367,16 +4367,22 @@ export const globalTools: SessionTool<{}>[] = [
 		confirmationMessage: 'Create resource type',
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = createResourceTypeSchema.parse(args)
+			// The prefix the Add resource type form adds for everyone but admins: a hub type of
+			// the same name, synced later, would otherwise clash with this one.
+			const name = parsed.name.startsWith('c_') ? parsed.name : `c_${parsed.name}`
 			await ResourceService.createResourceType({
 				workspace,
 				requestBody: {
-					name: parsed.name,
+					name,
 					description: parsed.description,
 					schema: parsed.schema
 				}
 			})
-			toolCallbacks.setToolStatus(toolId, { content: `Created resource type ${parsed.name}` })
-			return JSON.stringify({ success: true, message: `Created resource type ${parsed.name}` })
+			toolCallbacks.setToolStatus(toolId, { content: `Created resource type ${name}` })
+			return JSON.stringify({
+				success: true,
+				message: `Created resource type ${name}. Refer to it by this name.`
+			})
 		}
 	},
 	createDbSchemaTool<{}>({
