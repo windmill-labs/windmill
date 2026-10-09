@@ -140,7 +140,8 @@
 					<span class="text-2xs text-secondary">
 						Under Basic Information in the Slack app. Windmill checks with it that requests come
 						from Slack, and AI agents answer in Slack only once it is set. The SLACK_SIGNING_SECRET
-						environment variable takes precedence.
+						environment variable takes precedence. A workspace that uses its own Slack app is
+						checked against this secret too, so its Slack requests fail unless it is the same app.
 					</span>
 					<Password
 						id="slack_signing_secret"

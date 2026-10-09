@@ -37,6 +37,7 @@
 		slackLoading,
 		slackTeamName,
 		botName,
+		missingScopes,
 		signingSecretSet,
 		channels,
 		onChanged
@@ -52,6 +53,8 @@
 		slackTeamName: string | undefined
 		/** Unset when Slack can't be reached with the workspace's bot token. */
 		botName: string | undefined
+		/** Agent scopes the connection lacks: Slack was connected without AI agents enabled. */
+		missingScopes: string[]
 		/** Agents answer in Slack only when the instance verifies Slack's request signatures. */
 		signingSecretSet: boolean
 		channels: SlackChannelAgent[]
@@ -69,7 +72,13 @@
 	// Read again whenever the agent's channels change, so a channel just added or removed moves
 	// between the list and the picker.
 	const available = resource(
-		() => ({ ws: isAdmin && chat && slackTeamName && botName ? workspace : undefined, channels }),
+		() => ({
+			ws:
+				isAdmin && chat && slackTeamName && botName && missingScopes.length === 0
+					? workspace
+					: undefined,
+			channels
+		}),
 		async ({ ws }) => (ws ? await listChoices(ws) : [])
 	)
 
@@ -215,6 +224,18 @@
 								{/if}
 							</Alert>
 						{/if}
+						{#if botName && missingScopes.length > 0}
+							<Alert type="warning" title="Slack was connected without AI agents" size="xs">
+								The connection lacks {missingScopes.join(', ')}, so agents can't tell who is asking.
+								{#if isAdmin}
+									<a href="{base}/workspace_settings?tab=slack&agents=true">Disconnect Slack</a>,
+									then connect it again with AI agents enabled. Disconnecting clears the channel
+									defaults.
+								{:else}
+									A workspace admin can reconnect Slack with AI agents enabled.
+								{/if}
+							</Alert>
+						{/if}
 						<div class="flex flex-col gap-1">
 							<span class="text-xs font-semibold text-emphasis">Ask it anywhere</span>
 							<span class="text-xs text-secondary">
@@ -260,7 +281,7 @@
 									{/each}
 								</div>
 							{/if}
-							{#if isAdmin}
+							{#if isAdmin && missingScopes.length === 0}
 								<div class="flex items-center gap-2">
 									<Select
 										class="grow"
@@ -280,7 +301,7 @@
 										Add
 									</Button>
 								</div>
-							{:else}
+							{:else if !isAdmin}
 								<span class="text-2xs text-hint">Only workspace admins can change these.</span>
 							{/if}
 						</div>

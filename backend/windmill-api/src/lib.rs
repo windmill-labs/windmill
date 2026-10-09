@@ -264,7 +264,6 @@ lazy_static::lazy_static! {
 /// Added to `SLACK_OAUTH_SCOPES` when a workspace connects with AI agents enabled: who sent a
 /// message (by email) and the channel picker. Opt-in, as a Slack app must declare every scope
 /// it is asked for.
-#[cfg(feature = "oauth2")]
 pub const SLACK_AGENT_SCOPES: &[&str] = &["users:read", "users:read.email", "channels:read"];
 
 /// The env var wins over the instance setting.

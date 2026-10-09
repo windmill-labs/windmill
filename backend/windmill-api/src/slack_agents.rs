@@ -86,6 +86,8 @@ struct AgentSlack {
     signing_secret_set: bool,
     /// The bot's Slack handle, what people mention; `None` when Slack can't be reached.
     bot_name: Option<String>,
+    /// Agent scopes the workspace's connection lacks: it was made without AI agents enabled.
+    missing_scopes: Vec<String>,
     channels: Vec<ChannelAgent>,
 }
 
@@ -119,29 +121,51 @@ async fn list_agent_channels(
     let signing_secret_set = crate::slack_signing_secret().is_some();
     #[cfg(not(feature = "oauth2"))]
     let signing_secret_set = false;
-    let bot_name = match slack_team_name {
-        Some(_) => bot_name(&db, &w_id).await,
-        None => None,
+    let (bot_name, missing_scopes) = match slack_team_name {
+        Some(_) => bot_identity(&db, &w_id).await.unzip(),
+        None => (None, None),
     };
     Ok(Json(AgentSlack {
         slack_team_name,
         signing_secret_set,
         bot_name,
+        missing_scopes: missing_scopes.unwrap_or_default(),
         channels,
     }))
 }
 
-async fn bot_name(db: &DB, w_id: &str) -> Option<String> {
+/// The bot's handle and the agent scopes its token lacks; `None` when Slack can't be reached.
+async fn bot_identity(db: &DB, w_id: &str) -> Option<(String, Vec<String>)> {
     let token = bot_token(db, w_id).await.ok()?;
+    let call = async {
+        let res = HTTP_CLIENT
+            .post("https://slack.com/api/auth.test")
+            .bearer_auth(&token)
+            .send()
+            .await
+            .ok()?;
+        // Slack lists the token's scopes in this header on every Web API response.
+        let granted = res
+            .headers()
+            .get("x-oauth-scopes")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect::<Vec<_>>();
+        let body: serde_json::Value = res.json().await.ok()?;
+        let name = body["user"].as_str()?.to_string();
+        let missing = crate::SLACK_AGENT_SCOPES
+            .iter()
+            .filter(|s| !granted.iter().any(|g| g == *s))
+            .map(|s| s.to_string())
+            .collect();
+        Some((name, missing))
+    };
     // On every agent page load: a slow Slack must not hold the page for the client's 20s timeout.
-    let res = tokio::time::timeout(
-        std::time::Duration::from_secs(3),
-        slack_call(&token, "auth.test", &[]),
-    )
-    .await
-    .ok()?
-    .ok()?;
-    res["user"].as_str().map(str::to_string)
+    tokio::time::timeout(std::time::Duration::from_secs(3), call)
+        .await
+        .ok()?
 }
 
 #[derive(Deserialize)]
@@ -330,6 +354,9 @@ pub struct SlackMessage {
     pub thread_ts: Option<String>,
     /// A slash command's, where it can be answered when the bot cannot post in the channel.
     pub response_url: Option<String>,
+    /// Whether this request's Slack signature was verified. Carried from the check rather than
+    /// re-read from the setting, which can be enabled between the two.
+    pub signed: bool,
 }
 
 enum Route {
@@ -344,8 +371,7 @@ enum Route {
 pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
     // Without it the Slack endpoints take unsigned requests, and the sender's `user_id` would
     // pick whose permissions the agent runs with.
-    #[cfg(feature = "oauth2")]
-    if crate::slack_signing_secret().is_none() {
+    if !msg.signed {
         return Ok(false);
     }
     let text = decode_entities(&msg.text);

@@ -26,7 +26,8 @@ features:
       should_escape: false
 oauth_config:
   redirect_urls:
-    - ${baseUrl}
+    - ${baseUrl}/oauth/callback_slack
+    - ${baseUrl}/oauth/callback_slack/instance
   scopes:
     bot:
       - chat:write

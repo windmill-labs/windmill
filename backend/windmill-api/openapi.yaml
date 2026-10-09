@@ -13474,6 +13474,11 @@ paths:
                   bot_name:
                     type: string
                     description: the bot's Slack handle; absent when Slack can't be reached
+                  missing_scopes:
+                    type: array
+                    items:
+                      type: string
+                    description: agent scopes the workspace's Slack connection lacks, so it must be reconnected with AI agents enabled
                   channels:
                     type: array
                     items:
@@ -13481,6 +13486,7 @@ paths:
                 required:
                   - channels
                   - signing_secret_set
+                  - missing_scopes
 
   /w/{workspace}/flow_conversations/update/{conversation_id}:
     post:
