@@ -1354,7 +1354,8 @@
 								<span>Separator</span>
 								<Select
 									size="sm"
-									class="w-20"
+									class="w-16"
+									RightIcon={ChevronDown}
 									items={CSV_SEPARATORS}
 									bind:value={csvSeparatorChar}
 								/>
