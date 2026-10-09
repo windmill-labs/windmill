@@ -529,3 +529,37 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
 
     Ok(())
 }
+
+/// The readability check must not hold its RLS transaction while it takes a second connection,
+/// or a one-connection pool (`DATABASE_CONNECTIONS=1`) stalls every builder draft naming a script.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_operator_builder_app_check_fits_one_connection(
+    pool_opts: sqlx::postgres::PgPoolOptions,
+    connect_opts: sqlx::postgres::PgConnectOptions,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let db = pool_opts
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect_with(connect_opts)
+        .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let api = format!("http://localhost:{}/api/w/{WS}", server.addr.port());
+    add_script(&db, 4241, "u/operator/some_script", "operator").await?;
+    set_builder(&db, false, true).await?;
+
+    let resp = client("OPERATOR_TOKEN_1")
+        .post(format!("{api}/drafts/update/raw_app/u/operator/d1"))
+        .json(&json!({
+            "value": {"files": {}, "summary": "", "runnables": {"r": {
+                "name": "r", "type": "runnableByPath", "runType": "script",
+                "path": "u/operator/some_script"
+            }}, "policy": {"sandbox": true, "triggerables_v2": {}}},
+            "force": true
+        }))
+        .send()
+        .await?;
+    let status = resp.status();
+    assert_eq!(status, 200, "{}", resp.text().await?);
+    Ok(())
+}

@@ -2471,8 +2471,20 @@ async fn require_runnables_readable(
     if referenced.is_empty() {
         return Ok(());
     }
+    // Each script version carries its own grants, and a path reused after its versions were
+    // archived starts with none. Check the version a run would pick, found without RLS, not
+    // whichever version the caller happens to see. Resolved before the transaction opens so no
+    // request holds two pool connections at once.
+    let mut hashes = Vec::with_capacity(referenced.len());
+    for (is_flow, path) in &referenced {
+        hashes.push(if *is_flow {
+            None
+        } else {
+            windmill_common::get_latest_script_hash(db, path, w_id).await?
+        });
+    }
     let mut tx = user_db.clone().begin(authed).await?;
-    for (is_flow, path) in referenced {
+    for ((is_flow, path), hash) in referenced.into_iter().zip(hashes) {
         let readable = if is_flow {
             sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2)",
@@ -2483,10 +2495,7 @@ async fn require_runnables_readable(
             .await?
             .unwrap_or(false)
         } else {
-            // Each script version carries its own grants, and a path reused after its versions
-            // were archived starts with none. Check the version a run would pick, found without
-            // RLS, not whichever version the caller happens to see.
-            match windmill_common::get_latest_script_hash(db, &path, w_id).await? {
+            match hash {
                 Some(hash) => sqlx::query_scalar!(
                     "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND hash = $2)",
                     w_id,
