@@ -44,6 +44,7 @@ section or the flat layout.
 		PREVIEW_PAGES,
 		artifactKey,
 		isArtifactKey,
+		isPageKey,
 		pageHref,
 		pageKey,
 		previewModeFor,
@@ -273,16 +274,18 @@ section or the flat layout.
 		)
 	])
 
-	// An artifact highlight lives under the 'artifacts' branch, which the legacy
-	// {kind, dir} scope can't express — open the picker inside that branch so the
-	// active artifact is actually visible and highlighted (not the first root row).
-	// Keyed on the highlight's shape alone: the branch itself may not have
-	// materialized yet (artifacts hydrate from IndexedDB after tabs restore), and
-	// the drill entries fill in reactively once it does.
+	// A page or artifact highlight lives under its own branch, which the legacy
+	// {kind, dir} scope can't express — open the picker inside that branch, so the
+	// reader standing on one sees its siblings with it highlighted. Keyed on the
+	// highlight's shape alone: the artifacts branch may not have materialized yet
+	// (artifacts hydrate from IndexedDB after tabs restore), and the drill entries
+	// fill in reactively once it does.
 	const computedInitialScope = untrack(() =>
 		initialHighlight && isArtifactKey(initialHighlight)
 			? ['artifacts']
-			: legacyScopeToPath(initialScope, kinds, 'flat')
+			: initialHighlight && isPageKey(initialHighlight)
+				? ['pages']
+				: legacyScopeToPath(initialScope, kinds, 'flat')
 	)
 
 	// The flat root has no branch to carry a per-kind loading flag — surface

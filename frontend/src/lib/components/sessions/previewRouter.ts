@@ -1,6 +1,7 @@
 import {
 	ASSETS_PATH,
 	AUDIT_LOGS_PATH,
+	isPageKey,
 	FOLDERS_PATH,
 	GROUPS_PATH,
 	isPageItemListPath,
@@ -30,6 +31,7 @@ import {
 // Re-exported so the preview code that already reads locations through this module keeps
 // one import, while a caller needing only a path can reach for the leaf instead.
 export {
+	isPageKey,
 	pageItemListPath,
 	pageItemUrl,
 	pageKey,

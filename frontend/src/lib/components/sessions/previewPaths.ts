@@ -142,6 +142,7 @@ export function triggerLabelForPath(path: string): string | undefined {
 }
 
 export const pageKey = (path: string) => `page:${path}`
+export const isPageKey = (key: string) => key.startsWith('page:')
 export const pageHref = (path: string) => `${base}${path}`
 
 /** Strip the deployment base prefix (and any query/hash) from a preview path
