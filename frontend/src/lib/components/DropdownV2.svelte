@@ -145,6 +145,39 @@
 			return items.filter((item) => !item.hide)
 		}
 	}
+
+	// Items are resolved before the menu is shown: mounting it on a spinner and growing it
+	// when they land is a visible jump, and async builders (first-open fetches) land within
+	// a frame or two. Past the grace period the spinner shows, so a slow load still answers
+	// the click. `invisible`, not opacity: the wrapper's transition would fade an opacity.
+	const REVEAL_GRACE_MS = 150
+	let menuItems: Item[] | undefined = $state(undefined)
+	let menuRevealed = $state(false)
+
+	function loadMenuItems() {
+		let current = true
+		menuItems = undefined
+		menuRevealed = false
+		const grace = setTimeout(() => (menuRevealed = true), REVEAL_GRACE_MS)
+		// Untracked: an attachment re-runs on what it reads, and the builder reads caller state.
+		const settle = (resolved: Item[]) => {
+			if (!current) return
+			clearTimeout(grace)
+			menuItems = resolved
+			menuRevealed = true
+		}
+		// A failed builder opens an empty menu, and the error is rethrown so it still
+		// reaches the global unhandled-rejection handler (toast, logout on 401).
+		untrack(computeItems).then(settle, (e) => {
+			settle([])
+			throw e
+		})
+		return () => {
+			current = false
+			clearTimeout(grace)
+		}
+	}
+
 	async function getMenuElements(): Promise<HTMLElement[]> {
 		// Runs on every pointerdown anywhere, for every mounted dropdown. Skip the
 		// whole-document query when the outside handler below cannot act anyway.
@@ -207,10 +240,14 @@
 			{@render menu?.({ item, close, builders })}
 		{:else}
 			<div
-				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
+				{@attach loadMenuItems}
+				class={twMerge(
+					'bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1',
+					!menuRevealed && 'invisible'
+				)}
 				style={`${customWidth ? `width: ${customWidth}px;` : ''} max-height: ${maxHeight || '50vh'};`}
 			>
-				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} {builders} {close} />
+				<DropdownV2Inner {aiId} items={menuItems} meltItem={item} {builders} {close} />
 			</div>
 		{/if}
 	</div>
