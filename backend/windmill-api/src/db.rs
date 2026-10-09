@@ -300,6 +300,12 @@ pub async fn migrate(
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
+    let new_instance =
+        sqlx::query_scalar::<_, bool>("SELECT to_regclass('_sqlx_migrations') IS NULL")
+            .fetch_one(custom_migrator.connection())
+            .await
+            .unwrap_or(false);
+
     if let Err(err) = sqlx::query!(
         "DELETE FROM _sqlx_migrations WHERE
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
@@ -374,7 +380,7 @@ pub async fn migrate(
     }
 
     crate::live_migrations::custom_migrations(&mut custom_migrator).await?;
-    if let Err(e) = seed_instance_python_baseline(db).await {
+    if let Err(e) = seed_instance_python_baseline(db, new_instance).await {
         tracing::error!("Could not record the instance python baseline: {e:#}");
     }
     Ok(Some(crate::live_migrations::spawn_background_migrations(
@@ -383,21 +389,25 @@ pub async fn migrate(
     )))
 }
 
-/// Records which Python version this instance runs on while `instance_python_version` is
-/// unset, once. An instance that predates the record keeps the frozen default; only one whose
-/// first migration ran within the last day counts as new, since a database has no other
-/// mark of its age and a restore or an upgrade keeps the original migration dates.
-async fn seed_instance_python_baseline(db: &DB) -> Result<(), Error> {
-    sqlx::query(
-        "INSERT INTO global_settings (name, value)
-         SELECT $1, to_jsonb(CASE
-             WHEN (SELECT min(installed_on) FROM _sqlx_migrations) > now() - interval '1 day'
-             THEN $2::text ELSE $3::text END)
-         ON CONFLICT (name) DO NOTHING",
-    )
+/// Records, once, which Python version this instance runs on while `instance_python_version`
+/// is unset. Only the process that created the schema knows the instance is new, so its value
+/// replaces whatever a server that started alongside it recorded; every other start leaves an
+/// existing record alone and gives an instance that predates the record the frozen default.
+async fn seed_instance_python_baseline(db: &DB, new_instance: bool) -> Result<(), Error> {
+    let (version, on_conflict) = if new_instance {
+        (
+            PyVAlias::NEW_INSTANCE,
+            "DO UPDATE SET value = EXCLUDED.value",
+        )
+    } else {
+        (PyVAlias::default(), "DO NOTHING")
+    };
+    sqlx::query(&format!(
+        "INSERT INTO global_settings (name, value) VALUES ($1, to_jsonb($2::text))
+         ON CONFLICT (name) {on_conflict}"
+    ))
     .bind(INSTANCE_PYTHON_BASELINE_SETTING)
-    .bind(PyVAlias::NEW_INSTANCE.version_string())
-    .bind(PyVAlias::default().version_string())
+    .bind(version.version_string())
     .execute(db)
     .await?;
     Ok(())
