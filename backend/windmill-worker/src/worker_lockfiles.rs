@@ -1243,7 +1243,8 @@ pub async fn handle_flow_dependency_job(
                 &job_path,
                 &job.workspace_id,
                 flow.failure_module.as_ref(),
-                flow.same_worker, flow.preserve_step_tags,
+                flow.same_worker,
+                flow.preserve_step_tags,
             )
             .await?;
 
