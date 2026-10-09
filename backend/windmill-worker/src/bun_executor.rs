@@ -4086,6 +4086,7 @@ async fn handle_dedicated_bunnative(
                             result,
                             result_columns: None,
                             mem_peak: 0,
+                            resource_usage: None,
                             canceled_by: None,
                             success,
                             cached_res_path: None,

@@ -8,6 +8,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import QueueMetricsDrawer from '$lib/components/QueueMetricsDrawer.svelte'
+	import HeaviestScriptsDrawer from '$lib/components/HeaviestScriptsDrawer.svelte'
 	import ManageTagsDrawer from '$lib/components/ManageTagsDrawer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -34,6 +35,7 @@
 	import { displayDate, groupBy, pluralize, retrieveCommonWorkerPrefix, truncate } from '$lib/utils'
 	import {
 		ExternalLink,
+		Gauge,
 		LineChart,
 		Loader2,
 		Plus,
@@ -493,6 +495,7 @@
 	}
 
 	let queueMetricsDrawer: QueueMetricsDrawer | undefined = $state(undefined)
+	let heaviestScriptsDrawer: HeaviestScriptsDrawer | undefined = $state(undefined)
 	let manageTagsDrawer: ManageTagsDrawer | undefined = $state(undefined)
 	let selectedTab: string = $state('default')
 
@@ -604,6 +607,10 @@
 
 {#if $superadmin || $devopsRole}
 	<QueueMetricsDrawer bind:this={queueMetricsDrawer} />
+	<HeaviestScriptsDrawer
+		bind:this={heaviestScriptsDrawer}
+		workerGroups={groupedWorkers.map(([name]) => name)}
+	/>
 	<ManageTagsDrawer
 		bind:this={manageTagsDrawer}
 		bind:defaultTagPerWorkspace
@@ -773,6 +780,19 @@
 							}}
 						>
 							Queue metrics
+						</Button>
+
+						<Button
+							unifiedSize="md"
+							variant="default"
+							startIcon={{
+								icon: Gauge
+							}}
+							on:click={() => {
+								heaviestScriptsDrawer?.openDrawer(selectedTab)
+							}}
+						>
+							Heaviest scripts
 						</Button>
 
 						<Button
