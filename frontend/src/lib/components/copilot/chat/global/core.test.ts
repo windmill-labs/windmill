@@ -416,6 +416,7 @@ import {
 import { devopsRole, superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { clearWorkspaceRoleCache } from '$lib/user'
+import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 import { get } from 'svelte/store'
 import type { Tool, ToolCallbacks } from '../shared'
 
@@ -8157,6 +8158,7 @@ describe('create_resource_type', () => {
 		['c_acme_billing', 'c_acme_billing']
 	])('creates %s as %s', async (given, created) => {
 		vi.mocked(ResourceService.createResourceType).mockClear()
+		resourceTypesStore.set(['postgresql'])
 
 		const result = await callGlobalTool('create_resource_type', {
 			name: given,
@@ -8168,5 +8170,6 @@ describe('create_resource_type', () => {
 			created
 		)
 		expect(result).toContain(created)
+		expect(get(resourceTypesStore)).toBeUndefined()
 	})
 })

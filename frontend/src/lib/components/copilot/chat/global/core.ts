@@ -199,6 +199,7 @@ import {
 } from '$lib/stores'
 import { getWorkspaceRole, type RoleLookup } from '$lib/user'
 import { refreshSuperadmin } from '$lib/refreshUser'
+import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 import { get } from 'svelte/store'
 import {
 	canonicalDraftSideValue,
@@ -4454,6 +4455,9 @@ export const globalTools: SessionTool<{}>[] = [
 					schema: parsed.schema
 				}
 			})
+			// Forms show a resource picker only for a type in this cached list, so a script
+			// written against the new type would otherwise get a plain object input.
+			resourceTypesStore.set(undefined)
 			toolCallbacks.setToolStatus(toolId, { content: `Created resource type ${name}` })
 			return JSON.stringify({
 				success: true,
