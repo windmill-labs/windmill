@@ -56,8 +56,6 @@ test("Init: createWorkspaceProfile includes defaults when no repositories exist"
   expect(Array.isArray(workspaceProfile.excludes)).toBeTruthy();
   expect(workspaceProfile.excludes.length).toEqual(0);
 
-  expect(workspaceProfile.defaultTs).toEqual('bun');
-
   console.log('Workspace profile correctly includes default sync settings when no repositories exist');
 });
 
@@ -73,8 +71,6 @@ test("Init: verify DEFAULT_SYNC_OPTIONS has expected values", () => {
 
   expect(Array.isArray(DEFAULT_SYNC_OPTIONS.excludes)).toBeTruthy();
   expect(DEFAULT_SYNC_OPTIONS.excludes.length).toEqual(0);
-
-  expect(DEFAULT_SYNC_OPTIONS.defaultTs).toEqual('bun');
 
   console.log('DEFAULT_SYNC_OPTIONS has expected values');
 });
@@ -178,7 +174,7 @@ test.skipIf(shouldSkipOnCI())("Init: --use-default bypasses backend settings che
 
     // Should have default settings, not backend settings
     expect(wmillYaml).toContain("includes:\n  - f/**");
-    expect(wmillYaml).toContain("defaultTs: bun");
+    expect(wmillYaml).not.toContain("defaultTs");
 
     // Should NOT have backend-specific settings
     expect(wmillYaml.includes("f/should-be-ignored/**")).toEqual(false);

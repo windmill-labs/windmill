@@ -50,7 +50,7 @@ jobs:
           dotnet-version: "9.0.x"
       - uses: denoland/setup-deno@v2
         with:
-          # Pin to the Deno version shipped in the runtime image (Dockerfile) so CI
+          # Pin to the Deno version shipped in the full runtime image (docker/DockerfileFull) so CI
           # tests what production runs, instead of floating on the latest v2.x.
           deno-version: 2.2.1
       - uses: actions/setup-go@v7
