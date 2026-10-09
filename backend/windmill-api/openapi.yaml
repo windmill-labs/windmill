@@ -7436,6 +7436,66 @@ paths:
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
 
+  /oidc/signing_status:
+    get:
+      summary: what signs OIDC tokens and the keys the JWKS serves (ee only, superadmin)
+      operationId: getOidcSigningStatus
+      tags:
+        - oidc
+      responses:
+        "200":
+          description: OIDC signing status
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - mode
+                  - keys
+                properties:
+                  mode:
+                    type: string
+                    enum: [database, file, external]
+                  keys:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - alg
+                        - state
+                        - source
+                      properties:
+                        kid:
+                          type: string
+                        alg:
+                          type: string
+                        state:
+                          type: string
+                          enum: [pending, active, retired, published]
+                        source:
+                          type: string
+                          enum: [signer, database, file, publish_dir]
+                  signer:
+                    type: object
+                    description: set when an external signer is configured
+                    required:
+                      - breaker
+                      - max_rps
+                      - current_rps
+                    properties:
+                      last_refresh_success:
+                        type: string
+                        format: date-time
+                      last_refresh_error:
+                        type: string
+                      breaker:
+                        type: string
+                        enum: [closed, open, half_open]
+                      max_rps:
+                        type: number
+                      current_rps:
+                        type: number
+
   /w/{workspace}/oidc/token/{audience}:
     post:
       summary: get OIDC token (ee only)
