@@ -1079,40 +1079,43 @@
 </script>
 
 {#if workspaceSettingsInitialized === false}
-	{#if fromWorkspaceSettings}
-		<Alert type="error" title="Connection to remote S3 bucket unsuccessful">
-			<div class="flex flex-row gap-x-1 w-full items-center">
-				<p class="text-clip grow min-w-0"> Double check the S3 resource fields and try again. </p>
-			</div>
-		</Alert>
-	{:else if s3ResourcePath}
-		<Alert type="error" title="Could not connect to the object storage of {s3ResourcePath}">
-			<div class="flex flex-row gap-x-1 w-full items-center">
-				<p class="text-clip grow min-w-0">
-					Double check the resource fields and that its object storage is reachable, then try again.
-				</p>
-				<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
-			</div>
-		</Alert>
-	{:else}
-		<Alert type="error" title="Workspace not connected to any S3 storage">
-			<div class="flex flex-row gap-x-1 w-full items-center">
-				<p class="text-clip grow min-w-0">
-					The workspace needs to be connected to an S3 storage to use this feature. You can <a
-						target="_blank"
-						href="{base}/workspace_settings?tab=windmill_lfs">configure it here</a
-					>.
-				</p>
-				<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
-			</div>
-		</Alert>
-	{/if}
+	<div class="p-4">
+		{#if fromWorkspaceSettings}
+			<Alert type="error" title="Connection to remote S3 bucket unsuccessful">
+				<div class="flex flex-row gap-x-1 w-full items-center">
+					<p class="text-clip grow min-w-0"> Double check the S3 resource fields and try again. </p>
+				</div>
+			</Alert>
+		{:else if s3ResourcePath}
+			<Alert type="error" title="Could not connect to the object storage of {s3ResourcePath}">
+				<div class="flex flex-row gap-x-1 w-full items-center">
+					<p class="text-clip grow min-w-0">
+						Double check the resource fields and that its object storage is reachable, then try
+						again.
+					</p>
+					<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
+				</div>
+			</Alert>
+		{:else}
+			<Alert type="error" title="Workspace not connected to any S3 storage">
+				<div class="flex flex-row gap-x-1 w-full items-center">
+					<p class="text-clip grow min-w-0">
+						The workspace needs to be connected to an S3 storage to use this feature. You can <a
+							target="_blank"
+							href="{base}/workspace_settings?tab=windmill_lfs">configure it here</a
+						>.
+					</p>
+					<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
+				</div>
+			</Alert>
+		{/if}
+	</div>
 {:else}
 	{#if fileListUnavailable == true}
 		{#if replaceUnauthorizedWarning}
 			{@render replaceUnauthorizedWarning()}
 		{:else}
-			<div class="mb-2">
+			<div class="p-3 border-b">
 				<Alert type="info" title="Access to S3 bucket restricted">
 					<p>
 						You don't have access to the S3 bucket resource and your administrator has restricted
@@ -1129,7 +1132,7 @@
 			</div>
 		{/if}
 	{/if}
-	<Splitpanes class="border rounded-md h-full min-h-0 overflow-hidden">
+	<Splitpanes class="h-full min-h-0 overflow-hidden">
 		{#if !fileListUnavailable}
 			<Pane size={28} minSize={15} class="flex flex-col min-h-0">
 				{#if !rootPath}
@@ -1193,7 +1196,7 @@
 										<button
 											onclick={() => !loadingMore && loadMore(load_more_prefix)}
 											disabled={loadingMore}
-											class="w-full text-xs font-normal flex gap-2 items-center h-8 pr-1 text-secondary hover:bg-surface-hover cursor-pointer disabled:cursor-default"
+											class="w-full text-xs font-normal flex gap-2 items-center h-8 pr-1 text-secondary hover:bg-surface-hover cursor-pointer disabled:cursor-default disabled:hover:bg-transparent"
 											style={treeRowIndent(loadMoreNesting)}
 										>
 											<span class="shrink-0 w-3.5"></span>
@@ -1215,7 +1218,7 @@
 											: fileIconFor(file_info.display_name)}
 										<button
 											onclick={() => selectItem(index)}
-											title={file_info.full_key}
+											title={file_info.full_key.slice(rootPath.length)}
 											class={twMerge(
 												'w-full text-xs font-normal text-primary flex gap-2 items-center h-8 pr-1 cursor-pointer',
 												isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover'
@@ -1245,9 +1248,12 @@
 													<span class="italic text-secondary">(empty name)</span>
 												{:else}{file_info.display_name}{/if}
 											</span>
-											<div class="grow"></div>
+											<span class="grow"></span>
 											{#if isFolder && !lazyMode}
-												<span class="shrink-0 text-2xs text-tertiary mr-2">
+												<span
+													class="shrink-0 text-2xs text-tertiary mr-2"
+													title="Items inside this folder"
+												>
 													{file_info.count}{count % 1000 === 0 &&
 													lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
 														? '+'
@@ -1272,7 +1278,7 @@
 							happens to be expanded, and each folder carries its own Load more row. -->
 							<div>{displayedCount} item{displayedCount === 1 ? '' : 's'} shown</div>
 						{:else}
-							<div>
+							<div class="min-w-0">
 								{displayedCount}{flatHasMore ? '+' : ''}
 								{displayedCount !== count ? 'filtered ' : ''}items (including inside folders)
 							</div>
