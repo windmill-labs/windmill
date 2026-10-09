@@ -8,7 +8,7 @@ use tokio_stream::StreamExt;
 use windmill_common::{error::Error, utils::rd_string};
 
 use crate::{
-    ai_google::{parse_gemini_sse_event, GeminiUsageMetadata},
+    ai_google::{gemini_turn_ended, parse_gemini_sse_event, GeminiUsageMetadata},
     ai_types::UrlCitation,
     ai_types::{
         AnthropicExtraContent, ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall,
@@ -718,7 +718,7 @@ impl SSEParser for GeminiSSEParser {
         let Some(parsed) = parse_gemini_sse_event(data)? else {
             return Ok(());
         };
-        if parsed.finish_reason.is_some() {
+        if gemini_turn_ended(&parsed) {
             self.finished = true;
         }
 
@@ -1254,6 +1254,13 @@ mod tests {
             .await
             .unwrap_err();
         assert!(as_transient(&quota).is_none(), "{quota}");
+
+        GeminiSSEParser::new(Box::new(NoopSink))
+            .parse_events(sse_response(vec![Ok(
+                "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{}}}]}}]}\n\n",
+            )]))
+            .await
+            .unwrap();
     }
 
     /// The prompt-side counts arrive only on `message_start` and the completion total

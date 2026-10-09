@@ -1,11 +1,11 @@
 use crate::{
     ai_google::{
         gemini_completion_tokens, gemini_event_to_openai_sse_chunks, gemini_prompt_tokens,
-        gemini_response_to_openai, openai_messages_to_gemini, openai_tools_to_gemini,
-        parse_gemini_response, parse_gemini_sse_event, sanitize_schema_for_google,
-        GeminiFunctionDeclaration, GeminiGenerationConfig, GeminiImageContent, GeminiImageRequest,
-        GeminiImageResponse, GeminiInlineData, GeminiPart, GeminiPredictContent, GeminiTextRequest,
-        GeminiThinkingConfig, GeminiTool,
+        gemini_response_to_openai, gemini_turn_ended, openai_messages_to_gemini,
+        openai_tools_to_gemini, parse_gemini_response, parse_gemini_sse_event,
+        sanitize_schema_for_google, GeminiFunctionDeclaration, GeminiGenerationConfig,
+        GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
+        GeminiPredictContent, GeminiTextRequest, GeminiThinkingConfig, GeminiTool,
     },
     image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
     proxy::{ProxyBuildArgs, ProxyRequest},
@@ -530,7 +530,7 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
             match event {
                 Ok(event) => match parse_gemini_sse_event(&event.data) {
                     Ok(Some(parsed)) => {
-                        finished |= parsed.finish_reason.is_some();
+                        finished |= gemini_turn_ended(&parsed);
                         for chunk in gemini_event_to_openai_sse_chunks(
                             &parsed, &id, &model, &mut tool_call_index,
                         ) {

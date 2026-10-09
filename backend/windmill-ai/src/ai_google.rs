@@ -561,6 +561,12 @@ pub fn openai_tools_to_gemini(
     }
 }
 
+/// Whether this event ends a complete Gemini turn. A function call arrives whole and may
+/// come without a `finishReason`, so it counts too, as in gemini-cli's stream validation.
+pub fn gemini_turn_ended(event: &GeminiParsedEvent) -> bool {
+    event.finish_reason.is_some() || !event.tool_calls.is_empty()
+}
+
 /// Parse one Gemini SSE data line into a [`GeminiParsedEvent`].
 ///
 /// Returns `Ok(None)` for empty data or unrecognised payloads (e.g. `"[DONE]"`).
