@@ -99,6 +99,7 @@
     - creates the script at f/evals/get_invoice.ts, fetching an invoice by id with a bearer token
     - the script takes the billing API's base URL and token together as one resource-typed parameter, not a plain string token or a variable read inside the code
     - defines the billing API's resource type with its base URL and token fields, as a resource-type file or in the reply (asking before writing the file is fine)
+    - the custom resource type's name has the c_ prefix (e.g. `RT.CAcmeBilling` in TypeScript, `c_acme_billing.resource-type.json`)
 
 - id: flow-reuse-existing-script
   prompt: |-
