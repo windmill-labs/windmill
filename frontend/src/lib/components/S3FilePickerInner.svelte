@@ -246,11 +246,19 @@
 	// Each file starts on the separator the server guesses from its first bytes.
 	$effect(() => {
 		fileMetadata?.fileKey
-		untrack(() => (csvSeparatorChar = undefined))
+		untrack(() => {
+			csvSeparatorChar = undefined
+			detectedCsvSeparator = undefined
+		})
 	})
-	let detectedCsvSeparator = $derived(
-		tableOps.current && 'ops' in tableOps.current ? tableOps.current.csvSeparator : undefined
-	)
+	/** Kept while the file stays selected, so the text view still shows what was guessed. */
+	let detectedCsvSeparator: string | undefined = $state(undefined)
+	$effect(() => {
+		const current = tableOps.current
+		if (current && 'ops' in current && current.csvSeparator) {
+			detectedCsvSeparator = current.csvSeparator
+		}
+	})
 	let currentTableOps = $derived(
 		tableOps.current && 'ops' in tableOps.current ? tableOps.current.ops : tableOps.current
 	)
@@ -1429,8 +1437,8 @@
 									RightIcon={ChevronDown}
 									items={CSV_SEPARATORS}
 									bind:value={csvSeparatorChar}
-									placeholder={CSV_SEPARATORS.find((s) => s.value === detectedCsvSeparator)?.label ??
-										'Auto'}
+									placeholder={CSV_SEPARATORS.find((s) => s.value === detectedCsvSeparator)
+										?.label ?? 'Auto'}
 								/>
 							</div>
 							<Toggle size="xs" bind:checked={csvHasHeader} options={{ right: 'Header row' }} />
