@@ -37,18 +37,15 @@ highlighted, a workspace page inside Pages with that page highlighted.
 
 	// Two paths for one item, which differ on a draft: the header names it by the path it will
 	// deploy to, which is the folder the tree files it under, while its row is keyed by where it
-	// is stored, which is the path in the URL.
+	// is stored, which is the path in an editor's URL. A viewer's URL is no help: a script page
+	// can be addressed by a version hash, so there the header's path is the row's.
 	const route = $derived(item?.path ? parsePreviewItemRoute(page.url.pathname) : null)
-	const currentItem = $derived<WorkspaceItem | undefined>(
-		route
-			? {
-					path: route.itemPath,
-					kind: route.kind,
-					raw_app: route.raw_app,
-					summary: item?.summary ?? ''
-				}
-			: undefined
-	)
+	const currentItem = $derived.by<WorkspaceItem | undefined>(() => {
+		const kind = route?.kind ?? item?.kind
+		const path = route?.mode === 'edit' ? route.itemPath : item?.path
+		if (!kind || !path) return undefined
+		return { path, kind, raw_app: route?.raw_app, summary: item?.summary ?? '' }
+	})
 
 	// The item's own folder is its path minus the name.
 	const initialScope = $derived.by<Scope>(() => {
@@ -56,13 +53,11 @@ highlighted, a workspace page inside Pages with that page highlighted.
 		return parts.length >= 3 ? { kind: 'all', dir: parts.slice(0, -1).join('/') } : undefined
 	})
 	const initialHighlight = $derived(
-		route
-			? leafKeyFor(route.kind, route.itemPath)
-			: item?.kind && item.path
-				? leafKeyFor(item.kind, item.path)
-				: pagePath
-					? pageKey(pagePath)
-					: undefined
+		currentItem
+			? leafKeyFor(currentItem.kind, currentItem.path)
+			: pagePath
+				? pageKey(pagePath)
+				: undefined
 	)
 
 	// A page acting on another workspace than the app's (a session in a fork) keeps acting on it:
