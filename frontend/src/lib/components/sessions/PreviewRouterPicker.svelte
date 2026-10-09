@@ -48,6 +48,7 @@ section or the flat layout.
 		previewModeFor,
 		type PreviewTarget
 	} from './previewRouter'
+	import { editorKindOf, useSessionPermissions } from './sessionPermissions.svelte'
 
 	type Kind = WorkspaceItemKind
 	type DrillPickerHandle = {
@@ -89,6 +90,11 @@ section or the flat layout.
 
 	const kinds: Kind[] = ['flow', 'script', 'app']
 	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
+	const permissions = useSessionPermissions(() => effectiveWorkspace)
+	const canEdit = (item: WorkspaceItem) => {
+		const kind = editorKindOf(item.kind)
+		return !!kind && permissions.canOpenEditor(kind)
+	}
 
 	let inner = $state<DrillPickerHandle | undefined>(undefined)
 	export function focus() {
@@ -154,20 +160,28 @@ section or the flat layout.
 	// `mode` is stamped here rather than left to the tab: picking is the reader
 	// saying "show me this", so it lands on the deployed page, and `navigate`
 	// would otherwise keep whichever side the re-pointed tab happened to be on.
+	// A draft-only item opens its editor, unless this user cannot save there.
 	function tagItems(nodes: DrillNode<WorkspaceItem>[]): DrillNode<PreviewTarget>[] {
 		return nodes.map((n) =>
 			n.type === 'leaf'
-				? { ...n, data: { type: 'item', item: n.data, mode: previewModeFor(n.data) } }
+				? {
+						...n,
+						data: {
+							type: 'item',
+							item: n.data,
+							mode: canEdit(n.data) ? previewModeFor(n.data) : 'view'
+						}
+					}
 				: { ...n, children: tagItems(n.children) }
 		)
 	}
 
-	// Open the item's editor. Offered on every item row, including the draft-only ones
-	// a plain click already opens there: a row that drops the button to say "you were
-	// getting this anyway" reads as one that cannot be edited.
+	// Open the item's editor. Offered on every item row this user can edit, including the
+	// draft-only ones a plain click already opens there: a row that drops the button to say
+	// "you were getting this anyway" reads as one that cannot be edited.
 	function editAction(leaf: DrillLeaf<PreviewTarget>) {
 		const target = leaf.data
-		if (target.type !== 'item') return undefined
+		if (target.type !== 'item' || !canEdit(target.item)) return undefined
 		return {
 			icon: Pen,
 			label: 'Edit',
@@ -204,7 +218,9 @@ section or the flat layout.
 		label: 'Pages',
 		icon: Compass,
 		searchGroup: true,
-		children: PREVIEW_PAGES.filter((p) => p.path !== '/').map(pageLeaf)
+		children: PREVIEW_PAGES.filter((p) => p.path !== '/' && permissions.pageAllowed(p)).map(
+			pageLeaf
+		)
 	})
 
 	// Session artifacts, when present, get their own branch between Pages and the
@@ -229,7 +245,8 @@ section or the flat layout.
 	)
 
 	const tree = $derived<DrillNode<PreviewTarget>[]>([
-		pagesBranch,
+		// An operator's workspace may enable none of them.
+		...(pagesBranch.children.length > 0 ? [pagesBranch] : []),
 		...(artifactsBranch ? [artifactsBranch] : []),
 		...tagItems(
 			buildWorkspaceTree({

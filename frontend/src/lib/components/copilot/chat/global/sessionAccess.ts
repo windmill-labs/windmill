@@ -1,12 +1,25 @@
+import { get } from 'svelte/store'
+import { userWorkspaces } from '$lib/stores'
+import type { OperatorSettings } from '$lib/gen'
 import { getWorkspaceRole } from '$lib/user'
 import { checkDeployRules } from '$lib/utils_workspace_deploy'
 import type { SessionAccess, SessionCapability } from '../sessionCapabilities'
 
+type OperatorRights = Pick<
+	NonNullable<OperatorSettings>,
+	'builder_flows' | 'manage_schedules' | 'manage_triggers'
+>
+
 const ALL_CAPABILITIES: SessionCapability[] = [
 	'write_draft',
+	'write_flow_draft',
 	'run_preview',
+	'run_flow_preview',
 	'deploy',
 	'manage_code',
+	'manage_flows',
+	'manage_schedules',
+	'manage_triggers',
 	'admin'
 ]
 
@@ -25,8 +38,11 @@ export function capabilitiesForRole(role: {
 	isAdmin: boolean
 	operator: boolean
 	deployRulesPass: boolean
+	/** The workspace's `operator_settings`, null for a non-operator. */
+	operatorSettings?: OperatorRights | null
 }): SessionAccess {
 	const capabilities = new Set<SessionCapability>()
+	const builder = role.operatorSettings?.builder_flows === true
 	// Per-capability precedence, NOT a role ladder: drafts.rs `require_can_write_path`
 	// returns Ok on `authed.is_admin` BEFORE its operator branch, while jobs.rs
 	// `run_preview_*` and the script/flow/app handlers refuse `authed.is_operator` with no
@@ -34,9 +50,24 @@ export function capabilitiesForRole(role: {
 	if (role.isAdmin || !role.operator) {
 		capabilities.add('write_draft')
 	}
+	if (role.isAdmin || !role.operator || builder) {
+		capabilities.add('write_flow_draft')
+	}
 	if (!role.operator) {
 		capabilities.add('run_preview')
 		capabilities.add('manage_code')
+	}
+	if (!role.operator || builder) {
+		capabilities.add('run_flow_preview')
+		capabilities.add('manage_flows')
+	}
+	// Withdrawable, so granted unless the workspace set the key to false: an unset key is
+	// "never configured", not "no" (docs/operator-write-rights.md).
+	if (!role.operator || role.operatorSettings?.manage_schedules !== false) {
+		capabilities.add('manage_schedules')
+	}
+	if (!role.operator || role.operatorSettings?.manage_triggers !== false) {
+		capabilities.add('manage_triggers')
 	}
 	// No operator term: the rules are their own gate, and the handlers that also refuse
 	// operators say so through `manage_code`. Admins bypass the rules inside the check.
@@ -63,6 +94,7 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 	return capabilitiesForRole({
 		isAdmin: !!me.is_admin || !!me.is_super_admin,
 		operator: !!me.operator,
-		deployRulesPass: (await checkDeployRules(workspace, me)).ok
+		deployRulesPass: (await checkDeployRules(workspace, me)).ok,
+		operatorSettings: get(userWorkspaces).find((w) => w.id === workspace)?.operator_settings
 	})
 }

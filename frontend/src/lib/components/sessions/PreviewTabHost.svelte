@@ -18,6 +18,7 @@
 		showsView
 	} from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import RunFormPreviewSlot from './RunFormPreviewSlot.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
@@ -76,7 +77,15 @@
 	const itemPath = $derived(
 		slot.kind === 'editor' || slot.kind === 'viewer' ? slot.path : undefined
 	)
-	const mode = $derived(slot.kind === 'viewer' ? 'view' : 'edit')
+	const workspaceId = $derived(
+		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
+	)
+	const permissions = useSessionPermissions(() => workspaceId || undefined)
+	// Every route into an editor ends here, the breadcrumb and the chat's openers included, so
+	// this is where an editor the user cannot save is turned into the deployed page.
+	const mode = $derived(
+		slot.kind === 'viewer' || (itemKind && !permissions.canOpenEditor(itemKind)) ? 'view' : 'edit'
+	)
 	// `new_draft` marks a raw app handed over by the new-app builder.
 	const newRawApp = $derived(
 		itemKind === 'raw_app' && new URL(tab.url, 'http://x').searchParams.get('new_draft') === 'true'
@@ -103,9 +112,6 @@
 	// session"). Only the in-process editors need it handed over — an iframe tab
 	// loads the URL whole, params included.
 	const selectedId = $derived(parsePreviewSelectedId(tab.url))
-	const workspaceId = $derived(
-		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
-	)
 	const isActiveSession = $derived(!!session && sessionState.currentSessionId === session.id)
 
 	// Resolved live from the session's store so an update_artifact re-renders the panel.
@@ -390,6 +396,11 @@
 						active={active && !collapsed}
 					/>
 				{/await}
+			</div>
+		{:else}
+			<!-- A pipeline has no deployed page, only its editor. -->
+			<div class="flex-1 flex items-center justify-center p-8 text-center text-sm text-secondary">
+				The pipeline editor saves drafts, which your role cannot do in this workspace.
 			</div>
 		{/if}
 	</div>

@@ -72,8 +72,12 @@
 	let appPerms = $state<{ path: string; extraPerms: Record<string, boolean> } | undefined>(
 		undefined
 	)
+	// `canWrite` reads folder and ownership rights only, and apps.rs refuses an operator's writes
+	// whatever those say.
 	const canWriteApp = $derived(
-		!!appPerms && canWrite(appPerms.path, appPerms.extraPerms, operatingUser.current)
+		!!appPerms &&
+			!operatingUser.current?.operator &&
+			canWrite(appPerms.path, appPerms.extraPerms, operatingUser.current)
 	)
 	/** Raw vs low-code, read from the app itself rather than from the route:
 	 * both kinds render here and either route serves either kind (links to a raw
