@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM draft\n           WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email = $4\n           RETURNING 1 as \"one!\"",
+  "query": "DELETE FROM draft\n           WHERE workspace_id = $1 AND path = $2 AND typ = $3\n             AND ($4::text IS NULL OR email = $4)\n           RETURNING 1 as \"one!\"",
   "describe": {
     "columns": [
       {
@@ -55,5 +55,5 @@
       null
     ]
   },
-  "hash": "8b7c9dc3b43a7498a28af07580ab78a8639351a006727b0a5245175d8706c3ab"
+  "hash": "f338741f0866dc717ccfcf6b7d46b4e55ca07e472610b29fad24b64f45f98e18"
 }

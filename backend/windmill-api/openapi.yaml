@@ -10927,8 +10927,8 @@ paths:
 
   /w/{workspace}/drafts/delete_for_user/{kind}/{path}:
     post:
-      summary: delete another user's draft (admin only)
-      description: Delete the draft a given user holds at a path. Workspace admins / superadmins only, and only for script, flow, app and raw_app drafts. Unlike a discard of one's own draft through `drafts/update`, this returns 404 when there is no such draft.
+      summary: delete another user's draft, or every draft at a path (admin only)
+      description: Delete the draft a given user holds at a path, or, without `username`, every draft at that path (the legacy ownerless one and the caller's own included). Workspace admins / superadmins only, and only for script, flow, app and raw_app drafts. Unlike a discard of one's own draft through `drafts/update`, this returns 404 when nothing was deleted.
       operationId: deleteDraftForUser
       tags:
         - draft
@@ -10942,19 +10942,19 @@ paths:
         - $ref: "#/components/parameters/ScriptPath"
         - name: username
           in: query
-          required: true
-          description: Workspace username of the draft owner.
+          required: false
+          description: Workspace username of the draft owner. Omit to delete every user's draft at the path.
           schema:
             type: string
       responses:
         "200":
-          description: draft deleted
+          description: draft(s) deleted
           content:
             text/plain:
               schema:
                 type: string
         "404":
-          description: no draft for that owner at that path
+          description: no matching draft at that path
 
   /w/{workspace}/drafts/move/{kind}/{path}:
     post:

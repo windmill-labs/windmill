@@ -55,24 +55,26 @@
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let migrateOpen = $state(false)
 
-	let deleting = $state<OtherDraftUser | undefined>(undefined)
+	// One owner's draft, or every draft at the path.
+	let deleting = $state<OtherDraftUser | 'all' | undefined>(undefined)
 	let deleteBusy = $state(false)
 
 	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins,
 	// and only they can delete a draft that belongs to someone else.
 	const isAdmin = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
 
-	async function deleteDraft(owner: OtherDraftUser) {
-		if (!owner.username) return
+	async function deleteDraft(target: OtherDraftUser | 'all') {
+		const username = target === 'all' ? undefined : target.username
+		if (target !== 'all' && !username) return
 		deleteBusy = true
 		try {
 			await DraftService.deleteDraftForUser({
 				workspace,
 				kind: itemKind,
 				path,
-				username: owner.username
+				username: username ?? undefined
 			})
-			sendUserToast(`Deleted ${owner.username}'s draft`)
+			sendUserToast(username ? `Deleted ${username}'s draft` : `Deleted all drafts at ${path}`)
 			deleting = undefined
 			isOpen = false
 			await onReload?.()
@@ -235,7 +237,19 @@
 			{/each}
 		</ul>
 
-		<div class="flex justify-end">
+		<div class="flex justify-end gap-2">
+			{#if isAdmin}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					destructive
+					startIcon={{ icon: Trash2 }}
+					disabled={busyFor !== null}
+					onclick={() => (deleting = 'all')}
+				>
+					Delete all drafts
+				</Button>
+			{/if}
 			<Button variant="default" size="sm" on:click={() => (isOpen = false)}>Close</Button>
 		</div>
 	</div>
@@ -245,7 +259,7 @@
 
 <ConfirmationModal
 	open={deleting !== undefined}
-	title="Delete {deleting?.username}'s draft?"
+	title={deleting === 'all' ? 'Delete all drafts?' : `Delete ${deleting?.username}'s draft?`}
 	confirmationText="Delete"
 	loading={deleteBusy}
 	onConfirmed={() => {
@@ -254,9 +268,15 @@
 	onCanceled={() => (deleting = undefined)}
 >
 	<span class="text-sm">
-		This permanently deletes the draft {deleting?.username} has at
-		<span class="font-medium text-primary">{path}</span>. Their unsaved work there is lost and can't
-		be recovered.
+		{#if deleting === 'all'}
+			This permanently deletes every draft at
+			<span class="font-medium text-primary">{path}</span>, yours included. All unsaved work there
+			is lost and can't be recovered.
+		{:else}
+			This permanently deletes the draft {deleting?.username} has at
+			<span class="font-medium text-primary">{path}</span>. Their unsaved work there is lost and
+			can't be recovered.
+		{/if}
 	</span>
 </ConfirmationModal>
 

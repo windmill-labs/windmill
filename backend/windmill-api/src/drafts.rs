@@ -1007,14 +1007,15 @@ async fn migrate_legacy_draft(
 
 #[derive(Deserialize, Debug)]
 pub struct DeleteDraftForUserQuery {
-    /// Workspace username of the draft owner.
-    pub username: String,
+    /// Workspace username of the draft owner. Absent: every draft at the path,
+    /// the legacy ownerless one and the caller's own included.
+    pub username: Option<String>,
 }
 
-/// Delete ANOTHER user's draft at a path, for workspace admins (and superadmins,
-/// which carry `is_admin` in a workspace). Covers the kinds whose authors are
-/// visible to others (`shares_drafts_across_users`); the owner is named by
-/// workspace username, as on `/drafts/get`.
+/// Delete ANOTHER user's draft at a path, or every draft there, for workspace
+/// admins (and superadmins, which carry `is_admin` in a workspace). Covers the
+/// kinds whose authors are visible to others (`shares_drafts_across_users`); the
+/// owner is named by workspace username, as on `/drafts/get`.
 async fn delete_draft_for_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1028,27 +1029,37 @@ async fn delete_draft_for_user(
         ));
     }
     let path = path.to_path();
-    let username = &query.username;
-    let owner_email = resolve_username_to_email(&w_id, username, &db)
-        .await?
-        .ok_or_else(|| Error::NotFound(format!("no user with username {username} in workspace")))?;
+    let username = query.username.as_deref();
+    let owner_email = match username {
+        Some(username) => Some(
+            resolve_username_to_email(&w_id, username, &db)
+                .await?
+                .ok_or_else(|| {
+                    Error::NotFound(format!("no user with username {username} in workspace"))
+                })?,
+        ),
+        None => None,
+    };
 
     let mut tx = db.begin().await?;
     let deleted = sqlx::query_scalar!(
         r#"DELETE FROM draft
-           WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email = $4
+           WHERE workspace_id = $1 AND path = $2 AND typ = $3
+             AND ($4::text IS NULL OR email = $4)
            RETURNING 1 as "one!""#,
         &w_id,
         path,
         kind as UserDraftItemKind,
-        &owner_email,
+        owner_email.as_deref(),
     )
-    .fetch_optional(&mut *tx)
-    .await?;
-    if deleted.is_none() {
-        return Err(Error::NotFound(format!(
-            "no draft for {username} at {path}"
-        )));
+    .fetch_all(&mut *tx)
+    .await?
+    .len();
+    if deleted == 0 {
+        return Err(Error::NotFound(match username {
+            Some(username) => format!("no draft for {username} at {path}"),
+            None => format!("no draft at {path}"),
+        }));
     }
     audit_log(
         &mut *tx,
@@ -1057,11 +1068,20 @@ async fn delete_draft_for_user(
         ActionKind::Delete,
         &w_id,
         Some(path),
-        Some([("kind", kind.as_str()), ("username", username.as_str())].into()),
+        Some(
+            [
+                ("kind", kind.as_str()),
+                ("username", username.unwrap_or("*")),
+            ]
+            .into(),
+        ),
     )
     .await?;
     tx.commit().await?;
-    Ok(format!("Deleted {username}'s draft at {path}"))
+    Ok(match username {
+        Some(username) => format!("Deleted {username}'s draft at {path}"),
+        None => format!("Deleted {deleted} draft(s) at {path}"),
+    })
 }
 
 /// For variable-kind drafts with `variable.is_secret == true`, encrypt
