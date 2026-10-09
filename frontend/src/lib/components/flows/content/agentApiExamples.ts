@@ -110,7 +110,7 @@ const TOKEN = '${t.token}'
 
 export function AgentChat() {
   const chat = useWindmillChat({
-    baseUrl: '${new URL(t.api).origin}',
+    baseUrl: '${t.api.replace(/\/api\/w\/[^/]+$/, '')}',
     workspace: '${t.api.split('/').pop()}',
     token: TOKEN,
     // What the agent's conversations are filed under. With a token, history stays in this

@@ -106,6 +106,12 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
             false,
         ),
         (
+            "slack_agents",
+            "Slack Agents",
+            "AI agents answering in Slack channels",
+            false,
+        ),
+        (
             "agent_workers",
             "Agent Workers",
             "Agent worker management",

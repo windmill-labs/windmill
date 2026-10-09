@@ -123,12 +123,24 @@ async fn list_agent_channels(
         Some(_) => bot_name(&db, &w_id).await,
         None => None,
     };
-    Ok(Json(AgentSlack { slack_team_name, signing_secret_set, bot_name, channels }))
+    Ok(Json(AgentSlack {
+        slack_team_name,
+        signing_secret_set,
+        bot_name,
+        channels,
+    }))
 }
 
 async fn bot_name(db: &DB, w_id: &str) -> Option<String> {
     let token = bot_token(db, w_id).await.ok()?;
-    let res = slack_call(&token, "auth.test", &[]).await.ok()?;
+    // On every agent page load: a slow Slack must not hold the page for the client's 20s timeout.
+    let res = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        slack_call(&token, "auth.test", &[]),
+    )
+    .await
+    .ok()?
+    .ok()?;
     res["user"].as_str().map(str::to_string)
 }
 

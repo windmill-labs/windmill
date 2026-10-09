@@ -34,6 +34,7 @@
 		workspace,
 		isAdmin,
 		chat,
+		slackLoading,
 		slackTeamName,
 		botName,
 		signingSecretSet,
@@ -45,6 +46,8 @@
 		isAdmin: boolean
 		/** Whether the agent keeps the conversation. Slack is offered only then: a thread is one. */
 		chat: boolean
+		/** Whether the workspace's Slack connection is still being read. */
+		slackLoading: boolean
 		/** Unset when Slack is not connected to the workspace. */
 		slackTeamName: string | undefined
 		/** Unset when Slack can't be reached with the workspace's bot token. */
@@ -173,7 +176,9 @@
 		{#snippet content()}
 			<div class="min-h-0 grow overflow-y-auto">
 				<TabContent value="slack" class="flex flex-col gap-6 p-4">
-					{#if !slackTeamName}
+					{#if slackLoading}
+						<span class="text-xs text-hint">Loading…</span>
+					{:else if !slackTeamName}
 						<span class="text-xs text-secondary">
 							Connect Slack to the workspace to ask this agent from Slack, by its name or as a
 							channel's default.
