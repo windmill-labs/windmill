@@ -1968,8 +1968,8 @@ pub(crate) fn deno_not_installed_error() -> Error {
          no longer ship Deno: official support for it on those images was discontinued after Deno \
          announced the end of development of the Deno runtime (https://deno.com/blog/cloudflare). \
          We recommend migrating this script to Bun. To keep running Deno scripts, use the \
-         windmill-full or windmill-ee-full image, or install Deno on the worker and point \
-         DENO_PATH at it.",
+         windmill-full or windmill-ee-full image on every worker that accepts the deno tag, or \
+         install Deno on them and point DENO_PATH at it.",
         crate::DENO_PATH.as_str()
     ))
 }
@@ -1982,7 +1982,9 @@ fn tentatively_improve_error(err: Error, executable: &str) -> Error {
     let err_msgs = vec!["program not found", "os error 2", "os error 3"];
 
     if err_msgs.iter().any(|msg| err.to_string().contains(msg)) {
-        if executable == crate::DENO_PATH.as_str() {
+        // An absolute DENO_PATH is checked before spawning, where a missing job dir
+        // cannot be mistaken for a missing binary.
+        if executable == crate::DENO_PATH.as_str() && !Path::new(executable).is_absolute() {
             return deno_not_installed_error();
         }
         return Error::internal_err(format!(
