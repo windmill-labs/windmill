@@ -16,7 +16,8 @@
 //! Efficiency: each kind is a UNION ALL branch ordered by an index on
 //! `(workspace_id, archived, <sort key>)` (created_at / edited_at, or the lowered
 //! summary-or-path expression for name orders); Postgres merges the ordered
-//! branches and stops at the page limit. Pagination is keyset — a
+//! branches and stops at the page limit. Agents, which are few, are instead
+//! reached through the partial `idx_resource_agent_owner_prefix` and sorted whole. Pagination is keyset — a
 //! `(sort_key, path, kind, tiebreak)` cursor, where `tiebreak` (a script's hash,
 //! 0 for flow/app) is a stable final key that keeps the order total even when rows
 //! tie on (sort_key, path, kind) — so deep pages don't re-scan. Visibility is
@@ -858,7 +859,7 @@ struct OwnerCount {
 /// `owner/<rest>` is >= `owner || '/'` and, since '/' (0x2F) is immediately
 /// followed by '0' (0x30), < `owner || '0'`. `~>=~` / `~<~` are the
 /// text_pattern_ops operators, which is what lets `idx_<kind>_owner_prefix`
-/// answer the count with an index-only scan — the default opclass sorts by the
+/// (`idx_resource_agent_owner_prefix` for agents) answer the count with an index-only scan — the default opclass sorts by the
 /// database collation and cannot serve a byte-prefix range.
 fn owner_prefix_range(alias: &str) -> String {
     format!("{alias}.path ~>=~ (o.owner || '/') AND {alias}.path ~<~ (o.owner || '0')")

@@ -111,6 +111,9 @@ lazy_static::lazy_static! {
                     (20260909163047, include_str!(
                         "../../migrations/20260909163047_workspace_delete_cascade_indexes.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20261009173546, include_str!(
+                        "../../migrations/20261009173546_agent_owner_prefix_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
                     ].into_iter().collect();
 }
 
