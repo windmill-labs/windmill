@@ -12,7 +12,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { canWrite } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { Pen, Plus, Trash } from 'lucide-svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -24,6 +24,8 @@
 
 	type GroupW = Group & { canWrite: boolean }
 
+	const editRights = useEditRights()
+
 	let restricted = $derived(
 		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
 	)
@@ -34,7 +36,7 @@
 
 	async function loadGroups(): Promise<void> {
 		groups = (await GroupService.listGroups({ workspace: $workspaceStore! })).map((x) => {
-			return { canWrite: canWrite(x.name, x.extra_perms ?? {}, $userStore), ...x }
+			return { canWrite: editRights.canEditItem('group', x.name, x.extra_perms), ...x }
 		})
 	}
 

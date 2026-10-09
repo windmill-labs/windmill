@@ -2,6 +2,7 @@ import { get } from 'svelte/store'
 import { userWorkspaces } from '$lib/stores'
 import type { OperatorSettings } from '$lib/gen'
 import { getWorkspaceRole } from '$lib/user'
+import { roleCanAuthor } from '$lib/editRights'
 import { checkDeployRules } from '$lib/utils_workspace_deploy'
 import type { SessionAccess, SessionCapability } from '../sessionCapabilities'
 
@@ -42,31 +43,31 @@ export function capabilitiesForRole(role: {
 	operatorSettings?: OperatorRights | null
 }): SessionAccess {
 	const capabilities = new Set<SessionCapability>()
-	const builder = role.operatorSettings?.builder_flows === true
+	const user = { operator: role.operator }
+	const authorsCode = roleCanAuthor('script', user, role.operatorSettings)
+	const authorsFlows = roleCanAuthor('flow', user, role.operatorSettings)
 	// Per-capability precedence, NOT a role ladder: drafts.rs `require_can_write_path`
 	// returns Ok on `authed.is_admin` BEFORE its operator branch, while jobs.rs
 	// `run_preview_*` and the script/flow/app handlers refuse `authed.is_operator` with no
 	// admin escape — and on the session path that flag is never cleared for an admin.
-	if (role.isAdmin || !role.operator) {
+	if (role.isAdmin || authorsCode) {
 		capabilities.add('write_draft')
 	}
-	if (role.isAdmin || !role.operator || builder) {
+	if (role.isAdmin || authorsFlows) {
 		capabilities.add('write_flow_draft')
 	}
-	if (!role.operator) {
+	if (authorsCode) {
 		capabilities.add('run_preview')
 		capabilities.add('manage_code')
 	}
-	if (!role.operator || builder) {
+	if (authorsFlows) {
 		capabilities.add('run_flow_preview')
 		capabilities.add('manage_flows')
 	}
-	// Withdrawable, so granted unless the workspace set the key to false: an unset key is
-	// "never configured", not "no" (docs/operator-write-rights.md).
-	if (!role.operator || role.operatorSettings?.manage_schedules !== false) {
+	if (roleCanAuthor('schedule', user, role.operatorSettings)) {
 		capabilities.add('manage_schedules')
 	}
-	if (!role.operator || role.operatorSettings?.manage_triggers !== false) {
+	if (roleCanAuthor('trigger', user, role.operatorSettings)) {
 		capabilities.add('manage_triggers')
 	}
 	// No operator term: the rules are their own gate, and the handlers that also refuse

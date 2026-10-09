@@ -11,8 +11,8 @@
 	import Path from '$lib/components/Path.svelte'
 	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import { usedTriggerKinds } from '$lib/stores'
-	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -51,7 +51,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
-	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	interface Props {
 		useDrawer?: boolean
@@ -118,8 +118,9 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		(permsPath === undefined || canWrite(permsPath, permsForWrite ?? {}, actingUser)) &&
-			!$triggerLock
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
 	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
@@ -177,6 +178,7 @@
 	) {
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms

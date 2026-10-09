@@ -128,8 +128,9 @@
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
 	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	let {
 		script = $bindable(),
@@ -1384,7 +1385,7 @@
 	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
 
-{#if !actingUser?.operator}
+{#if editRights.roleCanAuthor('script')}
 	<Drawer
 		placement="right"
 		bind:open={metadataOpen}

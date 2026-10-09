@@ -48,7 +48,7 @@ section or the flat layout.
 		previewModeFor,
 		type PreviewTarget
 	} from './previewRouter'
-	import { editorKindOf, useSessionPermissions } from './sessionPermissions.svelte'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 
 	type Kind = WorkspaceItemKind
 	type DrillPickerHandle = {
@@ -91,10 +91,7 @@ section or the flat layout.
 	const kinds: Kind[] = ['flow', 'script', 'app']
 	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
 	const permissions = useSessionPermissions(() => effectiveWorkspace)
-	const canEdit = (item: WorkspaceItem) => {
-		const kind = editorKindOf(item.kind)
-		return !!kind && permissions.canOpenEditor(kind)
-	}
+	const canEdit = (item: WorkspaceItem) => permissions.canEditItem(item)
 
 	let inner = $state<DrillPickerHandle | undefined>(undefined)
 	export function focus() {

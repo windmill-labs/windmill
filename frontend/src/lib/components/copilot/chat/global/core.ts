@@ -25,7 +25,7 @@ import {
 import { createTwoFilesPatch } from 'diff'
 import { deepEqual } from 'fast-equals'
 import { promptSafe, type ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
-import { canWrite } from '$lib/utils'
+import { canEditItem, roleCanAuthor } from '$lib/editRights'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
 	AppWithLastVersion,
@@ -4910,7 +4910,7 @@ async function openSessionPreview(
 	// The draft capability is workspace-wide and says nothing about this path, so an edit
 	// that survived it is still checked against the item's own permissions.
 	if (mode === 'edit' && workspace) {
-		const verdict = await canEditItemPath(workspace, args.kind, args.path, access)
+		const verdict = await canEditItemPath(workspace, args.kind, args.path)
 		if (verdict !== 'allowed') {
 			const opened = await openPreviewHandler({ ...args, mode: 'view', sessionId })
 			// "Couldn't check" is not "denied" — reporting the lookup failure as a denial
@@ -4931,17 +4931,17 @@ async function openSessionPreview(
 async function canEditItemPath(
 	workspace: string,
 	kind: 'script' | 'flow' | 'raw_app',
-	path: string,
-	access: SessionAccess | undefined
+	path: string
 ): Promise<'allowed' | 'denied' | 'unverified'> {
 	const role = await roleForWorkspace(workspace)
 	if (role.kind === 'not_a_member') return 'denied'
 	if (role.kind !== 'resolved' || !role.user) return 'unverified'
-	// An operator edits only flows, and only with the workspace's builder right.
-	if (role.user.operator && !(kind === 'flow' && access?.has('write_flow_draft'))) return 'denied'
+	const user = role.user
+	const settings = get(userWorkspaces).find((w) => w.id === workspace)?.operator_settings
+	if (!roleCanAuthor(kind, user, settings)) return 'denied'
 	// Folder and ownership rules answer most calls without a request. An item's own
 	// `extra_perms` can only widen them, so the item is fetched only to overturn a denial.
-	if (canWrite(path, {}, role.user)) return 'allowed'
+	if (canEditItem(kind, path, {}, user, settings)) return 'allowed'
 	try {
 		const extraPerms =
 			kind === 'script'
@@ -4949,7 +4949,7 @@ async function canEditItemPath(
 				: kind === 'flow'
 					? (await FlowService.getFlowByPath({ workspace, path })).extra_perms
 					: (await AppService.getAppByPath({ workspace, path })).extra_perms
-		return canWrite(path, extraPerms ?? {}, role.user) ? 'allowed' : 'denied'
+		return canEditItem(kind, path, extraPerms, user, settings) ? 'allowed' : 'denied'
 	} catch (e) {
 		// Nothing deployed means no sharing to widen the folder rules with.
 		return (e as { status?: number } | null | undefined)?.status === 404 ? 'denied' : 'unverified'

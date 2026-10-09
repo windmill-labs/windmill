@@ -26,13 +26,13 @@
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { importStore } from '$lib/components/apps/store'
 	import { conditionalMelt, getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { createDropdownMenu, melt } from '@melt-ui/svelte'
 	import YAML from 'yaml'
 	import type { Snippet } from 'svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const editRights = useEditRights()
 
 	interface Props {
 		/** Replaces the default `New` button, e.g. with an inline text link. */
@@ -266,13 +266,10 @@
 		}
 	}
 
-	// A builder composes runnables that already exist, so only flows are offered: everything else
-	// here writes code, which the backend refuses from an operator.
+	// Only the kinds this user's role authors: a builder operator gets flows alone.
 	// Derived, not computed once: switching workspace only sets `workspaceStore`, it does not
 	// remount this component, so a snapshot would keep the previous workspace's kinds.
-	const options: Option[] = $derived(
-		$operatorBuilderFlows ? allOptions.filter((o) => o.key === 'flow') : allOptions
-	)
+	const options: Option[] = $derived(allOptions.filter((o) => editRights.roleCanAuthor(o.key)))
 
 	// the doc panel only shows while an option is hovered or focused, so the menu opens compact
 	let activeKey: string | undefined = $state(undefined)
