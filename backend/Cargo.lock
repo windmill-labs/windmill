@@ -16929,6 +16929,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "v8",
  "winapi",
  "windmill-common",
  "windmill-parser-ts",

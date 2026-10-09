@@ -78,7 +78,7 @@
         ];
 
         # ---------------------------------------------------------------
-        # Prebuilt V8 binary (must match the `v8` version in backend/Cargo.lock).
+        # Prebuilt V8 binary (must match the `v8` pin in backend/Cargo.toml).
         # The simdutf variant: deno_core enables that feature of the v8 crate.
         # ---------------------------------------------------------------
 

@@ -29,6 +29,8 @@ deno_permissions.workspace = true
 deno_telemetry.workspace = true
 deno_error.workspace = true
 sys_traits.workspace = true
+# Not used directly: depending on it is what makes the workspace pin bind.
+v8.workspace = true
 winapi.workspace = true
 
 itertools.workspace = true

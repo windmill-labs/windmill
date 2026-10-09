@@ -30,25 +30,40 @@ use std::{
 // Re-export deno_telemetry for use by windmill-worker's otel proxy
 pub use deno_telemetry;
 
-/// `deno_telemetry::init` against the real environment and filesystem, which it
-/// reads the OTLP endpoint and exporter certificates from.
+/// The real environment and filesystem, except that the OTLP protocol always
+/// reads as HTTP.
+///
+/// The caller points `OTEL_EXPORTER_OTLP_ENDPOINT` at its own HTTP collector
+/// only while [`init_telemetry`] runs, and the instance's own exporter shares
+/// `OTEL_EXPORTER_OTLP_PROTOCOL`. Honouring `grpc` there would build an exporter
+/// that reads the endpoint again on every export, and `console` one that never
+/// reads it, so either would send job telemetry past that collector.
+struct HttpOtlpSys;
+
+impl sys_traits::BaseEnvVar for HttpOtlpSys {
+    fn base_env_var_os(&self, key: &std::ffi::OsStr) -> Option<std::ffi::OsString> {
+        if key == "OTEL_EXPORTER_OTLP_PROTOCOL" {
+            return Some("http/protobuf".into());
+        }
+        sys_traits::impls::RealSys.base_env_var_os(key)
+    }
+}
+
+impl sys_traits::BaseFsRead for HttpOtlpSys {
+    fn base_fs_read(
+        &self,
+        path: &std::path::Path,
+    ) -> std::io::Result<std::borrow::Cow<'static, [u8]>> {
+        sys_traits::impls::RealSys.base_fs_read(path)
+    }
+}
+
+/// `deno_telemetry::init` for the isolates of this process.
 pub fn init_telemetry(
     rt_config: deno_telemetry::OtelRuntimeConfig,
     config: deno_telemetry::OtelConfig,
 ) -> anyhow::Result<()> {
-    // The caller points `OTEL_EXPORTER_OTLP_ENDPOINT` at its own collector only
-    // while this runs. The HTTP exporter reads it once, here; the gRPC exporter
-    // reads it again on every export and the console one never does, so either
-    // would send job telemetry somewhere else than that collector.
-    if let Ok(protocol) = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL") {
-        if !matches!(protocol.as_str(), "" | "http/protobuf" | "http/json") {
-            anyhow::bail!(
-                "native script telemetry only supports an HTTP OTLP exporter, \
-                 but OTEL_EXPORTER_OTLP_PROTOCOL is {protocol:?}"
-            );
-        }
-    }
-    deno_telemetry::init(&sys_traits::impls::RealSys, rt_config, config)
+    deno_telemetry::init(&HttpOtlpSys, rt_config, config)
 }
 
 use deno_ast::ParseParams;

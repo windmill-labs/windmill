@@ -520,8 +520,11 @@ async-trait = "0.1.88"
 
 
 # deno_* pin set: the crates deno published together on 2026-09-16 (deno_core
-# 0.412), which resolve V8 to 150.4.0. Update the version and hash in flake.nix
-# with any bump that moves V8.
+# 0.412).
+# V8 is pinned exactly because flake.nix fetches the prebuilt archive of that
+# version: update its version and hash there with any bump. No default features,
+# so the pin leaves the feature set deno_core picks untouched.
+v8 = { version = "=150.4.0", default-features = false }
 # These release as a matched set: each pins its siblings, deno_error exactly,
 # and deno_tls pins rustls exactly (=0.23.40, the workspace `rustls` pin below
 # must equal it). A bump moves all of them at once.

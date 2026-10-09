@@ -63,6 +63,13 @@ async fn ee_otel_init_config_populates_otel_globals() {
          tracing_enabled/console fields."
     );
 
+    // The instance's own exporter shares this variable and may be set to gRPC,
+    // or to anything else. Native telemetry must not read it: a value
+    // deno_telemetry rejects outright shows it is never consulted.
+    // SAFETY: the only test in this binary, so nothing reads the environment
+    // concurrently.
+    unsafe { std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", "not-a-protocol") };
+
     // Step 2: re-call init with the exact config shape that the EE
     // `load_internal_otel_exporter` ships — this is what production
     // hits, so the test exercises the actual prod call path.
