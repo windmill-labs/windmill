@@ -1,11 +1,11 @@
 use crate::{
     ai_google::{
         gemini_completion_tokens, gemini_event_to_openai_sse_chunks, gemini_prompt_tokens,
-        gemini_response_to_openai, gemini_turn_ended, openai_messages_to_gemini,
-        openai_tools_to_gemini, parse_gemini_response, parse_gemini_sse_event,
-        sanitize_schema_for_google, GeminiFunctionDeclaration, GeminiGenerationConfig,
-        GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
-        GeminiPredictContent, GeminiTextRequest, GeminiThinkingConfig, GeminiTool,
+        gemini_response_to_openai, openai_messages_to_gemini, openai_tools_to_gemini,
+        parse_gemini_response, parse_gemini_sse_event, sanitize_schema_for_google,
+        GeminiFunctionDeclaration, GeminiGenerationConfig, GeminiImageContent, GeminiImageRequest,
+        GeminiImageResponse, GeminiInlineData, GeminiPart, GeminiPredictContent, GeminiTextRequest,
+        GeminiThinkingConfig, GeminiTool, GeminiTurn,
     },
     image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
     proxy::{ProxyBuildArgs, ProxyRequest},
@@ -522,15 +522,15 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
     let openai_sse_stream = async_stream::stream! {
         tokio::pin!(gemini_sse_stream);
         let mut tool_call_index: usize = 0;
-        let mut finished = false;
+        let mut turn = GeminiTurn::default();
         let failure = loop {
             let Some(event) = gemini_sse_stream.next().await else {
-                break (!finished).then(truncated_stream_error);
+                break (!turn.is_complete()).then(truncated_stream_error);
             };
             match event {
                 Ok(event) => match parse_gemini_sse_event(&event.data) {
                     Ok(Some(parsed)) => {
-                        finished |= gemini_turn_ended(&parsed);
+                        turn.observe(&parsed);
                         for chunk in gemini_event_to_openai_sse_chunks(
                             &parsed, &id, &model, &mut tool_call_index,
                         ) {
@@ -540,7 +540,7 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
                     Ok(None) => {}
                     Err(e) => break Some(e),
                 },
-                Err(EventStreamError::Transport(_)) if finished => break None,
+                Err(EventStreamError::Transport(_)) if turn.is_complete() => break None,
                 Err(EventStreamError::Transport(e)) => {
                     break Some(transient_error(
                         format!("The connection to Gemini broke off mid-response: {e}"),

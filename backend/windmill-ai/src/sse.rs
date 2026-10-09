@@ -8,7 +8,7 @@ use tokio_stream::StreamExt;
 use windmill_common::{error::Error, utils::rd_string};
 
 use crate::{
-    ai_google::{gemini_turn_ended, parse_gemini_sse_event, GeminiUsageMetadata},
+    ai_google::{parse_gemini_sse_event, GeminiTurn, GeminiUsageMetadata},
     ai_types::UrlCitation,
     ai_types::{
         AnthropicExtraContent, ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall,
@@ -702,7 +702,7 @@ pub struct GeminiSSEParser {
     pub annotations: Vec<UrlCitation>,
     pub used_websearch: bool,
     pub usage: Option<GeminiUsageMetadata>,
-    finished: bool,
+    turn: GeminiTurn,
 }
 
 impl GeminiSSEParser {
@@ -717,23 +717,21 @@ impl GeminiSSEParser {
             annotations: Vec::new(),
             used_websearch: false,
             usage: None,
-            finished: false,
+            turn: GeminiTurn::default(),
         }
     }
 }
 
 impl SSEParser for GeminiSSEParser {
     fn is_complete(&self) -> bool {
-        self.finished
+        self.turn.is_complete()
     }
 
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
         let Some(parsed) = parse_gemini_sse_event(data)? else {
             return Ok(());
         };
-        if gemini_turn_ended(&parsed) {
-            self.finished = true;
-        }
+        self.turn.observe(&parsed);
 
         if let Some(reasoning) = parsed.reasoning.filter(|s| !s.is_empty()) {
             self.accumulated_reasoning.push_str(&reasoning);
@@ -1281,6 +1279,20 @@ mod tests {
             )]))
             .await
             .unwrap();
+
+        let gemini = |chunk| async move {
+            GeminiSSEParser::new(Box::new(NoopSink))
+                .parse_events(sse_response(vec![Ok(chunk)]))
+                .await
+        };
+        // Thinking spent the whole `maxOutputTokens`: usage, and nothing else.
+        gemini("data: {\"usageMetadata\":{\"promptTokenCount\":9,\"totalTokenCount\":24,\"thoughtsTokenCount\":15},\"modelVersion\":\"gemini-2.5-flash\"}\n\n")
+            .await
+            .unwrap();
+        let truncated = gemini("data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"Hi\"}]}}],\"usageMetadata\":{\"promptTokenCount\":9}}\n\n")
+            .await
+            .unwrap_err();
+        assert!(as_transient(&truncated).is_some(), "{truncated}");
     }
 
     /// The prompt-side counts arrive only on `message_start` and the completion total

@@ -561,10 +561,29 @@ pub fn openai_tools_to_gemini(
     }
 }
 
-/// Whether this event ends a complete Gemini turn. A function call arrives whole and may
-/// come without a `finishReason`, so it counts too, as in gemini-cli's stream validation.
-pub fn gemini_turn_ended(event: &GeminiParsedEvent) -> bool {
-    event.finish_reason.is_some() || !event.tool_calls.is_empty()
+/// Follows a Gemini stream to tell a complete turn from one cut short.
+#[derive(Default)]
+pub struct GeminiTurn {
+    ended: bool,
+    has_output: bool,
+    has_usage: bool,
+}
+
+impl GeminiTurn {
+    pub fn observe(&mut self, event: &GeminiParsedEvent) {
+        // A function call arrives whole and may come without a `finishReason`, so it
+        // counts too, as in gemini-cli's stream validation.
+        self.ended |= event.finish_reason.is_some() || !event.tool_calls.is_empty();
+        self.has_output |= event.text.is_some() || event.reasoning.is_some();
+        self.has_usage |= event.usage.is_some();
+    }
+
+    /// Gemini 2.5 reports usage with no output and no `finishReason` when thinking spends
+    /// the whole `maxOutputTokens`: an empty answer, which a retry would only get again,
+    /// rather than a cut one.
+    pub fn is_complete(&self) -> bool {
+        self.ended || (self.has_usage && !self.has_output)
+    }
 }
 
 /// Parse one Gemini SSE data line into a [`GeminiParsedEvent`].
