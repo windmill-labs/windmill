@@ -326,6 +326,62 @@ async fn test_direct_run_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result
     Ok(())
 }
 
+/// A job's `WM_TOKEN` names the identity the job runs as, which differs from its end user when
+/// the job runs on behalf of another account. A run it starts must keep the job's end user.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base", "end_user_email"))]
+async fn test_job_token_run_keeps_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let calling_job = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email)
+         VALUES ($1, 'test2@windmill.dev', 'test-user-2', false, false, '{}', '{}', 'test-workspace', $2)",
+    )
+    .bind(calling_job)
+    .bind(SAME_WS_EMAIL)
+    .execute(&db)
+    .await?;
+    let wm_token = windmill_common::auth::create_jwt_token(
+        windmill_common::db::Authed {
+            email: "test2@windmill.dev".to_string(),
+            username: "test-user-2".to_string(),
+            is_admin: false,
+            is_operator: false,
+            groups: vec!["all".to_string()],
+            folders: vec![],
+            scopes: None,
+            token_prefix: None,
+        },
+        "test-workspace",
+        3600,
+        Some(calling_job),
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    in_test_worker(
+        Connection::Sql(db.clone()),
+        async move {
+            let result = run_direct(port, &wm_token, "p/f/test/get_end_user_email").await?;
+            assert_eq!(
+                result, SAME_WS_EMAIL,
+                "the calling job's end user, not its run-as identity"
+            );
+            Ok::<(), anyhow::Error>(())
+        },
+        port,
+    )
+    .await?;
+
+    Ok(())
+}
+
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base", "end_user_email"))]
 async fn test_app_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
