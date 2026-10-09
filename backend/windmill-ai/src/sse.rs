@@ -385,6 +385,8 @@ pub enum AnthropicSSEEvent {
     MessageDelta {
         #[serde(default)]
         usage: Option<AnthropicUsage>,
+        #[serde(default)]
+        delta: Option<AnthropicMessageDelta>,
     },
     #[serde(rename = "message_stop")]
     MessageStop {},
@@ -397,6 +399,12 @@ pub enum AnthropicSSEEvent {
     },
     #[serde(other)]
     Unknown,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AnthropicMessageDelta {
+    #[serde(default)]
+    pub stop_reason: Option<String>,
 }
 
 /// Tracks state of a content block during streaming
@@ -431,7 +439,9 @@ pub struct AnthropicSSEParser {
     /// can be replayed before `tool_use` (required by Claude when thinking is on).
     pending_reasoning: Option<AnthropicExtraContent>,
     reasoning_attached: bool,
-    message_stopped: bool,
+    /// Set by `message_stop` or by the `stop_reason` of the `message_delta` sent just
+    /// before it, so a gateway that drops `message_stop` does not fail a whole answer.
+    complete: bool,
 }
 
 impl AnthropicSSEParser {
@@ -448,14 +458,14 @@ impl AnthropicSSEParser {
             usage: None,
             pending_reasoning: None,
             reasoning_attached: false,
-            message_stopped: false,
+            complete: false,
         }
     }
 }
 
 impl SSEParser for AnthropicSSEParser {
     fn is_complete(&self) -> bool {
-        self.message_stopped
+        self.complete
     }
 
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
@@ -640,7 +650,10 @@ impl SSEParser for AnthropicSSEParser {
                         self.usage = Some(usage);
                     }
                 }
-                AnthropicSSEEvent::MessageDelta { usage } => {
+                AnthropicSSEEvent::MessageDelta { usage, delta } => {
+                    if delta.is_some_and(|d| d.stop_reason.is_some()) {
+                        self.complete = true;
+                    }
                     if let Some(u) = usage {
                         match &mut self.usage {
                             // Field by field, so the prompt counts from `message_start`
@@ -659,7 +672,7 @@ impl SSEParser for AnthropicSSEParser {
                         }
                     }
                 }
-                AnthropicSSEEvent::MessageStop {} => self.message_stopped = true,
+                AnthropicSSEEvent::MessageStop {} => self.complete = true,
                 // Ignore other events
                 AnthropicSSEEvent::Ping {} | AnthropicSSEEvent::Unknown => {}
             }
@@ -1235,6 +1248,13 @@ mod tests {
         anthropic(vec![
             Ok(STARTED),
             Ok("data: {\"type\":\"message_stop\"}\n\n"),
+        ])
+        .await
+        .unwrap();
+
+        anthropic(vec![
+            Ok(STARTED),
+            Ok("data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n"),
         ])
         .await
         .unwrap();
