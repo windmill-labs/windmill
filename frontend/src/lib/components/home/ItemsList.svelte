@@ -1938,6 +1938,21 @@
 </Drawer>
 
 <CenteredPage wrapperClasses="w-full" handleOverflow={false}>
+	{#if !contentActive && hasChips}
+		<!-- Owner and label chips on one line. Each function binding routes the chip's
+		     selection into the searchbar key of the same name, and `queryName` points
+		     ListFilters' own mount-time URL read at the param the filter instance syncs, so
+		     the two writers agree. No `syncQuery`: the filter instance owns the URL. -->
+		<div class="gap-2 w-full flex flex-wrap mb-3">
+			<ListFilters
+				inline
+				bind:selectedFilter={() => ownerFilter, setOwnerFilter}
+				filters={owners}
+				queryName="owner"
+				maxDisplayed={10}
+			/>
+		</div>
+	{/if}
 	<div
 		class="flex flex-wrap gap-2 items-center justify-between w-full"
 		use:triggerableByAI={{
@@ -2055,21 +2070,6 @@
 			{/if}
 		</div>
 	</div>
-	{#if !contentActive && hasChips}
-		<!-- Owner and label chips on one line. Each function binding routes the chip's
-		     selection into the searchbar key of the same name, and `queryName` points
-		     ListFilters' own mount-time URL read at the param the filter instance syncs, so
-		     the two writers agree. No `syncQuery`: the filter instance owns the URL. -->
-		<div class="gap-2 w-full flex flex-wrap mt-3">
-			<ListFilters
-				inline
-				bind:selectedFilter={() => ownerFilter, setOwnerFilter}
-				filters={owners}
-				queryName="owner"
-				maxDisplayed={10}
-			/>
-		</div>
-	{/if}
 	{#if filteredItems?.length == 0 && !workspaceEmpty}
 		<div class="mt-10"></div>
 	{/if}
