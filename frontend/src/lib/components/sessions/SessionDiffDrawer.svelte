@@ -2,10 +2,10 @@
 	import WorkspaceDiffDrawer from './WorkspaceDiffDrawer.svelte'
 	import { ArrowRight, GitFork, Pencil } from 'lucide-svelte'
 	import { userWorkspaces } from '$lib/stores'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import { useSessionDeployModel } from './sessionDeployModel.svelte'
 	import type { DeployItem } from './sessionDeployModel'
+	import type { DeployResult } from '$lib/utils_workspace_deploy'
 
 	// Session "Edits" drawer. Builds the deploy model over the session
 	// workspace's drafts and hands it to WorkspaceDiffDrawer, which renders the
@@ -19,7 +19,8 @@
 		keys,
 		onDataChanged,
 		onItemDeployed,
-		onItemDiscarded
+		onItemDiscarded,
+		deployPipeline
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
@@ -36,6 +37,8 @@
 		 *  drops it. */
 		onItemDeployed?: (item: DeployItem) => void
 		onItemDiscarded?: (item: DeployItem) => void
+		/** Forwarded to the deploy model: deploys a pipeline folder's draft bundle. */
+		deployPipeline?: (folder: string) => Promise<DeployResult>
 	} = $props()
 
 	const isFork = $derived(!!parentWorkspaceId)
@@ -51,7 +54,8 @@
 		mask: keys,
 		onDataChanged,
 		onItemDeployed,
-		onItemDiscarded
+		onItemDiscarded,
+		deployPipeline
 	}))
 
 	// Editor URL for a row (every item lives in the session workspace).
@@ -95,7 +99,7 @@
 					{ws?.name ?? workspaceId}
 				</span>
 				{#if ws?.is_dev_workspace}
-					<Badge color="indigo" small>{devBadgeText(ws.dev_workspace_label)}</Badge>
+					<DevWorkspaceBadge label={ws.dev_workspace_label} color={ws.color} fallbackColor="indigo" />
 				{/if}
 				<ArrowRight class="w-3 h-3 shrink-0 text-tertiary" />
 				<span class="font-medium truncate" title={parentWs?.name ?? parentWorkspaceId}>

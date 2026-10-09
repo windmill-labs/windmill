@@ -1,6 +1,7 @@
 import { randomUUID } from '$lib/utils/uuid'
 import {
 	AppService,
+	AssetService,
 	AzureTriggerService,
 	EmailTriggerService,
 	FlowService,
@@ -67,6 +68,7 @@ import {
 	stripFileArgs
 } from '$lib/components/job_args'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
+import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
 import {
 	DEFAULT_DATA as DEFAULT_RAW_APP_DATA,
@@ -422,6 +424,8 @@ const updateUserInstructionsSchema = z.object({
 			"For operation 'replace': when true, replace every exact match; when false, old_string must match exactly once."
 		)
 })
+
+const listPipelinesSchema = z.object({})
 
 const listWorkspaceItemsSchema = z.object({
 	types: z
@@ -1424,7 +1428,7 @@ const buildGlobalSystemPrompt = (
 	const activePreviewRule = previewTools
 		? '\n- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against `open` (the item the user has open in its editor) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel\'s *other* tabs.'
 		: ''
-	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
+	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow. list_pipelines lists the existing ones by folder.${pipelineAlphaNote}`
 	// Hosting and edition come from the hostname and a store the app populates at init, so
 	// they are knowable only in the browser: a non-browser caller reads false for both and
 	// would be told "self-hosted Community Edition" whatever it targets. No base URL here
@@ -1524,7 +1528,7 @@ ${pipelineBullet}`
 					canWriteDraft,
 					`
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
-- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty ${when(canCreateFolder, 'or not-yet-created ')}folder is fine${when(canCreateFolder, ' (create_folder first if needed, then open it)')}. Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
+- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty ${when(canCreateFolder, 'or not-yet-created ')}folder is fine${when(canCreateFolder, ' (create_folder first if needed, then open it)')}. Opening it adds build_pipeline_node / edit_pipeline_node to your tools from the next step on — they are not in your tool list before open_preview returns, so call open_preview on its own, wait for its result, then build. They then stay available for the rest of the session even while another tab (a page, another preview) is shown: a call brings the pipeline editor back by itself, so do not re-open it first. Use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
 				)}
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - Writing an app file does not compile it: the open preview rebuilds it afterwards. After editing a raw app's frontend files with its preview open, call get_app_runtime_logs to check the build — when it failed, it returns the build errors (e.g. syntax or import errors) and bundler logs to fix.
@@ -2719,7 +2723,7 @@ function allowedTriggerKinds(): PageTriggerKind[] {
 }
 
 // Pages an operator may reach: exactly the ones enabled in the workspace's
-// operator_settings, the same source OperatorMenu gates on. Operators are never admins, so
+// operator_settings, the same source the sidebar gates on. Operators are never admins, so
 // workspace_settings is excluded whatever the settings say.
 function operatorOpenPages(workspaceId: string | undefined): OpenPageName[] {
 	const settings = get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings
@@ -3657,6 +3661,23 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: NONE,
 		def: createToolDef(
+			listPipelinesSchema,
+			'list_pipelines',
+			'List the data pipelines of the workspace: each folder holding at least one pipeline script, with its number of scripts. A pipeline is named by its folder, not by an item path.'
+		),
+		planModeSafe: true,
+		fn: async ({ workspace, toolId, toolCallbacks }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing data pipelines...' })
+			const pipelines = await AssetService.listPipelineFolders({ workspace })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Listed ${pipelines.length} data pipeline(s)`
+			})
+			return JSON.stringify(pipelines)
+		}
+	},
+	{
+		requires: NONE,
+		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
 			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead.'
@@ -4291,7 +4312,7 @@ export const globalTools: SessionTool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Found ${results.length} resource type(s) for "${parsed.query}"`
 			})
-			return JSON.stringify(
+			const listing = JSON.stringify(
 				results.map((rt) => ({
 					name: rt.name,
 					schema: rt.schema
@@ -4299,6 +4320,15 @@ export const globalTools: SessionTool<{}>[] = [
 				null,
 				2
 			)
+			// The search is semantic and always returns its closest types, so a miss reads
+			// like a hit unless the absence is spelled out.
+			const words = (parsed.query.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
+				(w) => w.length >= 3
+			)
+			const named = results.some((rt) => words.some((w) => rt.name.toLowerCase().includes(w)))
+			return named || words.length === 0
+				? listing
+				: `${listing}\n\nNo resource type name contains "${parsed.query}": these are only the nearest matches, so no dedicated type exists. Searching again with synonyms will not find one — use a fitting generic type above, or create a custom c_<name> type.`
 		}
 	},
 	createDbSchemaTool<{}>({
@@ -5471,6 +5501,17 @@ function writeScriptDraft(
 	ctx: WriteDraftCtx,
 	codeDiff?: ToolCodeDiff
 ): Promise<string> {
+	// A session builds pipeline nodes into the folder's pipeline draft; a script draft
+	// written here never reaches the pipeline graph, and saving the pipeline drops it.
+	if (
+		(ctx.sessionId ?? sessionIdFromCtx(ctx)) &&
+		parsePipelineAnnotations(args.content).inPipeline
+	) {
+		const folder = args.path.match(/^f\/([^/]+)\//)?.[1] ?? '<folder>'
+		throw new Error(
+			`"${args.path}" is a data pipeline node (its source starts with the pipeline annotation). In a session, pipeline nodes are not script drafts: call open_preview(kind="pipeline", path="${folder}") if that folder's pipeline editor is not open yet, then use build_pipeline_node (new node) or edit_pipeline_node (existing node). Nothing was written.`
+		)
+	}
 	return writeDraft(SCRIPT_SPEC, 'script', args.path, args, ctx, {
 		override: args.override,
 		codeDiff:

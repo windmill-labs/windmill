@@ -64,15 +64,13 @@
 	import { effectivePath, type ItemType } from './treeViewUtils'
 	import { tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import { NetworkIcon } from 'lucide-svelte'
-	import { base } from '$lib/base'
+	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
 	import { HomeActivity, setHomeActivity } from './homeActivity.svelte'
 	import {
 		HOME_TABLE_BADGE_GRID,
 		HOME_TABLE_GRID,
-		HOME_TABLE_ROW_SEPARATOR,
 		HOME_TABLE_WIDE_ACTIONS,
 		setHomeTable
 	} from './homeTable'
@@ -850,6 +848,8 @@
 		// A row action can add, toggle or remove a trigger, or start a run.
 		homeActivity.reset()
 		void ownerCountsRes.refetch()
+		// Deleting a pipeline removes it from this list, which no item reload covers.
+		void pipelineFoldersRes.refetch()
 		await reloadItems()
 		await tick()
 		homeSelection.dropVanished(renderedBefore)
@@ -1842,8 +1842,7 @@
 				homeSelection.active &&
 				selectedIndex >= 0 &&
 				selectedIndex < displayedItems.length &&
-				displayedItems[selectedIndex].type !== 'raw_app' &&
-				displayedItems[selectedIndex].type !== 'agent'
+				displayedItems[selectedIndex].type !== 'raw_app'
 			) {
 				e.preventDefault()
 				homeSelection.toggle(
@@ -2173,13 +2172,7 @@
 				{@render tableHeader()}
 				{#if filter === ''}
 					{#each [...visiblePipelineFolders].sort() as folder (folder)}
-						<a
-							href="{base}/pipeline/{encodeURIComponent(folder)}"
-							class="w-full inline-flex items-center gap-4 pl-5 pr-3 py-2 {HOME_TABLE_ROW_SEPARATOR} hover:bg-surface-hover transition-colors text-sm"
-						>
-							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
-							<span class="text-xs font-medium text-emphasis truncate">Pipeline · f/{folder}</span>
-						</a>
+						<PipelineRow {folder} onDeleted={reloadItemsAndCounts} />
 					{/each}
 				{/if}
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}

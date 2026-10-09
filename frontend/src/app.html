@@ -12,6 +12,17 @@
 				fill: #3b82f6;
 			}
 
+			/* Public app pages render their shell before app.css loads, if at all. */
+			html[data-wm-public-app] #svelte-global-loader {
+				display: none;
+			}
+			html[data-wm-public-app] body {
+				margin: 0;
+			}
+			html[data-wm-public-app='dark'] body {
+				background-color: #3b4252;
+			}
+
 			/* Background color for dark mode */
 			@media (prefers-color-scheme: dark) {
 				#mainbg {
@@ -121,6 +132,64 @@
 						})
 					} catch (_) {}
 				}
+			})()
+		</script>
+		<script>
+			// Public app pages (`/public/<ws>/<secret>`, `/a/<custom path>`): skip the loading
+			// screen, and start the API calls the page makes first so they overlap the module
+			// download instead of following it. `publicAppApi.ts` takes these responses by URL,
+			// so each URL here must be exactly what it requests. Only the cookie credential is
+			// prefetched: a share link carrying a JWT, or the opaque viewer frame (`wm_embed`),
+			// sends its own and fetches normally. The bundle of an unsandboxed raw app is
+			// requested as soon as its secret is known, for the iframe to find in the HTTP cache.
+			;(function () {
+				var path = location.pathname
+				var pub = /^\/public\/([^/]+)\/([^/]+)\/?$/.exec(path)
+				var custom = /^\/a\/(.+?)\/?$/.exec(path)
+				if (!pub && !custom && !/^\/public\//.test(path)) return
+				// Dark as PublicApp decides it, painted before any stylesheet so that a dark app
+				// does not load over a white page.
+				var dark = false
+				try {
+					var mode = localStorage.getItem('dark-mode')
+					dark = mode ? mode === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
+				} catch (_) {}
+				document.documentElement.setAttribute('data-wm-public-app', dark ? 'dark' : '')
+				if (new URLSearchParams(location.search).get('wm_embed') === '1') return
+				var prefetched = (window.__wmPublicAppPrefetch = {})
+				function get(url) {
+					var res = fetch(url)
+					res.catch(function () {})
+					prefetched[url] = res
+					return res
+				}
+				function warmBundle(appRes, workspace) {
+					appRes
+						.then(function (r) {
+							return r.ok ? r.clone().json() : null
+						})
+						.then(function (app) {
+							if (!app || !app.raw_app || !app.bundle_secret || (app.policy || {}).sandbox) return
+							var ws = workspace || app.workspace_id
+							var v = '/api/w/' + ws + '/apps_u/get_data/v/' + app.bundle_secret
+							fetch(v + '.css').catch(function () {})
+							fetch(v + '.js').catch(function () {})
+						})
+						.catch(function () {})
+				}
+				if (pub) {
+					var w = '/api/w/' + pub[1]
+					get(w + '/apps_u/embed_token/' + pub[2])
+					warmBundle(get(w + '/apps_u/public_app/' + pub[2]), pub[1])
+					get(w + '/apps_u/guest_entry/' + pub[2])
+					get(w + '/users/whoami')
+				} else if (custom && custom[1].indexOf('.') === -1) {
+					// A `.` marks a trailing JWT segment, which no custom path contains.
+					get('/api/apps_u/embed_token_by_custom_path/' + custom[1])
+					warmBundle(get('/api/apps_u/public_app_by_custom_path/' + custom[1]))
+					get('/api/apps_u/guest_entry_by_custom_path/' + custom[1])
+				}
+				get('/api/ee_license')
 			})()
 		</script>
 		%sveltekit.head%

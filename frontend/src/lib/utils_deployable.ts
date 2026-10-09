@@ -16,7 +16,7 @@ import {
 	type WorkspaceDeployUISettings
 } from './gen'
 import type { TriggerKind } from './components/triggers'
-import { base } from './base'
+import { apiBaseUrl } from './apiBaseUrl.svelte'
 
 type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'trigger'
 
@@ -250,9 +250,7 @@ export async function getTriggersDeployData(
 			...gcpTrigger,
 			delivery_config: gcpTrigger.delivery_config ?? undefined,
 			base_endpoint:
-				gcpTrigger.delivery_type === 'push'
-					? (targetBaseUrl ?? `${window.location.origin}${base}`)
-					: undefined,
+				gcpTrigger.delivery_type === 'push' ? (targetBaseUrl ?? apiBaseUrl()) : undefined,
 			permissioned_as: onBehalfOf,
 			preserve_permissioned_as: preservePermissionedAs
 		}
@@ -320,7 +318,7 @@ export async function getTriggersDeployData(
 				base_endpoint:
 					azureTrigger.azure_mode === 'namespace_pull'
 						? undefined
-						: (targetBaseUrl ?? `${window.location.origin}${base}`),
+						: (targetBaseUrl ?? apiBaseUrl()),
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},

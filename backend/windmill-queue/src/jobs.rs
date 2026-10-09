@@ -359,6 +359,22 @@ ORDER BY depth, id
     .filter_map(|r| r.id.clone())
     .collect_vec();
 
+    // A native retry is the child of its first attempt, which has completed by the time the
+    // retry is queued, so the walk above stops before reaching it.
+    let tree = [&[job.id][..], &jobs_to_cancel[..]].concat();
+    let pending_retries = sqlx::query_scalar!(
+        "SELECT q.id FROM v2_job_queue q
+            JOIN native_retry_attempt n ON n.job_id = q.id
+            JOIN v2_job r ON r.id = q.id
+            JOIN v2_job a ON a.id = r.parent_job
+            WHERE q.workspace_id = $2 AND a.parent_job = ANY($1)",
+        tree.as_slice(),
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    jobs_to_cancel.extend(pending_retries);
+
     jobs_to_cancel.reverse();
     if !jobs_to_cancel.is_empty() {
         tracing::info!("Found {} child jobs to cancel", jobs_to_cancel.len());
@@ -1205,7 +1221,7 @@ pub async fn add_completed_job_pre_shaped_failure<T: Serialize + Send + Sync + V
     worker_name: &str,
     flow_is_done: bool,
     duration: Option<i64>,
-) -> Result<(), Error> {
+) -> Result<CompletedSpan, Error> {
     record_failure_metrics(completed_job, worker_name).await;
 
     tracing::error!(
@@ -1213,7 +1229,7 @@ pub async fn add_completed_job_pre_shaped_failure<T: Serialize + Send + Sync + V
         completed_job.id,
         completed_job.workspace_id,
     );
-    let _ = add_completed_job(
+    let (_, span) = add_completed_job(
         db,
         completed_job,
         false,
@@ -1228,7 +1244,7 @@ pub async fn add_completed_job_pre_shaped_failure<T: Serialize + Send + Sync + V
     )
     .warn_after_seconds(10)
     .await?;
-    Ok(())
+    Ok(span)
 }
 
 pub async fn add_completed_job_error(
@@ -1241,6 +1257,31 @@ pub async fn add_completed_job_error(
     flow_is_done: bool,
     duration: Option<i64>,
 ) -> Result<WrappedError, Error> {
+    add_completed_job_error_with_span(
+        db,
+        completed_job,
+        mem_peak,
+        canceled_by,
+        e,
+        worker_name,
+        flow_is_done,
+        duration,
+    )
+    .await
+    .map(|(wrapped, _)| wrapped)
+}
+
+/// `add_completed_job_error`, also handing back what the completed row holds.
+pub async fn add_completed_job_error_with_span(
+    db: &Pool<Postgres>,
+    completed_job: &MiniCompletedJob,
+    mem_peak: i32,
+    canceled_by: Option<CanceledBy>,
+    e: serde_json::Value,
+    worker_name: &str,
+    flow_is_done: bool,
+    duration: Option<i64>,
+) -> Result<(WrappedError, CompletedSpan), Error> {
     record_failure_metrics(completed_job, worker_name).await;
 
     let result = WrappedError { error: e };
@@ -1250,7 +1291,7 @@ pub async fn add_completed_job_error(
         completed_job.workspace_id,
         serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
     );
-    let _ = add_completed_job(
+    let (_, span) = add_completed_job(
         db,
         &completed_job,
         false,
@@ -1265,7 +1306,7 @@ pub async fn add_completed_job_error(
     )
     .warn_after_seconds(10)
     .await?;
-    Ok(result)
+    Ok((result, span))
 }
 
 lazy_static::lazy_static! {
@@ -1304,7 +1345,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     from_cache: bool,
-) -> Result<(Uuid, i64), Error> {
+) -> Result<(Uuid, CompletedSpan), Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
 
@@ -1338,7 +1379,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     };
 
     let result_columns = result_columns.as_ref();
-    let (opt_uuid, duration, _skip_downstream_error_handlers, wac_parent_ready) = (|| {
+    let (opt_uuid, span, _skip_downstream_error_handlers, wac_parent_ready) = (|| {
         commit_completed_job(
             db,
             completed_job,
@@ -1379,7 +1420,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     // if scheduling next job failed, return the job_id early to ensure the job get retried after a timeout
     if let Some(job_id) = opt_uuid {
-        return Ok((job_id, duration));
+        return Ok((job_id, span));
     }
 
     // Auto-resolve a retry chain that ultimately worked, from whichever of the two
@@ -1391,7 +1432,18 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .then(|| completed_job.parent_job)
             .flatten()
     } else if !success && !skipped && retry_pending {
-        Some(completed_job.parent_job.unwrap_or(completed_job.id))
+        let is_retry_attempt = sqlx::query_scalar!(
+            "SELECT attempt FROM native_retry_attempt WHERE job_id = $1",
+            completed_job.id,
+        )
+        .fetch_optional(db)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!("reading the retry marker of {}: {e:#}", completed_job.id);
+            None
+        })
+        .is_some();
+        Some(native_retry_root(completed_job, is_retry_attempt))
     } else {
         None
     };
@@ -1409,7 +1461,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     #[cfg(feature = "cloud")]
-    apply_completed_job_cloud_usage(db, completed_job, duration);
+    apply_completed_job_cloud_usage(db, completed_job, span.last_run_ms);
 
     #[cfg(all(feature = "enterprise", feature = "private"))]
     crate::jobs_ee::apply_completed_job_error_handlers(
@@ -1426,7 +1478,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     // tracing::error!("4 {:?}", start.elapsed());
 
-    Ok((completed_job.id, duration))
+    Ok((completed_job.id, span))
 }
 
 async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
@@ -1444,7 +1496,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // True when a native script retry was enqueued for this failed attempt, i.e.
     // this is not the terminal attempt — schedule completion handlers must wait.
     retry_pending: bool,
-) -> windmill_common::error::Result<(Option<Uuid>, i64, bool, bool)> {
+) -> windmill_common::error::Result<(Option<Uuid>, CompletedSpan, bool, bool)> {
     // let start = std::time::Instant::now();
 
     let job_id = completed_job.id;
@@ -1511,11 +1563,11 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         && monitor_parent.is_none()
         && !is_scheduled
     {
-        let Some(duration) = completion.execute(&mut *db.acquire().await?).await? else {
+        let Some(completed) = completion.execute(&mut *db.acquire().await?).await? else {
             return Err(not_in_queue_error(db, job_id).await);
         };
-        log_completed_job(completed_job, duration, success);
-        return Ok((None, duration, false, false));
+        log_completed_job(completed_job, completed.duration_ms, success);
+        return Ok((None, completed, false, false));
     }
 
     let mut tx = db.begin().warn_after_seconds(10).await?;
@@ -1523,7 +1575,8 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // The parent's rows are locked ahead of the child's own queue row (see
     // `record_child_completion` for the order this must keep), so the duration it stamps is read
     // before the completion: the one the completed row will hold. `now()` is fixed for the
-    // transaction, and a completed row already there keeps its own duration.
+    // transaction, and a completed row already there keeps its own duration. For a child that
+    // itself parked it is the last run's, matching the last start its timeline entry carries.
     let mut wac_parent_ready = false;
     if let Some(parent_job) = wac_parent {
         let Some(duration) = sqlx::query_scalar!(
@@ -1550,7 +1603,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .await?;
     }
 
-    let Some(duration) = completion.execute(&mut *tx).await? else {
+    let Some(completed) = completion.execute(&mut *tx).await? else {
         return Err(not_in_queue_error(&mut *tx, job_id).await);
     };
 
@@ -1760,14 +1813,33 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     tx.commit().warn_after_seconds(10).await?;
 
-    log_completed_job(completed_job, duration, success);
+    log_completed_job(completed_job, completed.duration_ms, success);
     // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
     Ok((
         None,
-        duration,
+        completed,
         _skip_downstream_error_handlers,
         wac_parent_ready,
     ))
+}
+
+/// What a job's completion wrote. `started_at` and `duration_ms` are the completed row's.
+/// `last_run_ms` is the time the job's last run held a worker, which is what gets metered;
+/// it differs from `duration_ms` only for a job that parked.
+#[derive(Debug, Clone, Copy)]
+pub struct CompletedSpan {
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_ms: i64,
+    pub last_run_ms: i64,
+}
+
+impl CompletedSpan {
+    /// Whether the row spans more than the run that started at `last_started_at`, i.e. the
+    /// job parked and resumed. A flow records such a step with the row's span, so the step
+    /// reads like the job does.
+    pub fn outlasts_run(&self, last_started_at: Option<chrono::DateTime<chrono::Utc>>) -> bool {
+        matches!((self.started_at, last_started_at), (Some(first), Some(last)) if first < last)
+    }
 }
 
 /// What a job's completion writes, for `Completion::execute`.
@@ -1786,6 +1858,11 @@ impl Completion<'_> {
     /// Moves the job from the queue to the completed jobs and refreshes a flow step's parent
     /// ping, as one statement. Returns `None` when the job was no longer in the queue.
     ///
+    /// For a job that parked (a Workflow-as-Code parent, see `suspend_wac_parent`) the row's
+    /// `started_at` and `duration_ms` span the whole workflow from its first start, and the
+    /// last run goes to `extras.wac_last_segment_ms` for readers that sum worker time from
+    /// completed rows.
+    ///
     /// The completion takes its cancellation from the queue row it deletes, not only from
     /// `canceled_by`: that is what the worker last read, and the delete waits for a cancel still
     /// being written, so the deleted row is the final word on whether the job was canceled.
@@ -1793,7 +1870,7 @@ impl Completion<'_> {
     /// It locks the queue row before the completed row's key. Any other writer completing a job
     /// (the monitor's zombie fallback, debounce) must take them in the same order, or the two
     /// deadlock.
-    async fn execute(&self, conn: &mut sqlx::PgConnection) -> error::Result<Option<i64>> {
+    async fn execute(&self, conn: &mut sqlx::PgConnection) -> error::Result<Option<CompletedSpan>> {
         let Completion {
             completed_job,
             success,
@@ -1824,16 +1901,20 @@ impl Completion<'_> {
             .then_some(completed_job.parent_job)
             .flatten()
         else {
-            return sqlx::query_scalar!(
+            return sqlx::query_as!(
+                CompletedSpan,
                 "WITH deleted AS (
                     DELETE FROM v2_job_queue WHERE id = $1
-                    RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason
+                    RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason,
+                        (extras->>'wac_first_started_at')::timestamptz AS first_started_at,
+                        COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000)::bigint AS run_ms
                 ), completed AS (
                     INSERT INTO v2_job_completed AS cj
                         ( workspace_id
                         , id
                         , started_at
                         , duration_ms
+                        , extras
                         , result
                         , result_columns
                         , canceled_by
@@ -1844,8 +1925,11 @@ impl Completion<'_> {
                         , status
                         , worker
                         )
-                    SELECT d.workspace_id, d.id, d.started_at,
-                        COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(d.started_at, now()))))*1000),
+                    SELECT d.workspace_id, d.id, COALESCE(d.first_started_at, d.started_at),
+                        CASE WHEN d.first_started_at IS NULL THEN d.run_ms
+                            ELSE EXTRACT('epoch' FROM (now() - d.first_started_at))*1000 END,
+                        CASE WHEN d.first_started_at IS NOT NULL
+                            THEN jsonb_build_object('wac_last_segment_ms', d.run_ms) END,
                         $3::text::jsonb, $10,
                         CASE WHEN $4::BOOL THEN $5 ELSE d.canceled_by END,
                         CASE WHEN $4::BOOL THEN $6 WHEN d.canceled_by IS NOT NULL THEN d.canceled_reason END,
@@ -1861,9 +1945,11 @@ impl Completion<'_> {
                             THEN EXCLUDED.canceled_by ELSE cj.canceled_by END,
                         canceled_reason = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
                             THEN EXCLUDED.canceled_reason ELSE cj.canceled_reason END
-                    RETURNING duration_ms
+                    RETURNING cj.started_at, cj.duration_ms,
+                        COALESCE((cj.extras->>'wac_last_segment_ms')::bigint, cj.duration_ms) AS last_run_ms
                 )
-                SELECT duration_ms AS \"duration_ms!\" FROM completed",
+                SELECT started_at AS \"started_at?\", duration_ms AS \"duration_ms!\",
+                    last_run_ms AS \"last_run_ms!\" FROM completed",
                 /* $1 */ completed_job.id,
                 /* $2 */ success,
                 /* $3 */ result,
@@ -1883,16 +1969,20 @@ impl Completion<'_> {
         // A canceled flow is pinged too: it is completed by its next transition like any other
         // flow, and the zombie flow monitor needs the ping to finish the cancel if that
         // transition is lost.
-        sqlx::query_scalar!(
+        sqlx::query_as!(
+        CompletedSpan,
         "WITH deleted AS (
             DELETE FROM v2_job_queue WHERE id = $1
-            RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason
+            RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason,
+                (extras->>'wac_first_started_at')::timestamptz AS first_started_at,
+                COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000)::bigint AS run_ms
         ), completed AS (
             INSERT INTO v2_job_completed AS cj
                 ( workspace_id
                 , id
                 , started_at
                 , duration_ms
+                , extras
                 , result
                 , result_columns
                 , canceled_by
@@ -1903,8 +1993,11 @@ impl Completion<'_> {
                 , status
                 , worker
                 )
-            SELECT d.workspace_id, d.id, d.started_at,
-                COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(d.started_at, now()))))*1000),
+            SELECT d.workspace_id, d.id, COALESCE(d.first_started_at, d.started_at),
+                CASE WHEN d.first_started_at IS NULL THEN d.run_ms
+                    ELSE EXTRACT('epoch' FROM (now() - d.first_started_at))*1000 END,
+                CASE WHEN d.first_started_at IS NOT NULL
+                    THEN jsonb_build_object('wac_last_segment_ms', d.run_ms) END,
                 $3::text::jsonb, $10,
                 CASE WHEN $4::BOOL THEN $5 ELSE d.canceled_by END,
                 CASE WHEN $4::BOOL THEN $6 WHEN d.canceled_by IS NOT NULL THEN d.canceled_reason END,
@@ -1920,14 +2013,16 @@ impl Completion<'_> {
                     THEN EXCLUDED.canceled_by ELSE cj.canceled_by END,
                 canceled_reason = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
                     THEN EXCLUDED.canceled_reason ELSE cj.canceled_reason END
-            RETURNING duration_ms
+            RETURNING cj.started_at, cj.duration_ms,
+                COALESCE((cj.extras->>'wac_last_segment_ms')::bigint, cj.duration_ms) AS last_run_ms
         ), parent_ping AS (
             UPDATE v2_job_runtime r SET ping = now()
             FROM v2_job_queue q
             WHERE r.id = $11 AND q.id = r.id AND q.workspace_id = $12
                 AND EXISTS (SELECT 1 FROM completed)
         )
-        SELECT duration_ms AS \"duration_ms!\" FROM completed",
+        SELECT started_at AS \"started_at?\", duration_ms AS \"duration_ms!\",
+            last_run_ms AS \"last_run_ms!\" FROM completed",
         /* $1 */ completed_job.id,
         /* $2 */ success,
         /* $3 */ result,
@@ -1994,7 +2089,7 @@ async fn check_result_size<T: ValidableJson>(
     db: &Pool<Postgres>,
     queued_job: &MiniCompletedJob,
     result: Json<&T>,
-) -> Option<Result<(Option<Uuid>, i64, bool, bool), Error>> {
+) -> Option<Result<(Option<Uuid>, CompletedSpan, bool, bool), Error>> {
     let result_size = result.size() / 1024 / 1024;
     if result_size > 2 {
         if result_size > *MAX_RESULT_SIZE_MB {
@@ -2194,18 +2289,17 @@ async fn restart_job_if_perpetual_inner(
 /// resolution too; `ON CONFLICT DO NOTHING` keeps a human's note intact.
 ///
 /// Membership of the chain must be *proven* per row, never inferred from `parent_job`
-/// alone: `root` is `job.parent_job.unwrap_or(job.id)`, so for a job launched with an
-/// explicit `parent_job` (WAC inline children, SDK-launched children) `root` is the
-/// *calling* job, and its other failed children are unrelated. Resolving those would hide
-/// exactly the failures this feature exists to surface, so each row must be either
+/// alone: the success-side caller passes the succeeding job's `parent_job`, which for a
+/// job launched with an explicit parent (WAC inline children, SDK-launched children) is
+/// the *calling* job, and its other failed children are unrelated. Resolving those would
+/// hide exactly the failures this feature exists to surface, so each row must be either
 /// - a job carrying a `native_retry_attempt` marker under `root` (provably an attempt), or
-/// - `root` itself as the original attempt, which is only provable when `root` is
-///   parentless and unmarked.
+/// - `root` itself as the original attempt: unmarked, and proven a chain root by the
+///   marked success under it, since only a chain root is ever a marked job's parent
+///   (see [`native_retry_root`]).
 ///
 /// Both arms also require the same `runnable_id` as the succeeding attempt, since every
-/// attempt in a chain runs the same runnable. The deliberate cost is a miss, not an
-/// over-reach: when the original attempt had a parent it is an unmarked sibling
-/// indistinguishable from any other child of the caller, so it stays red.
+/// attempt in a chain runs the same runnable.
 ///
 /// Nothing is trusted of the caller (this writes through a privileged pool): the gate is
 /// "some marked attempt under `root` running `runnable_id` has succeeded", evaluated in
@@ -2249,7 +2343,7 @@ pub async fn resolve_retry_chain_if_succeeded(
                     AND (
                         (j.parent_job = $1
                             AND EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
-                        OR (c.id = $1 AND j.parent_job IS NULL
+                        OR (c.id = $1
                             AND NOT EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
                     )
             ON CONFLICT (job_id) DO NOTHING",
@@ -2303,6 +2397,18 @@ async fn eval_retry_if(
     false
 }
 
+/// The first attempt of `job`'s native retry chain, which every later attempt is pushed
+/// with as `parent_job` and whose id seeds theirs. A first attempt may have a parent of its
+/// own (a script dispatched from another job), so only a marked attempt's parent is the root:
+/// rooting at that outer parent would merge the chains of its retried children.
+fn native_retry_root(job: &MiniCompletedJob, is_retry_attempt: bool) -> Uuid {
+    if is_retry_attempt {
+        job.parent_job.unwrap_or(job.id)
+    } else {
+        job.id
+    }
+}
+
 /// Native script retry. When a failed `Script` or `Script_Hub` job carries a retry
 /// policy (via `runnable_settings_handle`) and has attempts left, enqueue a fresh
 /// attempt of the same script after the policy's backoff delay — instead of having
@@ -2346,6 +2452,18 @@ pub async fn maybe_enqueue_native_script_retry(
     if !policy.has_attempts() {
         return Ok(false);
     }
+    // Cancelling a job that has a parent (every retry attempt does) only flags its queue row,
+    // and the worker that pulls it completes it without a `canceled_by`: read the flag here.
+    let soft_canceled = sqlx::query_scalar!(
+        "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
+        job.id,
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false);
+    if soft_canceled {
+        return Ok(false);
+    }
 
     // Attempt counter for this job: its `native_retry_attempt` marker, or 0 for
     // the first (un-marked) attempt. The marker is persistent (unlike the queue
@@ -2358,7 +2476,7 @@ pub async fn maybe_enqueue_native_script_retry(
     .fetch_optional(db)
     .await?
     .unwrap_or(0) as u32;
-    let root = job.parent_job.unwrap_or(job.id);
+    let root = native_retry_root(job, prev_attempts > 0);
     // Scheduled chains keep the schedule trigger so the terminal attempt drives
     // the schedule completion handlers (on_failure/on_success); `parent_job`
     // keeps every retry out of the per-occurrence handler counting queries.

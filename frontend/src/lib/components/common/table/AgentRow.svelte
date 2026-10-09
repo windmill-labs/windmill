@@ -16,6 +16,7 @@
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import Row from './Row.svelte'
+	import { selectMenuItems, type RowSelection } from './rowSelection'
 
 	/**
 	 * A home-page row for a saved agent. The agent is an `ai_agent` resource, so the row opens the
@@ -30,6 +31,7 @@
 		depth?: number
 		menuOpen: boolean
 		keyboardSelected?: boolean
+		rowSelection?: RowSelection
 	}
 
 	let {
@@ -40,7 +42,8 @@
 		deleteConfirmedCallback = $bindable(),
 		depth = 0,
 		menuOpen = $bindable(),
-		keyboardSelected = false
+		keyboardSelected = false,
+		rowSelection = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -70,6 +73,7 @@
 	canFavorite={false}
 	editedAt={agent.edited_at}
 	{depth}
+	{rowSelection}
 >
 	{#snippet draftBadge()}
 		<DraftBadge
@@ -106,8 +110,9 @@
 		<Dropdown
 			size="sm"
 			fixedHeight={false}
-			items={async () =>
-				agentMenuItems({
+			items={async () => [
+				...selectMenuItems(rowSelection),
+				...agentMenuItems({
 					deployUiSettings: await getDeployUiSettings(),
 					path: agent.path,
 					canWrite: agent.canWrite,
@@ -120,7 +125,8 @@
 						if (event?.shiftKey) remove(path)
 						else deleteConfirmedCallback = () => remove(path)
 					}
-				})}
+				})
+			]}
 			on:open={() => {
 				menuOpen = true
 			}}

@@ -1,9 +1,13 @@
 import { base } from '$app/paths'
 import type { SessionTarget } from './sessionState.svelte'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 
 // Maps a session's editor target to the canonical full-page Windmill route.
 export function sessionTargetHref(target: SessionTarget | undefined): string | undefined {
 	if (!target) return undefined
+	if (target.kind === 'pipeline') {
+		return `${base}/pipeline/${encodeURIComponent(normalizePipelineFolder(target.path))}`
+	}
 	const seg =
 		target.kind === 'script'
 			? 'scripts/edit'
@@ -45,6 +49,30 @@ export function withMenuHidden(url: string, workspaceId?: string): string {
 	} catch {
 		return url
 	}
+}
+
+// Remembers `nomenubar` for the rest of this iframe's life. Navigating inside a preview drops
+// the query param (client-side routing and full loads both), and the global nav must not pop
+// back in. sessionStorage so it survives a reload within the frame; the top window never writes
+// it, so an ordinary tab and the oauth callback still toggle normally.
+export function rememberMenuHidden(url: URL): void {
+	if (typeof window === 'undefined' || window.self === window.top) return
+	if (url.searchParams.get('nomenubar') !== 'true') return
+	try {
+		sessionStorage.setItem('nomenubar_embedded', 'true')
+	} catch {}
+}
+
+// Whether this page is shown without the workspace navigation. The layout drops the sidebar and
+// the band's trail, so a page whose only control lives in the band has to carry it itself — see
+// InWorkspaceAppViewer's Edit button. Read this rather than the raw query param: a preview tab
+// that has navigated no longer carries it.
+export function isMenuHidden(url: URL): boolean {
+	return (
+		url.searchParams.get('nomenubar') === 'true' ||
+		url.pathname.startsWith('/oauth/callback/') ||
+		isSessionPreviewFrame()
+	)
 }
 
 // True when this window is a sessions-preview iframe: embedded, with the `nomenubar` flag

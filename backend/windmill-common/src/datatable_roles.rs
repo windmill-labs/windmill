@@ -331,6 +331,12 @@ pub async fn converge_connect_grants_with(
 /// `CREATE ROLE <name> LOGIN PASSWORD ...; GRANT <name> TO custom_instance_user` on `cluster`. No
 /// privileges beyond that — an admin grants them through SQL or the ACL editor.
 ///
+/// A role of that name that already exists is refused with a 409, unless `take_over`: then its
+/// password is replaced and it is managed from here on like one created here. A role holding
+/// cluster-wide privileges, or inheriting another role's, is refused either way, since every tenant
+/// would get them. Returns whether an existing role was taken over: undoing a failed take-over
+/// must not drop a role that was there before.
+///
 /// On Windmill's own cluster the DDL runs on `tx`, so it commits with the catalog row. The external
 /// cluster is another server: the role is created there before `tx` commits, and callers MUST drop
 /// it again ([`drop_datatable_role`]) if `tx` then fails to commit.
@@ -343,8 +349,10 @@ pub async fn create_datatable_role(
     cluster: DatatableRoleCluster,
     name: &str,
     password: &str,
-) -> Result<()> {
-    crate::datatable_roles_oss::create_datatable_role(db, tx, cluster, name, password).await
+    take_over: bool,
+) -> Result<bool> {
+    crate::datatable_roles_oss::create_datatable_role(db, tx, cluster, name, password, take_over)
+        .await
 }
 
 /// Authorization: alters a cluster-wide Postgres login. Callers MUST restrict this to superadmin

@@ -13,7 +13,7 @@ import type { UserExt } from '$lib/stores'
 /** A raw app is not a kind of its own here: the listing returns it as an `app`
  * row carrying `raw_app`, which every action addresses through `BulkItem.rawApp`
  * (only the draft overlay distinguishes the two). */
-export type BulkKind = 'script' | 'flow' | 'app'
+export type BulkKind = 'script' | 'flow' | 'app' | 'agent'
 
 /** The flattened row facts every bulk action needs, snapshotted at selection
  * time so an action still knows what it is acting on after the list reloads. */

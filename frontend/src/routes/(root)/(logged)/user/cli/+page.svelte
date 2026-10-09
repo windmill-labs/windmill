@@ -30,7 +30,7 @@
 	}
 </script>
 
-<CenteredModal title="Authorize login request">
+<CenteredModal title="Authorize login request" inPage>
 	<p class="text-center text-lg mb-6">
 		Token will be posted to {host == 'localhost' ? 'your local machine' : host} to port {port}
 	</p>

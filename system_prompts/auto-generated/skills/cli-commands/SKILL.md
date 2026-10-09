@@ -732,6 +732,8 @@ user related commands
 
 **Subcommands:**
 
+- `user list` - List the users of the workspace
+  - `--json` - Output as JSON (for piping to jq)
 - `user add <email:string> [password:string]` - Create a user
   - `--superadmin` - Specify to make the new user superadmin.
   - `--company <company:string>` - Specify to set the company of the new user.

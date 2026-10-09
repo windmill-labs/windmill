@@ -33,6 +33,7 @@ use windmill_common::{
     flow_conversations::{
         add_message_to_conversation_tx, message_attachments, MessageExtras, MessageType,
     },
+    flows::Retry,
     get_latest_flow_version_info_for_path,
     jobs::{
         check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
@@ -124,6 +125,71 @@ pub async fn drop_unclaimable_run_lineage(
         }
     }
     Ok(())
+}
+
+/// Applies the run's `retry` policy by handing `push` a one-step-flow request, which it
+/// materializes as a native retryable `Script`.
+pub fn with_run_retry(
+    run_query: &RunJobQuery,
+    payload: JobPayload,
+    args: &PushArgs<'_>,
+    tag: &Option<String>,
+) -> error::Result<JobPayload> {
+    let Some(retry) = run_query.retry.as_deref() else {
+        return Ok(payload);
+    };
+    // Retry attempts are always pushed visible to the owner, which would leak a private run.
+    if run_query.invisible_to_owner.unwrap_or(false) {
+        return Err(Error::BadRequest(
+            "retry cannot be combined with invisible_to_owner".to_string(),
+        ));
+    }
+    let retry: Retry = serde_json::from_str(retry)
+        .map_err(|e| Error::BadRequest(format!("invalid retry policy: {e}")))?;
+    let JobPayload::ScriptHash {
+        hash,
+        path,
+        cache_ttl,
+        cache_ignore_s3_path,
+        language,
+        priority,
+        apply_preprocessor,
+        debouncing_settings,
+        concurrency_settings,
+        ..
+    } = payload
+    else {
+        return Err(Error::BadRequest(
+            "retry is only supported for workspace scripts".to_string(),
+        ));
+    };
+    // A failed attempt keeps its raw args and the retry re-push skips the preprocessor, so
+    // every retry would call `main` with un-preprocessed input.
+    if apply_preprocessor {
+        return Err(Error::BadRequest(
+            "retry is not supported for a script with a preprocessor unless skip_preprocessor is set"
+                .to_string(),
+        ));
+    }
+    Ok(JobPayload::SingleStepFlow {
+        path,
+        hash: Some(hash),
+        flow_version: None,
+        language: Some(language),
+        args: HashMap::from(args),
+        retry: Some(retry),
+        error_handler_path: None,
+        error_handler_args: None,
+        skip_handler: None,
+        cache_ttl,
+        cache_ignore_s3_path,
+        priority,
+        tag_override: tag.clone(),
+        trigger_path: None,
+        apply_preprocessor,
+        concurrency_settings,
+        debouncing_settings,
+    })
 }
 
 /// The jobs of `referenced` that `authed` cannot claim as its own run lineage: anything but the
@@ -1151,6 +1217,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let job_payload = with_run_retry(&run_query, job_payload, &push_args, &tag)?;
 
     let return_tx = tx_o.is_some();
 

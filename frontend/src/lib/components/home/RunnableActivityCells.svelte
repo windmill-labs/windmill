@@ -60,7 +60,7 @@
 	): string | undefined {
 		const dow = formatCron(cron.trim()).split(/\s+/)[5]
 		if (cronVersion === 'v1' && dow !== undefined && dow !== '*' && dow !== '?') return undefined
-		return describeSchedule(cron, timezone)
+		return describeSchedule(cron, timezone, { compact: true })
 	}
 
 	type RunStatus = (typeof runs)[number]['status']

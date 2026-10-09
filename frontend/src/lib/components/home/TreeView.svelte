@@ -1,15 +1,15 @@
 <script lang="ts">
 	import TreeView from './TreeView.svelte'
-	import { onDestroy, untrack, type Snippet } from 'svelte'
+	import { createEventDispatcher, onDestroy, untrack, type Snippet } from 'svelte'
 	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
 
-	import { ChevronDown, ChevronUp, Folder, FolderTree, NetworkIcon, User } from 'lucide-svelte'
+	import { ChevronDown, ChevronUp, Folder, FolderTree, User } from 'lucide-svelte'
+	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import Item from './Item.svelte'
 	import { countLeaves, type FolderItem, type ItemType, type UserItem } from './treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
 	import { HOME_TABLE_ROW_SEPARATOR, isHomeTable } from './homeTable'
 	import { pluralize } from '$lib/utils'
-	import { base } from '$lib/base'
 	import { Button } from '$lib/components/common'
 
 	interface Props {
@@ -79,6 +79,8 @@
 		: 'border-b'
 
 	let visualDepth = $derived(depth + indent)
+
+	const dispatch = createEventDispatcher<{ reload: void }>()
 
 	// Bounds the request burst from "expand all": however many root owners the tree
 	// renders (its slice grows as you scroll), it fetches at most this many. Lazy owners
@@ -322,17 +324,12 @@
 			{#if opened || isSearching}
 				<div>
 					{#if hasPipeline && isFolder(item)}
-						<!-- py-3 matches common/table/Row.svelte so this row sits at
-					     the same height as the script/flow/app rows that follow
-					     it under the same folder; py-2 was visibly shorter. -->
-						<a
-							href="{base}/pipeline/{encodeURIComponent(item.folderName)}"
-							class="flex items-center gap-4 px-4 py-3 {separator} text-sm hover:bg-surface-hover transition-colors"
-							style="padding-left: {(visualDepth + 1) * 16}px;"
-						>
-							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
-							<span class="text-xs font-medium text-emphasis">Pipeline</span>
-						</a>
+						<PipelineRow
+							folder={item.folderName}
+							depth={visualDepth + 1}
+							label="Pipeline"
+							onDeleted={() => dispatch('reload')}
+						/>
 					{/if}
 					{#each item.items.slice(0, effectiveMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
 						<TreeView

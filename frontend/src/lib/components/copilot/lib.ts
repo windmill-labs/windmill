@@ -32,6 +32,7 @@ import { formatResourceTypes } from './utils'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	type LiveToolSet,
 	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks
@@ -71,6 +72,7 @@ interface AIProviderDetails {
 // the frontier model. The gpt-5 family is deprecated (retires 2026-12-11) but
 // still served, so it stays in the list below the 5.6 models.
 const OPENAI_MODELS = [
+	'gpt-6.1-sol',
 	'gpt-6-sol',
 	'gpt-6-astra',
 	'gpt-6-luna',
@@ -1371,6 +1373,7 @@ export async function parseOpenAICompletion(
 		workspace?: string
 		provider?: string
 		onTokenUsage?: (usage: ChatTokenUsage) => void
+		live?: LiveToolSet
 	}
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
@@ -1582,7 +1585,8 @@ export async function parseOpenAICompletion(
 				helpers,
 				toolCallbacks: callbacks,
 				workspace: options?.workspace,
-				messages
+				messages,
+				live: options?.live
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
