@@ -700,10 +700,13 @@ impl EmbeddingsDb {
 
 /// Covers everything an indexed resource type is built from, whichever path wrote it: the
 /// create and update routes, a hub sync's direct upserts, a delete.
+///
+/// A sum of per-row hashes needs no sort. Don't go back to an ORDER BY aggregate: sorting
+/// every schema spills to disk once they exceed work_mem, on every check of every server.
 #[cfg(feature = "embedding")]
 async fn resource_types_fingerprint(pg_db: &Pool<Postgres>) -> Result<Option<String>> {
     Ok(sqlx::query_scalar(
-        "SELECT md5(string_agg(workspace_id || '/' || name || '/' || coalesce(description, '') || '/' || coalesce(schema::text, ''), ',' ORDER BY workspace_id, name)) FROM resource_type",
+        "SELECT count(*)::text || ':' || coalesce(sum(('x' || left(md5(workspace_id || '/' || name || '/' || coalesce(description, '') || '/' || coalesce(schema::text, '')), 15))::bit(60)::bigint), 0)::text FROM resource_type",
     )
     .fetch_one(pg_db)
     .await?)
