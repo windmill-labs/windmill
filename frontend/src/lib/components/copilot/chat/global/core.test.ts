@@ -8150,8 +8150,8 @@ describe('global prompt identity', () => {
 })
 
 describe('create_resource_type', () => {
-	// The Add resource type form prefixes custom types with c_ for everyone but admins, so a hub
-	// type synced later under the same name cannot clash with one the chat created.
+	// The Add resource type form prefixes custom types with c_ unless an admin turns it off, so a
+	// hub type synced later under the same name cannot clash with one the chat created.
 	it.each([
 		['acme_billing', 'c_acme_billing'],
 		['c_acme_billing', 'c_acme_billing']

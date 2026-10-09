@@ -4367,8 +4367,8 @@ export const globalTools: SessionTool<{}>[] = [
 		confirmationMessage: 'Create resource type',
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = createResourceTypeSchema.parse(args)
-			// The prefix the Add resource type form adds for everyone but admins: a hub type of
-			// the same name, synced later, would otherwise clash with this one.
+			// The prefix the Add resource type form adds unless an admin turns it off: a hub type
+			// of the same name, synced later, would otherwise clash with this one.
 			const name = parsed.name.startsWith('c_') ? parsed.name : `c_${parsed.name}`
 			await ResourceService.createResourceType({
 				workspace,
