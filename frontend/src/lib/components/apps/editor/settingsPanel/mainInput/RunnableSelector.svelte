@@ -12,8 +12,10 @@
 	import { emptySchema } from '$lib/utils'
 	import { loadSchema } from '$lib/infer'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderApps = useOperatorBuilderApps()
 	import { buildPathRunnableSelection } from './runnableSelectorUtils'
 
 	type TabType = 'hubscripts' | 'hubflows' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
@@ -163,10 +165,12 @@
 						<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
 					{/if}
 					<Tab value="workspaceflows" label="Workspace Flows" icon={Building} />
-					{#if !onlyFlow}
-						<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
+					{#if !$operatorBuilderApps}
+						{#if !onlyFlow}
+							<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
+						{/if}
+						<Tab value="hubflows" label="Hub Flows" icon={Globe2} />
 					{/if}
-					<Tab value="hubflows" label="Hub Flows" icon={Globe2} />
 				</Tabs>
 				<div class="my-2"></div>
 				<div class="flex flex-col gap-y-16">

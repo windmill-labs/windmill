@@ -75,6 +75,8 @@ import {
 	formatDataTableRef
 } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
+import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
+import { operatorBuilderAppsIn } from '$lib/operatorWriteRights'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
@@ -2069,6 +2071,11 @@ async function saveAppDraft(
 	path: string,
 	value: AppDraftValue
 ): Promise<DraftPersistResult> {
+	if (operatorBuilderAppsIn(workspace)) {
+		const role = await roleForWorkspace(workspace)
+		value.policy ??= {}
+		conformBuilderAppPolicy(value.policy, role.kind === 'resolved' ? role.user : undefined)
+	}
 	return saveGlobalAppDraft(workspace, path, value)
 }
 

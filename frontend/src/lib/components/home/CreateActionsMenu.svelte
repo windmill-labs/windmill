@@ -314,10 +314,12 @@
 		}
 	}
 
-	// Only the kinds this user's role authors: a builder operator gets flows alone.
+	// Only the kinds this user's role authors: a builder operator gets the kinds its rights grant.
 	// Derived, not computed once: switching workspace only sets `workspaceStore`, it does not
 	// remount this component, so a snapshot would keep the previous workspace's kinds.
-	const options: Option[] = $derived(allOptions.filter((o) => editRights.roleCanAuthor(o.key)))
+	const options: Option[] = $derived(
+		allOptions.filter((o) => editRights.roleCanAuthor(o.key === 'app-fullcode' ? 'raw_app' : o.key))
+	)
 
 	// the doc panel only shows while an option is hovered or focused, so the menu opens compact
 	let activeKey: string | undefined = $state(undefined)

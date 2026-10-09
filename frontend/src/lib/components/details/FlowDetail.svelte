@@ -432,7 +432,7 @@
 			return buttons
 		}
 
-		// The builder right covers flows only; building an app is still refused to operators.
+		// Build app makes a low-code app, which no builder right covers.
 		if (!actingUser?.operator) {
 			buttons.push({
 				label: 'Build app',

@@ -26,6 +26,8 @@ describe('edit rights', () => {
 		expect(roleCanAuthor('flow', user({}), builder)).toBe(true)
 		expect(roleCanAuthor('script', user({}), builder)).toBe(false)
 		expect(roleCanAuthor('flow', user({}), undefined)).toBe(false)
+		expect(roleCanDraft('raw_app', user({}), builder)).toBe(false)
+		expect(roleCanDraft('raw_app', user({}), { builder_apps: true })).toBe(true)
 	})
 
 	// drafts.rs admits an admin before its operator branch; the item handlers do not.
