@@ -44,11 +44,11 @@ export function agentMenuItems(agent: {
 			? []
 			: [
 					{
-						// Chat turns are filed under `<path>.chat` (agent_runs.rs) and listed by the agent's
-						// own chat, so this is the form runs.
+						// An agent run is a flow preview, which the runs page hides by default. Chat turns
+						// are filed under `<path>.chat` (agent_runs.rs) and listed by the agent's own chat.
 						displayName: 'View runs',
 						icon: List,
-						action: () => goto(`${base}/runs/${agent.path}`)
+						action: () => goto(`${base}/runs/${agent.path}?job_kinds=previews`)
 					},
 					...(agent.operator
 						? []
