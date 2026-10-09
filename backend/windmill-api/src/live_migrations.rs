@@ -8,7 +8,9 @@
 
 use sqlx::{PgConnection, Postgres};
 use tokio::task::JoinHandle;
-use windmill_common::{db::DB, error::Error};
+use windmill_common::{
+    db::DB, error::Error, global_settings::DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING,
+};
 
 use crate::db::CustomMigrator;
 use sqlx::migrate::Migrate;
@@ -396,13 +398,28 @@ async fn retire_legacy_hub_sync(conn: &mut PgConnection) -> Result<(), Error> {
         return Ok(());
     }
 
-    let schedules: Vec<(String, serde_json::Value)> = sqlx::query_as(
-        "SELECT path, jsonb_build_object('row', to_jsonb(s)) FROM schedule s
+    let schedules: Vec<(String, bool, serde_json::Value)> = sqlx::query_as(
+        "SELECT path, enabled, jsonb_build_object('row', to_jsonb(s)) FROM schedule s
          WHERE workspace_id = 'admins' AND script_path = 'u/admin/hub_sync' AND NOT is_flow",
     )
     .fetch_all(&mut *tx)
     .await?;
-    for (path, row) in schedules {
+    // A superadmin who turned the schedule off chose to keep the hub from overwriting `admins`
+    // every day. Deleting the schedule would drop that choice, so it moves to the setting the
+    // server's own sync reads.
+    if !schedules.is_empty() && schedules.iter().all(|(_, enabled, _)| !enabled) {
+        sqlx::query(
+            "INSERT INTO global_settings (name, value) VALUES ($1, 'true'::jsonb)
+             ON CONFLICT (name) DO NOTHING",
+        )
+        .bind(DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING)
+        .execute(&mut *tx)
+        .await?;
+        tracing::info!(
+            "The u/admin/hub_sync schedule was disabled: turned on {DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING}"
+        );
+    }
+    for (path, _, row) in schedules {
         windmill_queue::schedule::clear_schedule(&mut tx, &path, "admins").await?;
         sqlx::query("DELETE FROM schedule WHERE workspace_id = 'admins' AND path = $1")
             .bind(&path)
@@ -466,14 +483,29 @@ mod tests {
         Ok(())
     }
 
+    async fn insert_legacy_hub_sync_schedule(db: &DB, enabled: bool) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO schedule (workspace_id, path, edited_by, email, permissioned_as, schedule, timezone, script_path, is_flow, enabled)
+             VALUES ('admins', 'g/all/hub_sync', 'admin', 'admin@windmill.dev', 'u/admin', '0 0 0 * * *', 'Etc/UTC', 'u/admin/hub_sync', false, $1)",
+        )
+        .bind(enabled)
+        .execute(db)
+        .await?;
+        Ok(())
+    }
+
+    async fn hub_resource_type_sync_disabled(db: &DB) -> anyhow::Result<Option<serde_json::Value>> {
+        Ok(
+            sqlx::query_scalar("SELECT value FROM global_settings WHERE name = $1")
+                .bind(DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING)
+                .fetch_optional(db)
+                .await?,
+        )
+    }
+
     #[sqlx::test(migrations = "../migrations")]
     async fn retire_legacy_hub_sync_spares_an_edited_script(db: DB) -> anyhow::Result<()> {
-        sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, email, permissioned_as, schedule, timezone, script_path, is_flow)
-             VALUES ('admins', 'g/all/hub_sync', 'admin', 'admin@windmill.dev', 'u/admin', '0 0 0 * * *', 'Etc/UTC', 'u/admin/hub_sync', false)",
-        )
-        .execute(&db)
-        .await?;
+        insert_legacy_hub_sync_schedule(&db, true).await?;
         sqlx::query(
             "INSERT INTO script (workspace_id, hash, path, content, created_by, language, summary, description, schema, lock, created_at)
              SELECT workspace_id, 42, path, content || '// edited', 'admin', language, summary, description, schema, lock, now() + interval '1 minute'
@@ -497,6 +529,21 @@ mod tests {
             .await?;
         retire_legacy_hub_sync(&mut *db.acquire().await?).await?;
         assert_eq!(schedules_and_live_versions().await?, (0, 0));
+        assert_eq!(hub_resource_type_sync_disabled(&db).await?, None);
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn retire_legacy_hub_sync_keeps_a_disabled_schedule_opt_out(
+        db: DB,
+    ) -> anyhow::Result<()> {
+        insert_legacy_hub_sync_schedule(&db, false).await?;
+
+        retire_legacy_hub_sync(&mut *db.acquire().await?).await?;
+        assert_eq!(
+            hub_resource_type_sync_disabled(&db).await?,
+            Some(serde_json::json!(true))
+        );
         Ok(())
     }
 }

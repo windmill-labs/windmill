@@ -20,7 +20,8 @@ use serde_json::json;
 use crate::{
     error::{Error, Result},
     global_settings::{
-        load_value_from_global_settings, DISABLE_HUB_SETTING, HUB_RESOURCE_TYPE_SYNC_STATE_SETTING,
+        load_value_from_global_settings, DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING,
+        DISABLE_HUB_SETTING,
     },
     utils::{get_license_id_or_uid, HTTP_CLIENT_PERMISSIVE, HUB_API_SECRET},
     worker::HUB_RT_CACHE_DIR,
@@ -31,6 +32,8 @@ const SYNC_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::hours(24);
 const RETRY_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::hours(1);
 const CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(600);
 const SYNC_LOCK_ID: i64 = 737_483_925;
+/// `background_task_state.name` of the sync's last attempt and last hub sync.
+const SYNC_STATE_TASK: &str = "hub_resource_type_sync";
 
 pub fn cache_path() -> String {
     format!("{}/resource_types.json", *HUB_RT_CACHE_DIR)
@@ -300,22 +303,24 @@ struct SyncState {
 }
 
 async fn load_state(db: &DB) -> Result<SyncState> {
-    Ok(
-        load_value_from_global_settings(db, HUB_RESOURCE_TYPE_SYNC_STATE_SETTING)
-            .await?
-            .and_then(|v| serde_json::from_value(v).ok())
-            .unwrap_or_default(),
-    )
+    let value: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT value FROM background_task_state WHERE name = $1")
+            .bind(SYNC_STATE_TASK)
+            .fetch_optional(db)
+            .await?;
+    Ok(value
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default())
 }
 
 /// Merged into the stored state, so a writer only ever sets the keys it names.
 async fn record_state(db: &DB, patch: serde_json::Value) -> Result<()> {
     sqlx::query(
-        "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+        "INSERT INTO background_task_state (name, value) VALUES ($1, $2)
          ON CONFLICT (name) DO UPDATE
-         SET value = global_settings.value || EXCLUDED.value, updated_at = now()",
+         SET value = background_task_state.value || EXCLUDED.value, updated_at = now()",
     )
-    .bind(HUB_RESOURCE_TYPE_SYNC_STATE_SETTING)
+    .bind(SYNC_STATE_TASK)
     .bind(patch)
     .execute(db)
     .await?;
@@ -403,16 +408,6 @@ async fn sync_from_cache_file(db: &DB, path: &str) -> Result<Option<SyncOutcome>
 /// Syncs once a day, from whichever server first finds the sync due. The state it reads
 /// lives in the database, so servers starting or restarting do not each sync again.
 pub fn spawn_daily_sync(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) {
-    let disabled = std::env::var("DISABLE_HUB_RESOURCE_TYPE_SYNC")
-        .ok()
-        .and_then(|x| x.parse::<bool>().ok())
-        .unwrap_or(false);
-    if disabled {
-        tracing::info!(
-            "DISABLE_HUB_RESOURCE_TYPE_SYNC is set: not syncing resource types from the hub daily"
-        );
-        return;
-    }
     tokio::spawn(async move {
         // Leaves time for the hub URL and secret settings to load, and spreads out servers
         // that start together.
@@ -431,7 +426,9 @@ pub fn spawn_daily_sync(db: DB, mut killpill_rx: tokio::sync::broadcast::Receive
 }
 
 async fn sync_if_due(db: &DB) -> Result<()> {
-    if setting_enabled(db, DISABLE_HUB_SETTING).await? {
+    if setting_enabled(db, DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING).await?
+        || setting_enabled(db, DISABLE_HUB_SETTING).await?
+    {
         return Ok(());
     }
     // A transaction-scoped lock: a dropped transaction rolls back and releases it, so a

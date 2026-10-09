@@ -267,6 +267,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_hub: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_hub_resource_type_sync: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_build_binary_on_deploy: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_sessions_instance_storage_fallback: Option<bool>,
@@ -1063,7 +1065,6 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     "min_keep_alive_version",
     "automate_username_creation",
     "_restart_coordination",
-    "_hub_resource_type_sync",
     // Legacy ghost: worker configs live in the `config` table with a
     // `worker__` prefix, not as a single blob in `global_settings`. Older
     // Windmill versions stored them here and the row would be resurrected on
