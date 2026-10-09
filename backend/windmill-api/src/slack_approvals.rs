@@ -145,7 +145,7 @@ struct PrivateMetadata {
 // `verify_slack_payload`), which holds even when this check is a no-op.
 #[cfg(feature = "oauth2")]
 fn verify_slack_callback_signature(headers: &HeaderMap, body: &str) -> Result<(), Error> {
-    if let Some(sv) = crate::SLACK_SIGNING_SECRET.as_ref() {
+    if let Some(sv) = crate::slack_signing_secret() {
         let sig = headers
             .get("X-Slack-Signature")
             .and_then(|v| v.to_str().ok())

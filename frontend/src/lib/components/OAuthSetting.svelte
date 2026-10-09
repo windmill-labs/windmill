@@ -9,6 +9,10 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import Password from './Password.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
+	import CopyableCodeBlock from './details/CopyableCodeBlock.svelte'
+	import { slackAppManifest } from './common/slack/slackAppManifest'
+	import { yaml } from 'svelte-highlight/languages'
+	import { base } from '$lib/base'
 
 	interface Props {
 		name: string
@@ -130,6 +134,21 @@
 					bind:password={value['secret']}
 				/>
 			</label>
+			{#if name == 'slack'}
+				<label for="slack_signing_secret" class="flex flex-col gap-1">
+					<span class="text-emphasis font-semibold text-xs">Signing Secret</span>
+					<span class="text-2xs text-secondary">
+						Under Basic Information in the Slack app. Windmill checks with it that requests come
+						from Slack, and AI agents answer in Slack only once it is set. The SLACK_SIGNING_SECRET
+						environment variable takes precedence.
+					</span>
+					<Password
+						id="slack_signing_secret"
+						placeholder="Signing Secret"
+						bind:password={value['signing_secret']}
+					/>
+				</label>
+			{/if}
 			{#if name == 'microsoft' || name == 'teams'}
 				<label class="flex flex-col gap-1">
 					<span class="text-emphasis font-semibold text-xs">Tenant Id</span>
@@ -203,16 +222,21 @@
 				</CollapseLink>
 			{:else if name == 'slack'}
 				<CollapseLink text="Set up slack">
-					<div class="text-xs text-primary rounded-md">
-						To use Slack OAuth, create a new Slack app <a
-							href="https://api.slack.com/apps?new_app=1"
-							target="_blank"
-							>in slack API console
-							<ExternalLink size={12} class="inline-block" />
-						</a>. Pick "From a manifest", then YAML and paste manifest template found on
-						<a href="https://www.windmill.dev/docs/misc/setup_oauth#slack" target="_blank"
-							>Windmill docs <ExternalLink size={12} class="inline-block" /></a
-						> and then paste Client ID and Client Secret here.
+					<div class="flex flex-col gap-2 text-xs text-primary">
+						<span>
+							Create a Slack app <a href="https://api.slack.com/apps?new_app=1" target="_blank"
+								>in the Slack API console <ExternalLink size={12} class="inline-block" /></a
+							>: pick "From a manifest", then YAML, and paste the manifest below. Then copy the
+							Client ID, Client Secret and Signing Secret here. Socket Mode and token rotation must
+							stay off. More in the
+							<a href="https://www.windmill.dev/docs/misc/setup_oauth#slack" target="_blank"
+								>Windmill docs <ExternalLink size={12} class="inline-block" /></a
+							>.
+						</span>
+						<CopyableCodeBlock
+							code={slackAppManifest(`${window.location.origin}${base}`)}
+							language={yaml}
+						/>
 					</div>
 				</CollapseLink>
 			{:else if name == 'microsoft'}

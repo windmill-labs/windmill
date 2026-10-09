@@ -116,7 +116,7 @@ async fn list_agent_channels(
     .await?;
     tx.commit().await?;
     #[cfg(feature = "oauth2")]
-    let signing_secret_set = crate::SLACK_SIGNING_SECRET.is_some();
+    let signing_secret_set = crate::slack_signing_secret().is_some();
     #[cfg(not(feature = "oauth2"))]
     let signing_secret_set = false;
     let bot_name = match slack_team_name {
@@ -345,7 +345,7 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
     // Without it the Slack endpoints take unsigned requests, and the sender's `user_id` would
     // pick whose permissions the agent runs with.
     #[cfg(feature = "oauth2")]
-    if crate::SLACK_SIGNING_SECRET.is_none() {
+    if crate::slack_signing_secret().is_none() {
         return Ok(false);
     }
     let text = decode_entities(&msg.text);

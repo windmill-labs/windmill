@@ -180,15 +180,15 @@
 						<span class="text-xs text-hint">Loading…</span>
 					{:else if !slackTeamName}
 						<span class="text-xs text-secondary">
-							Connect Slack to the workspace to ask this agent from Slack, by its name or as a
-							channel's default.
+							Connect Slack to the workspace, with AI agents enabled, to ask this agent from Slack,
+							by its name or as a channel's default.
 						</span>
 						{#if isAdmin}
 							<div>
 								<Button
 									variant="default"
 									unifiedSize="md"
-									href="{base}/workspace_settings?tab=slack"
+									href="{base}/workspace_settings?tab=slack&agents=true"
 								>
 									Connect Slack
 								</Button>
@@ -199,8 +199,8 @@
 					{:else}
 						{#if !signingSecretSet}
 							<Alert type="warning" title="Agents can't answer in Slack yet" size="xs">
-								The instance needs SLACK_SIGNING_SECRET set to the Slack app's signing secret, so
-								Windmill can tell who sent a message.
+								The instance needs the Slack app's signing secret, so Windmill can tell who sent a
+								message. A superadmin sets it in the instance settings, under OAuth, Slack.
 							</Alert>
 						{/if}
 						{#if !botName}
@@ -208,7 +208,8 @@
 								Slack refused the workspace's bot token or couldn't be reached, so agents can't
 								answer there.
 								{#if isAdmin}
-									<a href="{base}/workspace_settings?tab=slack">Reconnect Slack</a> to fix it.
+									<a href="{base}/workspace_settings?tab=slack&agents=true">Reconnect Slack</a> to fix
+									it.
 								{:else}
 									A workspace admin can reconnect Slack to fix it.
 								{/if}
@@ -292,27 +293,30 @@
 				</TabContent>
 
 				<TabContent value="api" class="flex flex-col gap-6 p-4">
-					<div class="flex flex-col gap-2">
-						<span class="text-xs text-secondary">
-							Each call runs the agent as the token's owner and returns the id of the run, whose
-							answer streams as it is written.{#if chat}{' '}Calls that share a
-								<code>memory_id</code>, any string you choose, are one conversation.{/if}
-						</span>
-						<div>
-							<Button
-								variant="default"
-								unifiedSize="sm"
-								startIcon={{ icon: Sparkles }}
-								onClick={() => copyToClipboard(integrationPrompt(target))}
+					<span class="text-xs text-secondary">
+						Each call runs the agent as the token's owner and returns the id of the run, whose
+						answer streams as it is written.{#if chat}{' '}Calls that share a
+							<code>memory_id</code>, any string you choose, are one conversation.{/if}
+					</span>
+					<div class="flex items-center gap-4 rounded-md border p-3">
+						<div class="flex flex-col gap-1 grow">
+							<span class="text-xs font-semibold text-emphasis">Integrate with an AI assistant</span
 							>
-								Copy a prompt for your AI assistant
-								<Tooltip light>
-									Everything a coding assistant needs to integrate this agent: the endpoints,
-									streaming{chat ? ', conversations and the chat library' : ''}. The token is left
-									as a placeholder.
-								</Tooltip>
-							</Button>
+							<span class="text-2xs text-secondary">
+								A prompt with the endpoints and streaming{chat
+									? ', conversations and the chat SDK'
+									: ''}, for your coding assistant to write the integration. The token stays a
+								placeholder.
+							</span>
 						</div>
+						<Button
+							variant="accent-secondary"
+							unifiedSize="sm"
+							startIcon={{ icon: Sparkles }}
+							onClick={() => copyToClipboard(integrationPrompt(target))}
+						>
+							Copy prompt
+						</Button>
 					</div>
 					<Label label="Token">
 						<div class="flex flex-col gap-2">

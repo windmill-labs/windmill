@@ -50,6 +50,7 @@
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { SLACK_AGENT_SCOPES } from '$lib/components/common/slack/slackAppManifest'
 
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
@@ -164,6 +165,9 @@
 		await goto('/user/workspaces')
 	}
 	let useCustomSlackApp: boolean = $state(false)
+	// Opt-in: Slack refuses a connection asking for a scope its app doesn't declare. An agent's page
+	// links here with `agents=true`.
+	let slackAgents = $state($page.url.searchParams.get('agents') === 'true')
 	let slackAppType: 'instance' | 'workspace' = $state('instance')
 
 	// Keep slackAppType and useCustomSlackApp in sync
@@ -827,7 +831,7 @@
 			})
 
 			// Redirect to OAuth flow
-			window.location.href = `${base}/api/oauth/connect_slack?workspace=${$workspaceStore}`
+			window.location.href = `${base}/api/oauth/connect_slack?workspace=${$workspaceStore}${slackAgents ? '&agents=true' : ''}`
 		} catch (e) {
 			sendUserToast('Failed to save Slack OAuth configuration', true)
 			console.error(e)
@@ -1644,7 +1648,7 @@
 											}
 										}}
 										onSelect={editSlackCommand}
-										connectHref="{base}/api/oauth/connect_slack"
+										connectHref="{base}/api/oauth/connect_slack{slackAgents ? '?agents=true' : ''}"
 										createScriptHref="{base}/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 										createFlowHref="{base}/flows/add?hub=28"
 										documentationLink="https://www.windmill.dev/docs/integrations/slack"
@@ -1678,6 +1682,22 @@
 														the same Slack app for all workspaces. Configure your Slack app here if
 														you want to use a specific Slack app for this workspace.</div
 													>
+												</div>
+												<div class="flex flex-col gap-1">
+													<Toggle
+														size="xs"
+														bind:checked={slackAgents}
+														options={{ right: 'Let AI agents answer in Slack' }}
+													/>
+													<div class="text-2xs text-hint">
+														Also asks Slack for {SLACK_AGENT_SCOPES.join(', ')}, to know who is
+														asking and to list channels. The Slack app must declare them, subscribe
+														to the <code>app_mention</code> and
+														<code>message.im</code> bot events at
+														<code>{window.location.origin}{base}/api/oauth/slack_events</code>, and
+														its signing secret must be set in the instance settings. Without these
+														scopes Slack refuses the connection.
+													</div>
 												</div>
 											{/if}
 											{#if slackOAuthConfigLoaded}

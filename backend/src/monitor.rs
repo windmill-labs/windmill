@@ -5854,6 +5854,12 @@ pub async fn apply_base_url_setting(
 
     #[cfg(feature = "oauth2")]
     {
+        windmill_api::set_slack_signing_secret_setting(
+            oauths
+                .as_ref()
+                .and_then(|o| o.get("slack"))
+                .and_then(|c| c.signing_secret.as_deref()),
+        );
         if let Some(db) = conn.as_sql() {
             let clients = windmill_api::oauth2_oss::build_oauth_clients(&base_url, oauths, db).await
                 .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))

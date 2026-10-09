@@ -1138,15 +1138,17 @@ fn mask_nested_sensitive(key: &str, value: &serde_json::Value) -> serde_json::Va
         }
     }
     // Settings that are maps-of-objects where each child has a sensitive sub-field.
-    const NESTED_MAP_SENSITIVE: &[(&str, &str)] = &[("oauths", "secret")];
-    for &(parent_key, child_field) in NESTED_MAP_SENSITIVE {
+    const NESTED_MAP_SENSITIVE: &[(&str, &[&str])] = &[("oauths", &["secret", "signing_secret"])];
+    for &(parent_key, child_fields) in NESTED_MAP_SENSITIVE {
         if key == parent_key {
             if let serde_json::Value::Object(entries) = value {
                 let mut masked = entries.clone();
                 for (_entry_key, entry_val) in masked.iter_mut() {
                     if let serde_json::Value::Object(ref mut obj) = entry_val {
-                        if let Some(v) = obj.get(child_field) {
-                            obj.insert(child_field.to_string(), redact_json_value(v));
+                        for &child_field in child_fields {
+                            if let Some(v) = obj.get(child_field) {
+                                obj.insert(child_field.to_string(), redact_json_value(v));
+                            }
                         }
                     }
                 }
@@ -2760,10 +2762,12 @@ mod tests {
     #[test]
     fn format_setting_value_redacts_oauth_secrets() {
         let val = serde_json::json!({
-            "google": {"id": "client-id", "secret": "my-super-secret-12345"}
+            "google": {"id": "client-id", "secret": "my-super-secret-12345"},
+            "slack": {"id": "slack-id", "secret": "x", "signing_secret": "my-signing-secret-678"}
         });
         let formatted = format_setting_value("oauths", &val);
         assert!(!formatted.contains("my-super-secret-12345"));
+        assert!(!formatted.contains("my-signing-secret-678"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
     }

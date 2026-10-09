@@ -13470,7 +13470,7 @@ paths:
                     description: the connected Slack workspace; absent when Slack is not connected
                   signing_secret_set:
                     type: boolean
-                    description: agents answer in Slack only when the instance sets SLACK_SIGNING_SECRET
+                    description: agents answer in Slack only when the instance has the Slack app's signing secret (SLACK_SIGNING_SECRET or the Slack OAuth instance setting)
                   bot_name:
                     type: string
                     description: the bot's Slack handle; absent when Slack can't be reached
