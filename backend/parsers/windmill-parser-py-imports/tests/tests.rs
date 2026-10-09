@@ -117,4 +117,44 @@ def main():
 
         Ok(())
     }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_parse_python_imports_mapped_distribution_names(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let code = "
+import pptx
+import win32api
+import speech_recognition as sr
+from OpenSSL import crypto
+from ruamel.yaml import YAML
+
+def main():
+    pass
+
+";
+        let (r, ..) = parse_python_imports(
+            code,
+            "test-workspace",
+            "f/foo/bar",
+            &db,
+            &mut vec![],
+            &mut None,
+            &None,
+            &None,
+        )
+        .await?;
+        assert_eq!(
+            r,
+            vec![
+                "SpeechRecognition # (mapped from speech_recognition)",
+                "pyOpenSSL # (mapped from OpenSSL)",
+                "python-pptx # (mapped from pptx)",
+                "pywin32 # (mapped from win32api)",
+                "ruamel.yaml",
+            ]
+        );
+
+        Ok(())
+    }
 }
