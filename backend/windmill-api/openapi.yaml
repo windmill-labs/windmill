@@ -10925,6 +10925,37 @@ paths:
                     description: "`saved` only, upsert or delete: where the write landed. Differs from the URL path when the item had moved away from it; the editor follows it there. Absent when a delete found nothing to remove and the caller cannot read the path it moved to."
                 required: [status, current_timestamp]
 
+  /w/{workspace}/drafts/delete_for_user/{kind}/{path}:
+    post:
+      summary: delete another user's draft, or every draft at a path (admin only)
+      description: Delete the draft a given user holds at a path, or, without `username`, every draft at that path (the legacy ownerless one and the caller's own included). Workspace admins / superadmins only, and only for script, flow, app and raw_app drafts. Unlike a discard of one's own draft through `drafts/update`, this returns 404 when nothing was deleted.
+      operationId: deleteDraftForUser
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/UserDraftItemKind"
+        - $ref: "#/components/parameters/ScriptPath"
+        - name: username
+          in: query
+          required: false
+          description: Workspace username of the draft owner. Omit to delete every user's draft at the path.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: draft(s) deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: no matching draft at that path
+
   /w/{workspace}/drafts/move/{kind}/{path}:
     post:
       summary: move the current user's draft-only item to another path
