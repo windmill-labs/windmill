@@ -380,7 +380,8 @@ pub async fn migrate(
     }
 
     crate::live_migrations::custom_migrations(&mut custom_migrator).await?;
-    if let Err(e) = seed_instance_python_baseline(db, new_instance).await {
+    if let Err(e) = seed_instance_python_baseline(custom_migrator.connection(), new_instance).await
+    {
         tracing::error!("Could not record the instance python baseline: {e:#}");
     }
     Ok(Some(crate::live_migrations::spawn_background_migrations(
@@ -393,7 +394,12 @@ pub async fn migrate(
 /// is unset. Only the process that created the schema knows the instance is new, so its value
 /// replaces whatever a server that started alongside it recorded; every other start leaves an
 /// existing record alone and gives an instance that predates the record the frozen default.
-async fn seed_instance_python_baseline(db: &DB, new_instance: bool) -> Result<(), Error> {
+///
+/// Runs on the migration connection: a `DATABASE_CONNECTIONS=1` pool has no second one to give.
+async fn seed_instance_python_baseline(
+    conn: &mut PgConnection,
+    new_instance: bool,
+) -> Result<(), Error> {
     let (version, on_conflict) = if new_instance {
         (
             PyVAlias::NEW_INSTANCE,
@@ -408,7 +414,7 @@ async fn seed_instance_python_baseline(db: &DB, new_instance: bool) -> Result<()
     ))
     .bind(INSTANCE_PYTHON_BASELINE_SETTING)
     .bind(version.version_string())
-    .execute(db)
+    .execute(conn)
     .await?;
     Ok(())
 }
