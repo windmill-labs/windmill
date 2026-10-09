@@ -4,10 +4,10 @@ use sqlx::{Pool, Postgres};
 use windmill_common::workspaces::invalidate_operator_rights_cache;
 use windmill_test_utils::*;
 
-/// Every test here must be `#[serial]`. The rights cache is process-global and keyed by workspace
-/// id alone, while `sqlx::test` gives each test its own database under this same id — so two
-/// running at once can answer each other's reads from one cached entry, and a withdrawal in one
-/// database reads as granted in the other.
+/// Every test here must be `#[serial]`, and start by dropping the cache entry. The rights cache is
+/// process-global and keyed by workspace id alone, while `sqlx::test` gives each test its own
+/// database under this same id — so two running at once can answer each other's reads from one
+/// cached entry, and a withdrawal a test ends on reads as withdrawn in the next one's database.
 const WS: &str = "test-workspace";
 
 fn operator_client() -> reqwest::Client {
@@ -53,6 +53,7 @@ async fn set_settings(api: &str, body: serde_json::Value) -> anyhow::Result<u16>
 #[serial]
 async fn test_operator_manage_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
+    invalidate_operator_rights_cache(WS);
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let api = format!("http://localhost:{port}/api/w/{WS}");
@@ -145,6 +146,7 @@ async fn test_manage_triggers_covers_a_route_outside_the_shared_handler(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
+    invalidate_operator_rights_cache(WS);
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let api = format!("http://localhost:{port}/api/w/{WS}");
@@ -210,6 +212,64 @@ async fn test_manage_triggers_covers_a_route_outside_the_shared_handler(
         .send()
         .await?;
     assert_eq!(resp.status(), 403, "{}", resp.text().await?);
+
+    Ok(())
+}
+
+/// A draft is what the AI chat writes before it deploys, so an operator holding a manage right
+/// may draft that kind, and only while they hold it. Builder rights are left off throughout: they
+/// open flow drafts, and would otherwise be what admits these.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
+async fn test_manage_rights_admit_matching_drafts(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    invalidate_operator_rights_cache(WS);
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/{WS}");
+    let c = operator_client();
+
+    let save = async |kind: &str, path: &str| -> anyhow::Result<(u16, String)> {
+        let resp = c
+            .post(format!("{api}/drafts/update/{kind}/{path}"))
+            .json(&json!({ "value": { "path": path } }))
+            .send()
+            .await?;
+        Ok((resp.status().as_u16(), resp.text().await?))
+    };
+    let listed = async || -> anyhow::Result<serde_json::Value> {
+        let resp = c.get(format!("{api}/drafts/list")).send().await?;
+        assert_eq!(resp.status(), 200);
+        Ok(resp.json().await?)
+    };
+
+    let (status, body) = save("trigger_schedule", "u/operator/sched_draft").await?;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = save("trigger_http", "u/operator/http_draft").await?;
+    assert_eq!(status, 200, "{body}");
+    // The rights name schedules and triggers, nothing else.
+    let (status, body) = save("script", "u/operator/script_draft").await?;
+    assert_eq!(status, 403, "{body}");
+
+    let drafts = listed().await?;
+    assert_eq!(drafts.as_array().map(Vec::len), Some(2), "{drafts}");
+
+    assert_eq!(
+        set_settings(&api, json!({"manage_schedules": false})).await?,
+        200
+    );
+    let (status, body) = save("trigger_schedule", "u/operator/sched_draft").await?;
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = save("trigger_http", "u/operator/http_draft").await?;
+    assert_eq!(status, 200, "{body}");
+
+    assert_eq!(
+        set_settings(&api, json!({"manage_triggers": false})).await?,
+        200
+    );
+    let (status, body) = save("trigger_http", "u/operator/http_draft").await?;
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(listed().await?, json!([]));
 
     Ok(())
 }

@@ -18,6 +18,7 @@ pub use windmill_types::user_drafts::DraftUserRef;
 
 use crate::db::DB;
 use crate::error::Result;
+use crate::workspaces::ManageKind;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -157,6 +158,21 @@ impl UserDraftItemKind {
             // Keyed at a folder path, not a runnable; access falls back to the
             // path-only (folder write) check.
             DataPipeline => None,
+        }
+    }
+
+    /// The withdrawable operator right that governs deploying this kind, which is
+    /// therefore also the right to draft it. Every trigger kind maps here, native ones
+    /// included: `gate_operator_writes` covers their routers as well.
+    pub fn manage_kind(&self) -> Option<ManageKind> {
+        use UserDraftItemKind::*;
+        match self {
+            TriggerSchedule => Some(ManageKind::Schedules),
+            TriggerWebhook | TriggerDefaultEmail | TriggerEmail | TriggerHttp
+            | TriggerWebsocket | TriggerPostgres | TriggerKafka | TriggerNats | TriggerMqtt
+            | TriggerAmqp | TriggerSqs | TriggerGcp | TriggerAzure | TriggerPoll | TriggerCli
+            | TriggerNextcloud | TriggerGoogle | TriggerGithub => Some(ManageKind::Triggers),
+            Script | Flow | App | RawApp | Resource | Variable | DataPipeline => None,
         }
     }
 

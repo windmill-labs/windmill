@@ -54,6 +54,23 @@ It refuses with `PermissionDenied` (403), never `NotAuthorized` (401): the front
 uncaught 401 as an expired session and logs the user out, so 401 here ejects an operator from the
 app rather than telling them why. Both integration tests assert the status for that reason.
 
+## Drafts
+
+An operator may save a draft of a kind they could deploy, and no other: a schedule draft while
+they hold `manage_schedules`, a trigger draft (every trigger kind, native ones included) while
+they hold `manage_triggers`, a flow draft under `builder_flows`. drafts.rs `require_can_write_path`
+asks `operator_can_draft`, which reads the same cached rights as the router gate, and
+`UserDraftItemKind::manage_kind` maps each draft kind to its right. Resource and variable drafts
+stay refused even though operators edit those items directly. The AI session chat writes
+schedules and triggers only as drafts and then deploys them, so without this rule an operator who
+may create a schedule on its page could not ask the chat for one.
+
+Deploying a draft goes through the ordinary create and update routes, so the router gate is still
+what decides the write. The draft rule only has to agree with it: a draft the gate would refuse to
+deploy should not be saved in the first place. The frontend mirrors the rule in `roleCanDraft`
+(`editRights.ts`), which the chat's `write_schedule_draft` / `write_trigger_draft` capabilities
+come from.
+
 ## In the UI
 
 The shared lists (`TriggerList`, `SchedulesList`, `NativeTriggerTable`) derive a per-row `canEdit`
