@@ -14,7 +14,15 @@
 	import { SlackAgentsService, type SlackChannelAgent } from '$lib/gen'
 	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { generateRandomString } from '$lib/utils'
+	import { copyToClipboard, generateRandomString } from '$lib/utils'
+	import { Sparkles } from 'lucide-svelte'
+	import {
+		curlExample,
+		fetchExample,
+		integrationPrompt,
+		runUrl,
+		sdkExample
+	} from './agentApiExamples'
 
 	/**
 	 * The ways to use an agent outside its page: in Slack, anywhere by its `+name` and without one
@@ -127,56 +135,24 @@
 
 	let userSettings: UserSettings | undefined = $state(undefined)
 	let token = $state('')
-	let url = $derived(
-		`${location.origin}${base}/api/w/${workspace}/jobs/run/agent/${agentPath}` +
-			(chat ? '?memory_id=my-conversation-1' : '')
+	let target = $derived({
+		api: `${location.origin}${base}/api/w/${workspace}`,
+		agentPath,
+		chat,
+		token
+	})
+	let body = JSON.stringify({ user_message: 'Hello' }, null, 2)
+	let headers = $derived(
+		JSON.stringify(
+			{ 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			null,
+			2
+		)
 	)
-	let resultUrl = $derived(
-		`${location.origin}${base}/api/w/${workspace}/jobs_u/completed/get_result_maybe`
+	let apiTab = $state<string | undefined>(undefined)
+	let shownApiTab = $derived(
+		apiTab === 'sdk' && !chat ? 'rest' : (apiTab ?? (chat ? 'sdk' : 'rest'))
 	)
-	const body = JSON.stringify({ user_message: 'Hello' })
-	let headers = $derived({ 'Content-Type': 'application/json', Authorization: `Bearer ${token}` })
-
-	let curlCode = $derived(`TOKEN='${token}'
-BODY='${body}'
-URL='${url}'
-UUID=$(curl -s -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d "$BODY" "$URL")
-
-URL="${resultUrl}/$UUID"
-while true; do
-  curl -s -H "Authorization: Bearer $TOKEN" "$URL" -o res.json
-  COMPLETED=$(cat res.json | jq .completed)
-  if [ "$COMPLETED" = "true" ]; then
-    cat res.json | jq .result.output
-    break
-  else
-    sleep 1
-  fi
-done`)
-
-	let fetchCode = $derived(`export async function main() {
-  const UUID = await (await sendMessage()).text();
-  return await waitForAnswer(UUID);
-}
-
-async function sendMessage() {
-  return await fetch(\`${url}\`, {
-    method: 'POST',
-    headers: ${JSON.stringify(headers, null, 2).replaceAll('\n', '\n    ')},
-    body: JSON.stringify(${body})
-  });
-}
-
-async function waitForAnswer(UUID) {
-  while (true) {
-    const res = await fetch(\`${resultUrl}/\${UUID}\`, {
-      headers: { Authorization: 'Bearer ${token}' }
-    });
-    const data = await res.json();
-    if (data.completed) return data.result?.output;
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-}`)
 </script>
 
 <UserSettings
@@ -224,7 +200,8 @@ async function waitForAnswer(UUID) {
 						{/if}
 						{#if !botName}
 							<Alert type="warning" title="Windmill can't reach Slack" size="xs">
-								Slack refused the workspace's bot token or couldn't be reached, so agents can't answer there.
+								Slack refused the workspace's bot token or couldn't be reached, so agents can't
+								answer there.
 								{#if isAdmin}
 									<a href="{base}/workspace_settings?tab=slack">Reconnect Slack</a> to fix it.
 								{:else}
@@ -310,11 +287,28 @@ async function waitForAnswer(UUID) {
 				</TabContent>
 
 				<TabContent value="api" class="flex flex-col gap-6 p-4">
-					<span class="text-xs text-secondary">
-						Each call runs the agent as the token's owner and returns the id of the run.{#if chat}{' '}Calls
-							that share a <code>memory_id</code> are one conversation: reuse it for follow-ups and pick
-							a new one to start over.{/if}
-					</span>
+					<div class="flex flex-col gap-2">
+						<span class="text-xs text-secondary">
+							Each call runs the agent as the token's owner and returns the id of the run, whose
+							answer streams as it is written.{#if chat}{' '}Calls that share a
+								<code>memory_id</code>, any string you choose, are one conversation.{/if}
+						</span>
+						<div>
+							<Button
+								variant="default"
+								unifiedSize="sm"
+								startIcon={{ icon: Sparkles }}
+								onClick={() => copyToClipboard(integrationPrompt(target))}
+							>
+								Copy a prompt for your AI assistant
+								<Tooltip light>
+									Everything a coding assistant needs to integrate this agent: the endpoints,
+									streaming{chat ? ', conversations and the chat library' : ''}. The token is left
+									as a placeholder.
+								</Tooltip>
+							</Button>
+						</div>
+					</div>
 					<Label label="Token">
 						<div class="flex flex-col gap-2">
 							<TextInput
@@ -337,30 +331,39 @@ async function waitForAnswer(UUID) {
 							</div>
 						</div>
 					</Label>
-					<Tabs selected="rest">
+					<Tabs bind:selected={() => shownApiTab, (t) => (apiTab = t)}>
+						{#if chat}
+							<Tab value="sdk" label="Chat SDK" />
+						{/if}
 						<Tab value="rest" label="REST" />
 						<Tab value="curl" label="Curl" />
 						<Tab value="fetch" label="Fetch" />
 						{#snippet content()}
-							<TabContent value="rest" class="flex flex-col gap-6 mt-2">
-								<Label label="Url"><ClipboardPanel content={url} /></Label>
-								<Label label="Body">
-									<ClipboardPanel content={JSON.stringify(JSON.parse(body), null, 2)} />
-								</Label>
-								<Label label="Headers">
-									<ClipboardPanel content={JSON.stringify(headers, null, 2)} />
-								</Label>
+							<TabContent value="sdk" class="flex flex-col gap-2 mt-2">
 								<span class="text-xs text-secondary">
-									Then poll <code class="break-all">{resultUrl}/&lbrace;id&rbrace;</code> until
-									<code>completed</code>
-									is true; the answer is the result's <code>output</code>.
+									React with <code>windmill-chat</code>: streaming, tool calls and conversations
+									handled. It also plugs into the Vercel AI SDK and assistant-ui.
+								</span>
+								<CopyableCodeBlock code={sdkExample(target)} language={typescript} />
+							</TabContent>
+							<TabContent value="rest" class="flex flex-col gap-6 mt-2">
+								<Label label="Url">
+									<ClipboardPanel
+										content={runUrl(target) + (chat ? '?memory_id=<conversation id>' : '')}
+									/>
+								</Label>
+								<Label label="Body"><ClipboardPanel content={body} /></Label>
+								<Label label="Headers"><ClipboardPanel content={headers} /></Label>
+								<span class="text-xs text-secondary">
+									Then follow the run: the Fetch example streams it, the Curl one waits for the
+									answer.
 								</span>
 							</TabContent>
 							<TabContent value="curl" class="mt-2">
-								<CopyableCodeBlock code={curlCode} language={bash} wrap />
+								<CopyableCodeBlock code={curlExample(target)} language={bash} />
 							</TabContent>
 							<TabContent value="fetch" class="mt-2">
-								<CopyableCodeBlock code={fetchCode} language={typescript} wrap />
+								<CopyableCodeBlock code={fetchExample(target)} language={typescript} />
 							</TabContent>
 						{/snippet}
 					</Tabs>
