@@ -10,10 +10,11 @@ highlighted, a workspace page inside Pages with that page highlighted.
 <script lang="ts">
 	import { ChevronDown } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
+	import { page } from '$app/state'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import PreviewRouterPicker, { type Scope } from './sessions/PreviewRouterPicker.svelte'
-	import { pageKey, type PreviewTarget } from './sessions/previewRouter'
-	import { editPathFor, leafKeyFor, viewPathFor } from './workspacePicker'
+	import { pageKey, parsePreviewItemRoute, type PreviewTarget } from './sessions/previewRouter'
+	import { editPathFor, leafKeyFor, viewPathFor, type WorkspaceItem } from './workspacePicker'
 	import { base } from '$lib/base'
 	import type { PageHeaderItem } from './pageHeaderRegistry.svelte'
 
@@ -34,17 +35,34 @@ highlighted, a workspace page inside Pages with that page highlighted.
 
 	let isOpen = $state(false)
 
+	// Two paths for one item, which differ on a draft: the header names it by the path it will
+	// deploy to, which is the folder the tree files it under, while its row is keyed by where it
+	// is stored, which is the path in the URL.
+	const route = $derived(item?.path ? parsePreviewItemRoute(page.url.pathname) : null)
+	const currentItem = $derived<WorkspaceItem | undefined>(
+		route
+			? {
+					path: route.itemPath,
+					kind: route.kind,
+					raw_app: route.raw_app,
+					summary: item?.summary ?? ''
+				}
+			: undefined
+	)
+
 	// The item's own folder is its path minus the name.
 	const initialScope = $derived.by<Scope>(() => {
 		const parts = item?.path?.split('/') ?? []
 		return parts.length >= 3 ? { kind: 'all', dir: parts.slice(0, -1).join('/') } : undefined
 	})
 	const initialHighlight = $derived(
-		item?.kind && item.path
-			? leafKeyFor(item.kind, item.path)
-			: pagePath
-				? pageKey(pagePath)
-				: undefined
+		route
+			? leafKeyFor(route.kind, route.itemPath)
+			: item?.kind && item.path
+				? leafKeyFor(item.kind, item.path)
+				: pagePath
+					? pageKey(pagePath)
+					: undefined
 	)
 
 	// A page acting on another workspace than the app's (a session in a fork) keeps acting on it:
@@ -90,6 +108,7 @@ highlighted, a workspace page inside Pages with that page highlighted.
 		<PreviewRouterPicker
 			{initialScope}
 			{initialHighlight}
+			{currentItem}
 			workspaceId={actingWorkspaceId}
 			onPick={pick}
 		/>
