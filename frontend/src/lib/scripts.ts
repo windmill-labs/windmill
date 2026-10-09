@@ -197,9 +197,12 @@ export function processInlineLangs(selected: string | undefined, langs: string[]
 }
 
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
-	// A workspace's saved order may still carry deno; only a script already
-	// written in it keeps the option.
-	langs = langs.filter((lang) => lang !== 'deno' || selected === 'deno')
+	// Only a script already written in deno keeps the option, whether or not the
+	// workspace's saved order still carries it.
+	langs = langs.filter((lang) => lang !== 'deno')
+	if (selected === 'deno') {
+		langs = [...langs, 'deno']
+	}
 	if (selected === 'nativets') {
 		return langs
 	} else {
