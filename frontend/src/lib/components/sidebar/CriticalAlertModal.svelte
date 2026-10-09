@@ -71,7 +71,7 @@
 		await updateHasUnacknowledgedCriticalAlerts(false)
 		checkForNewAlertsInterval = setInterval(() => {
 			updateHasUnacknowledgedCriticalAlerts(true)
-		}, 15000)
+		}, 30000)
 	})
 
 	onDestroy(() => {

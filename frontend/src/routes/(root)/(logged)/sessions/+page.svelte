@@ -54,7 +54,8 @@
 	import { markSessionRecovered } from '$lib/components/sessions/sessionRecoveryNotice.svelte'
 	import {
 		isGlobalAiEnabled,
-		clearSessionsBetaOptOut
+		clearSessionsBetaOptOut,
+		sessionsAllowedFor
 	} from '$lib/components/copilot/chat/global/gate'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
@@ -205,7 +206,7 @@
 	// load. `recovering` also guards re-entry: recovery mutates the session list
 	// this effect tracks, while the URL that would stop it only updates on `goto`.
 	$effect(() => {
-		if (embedded || !globalEnabled || $userStore?.operator) return
+		if (embedded || !globalEnabled || !sessionsAllowedFor($userStore?.operator)) return
 		if (!sessionState.hydrated || recovering) return
 		// A deliberate delete removes the open session ahead of its own navigation.
 		// Claiming that gap would take over the URL and tell the user the session
@@ -1021,9 +1022,9 @@
 				}}>Open sessions</Button
 			>
 		</div>
-	{:else if $userStore?.operator}
-		<!-- Operators are exempt from the sessions beta (the layout keeps their
-		     legacy docked chat); a direct URL must not bypass that. -->
+	{:else if !sessionsAllowedFor($userStore?.operator)}
+		<!-- Operators without the opt-in keep the legacy docked chat (see `gate.ts`); a direct
+		     URL must not bypass that. -->
 		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
 			<p class="text-primary font-medium">AI Sessions are not available for operators</p>
 			<p>Use the Ask AI chat instead.</p>

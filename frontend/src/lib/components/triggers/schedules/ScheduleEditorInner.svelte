@@ -33,8 +33,8 @@
 		type Schedule,
 		type ErrorHandler
 	} from '$lib/gen'
-	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
-	import { useScheduleLock } from '$lib/operatorWriteRights'
+	import { emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, AlertTriangle } from 'lucide-svelte'
@@ -52,7 +52,7 @@
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	const scheduleLock = useScheduleLock()
+	const editRights = useEditRights()
 
 	let {
 		useDrawer = true,
@@ -145,7 +145,9 @@
 	const acting = useActingUser(() => wsId)
 	const actingUser = $derived(acting.current)
 	const can_write = $derived(
-		(permsPath === undefined || canWrite(permsPath, extraPerms, actingUser)) && !$scheduleLock
+		permsPath === undefined
+			? editRights.roleCanAuthor('schedule')
+			: editRights.canEditItem('schedule', permsPath, extraPerms)
 	)
 	// Editing the runnable is closed to operators, and an unresolved acting user is no
 	// evidence that this one isn't.
@@ -182,6 +184,7 @@
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		acting.forgetFailures()
+		editRights.forgetFailures()
 		saveDraftHandler = undefined
 		try {
 			drawer?.openDrawer()
@@ -287,6 +290,7 @@
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		acting.forgetFailures()
+		editRights.forgetFailures()
 		try {
 			let s: Schedule | undefined
 			if (schedule_path) {
@@ -510,7 +514,6 @@
 		}
 		deploymentLoading = false
 	}
-
 
 	let drawer: Drawer | undefined = $state()
 

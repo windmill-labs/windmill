@@ -104,6 +104,7 @@
 		useOperatingUser,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
@@ -173,6 +174,9 @@
 			script.workspace_id == workspace &&
 			canWrite(script.path, script.extra_perms!, actingUser)
 	)
+	const editRights = useEditRights()
+	// The edit actions also need a role that authors scripts, which no operator has.
+	const canEdit = $derived(can_write && editRights.roleCanAuthor('script'))
 	let deploymentInProgress = $state(false)
 	let expandedModuleLocks: Record<string, boolean> = $state({})
 	let expandedModuleCode: Record<string, boolean> = $state({})
@@ -576,7 +580,7 @@
 			}
 		})
 
-		if (!script || actingUser?.operator || !can_write) {
+		if (!script || !canEdit) {
 			return buttons
 		}
 
@@ -1079,7 +1083,7 @@
 								{#if Object.keys(script?.schema?.properties ?? {}).length > 0}
 									<AIFormAssistant
 										instructions={promptForAi}
-										onEditInstructions={can_write && !actingUser?.operator
+										onEditInstructions={canEdit
 											? () => onNavigate(`/scripts/edit/${script?.path}?metadata_open=true`)
 											: undefined}
 										runnableType="script"

@@ -180,6 +180,7 @@ resource_type: workspace_id(char), name(char), schema(jsonb), description(text),
   FK: (workspace_id) -> workspace(id)
 resume_job: id(uuid), job(uuid), flow(uuid), created_at(ts), value(jsonb), approver(char), resume_id(int), approved(bool)
   FK: (flow) -> v2_job_queue(id)
+runnable_job_stats: hour(bigint), workspace_id(char), runnable_path(char), worker_group(text), job_count(int), total_duration_ms(bigint), max_memory_peak(int), sum_memory_peak(bigint), memory_sample_count(int), total_cpu_ms(bigint)
 runnable_settings: hash(bigint), debouncing_settings(bigint), concurrency_settings(bigint)
 schedule: workspace_id(char), path(char), edited_by(char), edited_at(ts), schedule(char), enabled(bool), script_path(char), args(jsonb), extra_perms(jsonb), is_flow(bool), email(char), error(text), timezone(char), on_failure(char), on_recovery(char), on_failure_times(int), on_failure_exact(bool), on_failure_extra_args(jsonb), on_recovery_times(int), on_recovery_extra_args(jsonb), ws_error_handler_muted(bool), retry(jsonb), summary(char), no_flow_overlap(bool), tag(char), paused_until(ts), on_success(char), on_success_extra_args(jsonb), cron_version(text), description(text), dynamic_skip(char), labels(text[])
   FK: (workspace_id) -> workspace(id)

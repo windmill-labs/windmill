@@ -20,15 +20,12 @@
 	import { Button } from '$lib/components/common'
 	import { AppService, OpenAPI } from '$lib/gen'
 	import { userStore, type UserExt } from '$lib/stores'
-	import { canWrite } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { ExternalLink, Pen } from 'lucide-svelte'
 	import { page } from '$app/state'
 	import { isMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
-	import {
-		setOperatingWorkspace,
-		useOperatingUser
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
 
 	let {
 		workspace,
@@ -58,7 +55,6 @@
 	// The app, its permission check and everything this viewer renders belong to `workspace`,
 	// which on a session preview tab is the session's and not the one the nav points at.
 	setOperatingWorkspace(() => workspace)
-	const operatingUser = useOperatingUser()
 
 	/** This workspace's membership for the viewer, which is what the app's `ctx.username` /
 	 * `ctx.groups` must describe — they sit beside `ctx.workspace` in the same object. */
@@ -72,8 +68,9 @@
 	let appPerms = $state<{ path: string; extraPerms: Record<string, boolean> } | undefined>(
 		undefined
 	)
+	const editRights = useEditRights()
 	const canWriteApp = $derived(
-		!!appPerms && canWrite(appPerms.path, appPerms.extraPerms, operatingUser.current)
+		!!appPerms && editRights.canEditItem('app', appPerms.path, appPerms.extraPerms)
 	)
 	/** Raw vs low-code, read from the app itself rather than from the route:
 	 * both kinds render here and either route serves either kind (links to a raw

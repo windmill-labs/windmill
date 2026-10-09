@@ -22,6 +22,7 @@
 		previewLocationLabel,
 		stripBase
 	} from './previewRouter'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 
 	let {
 		runtime,
@@ -54,6 +55,9 @@
 		'aiChatManager',
 		untrack(() => runtime.manager)
 	)
+
+	const permissions = useSessionPermissions(() => workspaceId)
+	const canEdit = $derived(permissions.canOpenEditor(kind))
 
 	// This reads the deployed version over the API rather than from the editor cell the
 	// chat mutates, so it is the one preview kind that does not self-sync (the invariant
@@ -197,11 +201,14 @@
 			<div class="text-sm text-primary">Not deployed yet</div>
 			<div class="text-xs text-tertiary max-w-sm">
 				Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
-				version to view. Deploy it from the editor to see it here.
+				version to view.{#if canEdit}
+					Deploy it from the editor to see it here.{/if}
 			</div>
-			<Button unifiedSize="sm" variant="default" startIcon={{ icon: Pen }} on:click={toEditSide}>
-				Back to editor
-			</Button>
+			{#if canEdit}
+				<Button unifiedSize="sm" variant="default" startIcon={{ icon: Pen }} on:click={toEditSide}>
+					Back to editor
+				</Button>
+			{/if}
 		</div>
 	{:else if kind === 'script'}
 		<ScriptDetail

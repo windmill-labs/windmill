@@ -3,9 +3,8 @@
 	import type { NativeServiceName, TriggerMode } from '$lib/gen/types.gen'
 	import type { ExtendedNativeTrigger } from './utils'
 	import { getServiceConfig } from './utils'
-	import { canWrite, sendUserToast } from '$lib/utils'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
-	import { userStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/utils'
+	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -19,6 +18,7 @@
 	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -111,7 +111,7 @@
 			{#each triggers as trigger (trigger.external_id)}
 				{@const isFlow = trigger.is_flow}
 				{@const href = `${isFlow ? '/flows/get' : '/scripts/get'}/${trigger.script_path}`}
-				{@const canEdit = canWrite(trigger.script_path, {}, $userStore) && !$triggerLock}
+				{@const canEdit = editRights.canEditItem('trigger', trigger.script_path, {})}
 				<div
 					class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 				>
