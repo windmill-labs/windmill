@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.830.0](https://github.com/windmill-labs/windmill/compare/v1.829.0...v1.830.0) (2026-10-09)
+
+
+### Features
+
+* add a jobs:run:dependencies token scope for lock generation ([#11643](https://github.com/windmill-labs/windmill/issues/11643)) ([1dc4ed5](https://github.com/windmill-labs/windmill/commit/1dc4ed5e7fb86c9658f1f877e7b92cd9dab5e283))
+* let operators compose full-code apps when the workspace grants it ([#11229](https://github.com/windmill-labs/windmill/issues/11229)) ([02e4697](https://github.com/windmill-labs/windmill/commit/02e4697157112581e9e2a9303180077126db714b))
+* operators get AI sessions ([#11443](https://github.com/windmill-labs/windmill/issues/11443)) ([338c4e9](https://github.com/windmill-labs/windmill/commit/338c4e921dc3185d886c8b040f253285adf20efb))
+* replace the hub_sync script with an opt-in daily server sync ([#11624](https://github.com/windmill-labs/windmill/issues/11624)) ([2b55a8a](https://github.com/windmill-labs/windmill/commit/2b55a8afbc8a86c6cebe97b1cab02c313b986f22))
+* retry transient AI provider failures before output reaches readers ([#11623](https://github.com/windmill-labs/windmill/issues/11623)) ([d3ddef0](https://github.com/windmill-labs/windmill/commit/d3ddef0b7ec4705aa578c4eca24b96e9152485bd))
+* stop offering deno for new scripts, ship it only on full images ([#11648](https://github.com/windmill-labs/windmill/issues/11648)) ([cda7883](https://github.com/windmill-labs/windmill/commit/cda78830fde1b96bd3de2674e23c245b50e3c051))
+
+
+### Bug Fixes
+
+* **cli:** count superadmins as able to preserve ownership on push ([#11653](https://github.com/windmill-labs/windmill/issues/11653)) ([70db567](https://github.com/windmill-labs/windmill/commit/70db567a78b1e1bc9e2dcc9ff2139951d778117e))
+* harden app secret validation ([#11655](https://github.com/windmill-labs/windmill/issues/11655)) ([8556a7b](https://github.com/windmill-labs/windmill/commit/8556a7bebe093e0bd61c33d67415fd553f0070ad))
+* open the chat + menu without waiting on the skills and mcp fetches ([#11645](https://github.com/windmill-labs/windmill/issues/11645)) ([1fea1aa](https://github.com/windmill-labs/windmill/commit/1fea1aa6609d644e02bac8d16186f9a2dfcb63cd))
+* say Running on a chat run card only once its job exists ([#11627](https://github.com/windmill-labs/windmill/issues/11627)) ([d046187](https://github.com/windmill-labs/windmill/commit/d046187e3edd01535240c6080b483afe154ae189))
+
 ## [1.829.0](https://github.com/windmill-labs/windmill/compare/v1.828.0...v1.829.0) (2026-10-09)
 
 
