@@ -107,6 +107,11 @@ pub trait SSEParser {
     /// Whether the stream delivered the event that ends a complete response.
     fn is_complete(&self) -> bool;
 
+    /// Whether a stream that closed cleanly holds a complete response.
+    fn is_complete_at_close(&self) -> bool {
+        self.is_complete()
+    }
+
     async fn parse_events(&mut self, response: Response) -> Result<(), Error> {
         let mut stream = response.bytes_stream().eventsource();
         let mut consecutive_errors = 0;
@@ -150,7 +155,7 @@ pub trait SSEParser {
             }
         }
 
-        if !self.is_complete() {
+        if !self.is_complete_at_close() {
             return Err(truncated_stream_error());
         }
         Ok(())
@@ -724,7 +729,11 @@ impl GeminiSSEParser {
 
 impl SSEParser for GeminiSSEParser {
     fn is_complete(&self) -> bool {
-        self.turn.is_complete()
+        self.turn.ended()
+    }
+
+    fn is_complete_at_close(&self) -> bool {
+        self.turn.complete_at_close()
     }
 
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
@@ -1280,18 +1289,25 @@ mod tests {
             .await
             .unwrap();
 
-        let gemini = |chunk| async move {
+        let gemini = |chunks| async move {
             GeminiSSEParser::new(Box::new(NoopSink))
-                .parse_events(sse_response(vec![Ok(chunk)]))
+                .parse_events(sse_response(chunks))
                 .await
         };
-        // Thinking spent the whole `maxOutputTokens`: usage, and nothing else.
-        gemini("data: {\"usageMetadata\":{\"promptTokenCount\":9,\"totalTokenCount\":24,\"thoughtsTokenCount\":15},\"modelVersion\":\"gemini-2.5-flash\"}\n\n")
-            .await
-            .unwrap();
-        let truncated = gemini("data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"Hi\"}]}}],\"usageMetadata\":{\"promptTokenCount\":9}}\n\n")
-            .await
-            .unwrap_err();
+        // Thinking spent the whole `maxOutputTokens`: a clean close with no event.
+        gemini(vec![]).await.unwrap();
+        let dropped = gemini(vec![Err(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "reset",
+        ))])
+        .await
+        .unwrap_err();
+        assert!(as_transient(&dropped).is_some(), "{dropped}");
+        let truncated = gemini(vec![Ok(
+            "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"Hi\"}]}}]}\n\n",
+        )])
+        .await
+        .unwrap_err();
         assert!(as_transient(&truncated).is_some(), "{truncated}");
     }
 

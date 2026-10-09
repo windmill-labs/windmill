@@ -525,7 +525,7 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
         let mut turn = GeminiTurn::default();
         let failure = loop {
             let Some(event) = gemini_sse_stream.next().await else {
-                break (!turn.is_complete()).then(truncated_stream_error);
+                break (!turn.complete_at_close()).then(truncated_stream_error);
             };
             match event {
                 Ok(event) => match parse_gemini_sse_event(&event.data) {
@@ -540,7 +540,7 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
                     Ok(None) => {}
                     Err(e) => break Some(e),
                 },
-                Err(EventStreamError::Transport(_)) if turn.is_complete() => break None,
+                Err(EventStreamError::Transport(_)) if turn.ended() => break None,
                 Err(EventStreamError::Transport(e)) => {
                     break Some(transient_error(
                         format!("The connection to Gemini broke off mid-response: {e}"),
