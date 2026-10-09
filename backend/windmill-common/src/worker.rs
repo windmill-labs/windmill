@@ -1805,6 +1805,7 @@ pub struct CpuStat {
     pub throttled_usec: u64,
 }
 
+#[cfg(not(windows))]
 fn cpu_stat_field(stat: &str, key: &str) -> Option<u64> {
     stat.lines().find_map(|line| {
         let (k, v) = line.split_once(' ')?;
@@ -1812,6 +1813,7 @@ fn cpu_stat_field(stat: &str, key: &str) -> Option<u64> {
     })
 }
 
+#[cfg(not(windows))]
 fn parse_cgroup_v2_cpu_stat(stat: &str) -> Option<CpuStat> {
     Some(CpuStat {
         usage_usec: cpu_stat_field(stat, "usage_usec")?,
@@ -1822,6 +1824,7 @@ fn parse_cgroup_v2_cpu_stat(stat: &str) -> Option<CpuStat> {
 }
 
 /// cgroup v1 splits the same figures over two controllers and counts time in nanoseconds.
+#[cfg(not(windows))]
 fn parse_cgroup_v1_cpu_stat(cpuacct_usage: &str, stat: &str) -> Option<CpuStat> {
     Some(CpuStat {
         usage_usec: cpuacct_usage.trim().parse::<u64>().ok()? / 1000,
@@ -2986,6 +2989,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    #[cfg(not(windows))]
     #[test]
     fn cgroup_cpu_stat_is_normalized_to_microseconds() {
         let v2 = "usage_usec 2500000\nuser_usec 2000000\nsystem_usec 500000\n\
