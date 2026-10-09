@@ -18,7 +18,9 @@
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { displayDate } from '$lib/utils'
 	import { userStore } from '$lib/stores'
-	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
+	import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
 
@@ -70,7 +72,15 @@
 		const username = target === 'all' ? undefined : target.username
 		if (target !== 'all' && !username) return
 		deleteBusy = true
+		const query = { workspace, itemKind, path }
 		try {
+			// A path-wide delete takes our own draft too. Mute autosave and let any save
+			// already in flight land first: one committing after the delete would put the
+			// draft back for the reload below to read.
+			if (target === 'all') {
+				UserDraft.stopSync(itemKind, path, { workspace })
+				await UserDraftDbSyncer.quiesce(query)
+			}
 			await DraftService.deleteDraftForUser({
 				workspace,
 				kind: itemKind,
@@ -78,6 +88,7 @@
 				username: username ?? undefined
 			})
 		} catch (e) {
+			if (target === 'all') UserDraft.restartSync(itemKind, path, { workspace })
 			sendUserToast(`Could not delete draft: ${e.body ?? e.message}`, true)
 			return
 		} finally {
@@ -87,10 +98,12 @@
 		deleting = undefined
 		isOpen = false
 
-		// A path-wide delete took our own draft too: drop the editor's copy with
-		// autosave muted, or its next write would save that draft right back.
+		// Drop the editor's copy of our draft as well, or its next write would save
+		// it right back. Autosave re-arms on the next interaction.
 		if (target === 'all') {
-			discardDraftAfterDeploy({ workspace, itemKind, path })
+			UserDraft.remove(itemKind, path, { workspace })
+			await UserDraftDbSyncer.flush(query)
+			armRestartOnFirstInteraction(workspace, itemKind, path)
 		}
 		// Nothing is left at a never-deployed path once its last draft is gone, so
 		// there is no item to reload the editor on.
