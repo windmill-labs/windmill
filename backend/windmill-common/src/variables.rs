@@ -597,7 +597,7 @@ pub async fn get_reserved_variables(
     ContextualVariable {
         name: "WM_END_USER_EMAIL".to_string(),
         value: end_user_email.unwrap_or_else(|| "".to_string()),
-        description: "Email of the end user that executed the current script, propagated to flow steps. Only set when the run was triggered from an app (empty otherwise).".to_string(),
+        description: "Email of the end user that executed the current script, even when it runs on behalf of another identity, propagated to flow steps and child jobs. Set for app and API runs, empty for runs fired by a trigger or a schedule.".to_string(),
         is_custom: false,
     },
     ContextualVariable {
