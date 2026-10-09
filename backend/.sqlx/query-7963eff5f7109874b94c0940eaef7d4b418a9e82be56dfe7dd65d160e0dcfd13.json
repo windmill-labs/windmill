@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT wp.draining FROM v2_job j\n            JOIN v2_job_queue q ON q.id = j.id\n            JOIN worker_ping wp ON wp.worker = q.worker\n            WHERE j.id = $1 AND j.workspace_id = $2 AND q.running AND q.started_at IS NOT NULL\n            AND ($3::text[] IS NULL OR j.tag = ANY($3))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "draining",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7963eff5f7109874b94c0940eaef7d4b418a9e82be56dfe7dd65d160e0dcfd13"
+}

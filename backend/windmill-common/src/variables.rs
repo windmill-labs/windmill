@@ -14,7 +14,7 @@ use crate::utils::WarnAfterExt;
 use crate::worker::Connection;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
-use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
+use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 
@@ -375,13 +375,15 @@ pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
     mc.encrypt_str_to_base64(value)
 }
 
+const DECRYPT_FAILED: &str =
+    "Could not decrypt value. The value may have been encrypted with a different key.";
+
+/// Every failure returns the same message so responses carry no signal about why decryption
+/// failed (padding, base64, UTF-8); the cause is only logged.
 pub fn decrypt(mc: &MagicCrypt256, value: String) -> error::Result<String> {
-    mc.decrypt_base64_to_string(value).map_err(|e| match e {
-        MagicCryptError::DecryptError(_) => error::Error::internal_err(
-            "Could not decrypt value. The value may have been encrypted with a different key."
-                .to_string(),
-        ),
-        _ => error::Error::internal_err(e.to_string()),
+    mc.decrypt_base64_to_string(value).map_err(|e| {
+        tracing::warn!("decryption failed: {e}");
+        error::Error::internal_err(DECRYPT_FAILED.to_string())
     })
 }
 
@@ -746,7 +748,31 @@ pub async fn get_variable_or_self_as<T: Authable + Sync>(
 
 #[cfg(test)]
 mod tests {
-    use super::{can_bind_as_prologue_const, escape_js_single_quoted, is_valid_js_identifier};
+    use super::{
+        can_bind_as_prologue_const, decrypt, escape_js_single_quoted, is_valid_js_identifier,
+        DECRYPT_FAILED,
+    };
+    use crate::error::Error;
+    use magic_crypt::MagicCryptTrait;
+
+    #[test]
+    fn decrypt_failures_all_return_the_same_message() {
+        let mc = magic_crypt::new_magic_crypt!("workspace-key", 256);
+        let other = magic_crypt::new_magic_crypt!("another-key", 256);
+        let failures = [
+            "not base64 at all!".to_string(),
+            mc.encrypt_bytes_to_base64(&[0xff, 0xfe, 0xfd]),
+            other.encrypt_str_to_base64("secret"),
+        ];
+        for value in failures {
+            match decrypt(&mc, value.clone()) {
+                Err(Error::InternalErrLoc { message, .. }) => {
+                    assert_eq!(message, DECRYPT_FAILED, "for {value:?}")
+                }
+                other => panic!("expected the uniform decrypt error for {value:?}, got {other:?}"),
+            }
+        }
+    }
 
     #[test]
     fn is_valid_js_identifier_gates_prologue_injection() {

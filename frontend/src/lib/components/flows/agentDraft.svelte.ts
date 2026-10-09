@@ -438,6 +438,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		// The counter the step card's write-back used to report, from the surface that now owns the
 		// write: a deploy here reaches every flow linking this agent.
 		logReusableAgentUsage(noDeployed ? 'saved' : 'updated')
+		// A new agent's editor opens on its draft's storage path, so its first save always lands
+		// elsewhere: that is naming it, not a rename.
+		const firstSave = noDeployed
 		deployed = submitted
 		noDeployed = false
 		const renamed = submitted.path !== fromPath
@@ -456,7 +459,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		sync.discard(fromPath, submitted)
 		// A rename moves the row, so the next load must not reuse the old key.
 		loadedFor = `${ws}:${submitted.path}`
-		sendUserToast(renamed ? `Renamed agent to ${submitted.path}` : `Saved agent ${submitted.path}`)
+		sendUserToast(
+			renamed && !firstSave ? `Renamed agent to ${submitted.path}` : `Saved agent ${submitted.path}`
+		)
 		return submitted.path
 	}
 

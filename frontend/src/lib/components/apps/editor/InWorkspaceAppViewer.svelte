@@ -19,7 +19,7 @@
 	import type { Item } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import { AppService, OpenAPI } from '$lib/gen'
-	import type { UserExt } from '$lib/stores'
+	import { userStore, type UserExt } from '$lib/stores'
 	import { canWrite } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { ExternalLink, Pen } from 'lucide-svelte'
@@ -251,7 +251,7 @@
 			<PublicApp
 				{app}
 				{workspace}
-				user={appUser}
+				user={appUser ?? $userStore}
 				{notExists}
 				{noPermission}
 				jwtError={false}

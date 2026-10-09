@@ -1457,6 +1457,12 @@
 					}
 				]
 	)
+
+	// The label of the entry the sidebar highlights, so the breadcrumb and the sidebar name the
+	// same pane: both read `tab`, which resolves the URL's aliases (`teams`, `deploy_to`, …).
+	const tabLabel = $derived(
+		navigationGroups.flatMap((g) => g.items).find((i) => i.id === tab)?.label
+	)
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
@@ -1464,7 +1470,11 @@
 		<!-- No title of its own: the band already says which workspace's settings these are, and the
 		     two controls that sat beside the title are the page's actions. The panes below scroll
 		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
-		<PageHeaderContent actions={settingsActions} separator="always" />
+		<PageHeaderContent
+			section={tabLabel ? { parent: 'Workspace settings', label: tabLabel } : undefined}
+			actions={settingsActions}
+			separator="always"
+		/>
 
 		<div class="flex grow min-h-0 pb-4">
 			<!-- Sidebar Navigation -->
