@@ -10,14 +10,24 @@
 
 	interface Props {
 		aiId?: string
-		/** Already resolved and filtered; undefined while loading. */
-		items: Item[] | undefined
+		items?: Item[] | (() => Item[]) | (() => Promise<Item[]>)
 		meltItem: MenubarMenuElements['item']
 		builders?: ReturnType<typeof createDropdownMenu>['builders']
 		close?: (afterClose?: () => void) => void
 	}
 
-	let { aiId, items, meltItem, builders, close }: Props = $props()
+	let { aiId, items = [], meltItem, builders, close }: Props = $props()
+
+	let computedItems: Item[] | undefined = $state(undefined)
+	async function computeItems() {
+		if (typeof items === 'function') {
+			computedItems = ((await items()) ?? []).filter((item) => !item.hide)
+		} else {
+			computedItems = items.filter((item) => !item.hide)
+		}
+	}
+
+	computeItems()
 </script>
 
 {#snippet menuItem(item: Item)}
@@ -87,9 +97,9 @@
 	</MenuItem>
 {/snippet}
 
-{#if items}
+{#if computedItems}
 	<div class="flex flex-col">
-		{#each items as item}
+		{#each computedItems ?? [] as item}
 			{#if item.separatorTop}
 				<div class="my-1 border-t border-border-light"></div>
 			{/if}
