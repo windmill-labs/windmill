@@ -8,8 +8,19 @@
 		Loader2,
 		Download,
 		Trash,
-		MoveRight
+		MoveRight,
+		Ellipsis,
+		FileText,
+		FileCode,
+		FileJson,
+		FileSpreadsheet,
+		FileImage,
+		FileArchive,
+		FilePlay,
+		FileAudio
 	} from 'lucide-svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import TextInput from './text_input/TextInput.svelte'
 	import {
 		CancelablePromise,
 		HelpersService,
@@ -35,7 +46,8 @@
 		emptyString,
 		parseS3Object,
 		sendUserToast,
-		type S3Object
+		type S3Object,
+		type IconType
 	} from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { Alert, Button } from './common'
@@ -228,6 +240,25 @@
 
 	/** Per-level listing only makes sense while browsing; searching stays flat. */
 	let lazyMode = $derived(lazyFolders && filter.trim() === '')
+
+	/** `nestingLevel` counts two per folder depth. */
+	function treeRowIndent(nestingLevel: number): string {
+		return `padding-left: ${12 + (nestingLevel / 2) * 16}px;`
+	}
+
+	const FILE_ICONS: [RegExp, IconType][] = [
+		[/\.(csv|tsv|xlsx?|parquet|ods)$/i, FileSpreadsheet],
+		[/\.(json|jsonl|ndjson)$/i, FileJson],
+		[/\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?)$/i, FileImage],
+		[/\.(zip|tar|gz|tgz|bz2|xz|7z|rar|zst)$/i, FileArchive],
+		[/\.(mp4|mov|webm|mkv|avi)$/i, FilePlay],
+		[/\.(mp3|wav|ogg|flac|m4a)$/i, FileAudio],
+		[/\.(py|ts|js|go|rs|sh|sql|java|rb|php|ya?ml|toml|html|css|xml)$/i, FileCode],
+		[/\.(txt|md|log|pdf|docx?|rtf)$/i, FileText]
+	]
+	function fileIconFor(name: string): IconType {
+		return FILE_ICONS.find(([re]) => re.test(name))?.[1] ?? FileIcon
+	}
 
 	function nestingLevelOf(key: string): number {
 		const slashes = (key.match(/\//g) ?? []).length
@@ -1098,28 +1129,25 @@
 			</div>
 		{/if}
 	{/if}
-	<div class="flex flex-row border rounded-md h-full min-h-0 overflow-hidden">
+	<Splitpanes class="border rounded-md h-full min-h-0 overflow-hidden">
 		{#if !fileListUnavailable}
-			<div class="min-w-[30%] border-r flex flex-col min-h-0">
+			<Pane size={28} minSize={15} class="flex flex-col min-h-0">
 				{#if !rootPath}
-					<div class="w-full p-1 border-b">
-						<input
-							type="text"
-							placeholder="Search by path prefix"
+					<div class="mx-3 mt-3">
+						<TextInput
 							bind:value={filter}
-							class="text-xl"
+							inputProps={{ placeholder: 'Search by path prefix...' }}
 						/>
 					</div>
 				{/if}
 				{#if displayedFileKeys.length === 0}
 					{#if fileListLoading}
-						<div class="grow min-h-0 flex justify-center items-center">
-							<div class="flex text-secondary text-xs items-center">
-								<Loader2 size={12} class="animate-spin mr-1" /> Loading content
-							</div>
+						<div class="flex items-center gap-2 text-tertiary p-3">
+							<Loader2 class="animate-spin" size={14} />
+							<span class="text-xs">Loading...</span>
 						</div>
 					{:else}
-						<div class="p-4 text-primary text-xs text-center italic">
+						<div class="p-3 text-tertiary text-xs">
 							{#if filter.trim() !== ''}
 								No files starting with "{filter.trim()}"
 							{:else}
@@ -1131,19 +1159,19 @@
 							can remove every match. Without this the only control that could resume
 							the listing would be hidden behind the empty state. -->
 							<div class="flex justify-center pb-4">
-								<Button variant="default" size="xs2" on:click={() => loadNextFlatPage()}>
+								<Button variant="default" unifiedSize="xs" onClick={() => loadNextFlatPage()}>
 									Keep looking
 								</Button>
 							</div>
 						{/if}
 					{/if}
 				{:else}
-					<div class="grow min-h-0" bind:clientHeight={listDivHeight}>
+					<div class="grow min-h-0 mt-1.5" bind:clientHeight={listDivHeight}>
 						<VirtualList
 							width="100%"
 							height={listDivHeight}
 							itemCount={displayedFileKeys.length}
-							itemSize={42}
+							itemSize={32}
 						>
 							{#snippet header()}{/snippet}
 							{#snippet footer()}{/snippet}
@@ -1155,99 +1183,89 @@
 								{@const load_more_prefix = is_load_more ? item_key.slice(0, -1) : ''}
 								{@const file_info = allFilesByKey[item_key]}
 
-								<div
-									{style}
-									class={twMerge(
-										'hover:bg-surface-hover border-b',
-										index === displayedFileKeys.length - 1 && 'border-b-0'
-									)}
-								>
+								<div {style}>
 									{#if is_load_more}
 										<!-- Indented like the siblings it belongs to, so it must discount
 										the browsing root the same way entry rows do. -->
 										{@const loadMoreNesting =
 											nestingLevelOf(load_more_prefix + 'x') - 2 * rootPathNestingLevel}
 										{@const loadingMore = folderState[load_more_prefix]?.loading === true}
-										<!-- svelte-ignore a11y_click_events_have_key_events -->
-										<!-- svelte-ignore a11y_no_static_element_interactions -->
-										<div
+										<button
 											onclick={() => !loadingMore && loadMore(load_more_prefix)}
-											class={twMerge(
-												'flex flex-row h-full text-xs items-center justify-start text-secondary',
-												loadingMore ? 'cursor-default' : 'cursor-pointer'
-											)}
+											disabled={loadingMore}
+											class="w-full text-xs font-normal flex gap-2 items-center h-8 pr-1 text-secondary hover:bg-surface-hover cursor-pointer disabled:cursor-default"
+											style={treeRowIndent(loadMoreNesting)}
 										>
-											<div
-												class="flex flex-row w-full gap-2 h-full items-center"
-												style={`margin-left: ${(2 + loadMoreNesting) * 0.25}rem;`}
-											>
-												<!-- Occupies the same slot as the sibling rows' file/folder icon so
-												the labels line up, and holds its width when the spinner swaps in. -->
-												<div class="w-4 shrink-0 flex items-center justify-center">
-													{#if loadingMore}
-														<Loader2 size={16} class="animate-spin" />
-													{:else}
-														<ChevronDown size={16} />
-													{/if}
-												</div>
-												<div class="truncate text-ellipsis w-56">Load more</div>
-											</div>
-										</div>
+											<span class="shrink-0 w-3.5"></span>
+											{#if loadingMore}
+												<Loader2 class="shrink-0 animate-spin" size={14} />
+											{:else}
+												<Ellipsis class="shrink-0" size={14} />
+											{/if}
+											<span class="truncate">Load more</span>
+										</button>
 									{:else if file_info}
 										{@const nestingLevel = file_info.nestingLevel - 2 * rootPathNestingLevel}
-										<!-- svelte-ignore a11y_click_events_have_key_events -->
-										<!-- svelte-ignore a11y_no_static_element_interactions -->
-										<div
+										{@const isSelected = selectedFileKey?.s3 === file_info.full_key}
+										{@const isFolder = file_info.type === 'folder'}
+										{@const RowIcon = isFolder
+											? file_info.collapsed
+												? FolderClosed
+												: FolderOpen
+											: fileIconFor(file_info.display_name)}
+										<button
 											onclick={() => selectItem(index)}
+											title={file_info.full_key}
 											class={twMerge(
-												'flex flex-row h-full font-semibold text-xs items-center justify-start',
-												selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
-													? 'bg-surface-hover'
-													: ''
+												'w-full text-xs font-normal text-primary flex gap-2 items-center h-8 pr-1 cursor-pointer',
+												isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover'
 											)}
+											style={treeRowIndent(nestingLevel)}
 										>
-											<div
-												class={`flex flex-row w-full gap-2 h-full items-center`}
-												style={`margin-left: ${(2 + nestingLevel) * 0.25}rem;`}
-											>
-												{#if file_info.type === 'folder'}
-													{#if folderState[file_info.full_key]?.loading}
-														<Loader2 size={16} class="animate-spin" />
-													{:else if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
-															size={16}
-														/>{/if}
-													<div class="truncate text-ellipsis w-56">
-														<!-- An object-store key may contain an empty segment, so `a//` is a real
-														folder whose name is ''. Label it rather than rendering a blank row. -->
-														{#if file_info.display_name === ''}
-															<span class="italic text-secondary">(empty name)</span>
-														{:else}{file_info.display_name}{/if}
-														{#if !lazyMode}
-															({file_info.count}{count % 1000 === 0 &&
-															lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
-																? '+'
-																: ''} item{file_info.count === 1 ? '' : 's'})
-														{/if}
-													</div>
+											{#if isFolder}
+												{#if folderState[file_info.full_key]?.loading}
+													<Loader2 class="shrink-0 text-secondary animate-spin" size={14} />
 												{:else}
-													<FileIcon size={16} />
-													<div class="truncate text-ellipsis w-56">
-														{file_info.display_name}
-													</div>
+													<ChevronDown
+														class={twMerge(
+															'shrink-0 text-secondary transition-transform',
+															file_info.collapsed && '-rotate-90'
+														)}
+														size={14}
+													/>
 												{/if}
-											</div>
-										</div>
+											{:else}
+												<span class="shrink-0 w-3.5"></span>
+											{/if}
+											<RowIcon class="shrink-0" size={14} />
+											<span class="truncate text-left">
+												<!-- An object-store key may contain an empty segment, so `a//` is a real
+												folder whose name is ''. Label it rather than rendering a blank row. -->
+												{#if file_info.display_name === ''}
+													<span class="italic text-secondary">(empty name)</span>
+												{:else}{file_info.display_name}{/if}
+											</span>
+											<div class="grow"></div>
+											{#if isFolder && !lazyMode}
+												<span class="shrink-0 text-2xs text-tertiary mr-2">
+													{file_info.count}{count % 1000 === 0 &&
+													lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
+														? '+'
+														: ''}
+												</span>
+											{/if}
+										</button>
 									{/if}
 								</div>
 							{/snippet}
 						</VirtualList>
 					</div>
 					<div
-						class="flex flex-col gap-2 text-2xs justify-center items-center text-secondary w-full border-t py-1"
+						class="flex items-center justify-between gap-2 min-h-8 px-3 py-1 border-t text-2xs text-tertiary"
 					>
 						{#if fileListLoading === true}
-							<div class="flex text-secondary mt-1 text-xs justify-center items-center w-full">
-								<Loader2 size={12} class="animate-spin mr-1" /> Loading content
+							<div class="flex items-center gap-1.5">
+								<Loader2 size={12} class="animate-spin" /> Loading...
 							</div>
 						{:else if lazyMode}
 							<!-- Per-level listing: totals below the tree would be a count of what
@@ -1260,16 +1278,16 @@
 							</div>
 
 							{#if flatHasMore}
-								<Button variant="default" size="xs2" on:click={() => loadNextFlatPage()}>
+								<Button variant="subtle" unifiedSize="xs" onClick={() => loadNextFlatPage()}>
 									Load more
 								</Button>
 							{/if}
 						{/if}
 					</div>
 				{/if}
-			</div>
+			</Pane>
 		{/if}
-		<div class="flex flex-col h-full w-full min-h-0 overflow-hidden">
+		<Pane class="flex flex-col min-h-0 overflow-hidden">
 			{#if fileMetadata === undefined}
 				<div class="p-4">
 					{#if fileInfoLoading}
@@ -1365,8 +1383,8 @@
 				{loadFileMetadataRequest}
 				class="h-full"
 			/>
-		</div>
-	</div>
+		</Pane>
+	</Splitpanes>
 {/if}
 
 <ConfirmationModal
