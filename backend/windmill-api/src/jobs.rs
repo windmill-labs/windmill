@@ -7826,6 +7826,7 @@ pub async fn run_workflow_as_code(
             )
         };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, mut tx) = push(
         &db,
@@ -7854,7 +7855,7 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         None,
         None,
         scope_ceiling.as_deref(),
