@@ -30,7 +30,12 @@ type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
+import {
+	BUILDER_FRAMEWORK_TEMPLATES,
+	react19Template,
+	STARTER_RUNNABLES
+} from '$lib/components/raw_apps/templates'
+import { operatorBuilderAppsIn, workspaceListLoaded } from '$lib/operatorWriteRights'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
@@ -1052,10 +1057,13 @@ function createRuntime(session: Session): SessionRuntime {
 			} catch (err) {
 				if (seedIfMissing && !deployedOnly && err instanceof ApiError && err.status === 404) {
 					const user = get(userStore)
+					// A builder can save no inline runnable, so the regular starter could never be saved.
+					await workspaceListLoaded()
+					const builder = operatorBuilderAppsIn(workspace)
 					saved.val = undefined
 					store.val = {
-						files: { ...react19Template },
-						runnables: structuredClone(STARTER_RUNNABLES),
+						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
+						runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
 						data: { ...DEFAULT_DATA },
 						policy: {
 							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
