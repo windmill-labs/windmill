@@ -19,6 +19,7 @@
 		forceDisabledMessage = '',
 		wideLayout = false,
 		emptyHint,
+		starterPrompts = undefined,
 		inputPreface,
 		initialInstructions = undefined,
 		onDraftChange = undefined
@@ -36,6 +37,7 @@
 		// in; the narrow global-chat panel leaves it off.
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
+		starterPrompts?: import('$lib/onboardingProfile').StarterPrompt[]
 		inputPreface?: import('svelte').Snippet
 		// Seed / observe the composer's draft text (forwarded to AIChatDisplay).
 		initialInstructions?: string
@@ -199,6 +201,7 @@
 	{hideModeSelector}
 	{wideLayout}
 	{emptyHint}
+	{starterPrompts}
 	{inputPreface}
 	{initialInstructions}
 	{onDraftChange}

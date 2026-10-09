@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
+	import { PLACEHOLDER_FADE_CLASS } from './starter/starterPrompts.svelte'
 	import autosize from '$lib/autosize'
 	import { tick, type Snippet } from 'svelte'
 	import type { ContextElement } from './context'
@@ -50,6 +51,10 @@
 		onKeyDown?: (e: KeyboardEvent) => void
 		/** Rendered inside the input box, above the textarea (e.g. context chips). */
 		leading?: Snippet
+		/** The taller box that opens a session, matching Home's composer. */
+		hero?: boolean
+		/** Replaces `placeholder` with one drawn over the field, so it can fade between prompts. */
+		fadingPlaceholder?: { text: string; visible: boolean }
 	}
 
 	let {
@@ -66,10 +71,16 @@
 		onTextFiles,
 		className = '',
 		onKeyDown = undefined,
-		leading
+		leading,
+		hero = false,
+		fadingPlaceholder
 	}: Props = $props()
 
 	const aiChatManager = getAiChatManager()
+
+	const placeholderClass = $derived(
+		`text-hint ${PLACEHOLDER_FADE_CLASS} ${fadingPlaceholder?.visible ? 'opacity-100' : 'opacity-0'}`
+	)
 
 	// Titles currently appearing as `@title` mentions in the textarea. Compared
 	// against the previous snapshot in a $effect (NOT inside handleInput —
@@ -789,7 +800,7 @@
 	}
 </script>
 
-<div class={composerBoxClass(disabled)}>
+<div class={twMerge(composerBoxClass(disabled), hero && !disabled && 'shadow-sm')}>
 	<!-- Context chips live inside the input box, above the textarea. The snippet
 	     self-guards (renders nothing when empty) so no blank row appears. -->
 	{@render leading?.()}
@@ -802,16 +813,22 @@
 			)}
 		>
 			<div style="transform: translateY({-scrollTop}px)" use:chipClickDelegate>
-				<span class="break-words">
-					{@html getHighlightedText(value)}
-				</span>
+				<!-- The placeholder replaces the (empty) highlight rather than following it: this box is
+				     `pre-wrap`, so whitespace between the two would indent its first line. -->
+				{#if fadingPlaceholder && !value}
+					<span aria-hidden="true" class={placeholderClass}>{fadingPlaceholder.text}</span>
+				{:else}
+					<span class="break-words">
+						{@html getHighlightedText(value)}
+					</span>
+				{/if}
 			</div>
 		</div>
 		<textarea
 			bind:this={textarea}
 			onkeydown={handleKeyDown}
 			bind:value
-			use:autosize={{ maxHeight: '40vh' }}
+			use:autosize={{ maxHeight: '40vh', minHeight: hero ? 96 : undefined }}
 			rows={1}
 			oninput={handleInput}
 			onpaste={handlePaste}
@@ -835,7 +852,8 @@
 					showCommandTooltip = false
 				}, 200)
 			}}
-			{placeholder}
+			placeholder={fadingPlaceholder ? '' : placeholder}
+			aria-label={fadingPlaceholder ? 'Describe what you want to build' : undefined}
 			class={twMerge(
 				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
 				COMPOSER_FIELD_RESET,

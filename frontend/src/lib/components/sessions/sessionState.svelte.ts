@@ -1051,6 +1051,29 @@ export function findEmptyLandingSession(): Session | undefined {
 	)
 }
 
+/** The workspace a new session starts on, before the user picks another. */
+export function defaultSessionWorkspace(): string | undefined {
+	// Start in the workspace you're in. The one exception: a root you can't
+	// deploy to (locked, no bypass) steers to its dev, since a session there
+	// couldn't edit anything. The picker lets you switch.
+	const currentWs = get(workspaceStore)
+	const devOfCurrent = currentWs
+		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
+		: undefined
+	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
+	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
+	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
+	// editable) when one exists; the picker still lets the user switch back once rules resolve.
+	const rulesLoadedForCurrent =
+		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
+	const canDeployHere =
+		rulesLoadedForCurrent &&
+		(!isRuleActive('DisableDirectDeployment') ||
+			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
+	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
+	return pending && pending.length > 0 ? pending : undefined
+}
+
 export function createSession(): Session {
 	// Reuse an existing untouched draft from the active family rather than pile a
 	// blank entry on every `+`, so several pending sessions can still be built up
@@ -1071,24 +1094,7 @@ export function createSession(): Session {
 		return reusable
 	}
 	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
-	// Start in the workspace you're in. The one exception: a root you can't
-	// deploy to (locked, no bypass) steers to its dev, since a session there
-	// couldn't edit anything. The picker lets you switch.
-	const currentWs = get(workspaceStore)
-	const devOfCurrent = currentWs
-		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
-		: undefined
-	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
-	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
-	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
-	// editable) when one exists; the picker still lets the user switch back once rules resolve.
-	const rulesLoadedForCurrent =
-		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
-	const canDeployHere =
-		rulesLoadedForCurrent &&
-		(!isRuleActive('DisableDirectDeployment') ||
-			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
-	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
+	const pending = defaultSessionWorkspace()
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user
 	// can still rename it (or it gets overwritten by an editor target).
@@ -1098,7 +1104,7 @@ export function createSession(): Session {
 		id: createLongHash(),
 		summary,
 		summarySource: 'placeholder',
-		pending_workspace_id: pending && pending.length > 0 ? pending : undefined,
+		pending_workspace_id: pending,
 		createdAt: Date.now(),
 		transient: true
 	}

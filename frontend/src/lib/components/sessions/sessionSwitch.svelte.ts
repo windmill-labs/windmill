@@ -10,13 +10,16 @@ import {
 	sessionState,
 	setSessionAutoSend,
 	setSessionDraftPrompt,
+	setSessionPendingFork,
 	setSessionPendingWorkspace,
+	type PendingFork,
 	type Session,
 	type SessionTarget
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
 import { parsePipelineRoute, parsePreviewItemRoute } from './previewPaths'
 import { findMountedOpenInSessionSource } from './openInSessionContext'
+import type { AIAutonomyMode } from '../copilot/chat/AIChatManager.svelte'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
@@ -268,14 +271,33 @@ export async function openSourceInSession(
 // global search's "Ask AI"). Always a new session rather than the most recent
 // one (`enterSessionMode`), so the seed cannot overwrite a prompt the user has
 // already typed into a session they are mid-way through.
+//
+// `actingOn` and `autonomyMode` carry what the entry point's own controls picked
+// (Home's composer); without them the session keeps createSession's workspace and
+// the user's persisted autonomy mode.
 export async function startSessionWithPrompt(
 	prompt: string,
-	opts?: { autoSend?: boolean }
+	opts?: {
+		autoSend?: boolean
+		actingOn?: { workspaceId: string; fork?: PendingFork }
+		autonomyMode?: AIAutonomyMode
+	}
 ): Promise<void> {
-	// No setSessionPendingWorkspace: createSession already picked the workspace,
-	// steering off a root the user cannot deploy to onto its dev. Overwriting it
-	// with the raw current workspace would land the session where it cannot edit.
+	// Without `actingOn`, no setSessionPendingWorkspace: createSession already picked
+	// the workspace, steering off a root the user cannot deploy to onto its dev.
+	// Overwriting it with the raw current workspace would land the session where it
+	// cannot edit.
 	const session = createSession()
+	const actingOn = opts?.actingOn
+	if (actingOn?.fork) setSessionPendingFork(session.id, actingOn.fork)
+	else if (actingOn && actingOn.workspaceId !== session.pending_workspace_id)
+		setSessionPendingWorkspace(session.id, actingOn.workspaceId)
+	if (opts?.autonomyMode) {
+		// Set on the session's own manager before the page mounts it: plan mode is
+		// never persisted, so it cannot ride the stored preference across the hand-off.
+		const { getOrCreateRuntime } = await import('./sessionRuntime.svelte')
+		getOrCreateRuntime(session).manager.setAutonomyMode(opts.autonomyMode)
+	}
 	setSessionDraftPrompt(session.id, prompt)
 	// An empty prompt has nothing to send; leave the composer focused instead.
 	if (opts?.autoSend && prompt.trim()) setSessionAutoSend(session.id)

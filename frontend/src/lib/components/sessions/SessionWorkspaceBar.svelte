@@ -6,8 +6,7 @@
 		setSessionPendingWorkspace,
 		type Session
 	} from './sessionState.svelte'
-	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
-	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
+	import ActingOnPicker from './ActingOnPicker.svelte'
 
 	let { session }: { session: Session } = $props()
 
@@ -28,17 +27,4 @@
 	}
 </script>
 
-<div class="flex flex-row items-center gap-1 py-0.5 px-1 text-2xs text-secondary">
-	<span class="shrink-0">Acting on</span>
-	<WorkspaceFamilyPicker
-		selectedId={effectiveId}
-		{pendingFork}
-		onPick={pick}
-		onCreateFork={stageFork}
-		createForkCaption="Created when you send your first message."
-	>
-		{#snippet trigger()}
-			<WorkspaceScopeTrigger workspaceId={effectiveId} {pendingFork} class="max-w-[16rem]" />
-		{/snippet}
-	</WorkspaceFamilyPicker>
-</div>
+<ActingOnPicker selectedId={effectiveId} {pendingFork} onPick={pick} onCreateFork={stageFork} />

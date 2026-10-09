@@ -1,23 +1,3 @@
-<script lang="ts" module>
-	/** Example prompts: the short `label` is shown as a clickable tag under the chat,
-	 * the `prompt` is what rotates through the placeholder / gets dropped into the input. */
-	export const homeAIExamples: { label: string; prompt: string }[] = [
-		{
-			label: 'Sync Salesforce',
-			prompt: 'Sync new Salesforce leads into a postgres table every hour'
-		},
-		{
-			label: 'Ban Discord users',
-			prompt:
-				'Build a workflow that triggers on a Discord message, checks for offensive language using an LLM, and possibly block them'
-		},
-		{
-			label: 'Weekly Slack report',
-			prompt: 'Generate a weekly sales report from postgres and post it to Slack every Monday'
-		}
-	]
-</script>
-
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import {
@@ -30,12 +10,28 @@
 		WandSparkles
 	} from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { Badge } from '../common'
 	import CloseButton from '../common/CloseButton.svelte'
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-	import { aiUserDisabled, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import {
+		aiUserDisabled,
+		hubBaseUrlStore,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
+	import ActingOnPicker from '../sessions/ActingOnPicker.svelte'
+	import { defaultSessionWorkspace, type PendingFork } from '../sessions/sessionState.svelte'
+	import AutonomyModePicker from '../copilot/chat/AutonomyModePicker.svelte'
+	import {
+		AIAutonomyMode,
+		getPersistedAutonomyMode,
+		AIMode,
+		supportsAutoAcceptEdits,
+		supportsAutoAcceptToolConfirmations,
+		supportsPlanMode
+	} from '../copilot/chat/AIChatManager.svelte'
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { base } from '$lib/base'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
@@ -49,7 +45,13 @@
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
-	import { onboardingProfile } from '$lib/onboardingProfile'
+	import BuildWithAIHeading from '../copilot/chat/starter/BuildWithAIHeading.svelte'
+	import StarterPromptChips from '../copilot/chat/starter/StarterPromptChips.svelte'
+	import {
+		PLACEHOLDER_FADE_CLASS,
+		RotatingPlaceholder,
+		StarterPrompts
+	} from '../copilot/chat/starter/starterPrompts.svelte'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
 
@@ -61,18 +63,7 @@
 	const hubOffered = $derived(!$userStore?.operator && HOME_SHOW_HUB)
 
 	let value = $state('')
-	// The stock examples, unless the invite that brought this person here wrote prompts for
-	// them — those replace the set outright rather than joining it, since a prompt written
-	// for someone's own stack next to "Ban Discord users" reads as the generic one.
-	let examples = $state(homeAIExamples)
-	void onboardingProfile().then((p) => {
-		if (!p?.starter_prompts?.length) return
-		examples = p.starter_prompts
-		promptIndex = 0
-		placeholder = examples[0].prompt
-	})
-	let placeholder = $state(homeAIExamples[0].prompt)
-	let placeholderVisible = $state(true)
+	const starterPrompts = new StarterPrompts()
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
 	// How much of the home page this reader wants the composer to take, so it lives per browser
@@ -92,6 +83,7 @@
 	// one `requestAnimationFrame` is not reliably past that paint. The flash then goes straight to
 	// invisible without ever being drawn. Mounted only while pulsing, so each removal replays it.
 	const PULSE_MS = 1000
+	const reducedMotion = useReducedMotion()
 	let pulsing = $state(false)
 	let pulseEndTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -153,12 +145,47 @@
 	let hero = $derived(showComposer && !collapsed)
 	let outerSpacing = $derived(hero ? 'mt-20 mb-16' : 'mt-0 mb-1')
 
+	// The session's own pre-send controls, held here until the hand-off creates the session.
+	// A pick is kept with the workspace it was made in, so switching workspace drops it
+	// rather than carrying a workspace from another family into the new session.
+	let actingOnPick = $state<{ in: string; workspaceId: string; fork?: PendingFork }>()
+	const pickHere = $derived(actingOnPick?.in === $workspaceStore ? actingOnPick : undefined)
+	// defaultSessionWorkspace reads these stores with `get`, so name them to re-run on change.
+	const actingOnId = $derived.by(() => {
+		void $userWorkspaces
+		void $workspaceStore
+		return pickHere?.workspaceId ?? defaultSessionWorkspace()
+	})
+	function pickActingOn(workspaceId: string, fork?: PendingFork) {
+		if ($workspaceStore) actingOnPick = { in: $workspaceStore, workspaceId, fork }
+	}
+
+	// Only a mode picked here is handed off: the persisted one is what the session would
+	// start with anyway, and it can read stale before the user's email resolves.
+	let pickedAutonomyMode = $state<AIAutonomyMode>()
+	// The persisted mode is keyed by the user's email, so re-read it once that resolves.
+	const autonomyMode = $derived.by(() => {
+		void $userStore?.email
+		return pickedAutonomyMode ?? getPersistedAutonomyMode()
+	})
+	const sessionAutonomyAvailability = {
+		autoAcceptEditsAvailable: supportsAutoAcceptEdits(AIMode.GLOBAL),
+		autoAcceptToolConfirmationsAvailable: supportsAutoAcceptToolConfirmations(AIMode.GLOBAL),
+		planModeAvailable: supportsPlanMode(AIMode.GLOBAL)
+	}
+
 	let starting = $state(false)
 	async function start() {
 		if (!canSend || starting || !value.trim()) return
 		starting = true
 		try {
-			await startSessionWithPrompt(value, { autoSend: true })
+			await startSessionWithPrompt(value, {
+				autoSend: true,
+				// Always the displayed workspace, picked or not: createSession may reuse an
+				// untouched draft parked elsewhere, and the session must act where Home said.
+				actingOn: actingOnId ? { workspaceId: actingOnId, fork: pickHere?.fork } : undefined,
+				autonomyMode: pickedAutonomyMode
+			})
 		} finally {
 			starting = false
 		}
@@ -172,41 +199,10 @@
 		}
 	}
 
-	let prompts = $derived(examples.map((e) => e.prompt))
-
-	const CYCLE_MS = 7_000
-	// Must match the `duration-*` class on the placeholder overlay: the swap happens once the
-	// fade-out has finished, and Tailwind only emits classes it finds written out in full.
-	const FADE_MS = 600
-
-	// Rotate the example prompt every CYCLE_MS: fade the placeholder out, swap it, fade it back in.
-	// Only while the composer is shown — otherwise it would loop forever driving an
-	// unrendered input — and not under reduced motion, where the first prompt simply stays put.
-	// The index lives outside the effect so re-showing the composer resumes the rotation from the
-	// prompt currently displayed rather than restarting it.
-	const reducedMotion = useReducedMotion()
-	let promptIndex = 0
-	$effect(() => {
-		if (!showComposer || collapsed || reducedMotion.val) return
-		let timer: ReturnType<typeof setTimeout>
-
-		function next() {
-			placeholderVisible = false
-			timer = setTimeout(() => {
-				promptIndex = (promptIndex + 1) % prompts.length
-				placeholder = prompts[promptIndex]
-				placeholderVisible = true
-				timer = setTimeout(next, CYCLE_MS)
-			}, FADE_MS)
-		}
-
-		timer = setTimeout(next, CYCLE_MS)
-		return () => {
-			clearTimeout(timer)
-			// Torn down mid-fade, the input would otherwise remount with an invisible placeholder.
-			placeholderVisible = true
-		}
-	})
+	const placeholder = new RotatingPlaceholder(
+		() => starterPrompts.list.map((e) => e.prompt),
+		() => showComposer && !collapsed
+	)
 </script>
 
 <div class="w-full flex justify-center {outerSpacing}">
@@ -219,10 +215,13 @@
 					<CloseButton small noBg title="Remove session chat" onClick={removeComposer} />
 				</div>
 			{/if}
-			<div class="flex items-center justify-center gap-2 mb-4">
-				<p class="text-center font-regular text-3xl">Build with AI</p>
-				<Badge color="blue" small>Beta</Badge>
-			</div>
+			<BuildWithAIHeading />
+			<ActingOnPicker
+				selectedId={actingOnId}
+				pendingFork={pickHere?.fork}
+				onPick={(id) => pickActingOn(id)}
+				onCreateFork={(fork) => pickActingOn(fork.parent_workspace_id, fork)}
+			/>
 			<!-- Anchors the send button / model settings to the input, not to the whole block — the row
 			     below would otherwise push them down. The inner wrapper stays `relative` in both
 			     states: `blur-sm` is a filter, which makes an element the containing block for its
@@ -240,16 +239,14 @@
 						}}
 					/>
 					{#if !value}
-						<!-- Drawn over the textarea instead of set as its `placeholder`: WebKit and Gecko do
-						     not run transitions on `::placeholder`, so the fade would be a hard cut there.
-						     The 1px margin is the textarea's border, so the text sits where typing starts. -->
+						<!-- The 1px margin is the textarea's border, so the text sits where typing starts. -->
 						<span
 							aria-hidden="true"
-							class="pointer-events-none absolute inset-x-4 top-3 m-px text-xs text-hint transition-opacity duration-[600ms] ease-in-out {placeholderVisible
+							class="pointer-events-none absolute inset-x-4 top-3 m-px text-xs text-hint {PLACEHOLDER_FADE_CLASS} {placeholder.visible
 								? 'opacity-100'
 								: 'opacity-0'}"
 						>
-							{placeholder}
+							{placeholder.text}
 						</span>
 					{/if}
 					<Button
@@ -262,6 +259,11 @@
 						onclick={start}
 					></Button>
 					<div class="absolute left-3 bottom-4 flex items-center gap-1.5 px-0.5">
+						<AutonomyModePicker
+							mode={autonomyMode}
+							availability={sessionAutonomyAvailability}
+							onChange={(mode) => (pickedAutonomyMode = mode)}
+						/>
 						<AIChatModelSettings />
 					</div>
 				</div>
@@ -312,18 +314,7 @@
 
 		<div class="flex items-center justify-between gap-2 pt-2">
 			{#if showComposer && !collapsed}
-				<div class="flex flex-row flex-wrap items-center gap-1.5">
-					{#each examples as example (example.label)}
-						<Button
-							variant="default"
-							unifiedSize="xs"
-							btnClasses="!rounded-full !text-2xs !text-hint"
-							onClick={() => (value = example.prompt)}
-						>
-							{example.label}
-						</Button>
-					{/each}
-				</div>
+				<StarterPromptChips prompts={starterPrompts.list} onPick={(p) => (value = p)} />
 			{/if}
 		</div>
 	</div>

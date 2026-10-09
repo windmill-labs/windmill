@@ -10,13 +10,9 @@
 		ArrowDown,
 		AtSign,
 		BookOpen,
-		ChevronDown,
-		ChevronsRight,
 		CheckIcon,
-		ClipboardList,
 		FileText,
 		Folder,
-		Hand,
 		HistoryIcon,
 		KeyRound,
 		MousePointer2,
@@ -31,7 +27,8 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pendingUserAction, pendingUserActionDetail, type DisplayMessage } from './shared'
-	import { PLAN_MODE_TEXT_COLOR, PLAN_MODE_TRIGGER_CLASS } from './planMode'
+	import AutonomyModePicker from './AutonomyModePicker.svelte'
+	import { availableAutonomyModeOptions, resolveAutonomyMode } from './autonomyModes'
 	import { PLAN_MODE_MESSAGES } from './planModeMessages'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
@@ -72,6 +69,9 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import { base } from '$lib/base'
+	import type { StarterPrompt } from '$lib/onboardingProfile'
+	import BuildWithAIHeading from './starter/BuildWithAIHeading.svelte'
+	import { RotatingPlaceholder } from './starter/starterPrompts.svelte'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const chatHost = getChatViewHost()
@@ -89,80 +89,6 @@
 	// running out isn't a surprise. Once spent, the exhausted banner replaces it.
 	let freeTierUsedPct = $derived(Math.min(100, Math.round((freeTier?.used_ratio ?? 0) * 100)))
 	let showFreeTierUsage = $derived(!!freeTier && !freeTier.exhausted)
-
-	// One row per autonomy posture, in picker order, so adding one touches only this
-	// table. `isAvailable` hides the postures that would do nothing in the current AI
-	// mode, which is why the picker can be shorter than this list.
-	type AutonomyAvailability = {
-		autoAcceptEditsAvailable: boolean
-		autoAcceptToolConfirmationsAvailable: boolean
-		planModeAvailable: boolean
-	}
-	type AutonomyModeOption = {
-		mode: AIAutonomyMode
-		label: string
-		shortLabel?: string
-		icon: typeof Hand
-		iconColor: string
-		/** Tints the whole trigger, not just its icon. Only plan mode needs it. */
-		triggerClass?: string
-		tooltip: (a: AutonomyAvailability) => string
-		isAvailable: (a: AutonomyAvailability) => boolean
-	}
-	// The one posture available everywhere, so also the fallback for a mode the
-	// current AI mode does not offer.
-	const askPermissionOption: AutonomyModeOption = {
-		mode: AIAutonomyMode.DEFAULT,
-		label: 'Ask permission',
-		icon: Hand,
-		iconColor: 'text-secondary',
-		tooltip: (a) =>
-			a.autoAcceptEditsAvailable
-				? 'Requires confirmation for edits and tool calls.'
-				: 'Requires confirmation for tool calls.',
-		isAvailable: () => true
-	}
-	const autonomyModeOptions: AutonomyModeOption[] = [
-		{
-			mode: AIAutonomyMode.PLAN,
-			label: 'Plan (read-only)',
-			shortLabel: 'Plan',
-			icon: ClipboardList,
-			iconColor: PLAN_MODE_TEXT_COLOR,
-			triggerClass: PLAN_MODE_TRIGGER_CLASS,
-			tooltip: () =>
-				'Read-only: the assistant researches and drafts a plan for your approval before it can change anything.',
-			isAvailable: (a) => a.planModeAvailable
-		},
-		askPermissionOption,
-		{
-			mode: AIAutonomyMode.ACCEPT_EDIT,
-			label: 'Auto-accept edits',
-			icon: ChevronsRight,
-			iconColor: 'text-accent',
-			tooltip: () =>
-				'Automatically accepts script and flow edits. Tool calls still ask for confirmation.',
-			isAvailable: (a) => a.autoAcceptEditsAvailable
-		},
-		{
-			mode: AIAutonomyMode.YOLO,
-			label: 'Yolo (bypass permissions)',
-			shortLabel: 'Yolo',
-			icon: ChevronsRight,
-			iconColor: 'text-red-500',
-			tooltip: (a) =>
-				a.autoAcceptEditsAvailable
-					? 'Automatically accepts script and flow edits plus tool confirmations.'
-					: 'Automatically accepts tool confirmations.',
-			isAvailable: (a) => a.autoAcceptToolConfirmationsAvailable
-		}
-	]
-	const autonomyModeOption = (mode: AIAutonomyMode) =>
-		autonomyModeOptions.find((o) => o.mode === mode) ?? askPermissionOption
-	const autonomyModeLabel = (mode: AIAutonomyMode) => {
-		const option = autonomyModeOption(mode)
-		return option.shortLabel ?? option.label
-	}
 
 	let {
 		messages,
@@ -184,6 +110,7 @@
 		hideModeSelector = false,
 		wideLayout = false,
 		emptyHint,
+		starterPrompts = undefined,
 		inputPreface,
 		footerSettings,
 		initialInstructions = undefined,
@@ -216,6 +143,10 @@
 		// off there.
 		wideLayout?: boolean
 		emptyHint?: Snippet
+		/** Open an empty chat the way Home's composer looks: the "Build with AI" heading, a
+		 * taller box cycling through these prompts as its placeholder. Sessions
+		 * set it so the two read as the same entry point. Replaces `emptyHint`. */
+		starterPrompts?: StarterPrompt[]
 		inputPreface?: Snippet
 		/** The settings control at the footer's right edge, where the copilot puts its
 		 * model picker. A host that configures its turn elsewhere replaces it here. */
@@ -617,18 +548,12 @@
 		autoAcceptToolConfirmationsAvailable: chatHost.autoAcceptToolConfirmationsAvailable,
 		planModeAvailable: chatHost.planModeAvailable
 	})
-	const availableAutonomyModeOptions = $derived(
-		autonomyModeOptions.filter((option) => option.isAvailable(autonomyAvailability))
-	)
-	// Fall back to ask-permission when the persisted mode isn't applicable in the
-	// current AI mode (e.g. auto-accept edits while in a mode without edits).
 	const effectiveAutonomyMode = $derived(
-		availableAutonomyModeOptions.some((option) => option.mode === chatHost.autonomyMode)
-			? chatHost.autonomyMode
-			: AIAutonomyMode.DEFAULT
+		resolveAutonomyMode(chatHost.autonomyMode, autonomyAvailability)
 	)
-	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
-	const effectiveAutonomyModeOption = $derived(autonomyModeOption(effectiveAutonomyMode))
+	const showAutonomyModeSelector = $derived(
+		!disabled && availableAutonomyModeOptions(autonomyAvailability).length > 1
+	)
 
 	// The typing-dots indicator implies the AI is busy, which is misleading while
 	// the loop is parked on the user; surface a text pill instead so users know to
@@ -636,6 +561,12 @@
 	// A step name hangs its icon in the column's left padding (see AssistantMessage), so a
 	// transcript carrying one widens the padding, on both sides to keep the column centred.
 	const agentGutter = $derived(messages.some((m) => m.role === 'assistant' && m.stepName))
+	const starterHero = $derived(!!starterPrompts && messages.length === 0 && !disabled)
+	const starterPlaceholder = new RotatingPlaceholder(
+		() => (starterPrompts ?? []).map((p) => p.prompt),
+		() => starterHero
+	)
+
 	const columnClass = $derived(
 		wideLayout
 			? `w-full max-w-3xl mx-auto ${agentGutter ? 'px-8' : 'px-7'}`
@@ -743,7 +674,9 @@
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 <div
-	class="flex flex-col h-full relative outline-none"
+	class="flex flex-col h-full relative outline-none {starterPrompts && messages.length === 0
+		? 'justify-center'
+		: ''}"
 	tabindex="-1"
 	bind:this={panelEl}
 	ondragenter={onPanelDragEnter}
@@ -852,7 +785,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		</div>
 	{/if}
 	{#if messages.length === 0}
-		{#if emptyHint}
+		{#if starterPrompts}
+			<div class={columnClass}>
+				<BuildWithAIHeading />
+			</div>
+		{:else if emptyHint}
 			{@render emptyHint()}
 		{:else}
 			<span class="text-2xs text-gray-500 dark:text-gray-400 text-center px-2 my-2"
@@ -973,7 +910,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 
 	<!-- Same horizontal padding as the transcript above: the composer's edges line up with
 	     the messages rather than sitting closer to the panel edge. -->
-	<div class="relative {columnClass} pb-2">
+	<!-- The bottom margin offsets the heading's weight above, so the centred box sits mid-pane. -->
+	<div class="relative {columnClass} pb-2 {starterPrompts && messages.length === 0 ? 'mb-24' : ''}">
 		{#if showFlowPendingActionControls}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
@@ -1033,6 +971,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{disabled}
 				{pendingQuestionToolCallId}
 				isFirstMessage={messages.length === 0}
+				hero={starterHero}
+				fadingPlaceholder={starterHero ? starterPlaceholder : undefined}
 			/>
 			<div
 				class="mt-1 flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
@@ -1230,34 +1170,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							/>
 						{/if}
 						{#if showAutonomyModeSelector}
-							<DropdownV2
-								items={() =>
-									availableAutonomyModeOptions.map((option) => ({
-										displayName: option.label,
-										selected: effectiveAutonomyMode === option.mode,
-										action: () => chatHost.setAutonomyMode(option.mode)
-									}))}
-								placement="bottom-start"
-								fixedHeight={false}
-								customWidth={240}
-							>
-								{#snippet buttonReplacement()}
-									<Button
-										nonCaptureEvent
-										unifiedSize="2xs"
-										variant="default"
-										title={effectiveAutonomyModeOption.tooltip(autonomyAvailability)}
-										btnClasses={effectiveAutonomyModeOption.triggerClass ?? ''}
-										startIcon={{
-											icon: effectiveAutonomyModeOption.icon,
-											classes: effectiveAutonomyModeOption.iconColor
-										}}
-										endIcon={{ icon: ChevronDown }}
-									>
-										{autonomyModeLabel(effectiveAutonomyMode)}
-									</Button>
-								{/snippet}
-							</DropdownV2>
+							<AutonomyModePicker
+								mode={chatHost.autonomyMode}
+								availability={autonomyAvailability}
+								onChange={chatHost.setAutonomyMode}
+							/>
 						{/if}
 						{#if effectiveAutonomyMode === AIAutonomyMode.PLAN}
 							<span class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.modeNote}</span>
