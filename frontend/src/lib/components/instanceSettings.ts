@@ -175,8 +175,7 @@ export function isValidWebhookBaseUrl(value: unknown): boolean {
 	return (
 		(url.protocol === 'http:' || url.protocol === 'https:') &&
 		url.host !== '' &&
-		// Userinfo would end up in the per-repository receiver stored in workspace
-		// settings, which workspace admins can read.
+		// Userinfo would end up in URLs that users who are not instance admins can read.
 		url.username === '' &&
 		url.password === '' &&
 		// Tested on the raw string, not `url.search`/`url.hash`: those are `''` for a
@@ -187,6 +186,8 @@ export function isValidWebhookBaseUrl(value: unknown): boolean {
 		// `new URL` silently percent-encodes a space in the path, where the server
 		// rejects it outright.
 		!/\s/.test(trimmed) &&
+		// Shell-active characters: the URL is pasted into commands users copy.
+		!/[$`'"\\;&|<>(){}*!]/.test(trimmed) &&
 		!trimmed.endsWith('/')
 	)
 }
@@ -207,7 +208,29 @@ export const settings: Record<string, Setting[]> = {
 				(value?.startsWith('http') &&
 					value.includes('://') &&
 					!value?.endsWith('/') &&
-					!value?.endsWith(' '))
+					!value?.endsWith(' ')),
+			advancedToggle: {
+				label: 'The API is served on a different url than the UI',
+				onChange(values) {
+					values['api_base_url'] = values['api_base_url'] == null ? '' : null
+					return values
+				},
+				checked: (values) => values['api_base_url'] != null
+			}
+		},
+		{
+			label: 'API base url',
+			description:
+				'Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, the CLI remote), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway. If that url does not also serve the UI, the CLI must authenticate with a token rather than the browser login.',
+			key: 'api_base_url',
+			fieldType: 'text',
+			placeholder: 'https://api.windmill.company.com',
+			storage: 'setting',
+			ee_only: '',
+			hiddenIfNull: true,
+			error:
+				'API base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, no shell metacharacters, and no trailing slash',
+			isValid: isValidWebhookBaseUrl
 		},
 		{
 			label: 'Email domain',
@@ -1223,7 +1246,7 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			error:
-				'Webhook base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, and no trailing slash',
+				'Webhook base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, no shell metacharacters, and no trailing slash',
 			isValid: isValidWebhookBaseUrl
 		}
 	],

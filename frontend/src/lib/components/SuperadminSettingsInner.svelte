@@ -372,7 +372,7 @@
 								</div>
 							{/if}
 
-							<Tabs bind:selected={usersSubTab} class="mb-4">
+							<Tabs bind:selected={usersSubTab} class="mb-4" wrapperClass="shrink-0">
 								<Tab value="users" label="Users" />
 								{#if extJwtTokens.length > 0}
 									<Tab value="ext_jwt" label="External JWTs" />

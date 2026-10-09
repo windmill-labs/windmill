@@ -314,7 +314,7 @@ function makeProvider(
 		existsTriggerByKind: (kind, p) => triggerServiceFor(kind).exists(p),
 		getTriggerForDeploy: async (kind, p) => {
 			// Reuses the existing per-kind transform map (e.g. GCP wipes
-			// subscription_id and computes base_endpoint from window.location).
+			// subscription_id and computes base_endpoint for this instance).
 			// Operational-state strip is applied by the shared `deployItem`
 			// after this returns.
 			const { data } = await getTriggersDeployData(
