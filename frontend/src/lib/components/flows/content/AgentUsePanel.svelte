@@ -39,6 +39,7 @@
 		chat: boolean
 		/** Unset when Slack is not connected to the workspace. */
 		slackTeamName: string | undefined
+		/** Unset when Slack can't be reached with the workspace's bot token. */
 		botName: string | undefined
 		/** Agents answer in Slack only when the instance verifies Slack's request signatures. */
 		signingSecretSet: boolean
@@ -57,7 +58,7 @@
 	// Read again whenever the agent's channels change, so a channel just added or removed moves
 	// between the list and the picker.
 	const available = resource(
-		() => ({ ws: isAdmin && chat && slackTeamName ? workspace : undefined, channels }),
+		() => ({ ws: isAdmin && chat && slackTeamName && botName ? workspace : undefined, channels }),
 		async ({ ws }) => (ws ? await listChoices(ws) : [])
 	)
 
@@ -221,16 +222,26 @@ async function waitForAnswer(UUID) {
 								Windmill can tell who sent a message.
 							</Alert>
 						{/if}
+						{#if !botName}
+							<Alert type="warning" title="Windmill can't reach Slack" size="xs">
+								Slack refused the workspace's bot token or couldn't be reached, so agents can't answer there.
+								{#if isAdmin}
+									<a href="{base}/workspace_settings?tab=slack">Reconnect Slack</a> to fix it.
+								{:else}
+									A workspace admin can reconnect Slack to fix it.
+								{/if}
+							</Alert>
+						{/if}
 						<div class="flex flex-col gap-1">
 							<span class="text-xs font-semibold text-emphasis">Ask it anywhere</span>
 							<span class="text-xs text-secondary">
-								In {slackTeamName}, mention the bot and start your message with the agent's name, in a
-								channel or in a direct message. Follow-ups in the same thread that mention the bot go
-								to the same agent.
+								In {slackTeamName}, mention the bot and start your message with the agent's name, in
+								a channel or in a direct message. Follow-ups in the same thread that mention the bot
+								go to the same agent.
 							</span>
 							<div class="flex items-center gap-2 mt-1">
 								<code class="text-xs bg-surface-secondary rounded px-2 py-1"
-									>@{botName ?? 'Windmill'} {handle} your question</code
+									>{botName ? `@${botName} ` : ''}{handle} your question</code
 								>
 								<CopyButton value={handle} title="Copy {handle}" />
 								<Tooltip>
@@ -300,8 +311,9 @@ async function waitForAnswer(UUID) {
 
 				<TabContent value="api" class="flex flex-col gap-6 p-4">
 					<span class="text-xs text-secondary">
-						Each call runs the agent as the token's owner and returns the id of the run.{#if chat}{' '}Calls that share a <code>memory_id</code> are one conversation: reuse it for
-							follow-ups and pick a new one to start over.{/if}
+						Each call runs the agent as the token's owner and returns the id of the run.{#if chat}{' '}Calls
+							that share a <code>memory_id</code> are one conversation: reuse it for follow-ups and pick
+							a new one to start over.{/if}
 					</span>
 					<Label label="Token">
 						<div class="flex flex-col gap-2">
@@ -339,8 +351,9 @@ async function waitForAnswer(UUID) {
 									<ClipboardPanel content={JSON.stringify(headers, null, 2)} />
 								</Label>
 								<span class="text-xs text-secondary">
-									Then poll <code class="break-all">{resultUrl}/&lbrace;id&rbrace;</code> until <code>completed</code> is
-									true; the answer is the result's <code>output</code>.
+									Then poll <code class="break-all">{resultUrl}/&lbrace;id&rbrace;</code> until
+									<code>completed</code>
+									is true; the answer is the result's <code>output</code>.
 								</span>
 							</TabContent>
 							<TabContent value="curl" class="mt-2">
