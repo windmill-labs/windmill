@@ -450,7 +450,7 @@
 	<div class="flex-1 min-h-0 flex flex-col" use:splitterPointerCapture>
 		<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 			<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
-				<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-20'}">
+				<div class="flex-1 min-h-0 w-full flex flex-col">
 					<AIChat
 						bind:this={aiChat}
 						hideHeader

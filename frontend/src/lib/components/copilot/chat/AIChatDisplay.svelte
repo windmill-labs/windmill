@@ -758,7 +758,9 @@
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 <div
-	class="flex flex-col h-full relative outline-none"
+	class="flex flex-col h-full relative outline-none {starterPrompts && messages.length === 0
+		? 'justify-center'
+		: ''}"
 	tabindex="-1"
 	bind:this={panelEl}
 	ondragenter={onPanelDragEnter}
@@ -992,7 +994,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 
 	<!-- Same horizontal padding as the transcript above: the composer's edges line up with
 	     the messages rather than sitting closer to the panel edge. -->
-	<div class="relative {columnClass} pb-2">
+	<!-- The bottom margin offsets the heading's weight above, so the centred box sits mid-pane. -->
+	<div class="relative {columnClass} pb-2 {starterPrompts && messages.length === 0 ? 'mb-24' : ''}">
 		{#if showFlowPendingActionControls}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
