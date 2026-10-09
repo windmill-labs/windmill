@@ -32,7 +32,7 @@ import type { SessionAccess, SessionCapability, SessionTool } from '../sessionCa
 
 const ASSEMBLY_OPTS = {
 	previewTools: true,
-	pipelineContext: { folder: 'my_pipeline', mode: 'edit', nodes: [], assets: [] },
+	pipelineFolders: ['my_pipeline'],
 	mcpServers: [{ path: 'f/test/server' } as any]
 }
 
@@ -200,7 +200,7 @@ describe('session tool policies', () => {
 						user: { username: 'alex', folders: ['shared'], folders_read: ['shared'] },
 						access,
 						sessionContext: ctx,
-						pipelineContext: { folder: 'my_pipeline', mode: 'edit', nodes: [], assets: [] }
+						pipelineFolders: ['my_pipeline']
 					})
 					// Both decoration variants: the escalation one adds its own tool mentions.
 					for (const blocks of [0, 9]) {

@@ -35,6 +35,7 @@
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import { base } from '$lib/base'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
@@ -84,7 +85,7 @@
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
-	let base_endpoint = $derived(`${window.location.origin}${base}`)
+	let base_endpoint = $derived(apiBaseUrl())
 
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
@@ -322,7 +323,9 @@
 			topic_name,
 			subscription_name,
 			event_type_filters,
-			base_endpoint,
+			// The capture URL shown to the user stays on the browsing origin, so the
+			// endpoint registered for it must too.
+			base_endpoint: `${window.location.origin}${base}`,
 			path
 		}
 	}

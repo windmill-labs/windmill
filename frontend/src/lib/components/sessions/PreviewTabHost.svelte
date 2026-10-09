@@ -360,7 +360,10 @@
 					{#await import('./PipelineEditorView.svelte')}
 						{@render editorLoading()}
 					{:then Module}
-						<Module.default {runtime} path={itemPath} {workspaceId} {isActiveSession} {active} />
+						<!-- Keyed: the view binds one folder's state for its lifetime. -->
+						{#key itemPath}
+							<Module.default {runtime} path={itemPath} {workspaceId} {isActiveSession} {active} />
+						{/key}
 					{/await}
 				{:else}
 					{#await import('./RawAppEditorView.svelte')}

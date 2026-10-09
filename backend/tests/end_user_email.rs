@@ -1,10 +1,8 @@
 //! Tests for WM_END_USER_EMAIL environment variable.
 //!
 //! These tests verify that WM_END_USER_EMAIL is populated with the authenticated
-//! user's email when executing app components.
-//!
-//! TODO: Add tests for scripts and flows once public execution endpoints are identified.
-//! Currently only apps support non-workspace-member execution via OptAuthed + token lookup.
+//! user's email when executing app components and when running scripts and flows directly.
+//! Only apps support non-workspace-member execution via OptAuthed + token lookup.
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -26,40 +24,6 @@ fn client() -> reqwest::Client {
 fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuilder {
     builder.header("Authorization", format!("Bearer {}", token))
 }
-
-// TODO: Script tests - need to identify public execution endpoints for non-workspace-members
-// async fn run_script(port: u16, token: &str) -> anyhow::Result<String> {
-//     let url = format!(
-//         "http://localhost:{}/api/w/test-workspace/jobs/run_wait_result/p/f/test/get_end_user_email",
-//         port
-//     );
-//     let resp = authed(client().post(&url), token)
-//         .json(&json!({}))
-//         .send()
-//         .await?;
-//     if !resp.status().is_success() {
-//         anyhow::bail!("script run failed: {} - {}", resp.status(), resp.text().await?);
-//     }
-//     Ok(resp.json::<serde_json::Value>().await?
-//         .as_str().unwrap_or("").to_string())
-// }
-
-// TODO: Flow tests - need to identify public execution endpoints for non-workspace-members
-// async fn run_flow(port: u16, token: &str) -> anyhow::Result<String> {
-//     let url = format!(
-//         "http://localhost:{}/api/w/test-workspace/jobs/run_wait_result/f/f/test/get_end_user_email_flow",
-//         port
-//     );
-//     let resp = authed(client().post(&url), token)
-//         .json(&json!({}))
-//         .send()
-//         .await?;
-//     if !resp.status().is_success() {
-//         anyhow::bail!("flow run failed: {} - {}", resp.status(), resp.text().await?);
-//     }
-//     Ok(resp.json::<serde_json::Value>().await?
-//         .as_str().unwrap_or("").to_string())
-// }
 
 /// Create an app with inline script via API
 async fn create_app_with_inline_script(port: u16, path: &str) -> anyhow::Result<()> {
@@ -312,41 +276,111 @@ async fn wait_for_job_result(port: u16, token: &str, job_id: &str) -> anyhow::Re
     anyhow::bail!("timeout waiting for job result")
 }
 
-// TODO: Script tests - need to identify public execution endpoints for non-workspace-members
-// #[cfg(feature = "deno_core")]
-// #[sqlx::test(fixtures("base", "end_user_email"))]
-// async fn test_script_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
-//     initialize_tracing().await;
-//     set_jwt_secret().await;
-//     let server = ApiServer::start(db.clone()).await?;
-//     let port = server.addr.port();
-//
-//     in_test_worker(Connection::Sql(db.clone()), async move {
-//         let result = run_script(port, SAME_WS_TOKEN).await?;
-//         assert_eq!(result, SAME_WS_EMAIL, "same workspace user should get their email");
-//         Ok::<(), anyhow::Error>(())
-//     }, port).await?;
-//
-//     Ok(())
-// }
+async fn run_direct(port: u16, token: &str, route: &str) -> anyhow::Result<String> {
+    let url = format!(
+        "http://localhost:{}/api/w/test-workspace/jobs/run/{}",
+        port, route
+    );
+    let resp = authed(client().post(&url), token)
+        .json(&json!({}))
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        anyhow::bail!(
+            "run {route} failed: {} - {}",
+            resp.status(),
+            resp.text().await?
+        );
+    }
+    let job_id = resp.text().await?;
+    wait_for_job_result(port, token, &job_id).await
+}
 
-// TODO: Flow tests - need to identify public execution endpoints for non-workspace-members
-// #[cfg(feature = "deno_core")]
-// #[sqlx::test(fixtures("base", "end_user_email"))]
-// async fn test_flow_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
-//     initialize_tracing().await;
-//     set_jwt_secret().await;
-//     let server = ApiServer::start(db.clone()).await?;
-//     let port = server.addr.port();
-//
-//     in_test_worker(Connection::Sql(db.clone()), async move {
-//         let result = run_flow(port, SAME_WS_TOKEN).await?;
-//         assert_eq!(result, SAME_WS_EMAIL, "same workspace user should get their email");
-//         Ok::<(), anyhow::Error>(())
-//     }, port).await?;
-//
-//     Ok(())
-// }
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base", "end_user_email"))]
+async fn test_direct_run_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    in_test_worker(
+        Connection::Sql(db.clone()),
+        async move {
+            let result = run_direct(port, SAME_WS_TOKEN, "p/f/test/get_end_user_email").await?;
+            assert_eq!(result, SAME_WS_EMAIL, "a script run should see its caller");
+
+            let result =
+                run_direct(port, SAME_WS_TOKEN, "f/f/test/get_end_user_email_flow").await?;
+            assert_eq!(
+                result, SAME_WS_EMAIL,
+                "every flow step should see the flow's caller"
+            );
+
+            Ok::<(), anyhow::Error>(())
+        },
+        port,
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// A job's `WM_TOKEN` names the identity the job runs as, which differs from its end user when
+/// the job runs on behalf of another account. A run it starts must keep the job's end user.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base", "end_user_email"))]
+async fn test_job_token_run_keeps_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let calling_job = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email)
+         VALUES ($1, 'test2@windmill.dev', 'test-user-2', false, false, '{}', '{}', 'test-workspace', $2)",
+    )
+    .bind(calling_job)
+    .bind(SAME_WS_EMAIL)
+    .execute(&db)
+    .await?;
+    let wm_token = windmill_common::auth::create_jwt_token(
+        windmill_common::db::Authed {
+            email: "test2@windmill.dev".to_string(),
+            username: "test-user-2".to_string(),
+            is_admin: false,
+            is_operator: false,
+            groups: vec!["all".to_string()],
+            folders: vec![],
+            scopes: None,
+            token_prefix: None,
+        },
+        "test-workspace",
+        3600,
+        Some(calling_job),
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    in_test_worker(
+        Connection::Sql(db.clone()),
+        async move {
+            let result = run_direct(port, &wm_token, "p/f/test/get_end_user_email").await?;
+            assert_eq!(
+                result, SAME_WS_EMAIL,
+                "the calling job's end user, not its run-as identity"
+            );
+            Ok::<(), anyhow::Error>(())
+        },
+        port,
+    )
+    .await?;
+
+    Ok(())
+}
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base", "end_user_email"))]

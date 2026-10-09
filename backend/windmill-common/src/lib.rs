@@ -123,6 +123,7 @@ pub mod query_builders;
 pub mod queue;
 pub mod queue_metrics;
 pub mod result_stream;
+pub mod runnable_job_stats;
 pub mod runnable_settings;
 pub mod runnables;
 pub mod schedule;

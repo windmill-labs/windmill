@@ -1,4 +1,4 @@
-import { base } from '$lib/base'
+import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 import { isCloudHosted } from '$lib/cloud'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import type { HttpMethod, NewHttpTrigger } from '$lib/gen'
@@ -33,8 +33,7 @@ export function allowedOriginRejection(origin: string): string | undefined {
 	if (origin === '') return 'An origin must not be empty'
 	if (origin.length > MAX_ALLOWED_ORIGIN_LEN)
 		return `'${origin.slice(0, 40)}…' is longer than any origin a browser sends`
-	if (origin.includes(','))
-		return `'${origin}' must not contain a comma, which separates entries`
+	if (origin.includes(',')) return `'${origin}' must not contain a comma, which separates entries`
 	if (origin.toLowerCase() === 'null')
 		return `'null' is what a sandboxed iframe sends, so it would allow any page that can open one`
 	if (!/^[\x21-\x7e]+$/.test(origin))
@@ -85,8 +84,7 @@ export function allowedOriginWarning(origin: string): string | undefined {
 	if (rest.startsWith(':')) return `'${origin}' has no host`
 	// An unclosed bracket would otherwise leave `portStart` at zero, which reads
 	// as "no port" and lets the entry through unremarked.
-	if (rest.startsWith('[') && !rest.includes(']'))
-		return `'${origin}' has an unclosed IPv6 host`
+	if (rest.startsWith('[') && !rest.includes(']')) return `'${origin}' has an unclosed IPv6 host`
 	const portStart = rest.startsWith('[') ? rest.indexOf(']') + 1 : rest.indexOf(':')
 	// A trailing colon is a port, an empty one — distinct from having none.
 	const port = portStart > 0 && rest[portStart] === ':' ? rest.slice(portStart + 1) : undefined
@@ -160,7 +158,7 @@ export function getHttpRoute(
 	workspaced_route: boolean,
 	workspace_id: string
 ) {
-	return `${location.origin}${base}/api/${route_prefix}/${
+	return `${apiBaseUrl()}/api/${route_prefix}/${
 		isCloudHosted() || workspaced_route ? workspace_id + '/' : ''
 	}${route_path ?? ''}`
 }

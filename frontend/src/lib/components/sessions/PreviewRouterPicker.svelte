@@ -16,8 +16,9 @@ section or the flat layout.
 
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Compass, FileText, Pen } from 'lucide-svelte'
+	import { Compass, FileText, NetworkIcon, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
+	import { AssetService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import {
@@ -241,10 +242,39 @@ section or the flat layout.
 			: undefined
 	)
 
+	// Data pipelines are folders, not items, so they get a branch of their own
+	// rather than a leaf in the workspace tree.
+	const pipelinesResource = resource(
+		() => effectiveWorkspace,
+		async (ws) => (ws ? await AssetService.listPipelineFolders({ workspace: ws }) : [])
+	)
+	const pipelinesBranch = $derived<DrillBranch<PreviewTarget> | undefined>(
+		pipelinesResource.current && pipelinesResource.current.length > 0
+			? {
+					type: 'branch',
+					key: 'pipelines',
+					label: 'Data pipelines',
+					icon: NetworkIcon,
+					searchGroup: true,
+					children: pipelinesResource.current.map(({ folder }) => {
+						const path = `/pipeline/${encodeURIComponent(folder)}`
+						return {
+							type: 'leaf' as const,
+							key: pageKey(path),
+							label: `f/${folder}`,
+							icon: NetworkIcon,
+							data: { type: 'page', href: pageHref(path), label: folder }
+						}
+					})
+				}
+			: undefined
+	)
+
 	const tree = $derived<DrillNode<PreviewTarget>[]>([
 		// An operator's workspace may enable none of them.
 		...(pagesBranch.children.length > 0 ? [pagesBranch] : []),
 		...(artifactsBranch ? [artifactsBranch] : []),
+		...(pipelinesBranch ? [pipelinesBranch] : []),
 		...tagItems(
 			buildWorkspaceTree({
 				loaded: loader.loaded,

@@ -1,6 +1,6 @@
 import { getContext, onDestroy, setContext } from 'svelte'
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
-import type { PreviewItemRoute } from './previewPaths'
+import type { SessionTarget } from './sessionState.svelte'
 
 // The "Open in AI session" hand-off, published by the component that owns the
 // item being edited (FlowBuilder, RawAppEditor) for AI entry points too deep in
@@ -38,20 +38,17 @@ export function getOpenInSessionHandoff(): OpenInSessionHandoff | undefined {
 	return getContext<OpenInSessionHandoff | undefined>(KEY)
 }
 
-/** The mounted editor's hand-off for the item `route` names, or undefined when
- * no editor on screen publishes one for it (a legacy app, a detail page).
- * Matched on the item rather than taken as "the latest registered": a script
- * editor mounted in a flow's drawer registers too, and the rail wants the
- * page's own item. */
+/** The mounted editor's hand-off for `target`, or undefined when no editor on
+ * screen publishes one for it (a detail page). Matched on the item rather than
+ * taken as "the latest registered": a script editor mounted in a flow's drawer
+ * registers too, and the rail wants the page's own item. */
 export function findMountedOpenInSessionSource(
-	route: PreviewItemRoute
+	target: SessionTarget
 ): OpenInSessionSource | undefined {
-	const kind = route.kind === 'app' ? (route.raw_app ? 'raw_app' : undefined) : route.kind
-	if (!kind) return undefined
 	for (const handoff of mounted) {
 		const source = handoff.source()
-		const target = source?.target
-		if (target && target.kind === kind && target.path === route.itemPath) return source
+		const t = source?.target
+		if (t && t.kind === target.kind && t.path === target.path) return source
 	}
 	return undefined
 }

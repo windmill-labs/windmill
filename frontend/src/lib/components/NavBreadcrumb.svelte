@@ -294,12 +294,13 @@ not this component) — so the lead can run the whole line.
 						{createMenu}
 						usePointerDownOutside
 						placement="bottom-start"
+						class="h-auto"
 						contentStyle="margin-left: {-nameWidth}px"
 					>
 						{#snippet triggr({ trigger })}
 							<MeltButton
 								meltElement={trigger}
-								class="flex items-center p-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
+								class="flex items-center h-9 px-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
 								title="Switch workspace"
 							>
 								<ChevronDown size={ICON} class="flex-shrink-0" />
@@ -396,6 +397,15 @@ not this component) — so the lead can run the whole line.
 			onPick={() => {}}
 		/>
 	{:else if section}
+		{#if section.parent}
+			<!-- Gives width back with the workspace part, before the section's own name does. -->
+			<span
+				class={twMerge(SEGMENT, LEAD, 'shrink-[999] hover:bg-transparent hover:text-secondary')}
+			>
+				<span class="truncate">{section.parent}</span>
+			</span>
+			{@render slash()}
+		{/if}
 		<!-- A section's own widget lays out as a row: its title, and whatever belongs with it. -->
 		<span
 			class={twMerge(

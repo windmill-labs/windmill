@@ -259,12 +259,17 @@
 		is_flow = itemKind === 'flow'
 	})
 
+	// Set by `openNew(…, { onSaveDraft })`: the caller keeps the trigger as its own
+	// draft, so Save hands it the config instead of writing it.
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
+
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
 		defaultConfig?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		saveDraftHandler = undefined
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
 		editRights.forgetFailures()
@@ -309,8 +314,14 @@
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
 		defaultValues?: Record<string, any>,
-		newDraft?: boolean
+		newDraft?: boolean,
+		opts: {
+			onSaveDraft?: (cfg: Record<string, any>) => boolean
+			/** A config this editor saved before, re-applied over the defaults. */
+			draftConfig?: Record<string, any>
+		} = {}
 	) {
+		saveDraftHandler = opts.onSaveDraft
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -354,6 +365,7 @@
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
 			originalConfig = undefined
+			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig)
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -479,6 +491,11 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
+		if (saveDraftHandler) {
+			if (!saveDraftHandler($state.snapshot(getSaveCfg()))) return
+			drawer?.closeDrawer()
+			return
+		}
 		const cfg = postgresConfig
 		if (!cfg) {
 			return
@@ -610,7 +627,9 @@
 			? can_write
 				? `Edit Postgres trigger ${initialPath}`
 				: `Postgres trigger ${initialPath}`
-			: 'New Postgres trigger'}
+			: saveDraftHandler
+				? 'Draft Postgres trigger'
+				: 'New Postgres trigger'}
 		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet actions()}{@render actionsSnippet()}{/snippet}
@@ -665,6 +684,7 @@
 			isLoading={deploymentLoading}
 			{isDeployed}
 			onUpdate={updateTrigger}
+			saveLabel={saveDraftHandler ? 'Save draft' : undefined}
 			{onReset}
 			{onDelete}
 			{mode}

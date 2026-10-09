@@ -60,8 +60,7 @@
 	import { effectivePath, type ItemType } from './treeViewUtils'
 	import { tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import { NetworkIcon } from 'lucide-svelte'
-	import { base } from '$lib/base'
+	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
 
@@ -833,6 +832,8 @@
 		// keeping a dead path. `tick` lets the reloaded rows re-register first.
 		const renderedBefore = homeSelection.renderedKeys
 		void ownerCountsRes.refetch()
+		// Deleting a pipeline removes it from this list, which no item reload covers.
+		void pipelineFoldersRes.refetch()
 		await reloadItems()
 		await tick()
 		homeSelection.dropVanished(renderedBefore)
@@ -1819,8 +1820,7 @@
 				homeSelection.active &&
 				selectedIndex >= 0 &&
 				selectedIndex < displayedItems.length &&
-				displayedItems[selectedIndex].type !== 'raw_app' &&
-				displayedItems[selectedIndex].type !== 'agent'
+				displayedItems[selectedIndex].type !== 'raw_app'
 			) {
 				e.preventDefault()
 				homeSelection.toggle(
@@ -2167,13 +2167,7 @@
 			<div class="border rounded-md bg-surface-tertiary" class:wm-imported={justImported}>
 				{#if filter === ''}
 					{#each [...visiblePipelineFolders].sort() as folder (folder)}
-						<a
-							href="{base}/pipeline/{encodeURIComponent(folder)}"
-							class="w-full inline-flex items-center gap-4 px-4 py-3 border-b last:border-b-0 hover:bg-surface-hover transition-colors text-sm first-of-type:rounded-t-md"
-						>
-							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
-							<span class="text-xs font-medium text-emphasis truncate">Pipeline · f/{folder}</span>
-						</a>
+						<PipelineRow {folder} onDeleted={reloadItemsAndCounts} />
 					{/each}
 				{/if}
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
