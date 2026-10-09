@@ -233,11 +233,13 @@ fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
     }
 }
 
-/// Checks the route path to determine the runnable kind ("agents", "flows" or "scripts").
+/// Checks the route path to determine the runnable kind ("dependencies", "agents", "flows"
+/// or "scripts").
 ///
 /// The order of checks is important:
-/// - Flow-related paths are checked first to avoid false positives, as some flow paths
-///   (e.g., `/run_preview_flow`) share prefixes with script paths (e.g., `/run_preview`).
+/// - Dependency paths are checked before flow paths: `flow_dependencies` starts with `f`.
+/// - Flow-related paths are checked before script paths to avoid false positives, as some
+///   flow paths (e.g., `/run_preview_flow`) share prefixes with script paths (e.g., `/run_preview`).
 ///
 /// Returns the kind based on the match, or `None` if no match is found.
 fn determine_kind_from_route(route_path: &str) -> Option<String> {
@@ -253,7 +255,6 @@ fn determine_kind_from_route(route_path: &str) -> Option<String> {
         {
             return None;
         }
-        // Before the flow check: `jobs/run/flow_dependencies` also starts with `jobs/run/f`.
         if DEPENDENCY_JOBS
             .iter()
             .any(|path| route_path.starts_with(path))

@@ -476,6 +476,32 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         );
     }
 
+    // A lock job belongs to `jobs:run:dependencies`: its path is whatever the caller sent,
+    // so a token scoped to run the flow at that path must not read it.
+    let path = "completed/get_result/19191919-1919-1919-1919-191919191919";
+    let (status, body) = get(&base, path, Some("RUN_SCOPED_DEPS_TOKEN")).await;
+    assert!(
+        status.is_success() && body.contains("DEPS_RESULT"),
+        "dependencies-scoped token must read its lock job (got {status}): {body}"
+    );
+    let (status, body) = get(&base, path, Some("RUN_SCOPED_TOKEN")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "a flow-scoped token must not read a lock job (got {status}): {body}"
+    );
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{FLOW_JOB}"),
+        Some("RUN_SCOPED_DEPS_TOKEN"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "dependencies-scoped token must not read a flow run at its path (got {status}): {body}"
+    );
+
     // An `apps:run:<app>` scope is a start grant too: the inline-script component run it
     // launched — a kind no `jobs:run` scope can name — stays readable to a token scoped
     // to that app, and stays out of reach for one that is only scoped to run jobs.
