@@ -123,7 +123,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
     sqlx::query!(
         r#"
         INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
-        VALUES ('test-workspace', 1234567890, 'f/test/success_handler', $1, 'deno', 'script', 'test-user', '{}', 'Success handler script', 'Handles successful job completions', '')
+        VALUES ('test-workspace', 1234567890, 'f/test/success_handler', $1, 'bun', 'script', 'test-user', '{}', 'Success handler script', 'Handles successful job completions', E'{}\n//bun.lock\n<empty>')
         "#,
         success_handler_code
     )
@@ -138,7 +138,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
     sqlx::query!(
         r#"
         INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
-        VALUES ('test-workspace', $1, 'f/test/simple_script', $2, 'deno', 'script', 'test-user', '{}', 'Simple test script', 'A simple test script', '')
+        VALUES ('test-workspace', $1, 'f/test/simple_script', $2, 'bun', 'script', 'test-user', '{}', 'Simple test script', 'A simple test script', E'{}\n//bun.lock\n<empty>')
         "#,
         test_script_hash,
         test_script_code
@@ -175,7 +175,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        language: ScriptLang::Deno,
+        language: ScriptLang::Bun,
         priority: None,
         apply_preprocessor: false,
         concurrency_settings: ConcurrencySettings::default(),

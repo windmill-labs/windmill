@@ -54,7 +54,7 @@ mod job_payload {
                 cache_ttl: None,
                 cache_ignore_s3_path: None,
                 dedicated_worker: None,
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 priority: None,
                 apply_preprocessor: false,
                 job_token_scopes: None,
@@ -85,7 +85,7 @@ mod job_payload {
                 cache_ttl: None,
                 cache_ignore_s3_path: None,
                 dedicated_worker: None,
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 priority: None,
                 apply_preprocessor: true,
                 concurrency_settings:
@@ -165,7 +165,7 @@ mod job_payload {
         let test = || async {
             let result = RunJob::from(JobPayload::FlowScript {
                 id: flow_scripts[0],
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 cache_ttl: None,
@@ -185,7 +185,7 @@ mod job_payload {
         let test = || async {
             let result = RunJob::from(JobPayload::FlowScript {
                 id: flow_scripts[1],
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 cache_ttl: None,
@@ -263,7 +263,7 @@ mod job_payload {
         let result = RunJob::from(JobPayload::Dependencies {
             path: "f/system/hello".to_string(),
             hash: ScriptHash(123412),
-            language: ScriptLang::Deno,
+            language: ScriptLang::Bun,
             debouncing_settings: Default::default(),
             dedicated_worker: None,
         })
@@ -351,7 +351,7 @@ mod job_payload {
                                 console.log(greet)
                                 return greet
                             }"#,
-                            "language": "deno",
+                            "language": "bun",
                             "input_transforms": {
                                 "world": { "type": "javascript", "expr": "flow_input.world" }
                             }
@@ -407,7 +407,7 @@ mod job_payload {
                     return greet
                 }"#
                 .into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
             })
             .run_until_complete(&db, false, port)
             .await
@@ -416,7 +416,10 @@ mod job_payload {
 
             assert_eq!(
                 result,
-                json!({ "lock": "", "status": "Successful lock file generation" })
+                json!({
+                    "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                    "status": "Successful lock file generation"
+                })
             );
         };
         test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
@@ -626,7 +629,7 @@ mod job_payload {
                                 console.log(greet)
                                 return greet
                             }"#,
-                            "language": "deno",
+                            "language": "bun",
                             "input_transforms": {
                                 "world": { "type": "javascript", "expr": "flow_input.world" }
                             }
@@ -673,7 +676,7 @@ mod job_payload {
                             "content": r#"export function main(world: string) {
                                 return `Hello ${world}!`;
                             }"#,
-                            "language": "deno",
+                            "language": "bun",
                             "input_transforms": {
                                 "world": { "type": "javascript", "expr": "flow_input.world" }
                             }
@@ -685,7 +688,7 @@ mod job_payload {
                             "content": r#"export function main(world: string, a: string) {
                                 return `${a} ${world}!`;
                             }"#,
-                            "language": "deno",
+                            "language": "bun",
                             "input_transforms": {
                                 "world": { "type": "javascript", "expr": "flow_input.world" },
                                 "a": { "type": "javascript", "expr": "results.a" }
@@ -704,7 +707,7 @@ mod job_payload {
                                         "x": { "type": "javascript", "expr": "flow_input.iter.value" }
                                     },
                                     "type": "rawscript",
-                                    "language": "deno",
+                                    "language": "bun",
                                     "content": r#"export function main(world: string, b: string, x: string) {
                                         return `${x}: ${b} ${world}!`;
                                     }"#,
@@ -857,7 +860,7 @@ mod job_payload {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "input_transforms": {
                         "world": { "type": "javascript", "expr": "flow_input.world" }
                     },
@@ -874,7 +877,7 @@ mod job_payload {
                             "id": "inner_first",
                             "value": {
                                 "type": "rawscript",
-                                "language": "deno",
+                                "language": "bun",
                                 "input_transforms": {
                                     "world": { "type": "javascript", "expr": "flow_input.world" }
                                 },
@@ -884,7 +887,7 @@ mod job_payload {
                             "id": "inner_second",
                             "value": {
                                 "type": "rawscript",
-                                "language": "deno",
+                                "language": "bun",
                                 "input_transforms": {
                                     "world": { "type": "javascript", "expr": "flow_input.world" },
                                     "first": { "type": "javascript", "expr": "results.inner_first" }
@@ -1045,7 +1048,7 @@ mod job_payload {
                         "id": "inner",
                         "value": {
                             "type": "rawscript",
-                            "language": "deno",
+                            "language": "bun",
                             "input_transforms": {
                                 "iter_val": { "type": "javascript", "expr": "flow_input.iter.value" },
                                 "tag": { "type": "javascript", "expr": "flow_input.tag" }
@@ -1244,7 +1247,7 @@ mod job_payload {
                                 "id": "leaf",
                                 "value": {
                                     "type": "rawscript",
-                                    "language": "deno",
+                                    "language": "bun",
                                     "input_transforms": {
                                         "tag": { "type": "javascript", "expr": "flow_input.tag" },
                                         "iv": { "type": "javascript", "expr": "flow_input.iter.value" }
@@ -1388,7 +1391,7 @@ mod job_payload {
                                         "id": "leaf",
                                         "value": {
                                             "type": "rawscript",
-                                            "language": "deno",
+                                            "language": "bun",
                                             "input_transforms": {
                                                 "tag": { "type": "javascript", "expr": "flow_input.tag" }
                                             },

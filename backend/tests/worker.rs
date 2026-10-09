@@ -166,7 +166,7 @@ async fn test_iteration_parallel(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
-async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_bun_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -183,7 +183,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                     id: "a".to_string(),
                     value: FlowModuleValue::RawScript {
                         input_transforms: Default::default(),
-                        language: ScriptLang::Deno,
+                        language: ScriptLang::Bun,
                         content: numbers.to_string(),
                         path: None,
                         lock: None,
@@ -232,7 +232,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                                     },
                                 )]
                                 .into(),
-                                language: ScriptLang::Deno,
+                                language: ScriptLang::Bun,
                                 content: doubles.to_string(),
                                 path: None,
                                 lock: None,
@@ -296,7 +296,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
     let port = server.addr.port();
 
     for i in 0..50 {
-        println!("deno flow iteration: {}", i);
+        println!("bun flow iteration: {}", i);
         let job = run_job_in_new_worker_until_complete(&db, false, job.clone(), port).await;
         // println!("job: {:#?}", job.flow_status);
         let result = job.json_result().unwrap();
@@ -346,13 +346,13 @@ async fn test_identity(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
-async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_bun_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
 
     let write_file = r#"export async function main(loop: boolean, i: number, path: string) {
-            await Deno.writeTextFile(`./shared/${path}`, `${loop} ${i}`);
+            await Bun.write(`./shared/${path}`, `${loop} ${i}`);
         }"#
     .to_string();
 
@@ -373,7 +373,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                             ),
                         ]
                         .into(),
-                        language: ScriptLang::Deno,
+                        language: ScriptLang::Bun,
                         content: write_file.clone(),
                         path: None,
                         lock: None,
@@ -432,7 +432,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                         ),
                                     ]
                                     .into(),
-                                    language: ScriptLang::Deno,
+                                    language: ScriptLang::Bun,
                                     content: write_file,
                                     path: None,
                                     lock: None,
@@ -472,9 +472,9 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                         InputTransform::Static { value: windmill_common::worker::to_raw_value(&"outer.txt") },
                                     )]
                                     .into(),
-                                    language: ScriptLang::Deno,
+                                    language: ScriptLang::Bun,
                                     content: r#"export async function main(path: string, path2: string) {
-                                        return await Deno.readTextFile(`./shared/${path}`) + "," + await Deno.readTextFile(`./shared/${path2}`);
+                                        return await Bun.file(`./shared/${path}`).text() + "," + await Bun.file(`./shared/${path2}`).text();
                                     }"#
                                     .to_string(),
                                     path: None,
@@ -546,9 +546,9 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                             ),
                         ]
                         .into(),
-                        language: ScriptLang::Deno,
+                        language: ScriptLang::Bun,
                         content: r#"export async function main(path: string, loops: string[], path2: string) {
-                            return await Deno.readTextFile(`./shared/${path}`) + "," + loops + "," + await Deno.readTextFile(`./shared/${path2}`);
+                            return await Bun.file(`./shared/${path}`).text() + "," + loops + "," + await Bun.file(`./shared/${path2}`).text();
                         }"#
                         .to_string(),
                         path: None,
@@ -618,7 +618,7 @@ async fn test_same_worker_survives_empty_branch(db: Pool<Postgres>) -> anyhow::R
                             "id": "c",
                             "value": {
                                 "type": "rawscript",
-                                "language": "deno",
+                                "language": "bun",
                                 "content": "export function main(){ return 1 }",
                             }
                         }]
@@ -630,7 +630,7 @@ async fn test_same_worker_survives_empty_branch(db: Pool<Postgres>) -> anyhow::R
                 "id": "b",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(){ return 42 }",
                 }
             }
@@ -671,7 +671,7 @@ async fn test_flow_result_by_id(db: Pool<Postgres>) -> anyhow::Result<()> {
                     "id": "a",
                     "value": {
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export function main(){ return 42 }",
                     }
                 },
@@ -686,7 +686,7 @@ async fn test_flow_result_by_id(db: Pool<Postgres>) -> anyhow::Result<()> {
                                             "value": {
                                                 "input_transforms": {"v": {"type": "javascript", "expr": "results.a"}},
                                                 "type": "rawscript",
-                                                "language": "deno",
+                                                "language": "bun",
                                                 "content": "export function main(v){ return v }",
                                             }
 
@@ -3857,7 +3857,7 @@ fn module_add_item_to_list(i: i32, id: &str) -> serde_json::Value {
                 }
             },
             "type": "rawscript",
-            "language": "deno",
+            "language": "bun",
             "content": "export function main(array, i){ array.push(i); return array }",
         }
     })
@@ -3868,7 +3868,7 @@ fn module_failure() -> serde_json::Value {
         "value": {
             "input_transforms": {},
             "type": "rawscript",
-            "language": "deno",
+            "language": "bun",
             "content": "export function main(){ throw Error('failure') }",
         }
     })
@@ -3886,7 +3886,7 @@ async fn test_branchone_simple(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(){ return [1] }",
                 }
             },
@@ -3924,7 +3924,7 @@ async fn test_branchone_with_cond(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(){ return [1] }",
                 }
             },
@@ -3962,7 +3962,7 @@ async fn test_branchall_sequential(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(){ return [1] }",
                 }
             },
@@ -4002,7 +4002,7 @@ async fn test_branchall_simple(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(){ return [1] }",
                 }
             },
@@ -4050,7 +4050,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(){ return [1] }",
                 }
             },
@@ -4086,7 +4086,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(){ return [1] }",
                 }
             },
@@ -4132,7 +4132,7 @@ async fn test_branchone_nested(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(){ return [] }",
                 }
             },
@@ -4191,7 +4191,7 @@ async fn test_branchall_nested(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(){ return [1] }",
                 }
             },
@@ -4257,7 +4257,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
                         "n": { "type": "javascript", "expr": "flow_input.n", },
                     },
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(n, l) { if (n == 0) throw Error(JSON.stringify(l)); return { l: [...l, 0] } }",
                 },
             }, {
@@ -4268,7 +4268,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
                         "n": { "type": "javascript", "expr": "flow_input.n", },
                     },
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(n, l) { if (n == 1) throw Error(JSON.stringify(l)); return { l: [...l, 1] } }",
                 },
             }, {
@@ -4278,7 +4278,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
                         "n": { "type": "javascript", "expr": "flow_input.n", },
                     },
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(n, l) { if (n == 2) throw Error(JSON.stringify(l)); return { l: [...l, 2] } }",
                 },
             }],
@@ -4286,7 +4286,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "value": {
                     "input_transforms": { "error": { "type": "javascript", "expr": "previous_result", } },
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main(error) { return { 'from failure module': error } }",
                 }
             },
@@ -4475,7 +4475,7 @@ fn hanging_step_value() -> serde_json::Value {
     serde_json::json!({
         "input_transforms": {},
         "type": "rawscript",
-        "language": "deno",
+        "language": "bun",
         "content": "export async function main() { await new Promise((r) => setTimeout(r, 600000)); }",
     })
 }
@@ -4487,7 +4487,7 @@ fn marker_failure_module() -> serde_json::Value {
         "value": {
             "input_transforms": { "error": { "type": "javascript", "expr": "previous_result", } },
             "type": "rawscript",
-            "language": "deno",
+            "language": "bun",
             "content": "export function main(error) { return { handled_unrecoverable: true, error } }",
         }
     })
@@ -4585,7 +4585,7 @@ async fn test_unrecoverable_failure_on_continue_on_error_runs_failure_module(
                 "value": {
                     "input_transforms": {},
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return { ran_b: true }; }",
                 },
             },
@@ -4624,7 +4624,7 @@ async fn test_run_wait_result_early_return_with_failure_module(
             "id": "a",
             "value": {
                 "type": "rawscript",
-                "language": "deno",
+                "language": "bun",
                 "input_transforms": {},
                 "content": "export function main() { throw new Error('boom'); }",
             },
@@ -4632,7 +4632,7 @@ async fn test_run_wait_result_early_return_with_failure_module(
         "failure_module": {
             "value": {
                 "type": "rawscript",
-                "language": "deno",
+                "language": "bun",
                 "input_transforms": {},
                 "content": "export function main() { return { recovered: true } }",
             },
@@ -4720,7 +4720,7 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
                     "value": {
                         "input_transforms": {},
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export function main() { throw new Error('boom'); }",
                     },
                 }],
@@ -4734,7 +4734,7 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
                 "value": {
                     "input_transforms": {},
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return { ran_b: true } }",
                 },
             }],
@@ -4742,7 +4742,7 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
                 "value": {
                     "input_transforms": {},
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return { handled: true, recover: true } }",
                 },
             },
@@ -4797,14 +4797,23 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
     server.close().await.unwrap();
 
     #[cfg(feature = "quickjs")]
-    assert!(!chaining_error.success, "an error no handler recovered must keep the flow failed");
+    assert!(
+        !chaining_error.success,
+        "an error no handler recovered must keep the flow failed"
+    );
 
-    assert!(stopped.success, "a recovered failure inside a loop should end the flow as a success");
+    assert!(
+        stopped.success,
+        "a recovered failure inside a loop should end the flow as a success"
+    );
     assert!(
         stopped.json_result().unwrap().get("ran_b").is_none(),
         "the step after the loop must not run, as without recovery"
     );
-    assert_eq!(stopped_handler_runs, 1, "the loop must stop at the first failed iteration");
+    assert_eq!(
+        stopped_handler_runs, 1,
+        "the loop must stop at the first failed iteration"
+    );
 
     assert!(skipping.success);
     assert_eq!(
@@ -4815,7 +4824,11 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
     assert_eq!(skipping_handler_runs, 3);
 
     assert!(
-        !parallel.json_result().unwrap().to_string().contains("ran_b"),
+        !parallel
+            .json_result()
+            .unwrap()
+            .to_string()
+            .contains("ran_b"),
         "the parallel loop fails as without recovery, so the step after it must not run"
     );
     Ok(())
@@ -5687,7 +5700,7 @@ async fn test_job_labels(db: Pool<Postgres>) -> anyhow::Result<()> {
                         console.log(greet)
                         return { greet, wm_labels: ["yolo", "greet", "greet", world] };
                     }"#,
-                        "language": "deno",
+                        "language": "bun",
                         "input_transforms": {
                             "world": { "type": "javascript", "expr": "flow_input.world" }
                         }
@@ -5896,7 +5909,7 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
             "id": "a",
             "value": {
                 "type": "rawscript",
-                "language": "deno",
+                "language": "bun",
                 "content": "export function main() { return 42; }",
                 "tag": "restricted-tag",
             },
@@ -5956,7 +5969,7 @@ async fn test_flow_substep_tag_checked_on_resolved_value(db: Pool<Postgres>) -> 
             "id": id,
             "value": {
                 "type": "rawscript",
-                "language": "deno",
+                "language": "bun",
                 "content": "export function main() { return { lang: 'bun' } }",
                 "tag": tag,
             },

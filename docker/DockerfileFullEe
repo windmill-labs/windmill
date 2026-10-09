@@ -21,6 +21,9 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
 
 FROM ${BASE_IMAGE}
 
+# Deno
+COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
+
 # Rust
 COPY --from=rust:1.97.0 /usr/local/cargo /usr/local/cargo
 COPY --from=rust:1.97.0 /usr/local/rustup /usr/local/rustup

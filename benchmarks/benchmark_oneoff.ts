@@ -37,7 +37,7 @@ async function verifyOutputs(uuids: string[], workspace: string) {
   console.log(`Incorrect results: ${incorrectResults}`);
 }
 
-export const NON_TEST_TAGS = ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets", "flow"]
+export const NON_TEST_TAGS = ["python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets", "flow"]
 
 const FLOW_COMPARISON_KINDS = ["flow_seq_2_bun", "flow_par_2_bun", "flow_seq_3_bun"];
 export async function main({
@@ -148,7 +148,7 @@ export async function main({
   }
 
   if (
-    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets"].includes(
+    ["python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets"].includes(
       kind
     )
   ) {
@@ -169,7 +169,7 @@ export async function main({
       kind: "noop",
     });
   } else if (
-    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets"].includes(
+    ["python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets"].includes(
       kind
     )
   ) {
@@ -414,7 +414,7 @@ if (import.meta.main) {
     )
     .option(
       "--kind <kind:string>",
-      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps, nativets, dedicated_nativets, wac_seq_2, wac_par_2, wac_seq_3, wac_inline_2, flow_seq_2_bun, flow_par_2_bun, flow_seq_3_bun",
+      "Specifiy the benchmark kind among: identity, python, go, bash, dedicated, bun, noop, 2steps, nativets, dedicated_nativets, wac_seq_2, wac_par_2, wac_seq_3, wac_inline_2, flow_seq_2_bun, flow_par_2_bun, flow_seq_3_bun",
       {
         required: true,
       }

@@ -63,11 +63,11 @@ mod suspend_resume {
                             "op": { "type": "javascript", "expr": "flow_input.op ?? 'resume'", },
                         },
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "\
                             export async function main(n, port, op) {\
-                                const job = Deno.env.get('WM_JOB_ID');
-                                const token = Deno.env.get('WM_TOKEN');
+                                const job = process.env.WM_JOB_ID;
+                                const token = process.env.WM_TOKEN;
                                 const r = await fetch(
                                     `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}&approver=ruben`,\
                                     {\
@@ -102,7 +102,7 @@ mod suspend_resume {
                             "resumes": { "type": "javascript", "expr": "resumes", },
                         },
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export function main(n, resume, resumes) { return { n: n + 1, resume, resumes } }"
                     },
                     "suspend": {
@@ -116,7 +116,7 @@ mod suspend_resume {
                             "resumes": { "type": "javascript", "expr": "resumes", },
                         },
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export function main(last, resume, resumes) { return { last, resume, resumes } }"
                     },
                 }],
@@ -256,11 +256,11 @@ mod suspend_resume {
                         "port": { "type": "javascript", "expr": "flow_input.port" },
                     },
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "\
                         export async function main(port) {\
-                            const job = Deno.env.get('WM_JOB_ID');\
-                            const token = Deno.env.get('WM_TOKEN');\
+                            const job = process.env.WM_JOB_ID;\
+                            const token = process.env.WM_TOKEN;\
                             const secret = await (await fetch(\
                                 `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}&approver=ruben`,\
                                 { headers: { 'Authorization': `Bearer ${token}` } }\
@@ -278,7 +278,7 @@ mod suspend_resume {
                 "value": {
                     "input_transforms": {},
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'b ran' }",
                 },
                 // The gate holds `b` back, so `b` never runs and its error policy describes
@@ -290,7 +290,7 @@ mod suspend_resume {
                 "value": {
                     "input_transforms": {},
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'handled' }",
                 },
             },
@@ -343,7 +343,7 @@ mod suspend_resume {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step1'; }"
                 },
                 "suspend": {
@@ -355,7 +355,7 @@ mod suspend_resume {
                 "id": "b",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step2 - after approval'; }"
                 }
             }]
@@ -454,7 +454,7 @@ mod suspend_resume {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step1'; }"
                 },
                 "suspend": {
@@ -466,7 +466,7 @@ mod suspend_resume {
                 "id": "b",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step2 - after approval'; }"
                 }
             }]
@@ -556,7 +556,7 @@ mod suspend_resume {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step1'; }"
                 },
                 "suspend": {
@@ -567,7 +567,7 @@ mod suspend_resume {
                 "id": "b",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step2 - after approval'; }"
                 }
             }]
@@ -658,7 +658,7 @@ mod suspend_resume {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step1'; }"
                 },
                 "suspend": {
@@ -670,7 +670,7 @@ mod suspend_resume {
                 "id": "b",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step2 - after approval'; }"
                 }
             }]
@@ -764,7 +764,7 @@ mod suspend_resume {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step1'; }"
                 },
                 "suspend": {
@@ -776,7 +776,7 @@ mod suspend_resume {
                 "id": "b",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step2 - after approval'; }"
                 }
             }]
@@ -933,7 +933,7 @@ mod suspend_resume {
                     "suspend": { "required_events": 1, "timeout": 86400 },
                     "value": {
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export async function main() { return 1 }",
                         "input_transforms": {},
                     },
@@ -942,7 +942,7 @@ mod suspend_resume {
                     "id": "b",
                     "value": {
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export async function main() { return 42 }",
                         "input_transforms": {},
                     },
@@ -980,7 +980,7 @@ mod suspend_resume {
                     "suspend": { "required_events": APPROVALS, "timeout": 86400 },
                     "value": {
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export async function main() { return 1 }",
                         "input_transforms": {},
                     },
@@ -989,7 +989,7 @@ mod suspend_resume {
                     "id": "b",
                     "value": {
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export function main(resumes) { return resumes.length }",
                         "input_transforms": {
                             "resumes": { "type": "javascript", "expr": "resumes" },
