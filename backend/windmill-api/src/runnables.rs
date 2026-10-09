@@ -1149,25 +1149,27 @@ struct RunnablesActivityResponse {
 /// The latest runs and the attached triggers of a batch of scripts and flows, for
 /// the homepage rows. Only paths the caller can see as a deployed script or flow
 /// are answered: the `visible` CTE runs under RLS, and `native_trigger`, which has
-/// no RLS, is only reached through it.
+/// no RLS, is only reached through it. RLS doesn't honor token scopes, so a path
+/// outside the token's `scripts:read` / `flows:read` grant is dropped first.
 async fn get_runnables_activity(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(req): Json<RunnablesActivityRequest>,
 ) -> JsonResult<RunnablesActivityResponse> {
-    let mut paths: Vec<String> = vec![];
-    let mut is_flows: Vec<bool> = vec![];
-    for (list, is_flow) in [(req.scripts, false), (req.flows, true)] {
-        for p in list {
-            paths.push(p);
-            is_flows.push(is_flow);
-        }
-    }
-    if paths.len() > ACTIVITY_MAX_PATHS {
+    if req.scripts.len() + req.flows.len() > ACTIVITY_MAX_PATHS {
         return Err(Error::BadRequest(format!(
             "at most {ACTIVITY_MAX_PATHS} paths per request"
         )));
+    }
+    let mut paths: Vec<String> = vec![];
+    let mut is_flows: Vec<bool> = vec![];
+    for (list, is_flow, domain) in [(req.scripts, false, "scripts"), (req.flows, true, "flows")] {
+        let scope = build_scope_path_filter(&authed, domain, "read");
+        for p in list.into_iter().filter(|p| scope.allows(p)) {
+            paths.push(p);
+            is_flows.push(is_flow);
+        }
     }
     let mut res = RunnablesActivityResponse::default();
     if paths.is_empty() {

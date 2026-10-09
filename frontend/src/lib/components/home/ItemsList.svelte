@@ -2055,8 +2055,8 @@
 		</div>
 	</div>
 	{#if !contentActive && hasChips}
-		<!-- Owner and label chips on one line. Each function binding routes the chip's
-		     selection into the searchbar key of the same name, and `queryName` points
+		<!-- Owner chips. The function binding routes the selected chip into the
+		     searchbar's `owner` key, and `queryName` points
 		     ListFilters' own mount-time URL read at the param the filter instance syncs, so
 		     the two writers agree. No `syncQuery`: the filter instance owns the URL. -->
 		<div class="gap-2 w-full flex flex-wrap mt-3">
@@ -2234,7 +2234,10 @@
 		variant="subtle"
 		wrapperClasses="w-fit"
 		disabled={filter !== ''}
-		btnClasses={twMerge('-ml-1.5 px-1.5 text-2xs font-medium whitespace-nowrap', active ? 'text-primary' : 'text-secondary')}
+		btnClasses={twMerge(
+			'-ml-1.5 px-1.5 text-2xs font-medium whitespace-nowrap',
+			active ? 'text-primary' : 'text-secondary'
+		)}
 		endIcon={active ? { icon: sortOrder === asc ? ArrowUp : ArrowDown } : undefined}
 		title={filter !== ''
 			? 'Sorting is disabled while searching (results are ranked by relevance)'
