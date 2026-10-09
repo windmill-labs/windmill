@@ -7,7 +7,8 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
+        build_command_with_isolation, create_args_and_out_file, deno_not_installed_error,
+        get_reserved_variables,
         parse_npm_config, read_file, read_result, start_child_process, OccupancyMetrics,
         StreamNotifier,
     },
@@ -155,6 +156,17 @@ async fn get_common_deno_proc_envs(
     return deno_envs;
 }
 
+/// A spawn failure only names Deno when Deno itself is the spawned executable; behind an
+/// isolation wrapper or a dedicated worker it surfaces as an opaque exit. A bare `DENO_PATH`
+/// is resolved through PATH at spawn time, so it is left to the spawn error.
+fn ensure_deno_installed() -> Result<()> {
+    let path = std::path::Path::new(DENO_PATH.as_str());
+    if path.is_absolute() && !path.exists() {
+        return Err(deno_not_installed_error());
+    }
+    Ok(())
+}
+
 pub async fn generate_deno_lock(
     job_id: &Uuid,
     code: &str,
@@ -167,6 +179,7 @@ pub async fn generate_deno_lock(
     base_internal_url: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<String> {
+    ensure_deno_installed()?;
     let _ = write_file(job_dir, "main.ts", code)?;
 
     let import_map_path = format!("{job_dir}/import_map.json");
@@ -249,6 +262,7 @@ pub async fn handle_deno_job(
     occupancy_metrics: &mut OccupancyMetrics,
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
+    ensure_deno_installed()?;
     let annotations = TypeScriptAnnotations::parse(inner_content);
 
     // let mut start = Instant::now();
@@ -745,6 +759,7 @@ pub async fn start_worker(
 
     use crate::common::build_envs_map;
 
+    ensure_deno_installed()?;
     let _ = write_file(job_dir, "main.ts", inner_content)?;
     let common_deno_proc_envs = get_common_deno_proc_envs(
         &token,

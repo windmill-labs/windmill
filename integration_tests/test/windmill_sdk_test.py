@@ -8,15 +8,6 @@ from .wmill_integration_test_utils import WindmillClient
 VARIABLE_PATH = "u/admin/test_variable"
 VARIABLE_VALUE = "Hello world!"
 
-DENO_SCRIPT_PATH = "u/admin/deno_sdk_test_script"
-DENO_SCRIPT_VALUE = """
-import * as wmill from "npm:windmill-client@{version}"
-export async function main() {{
-  const val = await wmill.getVariable('u/admin/test_variable')
-  return val;
-}}
-"""
-
 BUN_SCRIPT_PATH = "u/admin/bun_sdk_test_script"
 BUN_SCRIPT_VALUE = """
 import * as wmill from "windmill-client@{version}"
@@ -63,11 +54,6 @@ class TestWindmillSdk(unittest.TestCase):
                 path=VARIABLE_PATH,
                 value=VARIABLE_VALUE,
             )
-            cls._client.create_script(
-                path=DENO_SCRIPT_PATH,
-                content=DENO_SCRIPT_VALUE.format(version=cls._dev_version),
-                language="deno",
-            )
             # TODO: See skipped annotations below
             # cls._client.create_script(
             #     path=BUN_SCRIPT_PATH,
@@ -89,20 +75,12 @@ class TestWindmillSdk(unittest.TestCase):
     def tearDownClass(cls) -> None:
         if cls._running_latest:
             cls._client.set_npm_config_registry("")
-            cls._client.delete_script(path=DENO_SCRIPT_PATH)
             # TODO: See skipped annotations below
             # cls._client.delete_script(path=BUN_SCRIPT_PATH)
             # cls._client.delete_script(path=PYTHON_SCRIPT_PATH)
             cls._client.delete_script(path=BASH_SCRIPT_PATH)
             cls._client.delete_variable(path=VARIABLE_PATH)
             cls._client.set_npm_config_registry("")
-
-    @unittest.skipUnless(
-        os.environ.get("WMILL_RUNNING_DEV", "0") == "1", "Runs on dev version only"
-    )
-    def test_deno_sdk_usable(self):
-        result = self._client.run_sync(DENO_SCRIPT_PATH, {})
-        self.assertEqual(result, VARIABLE_VALUE)
 
     @unittest.skipUnless(
         # os.environ.get("WMILL_RUNNING_DEV", "0") == "1", "Runs on dev version only"

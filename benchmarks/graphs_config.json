@@ -50,26 +50,6 @@
     ]
   },
   {
-    "graph_title": "deno throughput benchmark",
-    "benchmarks": [
-      {
-        "kind": "deno",
-        "workers": 1,
-        "label": "1 worker"
-      },
-      {
-        "kind": "deno",
-        "workers": 4,
-        "label": "4 workers"
-      },
-      {
-        "kind": "deno",
-        "workers": 8,
-        "label": "8 workers"
-      }
-    ]
-  },
-  {
     "graph_title": "bun throughput benchmark",
     "benchmarks": [
       {
@@ -170,7 +150,7 @@
     ]
   },
   {
-    "graph_title": "go vs python vs deno vs bun vs bash vs nativets",
+    "graph_title": "go vs python vs bun vs bash vs nativets",
     "benchmarks": [
       {
         "kind": "go",
@@ -181,11 +161,6 @@
         "kind": "python",
         "workers": 1,
         "label": "python"
-      },
-      {
-        "kind": "deno",
-        "workers": 1,
-        "label": "deno"
       },
       {
         "kind": "bun",

@@ -77,8 +77,8 @@ const WORKSPACE_CONFIG_SCHEMA = {
  */
 export const CONFIG_REFERENCE: ConfigOption[] = [
   // ── Core ──────────────────────────────────────────────────────────────
-  { name: "defaultTs", type: "string", enum: ["bun", "deno"], default: "bun", description: "Default TypeScript runtime for new scripts",
-    inlineComment: "bun or deno" },
+  { name: "defaultTs", type: "string", enum: ["bun", "deno"], default: "bun", description: "TypeScript runtime of a plain .ts script (bun when absent)",
+    skipInTemplate: true },
   { name: "includes", type: "array", items: { type: "string" }, default: '["f/**"]', description: "Glob patterns for files to include in sync",
     templateValue: '\n  - "f/**"', inlineComment: 'use ** for all, f/** for folder-scoped' },
   { name: "extraIncludes", type: "array", items: { type: "string" }, default: "[]", description: "Additional glob patterns merged with includes (useful in workspace overrides)",

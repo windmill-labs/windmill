@@ -22,12 +22,12 @@ deno run -A benchmark_suite.ts -c suite_wac.json
 
 ### Script benchmarks
 - `noop` — Empty jobs (measures pure scheduling overhead)
-- `deno`, `bun`, `python`, `go`, `bash` — Language runtimes
+- `bun`, `python`, `go`, `bash` — Language runtimes
 - `nativets` — BunNative (no isolation)
 - `dedicated`, `dedicated_nativets` — Dedicated worker mode
 
 ### Flow benchmarks
-- `2steps` — 2-step flow (deno + identity)
+- `2steps` — 2-step flow (bun + identity)
 - `bigscriptinflow` — Flow with large raw bash script
 - `flow_seq_2_bun` — 2 sequential bun steps
 - `flow_par_2_bun` — 2 parallel bun steps (branchall)
