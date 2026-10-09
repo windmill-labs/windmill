@@ -53,7 +53,7 @@ async fn create_app_with_inline_script(port: u16, path: &str) -> anyhow::Result<
                         "one_of_inputs": {}
                     },
                     // SHA256 hash of raw_code content for anonymous execution
-                    "rawscript/6428aba5aa2d3ea8e1215bfdccbedd3718b18da7a239e3778a9787bb9a0ea606": {
+                    "rawscript/894d2f85ea2411e777e7d5787366c9fec4c1a7a5f83482748f1d129196c9f54f": {
                         "static_inputs": {},
                         "one_of_inputs": {}
                     }
@@ -98,7 +98,7 @@ async fn create_raw_app_with_inline_script(port: u16, path: &str) -> anyhow::Res
                         "one_of_inputs": {}
                     },
                     // SHA256 hash of raw_code content for anonymous execution
-                    "rawscript/6428aba5aa2d3ea8e1215bfdccbedd3718b18da7a239e3778a9787bb9a0ea606": {
+                    "rawscript/894d2f85ea2411e777e7d5787366c9fec4c1a7a5f83482748f1d129196c9f54f": {
                         "static_inputs": {},
                         "one_of_inputs": {}
                     }
