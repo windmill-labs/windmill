@@ -17,7 +17,9 @@ use tokio::task::JoinHandle;
 pub use windmill_common::db::DB;
 use windmill_common::{
     error::Error,
+    global_settings::INSTANCE_PYTHON_BASELINE_SETTING,
     utils::{generate_lock_id, GIT_VERSION},
+    worker::PyVAlias,
 };
 
 #[allow(unused_imports)]
@@ -372,10 +374,33 @@ pub async fn migrate(
     }
 
     crate::live_migrations::custom_migrations(&mut custom_migrator).await?;
+    if let Err(e) = seed_instance_python_baseline(db).await {
+        tracing::error!("Could not record the instance python baseline: {e:#}");
+    }
     Ok(Some(crate::live_migrations::spawn_background_migrations(
         db.clone(),
         killpill_rx,
     )))
+}
+
+/// Records which Python version this instance runs on while `instance_python_version` is
+/// unset, once. An instance that predates the record keeps the frozen default; only one whose
+/// first migration ran within the last day counts as new, since a database has no other
+/// mark of its age and a restore or an upgrade keeps the original migration dates.
+async fn seed_instance_python_baseline(db: &DB) -> Result<(), Error> {
+    sqlx::query(
+        "INSERT INTO global_settings (name, value)
+         SELECT $1, to_jsonb(CASE
+             WHEN (SELECT min(installed_on) FROM _sqlx_migrations) > now() - interval '1 day'
+             THEN $2::text ELSE $3::text END)
+         ON CONFLICT (name) DO NOTHING",
+    )
+    .bind(INSTANCE_PYTHON_BASELINE_SETTING)
+    .bind(PyVAlias::NEW_INSTANCE.version_string())
+    .bind(PyVAlias::default().version_string())
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 pub async fn wait_for_migrations(

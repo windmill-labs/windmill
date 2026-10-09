@@ -836,16 +836,12 @@ export const settings: Record<string, Setting[]> = {
 			description: 'Default python version for newly deployed scripts',
 			key: 'instance_python_version',
 			fieldType: 'select_python',
-			// To change latest stable version:
-			// 1. Change placeholder in instanceSettings.ts
-			// 2. Change LATEST_STABLE_PY in dockerfile
-			// 3. Change #[default] annotation for PyVersion in backend
 			placeholder: '3.10,3.11,3.12,3.13',
 			select_items: [
 				{
-					label: 'Latest Stable',
+					label: 'Instance default',
 					value: 'default',
-					tooltip: 'python-3.12'
+					tooltip: 'The version this instance was initialized with'
 				},
 				{
 					label: '3.10'

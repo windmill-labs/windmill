@@ -153,10 +153,9 @@ ARG WITH_HELM=true
 ARG WITH_GIT=true
 ARG features=""
 
-# To change latest stable version:
-# 1. Change placeholder in instanceSettings.ts
-# 2. Change LATEST_STABLE_PY in dockerfile
-# 3. Change #[default] annotation for PyVersion in backend
+# The version new instances start on: PyVAlias::NEW_INSTANCE in the backend. Instances keep
+# the version they were initialized with, so when raising it, keep installing every earlier
+# value alongside it.
 ARG LATEST_STABLE_PY=3.12
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed

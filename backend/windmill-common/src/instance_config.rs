@@ -1026,6 +1026,7 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "rsa_keys",
     "jwt_secret",
     "min_keep_alive_version",
+    "instance_python_baseline",
 ];
 
 /// Secrets the server signs with or generated for itself. `jwt_secret` signs API and job
@@ -1065,6 +1066,7 @@ pub fn is_withheld_server_secret(name: &str) -> bool {
 pub const HIDDEN_SETTINGS: &[&str] = &[
     "uid",
     "min_keep_alive_version",
+    "instance_python_baseline",
     "automate_username_creation",
     "_restart_coordination",
     // Legacy ghost: worker configs live in the `config` table with a

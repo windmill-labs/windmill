@@ -199,10 +199,15 @@
 
 	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = $state([])
 
+	let pythonBaseline: string | undefined = $state()
+
 	let isPyFetching = $state(false)
 	async function fetch_available_python_versions() {
 		if (isPyFetching) return
 		isPyFetching = true
+		SettingService.getGlobal({ key: 'instance_python_baseline' })
+			.then((v) => (pythonBaseline = typeof v === 'string' ? v : undefined))
+			.catch((error) => console.error('Error fetching python baseline:', error))
 		try {
 			pythonAvailableVersions = await ConfigService.listAvailablePythonVersions()
 		} catch (error) {
@@ -269,7 +274,9 @@
 					{#each setting.select_items ?? [] as item}
 						<ToggleButton
 							value={item.value ?? item.label}
-							label={item.label}
+							label={item.value == 'default' && pythonBaseline
+								? `${item.label} (${pythonBaseline})`
+								: item.label}
 							tooltip={item.tooltip}
 							item={toggleButton}
 						/>
