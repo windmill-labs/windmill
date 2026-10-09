@@ -601,17 +601,22 @@ pub struct JobReadConfinement {
 
 impl JobReadConfinement {
     /// Whether a job that ran `runnable_path` as `kind` (`scripts`, `flows`, `agents` or
-    /// `dependencies`)
-    /// is inside the confinement. A read path admits every kind; a run scope only its own.
+    /// `dependencies`) is inside the confinement. A read path admits every kind; a run
+    /// scope only its own.
     pub fn admits(&self, kind: &str, runnable_path: &str) -> bool {
         if self.read_paths.allows(runnable_path) {
             return true;
         }
+        // Lock jobs and previews store the path their caller sent. The matcher reads `*`
+        // in it as a pattern, and `,`/`:` are scope syntax: such a path needs a grant
+        // covering every path, as enqueuing it did.
+        let resource = windmill_common::auth::is_scope_literal_path(runnable_path)
+            .then(|| vec![runnable_path.to_string()]);
         let required = ScopeDefinition::new(
             ScopeDomain::Jobs.as_str(),
             ScopeAction::Run.as_str(),
             Some(kind),
-            Some(vec![runnable_path.to_string()]),
+            resource,
         );
         self.run.iter().any(|scope| scope.includes(&required))
     }

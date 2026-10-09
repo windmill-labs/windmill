@@ -501,6 +501,18 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         reqwest::StatusCode::NOT_FOUND,
         "dependencies-scoped token must not read a flow run at its path (got {status}): {body}"
     );
+    // A lock job filed at `*` matches no path-scoped grant: the stored path is not a pattern.
+    let (status, body) = get(
+        &base,
+        "completed/get_result/20202020-2020-2020-2020-202020202020",
+        Some("RUN_SCOPED_DEPS_TOKEN"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "a path-scoped token must not read a lock job filed at `*` (got {status}): {body}"
+    );
 
     // An `apps:run:<app>` scope is a start grant too: the inline-script component run it
     // launched — a kind no `jobs:run` scope can name — stays readable to a token scoped
