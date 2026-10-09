@@ -4,8 +4,8 @@ The chevron after the breadcrumb's last segment: it opens the same picker a sess
 uses — the workspace pages, then the folders with their flows, scripts and apps — and picking a
 row navigates the app there.
 
-It lands where the page is: an item's folder with the item highlighted, or a page highlighted at
-the root, so moving to a sibling is one step rather than a drill from the top.
+It lands among the current page's siblings: an item opens in its folder with the item
+highlighted, a workspace page inside Pages with that page highlighted.
 -->
 <script lang="ts">
 	import { ChevronDown } from 'lucide-svelte'
@@ -34,8 +34,7 @@ the root, so moving to a sibling is one step rather than a drill from the top.
 
 	let isOpen = $state(false)
 
-	// The tree files a path under its `f/<folder>` or `u/<user>` scope, then one branch per
-	// subfolder, each keyed by its full path — so the item's own folder is its path minus the name.
+	// The item's own folder is its path minus the name.
 	const initialScope = $derived.by<Scope>(() => {
 		const parts = item?.path?.split('/') ?? []
 		return parts.length >= 3 ? { kind: 'all', dir: parts.slice(0, -1).join('/') } : undefined
