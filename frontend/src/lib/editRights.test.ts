@@ -35,6 +35,13 @@ describe('edit rights', () => {
 		expect(roleCanAuthor('script', adminOperator, undefined)).toBe(false)
 	})
 
+	// drafts.rs refuses an operator every draft but a builder flow, rights to write directly or not.
+	it('refuses an operator drafts of what they may write directly', () => {
+		expect(roleCanAuthor('trigger', user({}), undefined)).toBe(true)
+		expect(roleCanDraft('trigger', user({}), undefined)).toBe(false)
+		expect(roleCanDraft('resource', user({}), undefined)).toBe(false)
+	})
+
 	// The role alone is not enough: a builder still cannot edit a flow in a folder they only read.
 	it('requires write access to the item on top of the role', () => {
 		const builder = { builder_flows: true }

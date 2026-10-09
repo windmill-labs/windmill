@@ -31,9 +31,10 @@ type OperatorRights =
 	| undefined
 
 /**
- * Whether a user's role lets them author items of `kind` — create one, edit it, save its
- * drafts — in a workspace with these `operator_settings`. The role half of every edit check;
- * which items they may write is `canEditItem`'s other half. For an operator:
+ * Whether a user's role lets them author items of `kind` — create, edit, deploy or delete one —
+ * in a workspace with these `operator_settings`: the role half of every check against the item
+ * handlers. Saving a draft is `roleCanDraft`'s rule, and which items they may write is
+ * `canEditItem`'s other half. For an operator:
  * - code (scripts, apps, agents, pipelines): never;
  * - flows: where the workspace grants `builder_flows` (`check_operator_can_build_flows`);
  * - schedules and triggers: unless the workspace set `manage_*` to false — a withdrawable
@@ -63,17 +64,19 @@ export function roleCanAuthor(
 }
 
 /**
- * Whether the user may save drafts of `kind` — what every session editor writes. Drafts are the
- * one place an admin outranks the operator flag: drafts.rs `require_can_write_path` returns Ok
- * on `is_admin` before its operator branch, while the item handlers refuse an operator with no
- * admin escape, so `roleCanAuthor` stays the rule for creating, deploying and deleting.
+ * Whether the user may save drafts of `kind` — what every session editor writes. Mirrors drafts.rs
+ * `require_can_write_path`, which differs from the item handlers both ways: it admits an admin
+ * before its operator branch, and it refuses every operator draft but a flow under
+ * `builder_flows` — schedules, triggers, resources and variables included, though an operator may
+ * write those directly.
  */
 export function roleCanDraft(
 	kind: EditKind,
 	user: Pick<UserExt, 'operator' | 'is_admin' | 'is_super_admin'> | undefined,
 	operatorSettings: OperatorRights
 ): boolean {
-	return !!user?.is_admin || !!user?.is_super_admin || roleCanAuthor(kind, user, operatorSettings)
+	if (user?.is_admin || user?.is_super_admin || !user?.operator) return true
+	return kind === 'flow' && operatorSettings?.builder_flows === true
 }
 
 /** `roleCanDraft` for the item at `path`, with its own permissions as in `canEditItem`. */

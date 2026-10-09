@@ -5,7 +5,8 @@ import { useActingUser } from '$lib/actingUser.svelte'
 import { canDraftItem, canEditItem, roleCanAuthor, roleCanDraft } from '$lib/editRights'
 
 /**
- * `roleCanAuthor` and `canEditItem` answered for the user acting in the operating workspace,
+ * The `editRights` rules (`roleCanAuthor` / `canEditItem` for the item handlers, `roleCanDraft` /
+ * `canDraftItem` for drafts) answered for the user acting in the operating workspace,
  * with that workspace's `operator_settings` — or in `workspace`, for a component that is handed
  * one rather than sitting under a host that declares it. Reads context and registers an effect:
  * call during component initialisation.
