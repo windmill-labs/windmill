@@ -191,8 +191,9 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			{:else}
 				<span class="min-w-0 truncate text-xs font-medium text-emphasis">{item.summary}</span>
 			{/if}
-			<!-- The summary ends the trail here, so the breadcrumb's chevron follows it instead. -->
-			{#if !navHidden}
+			<!-- The summary ends the trail here, so the breadcrumb's chevron follows it instead. Not
+			     before the path lands: the picker opens in the item's folder, which it reads once. -->
+			{#if !navHidden && item.path}
 				<BreadcrumbNavPicker {item} actingWorkspaceId={content?.actingWorkspaceId} />
 			{/if}
 		</div>
