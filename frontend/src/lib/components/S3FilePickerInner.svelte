@@ -50,11 +50,9 @@
 		type IconType
 	} from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { Alert, Button } from './common'
-	import Section from './Section.svelte'
+	import { Alert, Button, CopyButton } from './common'
 	import { createEventDispatcher, untrack, type Snippet } from 'svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
-	import TableSimple from './TableSimple.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
 	import S3FilePreview from './S3FilePreview.svelte'
@@ -1294,84 +1292,108 @@
 			</Pane>
 		{/if}
 		<Pane class="flex flex-col min-h-0 overflow-hidden">
-			{#if fileMetadata === undefined}
-				<div class="px-3 py-3">
-					{#if fileInfoLoading}
-						<Section label="Loading..." />
-					{:else if fileListUnavailable}
-						<Section label="No file to preview" />
-					{:else}
-						<Section label="Select a file to preview" />
-					{/if}
-				</div>
-			{:else}
-				<div class="px-3 py-2 flex flex-col gap-2">
-					<div class="flex flex-row items-center justify-between gap-2">
-						<h2 class="text-emphasis text-sm font-semibold break-all min-w-0">
-							{((p) => (p.startsWith(rootPath) ? p.slice(rootPath.length) : p))(
-								fileMetadata.fileKey
-							)}
-						</h2>
-						{#if filePreview !== undefined && (!hideS3SpecificDetails || !readOnlyMode || allowDelete)}
-							<div class="flex gap-2 shrink-0">
-								{#if !hideS3SpecificDetails}
-									{@const downloadApiPath = `/w/${ws}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}${s3ResourcePath ? `&s3_resource_path=${encodeURIComponent(s3ResourcePath)}` : ''}`}
-									{@const downloadName =
-										fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
-									{#if shouldDownloadViaClient()}
-										<Button
-											title="Download file from S3"
-											variant="default"
-											on:click={() => downloadViaClient(downloadApiPath, downloadName)}
-											startIcon={{ icon: Download }}
-											iconOnly={true}
-										/>
-									{:else}
-										<Button
-											title="Download file from S3"
-											variant="default"
-											href={`${base}/api${downloadApiPath}`}
-											download={downloadName}
-											startIcon={{ icon: Download }}
-											iconOnly={true}
-										/>
-									{/if}
-								{/if}
-								{#if !readOnlyMode}
-									<Button
-										title="Move file"
-										variant="default"
-										on:click={() => {
-											moveDestKey = fileMetadata?.fileKey ?? ''
-											moveModalOpen = true
-										}}
-										startIcon={{ icon: MoveRight }}
-										iconOnly={true}
-									/>
-								{/if}
-								{#if !readOnlyMode || allowDelete}
-									<Button
-										title="Delete file"
-										variant="default"
-										on:click={() => {
-											deletionModalOpen = true
-										}}
-										startIcon={{ icon: Trash }}
-										iconOnly={true}
-									/>
-								{/if}
+			<div class="flex items-center gap-3 px-3 py-3 min-h-[3.75rem]">
+				{#if fileMetadata === undefined}
+					<div class="flex items-center gap-2 text-xs text-tertiary">
+						{#if fileInfoLoading}
+							<Loader2 size={14} class="animate-spin" /> Loading...
+						{:else if fileListUnavailable}
+							No file to preview
+						{:else}
+							Select a file to preview
+						{/if}
+					</div>
+				{:else}
+					{@const displayedKey = fileMetadata.fileKey.startsWith(rootPath)
+						? fileMetadata.fileKey.slice(rootPath.length)
+						: fileMetadata.fileKey}
+					{@const slash = displayedKey.lastIndexOf('/')}
+					{@const fileName = displayedKey.slice(slash + 1)}
+					{@const FileKindIcon = fileIconFor(fileName)}
+					{@const details = [
+						fileMetadata.mimeType,
+						fileMetadata.sizeStr,
+						fileMetadata.lastModified && `Modified ${fileMetadata.lastModified}`
+					].filter(Boolean)}
+					<div
+						class="shrink-0 flex items-center justify-center w-9 h-9 rounded-md bg-surface-secondary text-secondary"
+					>
+						<FileKindIcon size={18} />
+					</div>
+					<div class="flex flex-col gap-0.5 min-w-0 grow">
+						<div class="flex items-center gap-1 min-w-0">
+							<span class="truncate text-sm font-semibold text-emphasis" title={displayedKey}>
+								{#if slash >= 0}<span class="font-normal text-tertiary"
+										>{displayedKey.slice(0, slash + 1)}</span
+									>{/if}{fileName}
+							</span>
+							<CopyButton value={displayedKey} title="Copy file key" class="shrink-0" />
+						</div>
+						{#if !hideS3SpecificDetails && details.length > 0}
+							<div class="flex flex-wrap items-center gap-x-1.5 text-xs text-secondary">
+								{#each details as detail, i}
+									{#if i > 0}<span class="text-tertiary">·</span>{/if}
+									<span>{detail}</span>
+								{/each}
 							</div>
 						{/if}
 					</div>
-					{#if !hideS3SpecificDetails}
-						<TableSimple
-							headers={['Last modified', 'Size', 'Type']}
-							data={[fileMetadata]}
-							keys={['lastModified', 'sizeStr', 'mimeType']}
-						/>
+					{#if filePreview !== undefined && (!hideS3SpecificDetails || !readOnlyMode || allowDelete)}
+						<div class="flex gap-1 shrink-0">
+							{#if !hideS3SpecificDetails}
+								{@const downloadApiPath = `/w/${ws}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata.fileKey)}${storage ? `&storage=${storage}` : ''}${s3ResourcePath ? `&s3_resource_path=${encodeURIComponent(s3ResourcePath)}` : ''}`}
+								{@const downloadName = fileName || 'unnamed_download.file'}
+								{#if shouldDownloadViaClient()}
+									<Button
+										title="Download"
+										variant="subtle"
+										unifiedSize="md"
+										onClick={() => downloadViaClient(downloadApiPath, downloadName)}
+										startIcon={{ icon: Download }}
+										iconOnly
+									/>
+								{:else}
+									<Button
+										title="Download"
+										variant="subtle"
+										unifiedSize="md"
+										href={`${base}/api${downloadApiPath}`}
+										download={downloadName}
+										startIcon={{ icon: Download }}
+										iconOnly
+									/>
+								{/if}
+							{/if}
+							{#if !readOnlyMode}
+								<Button
+									title="Move"
+									variant="subtle"
+									unifiedSize="md"
+									onClick={() => {
+										moveDestKey = fileMetadata?.fileKey ?? ''
+										moveModalOpen = true
+									}}
+									startIcon={{ icon: MoveRight }}
+									iconOnly
+								/>
+							{/if}
+							{#if !readOnlyMode || allowDelete}
+								<Button
+									title="Delete"
+									variant="subtle"
+									unifiedSize="md"
+									destructive
+									onClick={() => {
+										deletionModalOpen = true
+									}}
+									startIcon={{ icon: Trash }}
+									iconOnly
+								/>
+							{/if}
+						</div>
 					{/if}
-				</div>
-			{/if}
+				{/if}
+			</div>
 
 			<!-- Visual preview extracted to a standalone S3FilePreview component
 			     so the asset detail pane (and other surfaces) can render the
