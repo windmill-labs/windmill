@@ -853,7 +853,7 @@
 				}, 200)
 			}}
 			placeholder={fadingPlaceholder ? '' : placeholder}
-			aria-label={fadingPlaceholder ? placeholder : undefined}
+			aria-label={fadingPlaceholder ? 'Describe what you want to build' : undefined}
 			class={twMerge(
 				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
 				COMPOSER_FIELD_RESET,
