@@ -63,7 +63,7 @@
 </script>
 
 {#if kind === 'read' || kind === 'write'}
-	<Popover notClickable>
+	<Popover notClickable class="inline-flex items-center">
 		<Badge capitalize color="blue" icon={{ icon: Users, position: 'right' }}></Badge>
 		{#snippet text()}
 			<span>{kind == 'read' ? 'Read & Run only' : 'Read & Write'} {reason}</span>

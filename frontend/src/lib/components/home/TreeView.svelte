@@ -8,6 +8,7 @@
 	import Item from './Item.svelte'
 	import { countLeaves, type FolderItem, type ItemType, type UserItem } from './treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
+	import { HOME_TABLE_ROW_SEPARATOR, isHomeTable } from './homeTable'
 	import { pluralize } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 
@@ -71,6 +72,11 @@
 		indent = 0,
 		leaf
 	}: Props = $props()
+
+	// The home table's rows carry its faint separator and a hover shade instead.
+	const separator = isHomeTable()
+		? `pl-5 hover:bg-surface-hover ${HOME_TABLE_ROW_SEPARATOR}`
+		: 'border-b'
 
 	let visualDepth = $derived(depth + indent)
 
@@ -266,7 +272,7 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			onclick={toggleOwner}
-			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
+			class="px-4 py-2 {separator} w-full flex flex-row items-center justify-between cursor-pointer"
 		>
 			<div
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
@@ -350,7 +356,7 @@
 					{/each}
 					{#if effectiveMax < item.items.length}
 						<div
-							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+							class="px-4 py-2 {separator} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							style="padding-left: {(visualDepth + 1) * 16}px;"
 						>
 							<!-- Rows, not items: this slices the node's own entries, where a subfolder
@@ -387,7 +393,7 @@
 						     is the point: without them this reads as an optional extra rather than
 						     as rows still missing. -->
 							<div
-								class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+								class="px-4 py-2 {separator} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 								style="padding-left: {(visualDepth + 1) * 16}px;"
 							>
 								<span class="text-xs text-secondary">

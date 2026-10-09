@@ -12,7 +12,7 @@
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 	import { selectMenuItems, type RowSelection } from './rowSelection'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
 	import Badge from '../badge/Badge.svelte'
 	import {
 		ExternalLink,
@@ -115,17 +115,19 @@
 	summary={app.is_draft ? `${app.summary || (app as any).draft_path || app.path}*` : app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={!app.draft_only}
+	editedAt={app.edited_at}
 	{depth}
 	{rowSelection}
 >
-	{#snippet badges()}
+	{#snippet tagBadges()}
 		{#if app.execution_mode == 'anonymous'}
 			<Badge small icon={{ icon: Eye }}>Public</Badge>
 		{/if}
-		{#if app.raw_app}
-			<Badge small icon={{ icon: FileJson }}>Raw</Badge>
+		{#if !app.raw_app}
+			<Badge small title="Low-code app">Legacy</Badge>
 		{/if}
-		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
+	{/snippet}
+	{#snippet draftBadge()}
 		<DraftBadge
 			is_draft={app.is_draft}
 			draft_only={app.draft_only}
@@ -136,37 +138,24 @@
 			path={app.path}
 			onMigrated={() => dispatch('change')}
 		/>
-		{#if app.labels?.length}
-			<div class="flex items-center gap-0.5">
-				{#each app.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-				{/each}
-				{#if app.labels.length > 3}
-					<Badge
-						color="blue"
-						small
-						class="px-1"
-						title={app.labels
-							.slice(3)
-							.map((l) => 'Label: ' + l)
-							.join('\n')}>+{app.labels.length - 3}</Badge
-					>
-				{/if}
-			</div>
-		{/if}
-		<InheritedLabels labels={app.inherited_labels} />
-		<div class="w-8 center-center"></div>
+	{/snippet}
+	{#snippet sharedBadge()}
+		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
+	{/snippet}
+	{#snippet labelBadges()}
+		<RowLabels labels={app.labels} inheritedLabels={app.inherited_labels} />
 	{/snippet}
 	{#snippet actions()}
-		<span class="hidden md:inline-flex gap-x-1">
+		<span class="hidden md:inline-flex gap-x-2">
 			{#if !$userStore?.operator}
 				{#if showEditButton && app.canWrite}
 					<div>
 						<Button
 							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
 							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							variant="subtle"
-							wrapperClasses="w-20"
+							variant="accent"
+							wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible group-data-[row-keyboard-selected=true]/row:visible"
+							unifiedSize="sm"
 							startIcon={{ icon: Pen }}
 							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
 						>
@@ -180,6 +169,8 @@
 			{/if}
 		</span>
 		<Dropdown
+			size="sm"
+			fixedHeight={false}
 			aiId={`app-row-dropdown-${app.summary?.length > 0 ? app.summary : app.path}`}
 			aiDescription={`Open dropdown for app ${app.summary?.length > 0 ? app.summary : app.path} options`}
 			items={async () => {

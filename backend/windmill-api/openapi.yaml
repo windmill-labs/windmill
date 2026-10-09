@@ -12789,6 +12789,51 @@ paths:
                     description: owner prefix (f/<folder> or u/<user>) to count
                     additionalProperties:
                       type: integer
+  /w/{workspace}/runnables/activity:
+    post:
+      summary: latest runs and attached triggers of a batch of scripts and flows
+      operationId: getRunnablesActivity
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: script and flow paths to report on (at most 500 in total)
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scripts:
+                  type: array
+                  items:
+                    type: string
+                flows:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: >-
+            activity per path, keyed separately for scripts and flows. Paths the
+            caller cannot see, and paths with neither runs nor triggers, are omitted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - scripts
+                  - flows
+                properties:
+                  scripts:
+                    type: object
+                    additionalProperties:
+                      $ref: "#/components/schemas/RunnableActivity"
+                  flows:
+                    type: object
+                    additionalProperties:
+                      $ref: "#/components/schemas/RunnableActivity"
   /w/{workspace}/flows/list:
     get:
       summary: list all flows
@@ -33310,6 +33355,63 @@ components:
         - authentication_method
         - http_method
         - is_static_website
+
+    RunnableActivity:
+      type: object
+      required:
+        - recent_runs
+        - triggers
+      properties:
+        recent_runs:
+          description: latest started runs, newest first (at most 9)
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - created_at
+              - status
+            properties:
+              id:
+                type: string
+                format: uuid
+              created_at:
+                type: string
+                format: date-time
+              status:
+                type: string
+                enum: [success, failure, canceled, skipped, running]
+        triggers:
+          description: schedules and triggers whose target is this runnable
+          type: array
+          items:
+            type: object
+            required:
+              - kind
+              - path
+              - mode
+            properties:
+              kind:
+                description: >-
+                  schedule, a trigger kind (http, websocket, kafka, nats, postgres,
+                  mqtt, amqp, sqs, gcp, azure, email) or a native service name
+                type: string
+              path:
+                type: string
+              mode:
+                type: string
+                enum: [enabled, disabled, suspended]
+              schedule:
+                description: the cron expression, for a schedule only
+                type: string
+              timezone:
+                description: the schedule's timezone, for a schedule only
+                type: string
+              cron_version:
+                description: >-
+                  the schedule's cron version, for a schedule only; v1 numbers
+                  weekdays from 1 = Sunday
+                type: string
 
     TriggersCount:
       type: object

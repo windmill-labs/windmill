@@ -18,18 +18,22 @@
 	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
-	import { disableHubStore, userStore, workspaceStore } from '$lib/stores'
+	import { disableHubStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { editInForkAllowed } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
-		ArrowDownUp,
+		ArrowDown,
+		ArrowUp,
 		Bot,
+		ChevronDown,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
-		LayoutDashboard,
-		Tag
+		LayoutDashboard
 	} from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import ContentSearchInner from '$lib/components/ContentSearchInner.svelte'
@@ -63,6 +67,14 @@
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
+	import { HomeActivity, setHomeActivity } from './homeActivity.svelte'
+	import {
+		HOME_TABLE_BADGE_GRID,
+		HOME_TABLE_GRID,
+		HOME_TABLE_WIDE_ACTIONS,
+		setHomeTable
+	} from './homeTable'
+	import Checkbox from '../common/checkbox/Checkbox.svelte'
 
 	const operatorBuilderFlows = useOperatorBuilderFlows()
 
@@ -833,6 +845,8 @@
 		// was on screen so the selection can drop what this reload removes instead of
 		// keeping a dead path. `tick` lets the reloaded rows re-register first.
 		const renderedBefore = homeSelection.renderedKeys
+		// A row action can add, toggle or remove a trigger, or start a run.
+		homeActivity.reset()
 		void ownerCountsRes.refetch()
 		// Deleting a pipeline removes it from this list, which no item reload covers.
 		void pipelineFoldersRes.refetch()
@@ -877,27 +891,17 @@
 	// the first page.
 	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
 	const SORT_SETTING_NAME = 'homeSort'
-	// `short` labels the trigger button next to the sort icon (the button is icon-only
-	// only while searching, when sorting is disabled — see below).
-	const sortOptions: { value: SortOrder; label: string; short: string }[] = [
-		{ value: 'updated_desc', label: 'Recently updated', short: 'Recent' },
-		{ value: 'updated_asc', label: 'Oldest updated', short: 'Oldest' },
-		{ value: 'name_asc', label: 'Name (A-Z)', short: 'A-Z' },
-		{ value: 'name_desc', label: 'Name (Z-A)', short: 'Z-A' }
-	]
+	const sortOrders: SortOrder[] = ['updated_desc', 'updated_asc', 'name_asc', 'name_desc']
 	let sortOrder = $state<SortOrder>(
-		sortOptions.find((o) => o.value === getLocalSetting(SORT_SETTING_NAME))?.value ?? 'updated_desc'
+		sortOrders.find((o) => o === getLocalSetting(SORT_SETTING_NAME)) ?? 'updated_desc'
 	)
 	$effect(() => {
 		storeLocalSetting(SORT_SETTING_NAME, sortOrder === 'updated_desc' ? undefined : sortOrder)
 	})
-	let sortItems: MenuItem[] = $derived(
-		sortOptions.map((o) => ({
-			displayName: o.label,
-			selected: o.value === sortOrder,
-			action: () => (sortOrder = o.value)
-		}))
-	)
+	// Clicking a sortable column header sorts by it, and clicking it again flips the direction.
+	function toggleSort(asc: SortOrder, desc: SortOrder, first: SortOrder) {
+		sortOrder = sortOrder === first ? (first === asc ? desc : asc) : first
+	}
 	// Preserve the endpoint's exact order rather than re-deriving it on the client:
 	// each row carries its server fetch ordinal (`ord`), which already reflects the
 	// chosen order, the (path, kind) tiebreaks, full-precision timestamps, the database
@@ -1441,12 +1445,19 @@
 			(a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || cmp(a, b)
 		)
 	})
-	let hasChips = $derived(
-		owners.length > 0 ||
-			allLabels.length > 0 ||
-			ownerFilter != undefined ||
-			labelFilter != undefined
-	)
+	let hasChips = $derived(owners.length > 0 || ownerFilter != undefined)
+	let labelItems: MenuItem[] = $derived([
+		{
+			displayName: 'All labels',
+			selected: labelFilter == undefined,
+			action: () => setLabelFilter(undefined)
+		},
+		...allLabels.map((l) => ({
+			displayName: l,
+			selected: l === labelFilter,
+			action: () => setLabelFilter(l)
+		}))
+	])
 	// FilterSearchbar presets: the owner prefixes and labels the list actually holds, so
 	// scoping to one is a click in the searchbar dropdown.
 	// Owner sets the `owner` filter (server path-scope), label sets `label` (client filter).
@@ -1491,6 +1502,16 @@
 					(x) => filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
 				)
 			: items
+	)
+	// A row the user cannot edit offers "Edit in fork", which needs a wider actions column.
+	let tableStyle = $derived(
+		!isCloudHosted() &&
+			editInForkAllowed($workspaceStore, $userWorkspaces) &&
+			((treeView ? treeSource : items) ?? []).some(
+				(it) => !showEditButtons || !('canWrite' in it) || !it.canWrite
+			)
+			? HOME_TABLE_WIDE_ACTIONS
+			: undefined
 	)
 	// Remount identity: only a *mode* change (workspace, selected owner, entering/leaving
 	// search, label filter) restructures the tree, so only those key the {#key} remount.
@@ -1867,6 +1888,14 @@
 		$workspaceStore
 		untrack(() => homeSelection.exit())
 	})
+	// Latest runs and attached triggers, fetched in batches for the rows on screen.
+	const homeActivity = new HomeActivity(() => $workspaceStore)
+	setHomeActivity(homeActivity)
+	setHomeTable()
+	$effect(() => {
+		$workspaceStore
+		untrack(() => homeActivity.reset())
+	})
 	// Only folders/user spaces the user owns: a move into any other lands as a
 	// per-item permission error the user could have been spared.
 	let moveTargets = $derived(
@@ -1990,30 +2019,6 @@
 						{/if}
 					</Button>
 				{/if}
-				<DropdownV2
-					items={sortItems}
-					disabled={filter !== ''}
-					placement="bottom-end"
-					fixedHeight={false}
-				>
-					{#snippet buttonReplacement()}
-						{@const active = sortOptions.find((o) => o.value === sortOrder)}
-						{@const short = filter !== '' ? '' : (active?.short ?? '')}
-						<Button
-							nonCaptureEvent
-							disabled={filter !== ''}
-							iconOnly={short === ''}
-							unifiedSize="xs"
-							variant="default"
-							startIcon={{ icon: ArrowDownUp }}
-							title={filter !== ''
-								? 'Sorting is disabled while searching (results are ranked by relevance)'
-								: `Sort: ${active?.label ?? ''}`}
-						>
-							{#if short !== ''}{short}{/if}
-						</Button>
-					{/snippet}
-				</DropdownV2>
 			</div>
 		{/if}
 
@@ -2050,8 +2055,8 @@
 		</div>
 	</div>
 	{#if !contentActive && hasChips}
-		<!-- Owner and label chips on one line. Each function binding routes the chip's
-		     selection into the searchbar key of the same name, and `queryName` points
+		<!-- Owner chips. The function binding routes the selected chip into the
+		     searchbar's `owner` key, and `queryName` points
 		     ListFilters' own mount-time URL read at the param the filter instance syncs, so
 		     the two writers agree. No `syncQuery`: the filter instance owns the URL. -->
 		<div class="gap-2 w-full flex flex-wrap mt-3">
@@ -2061,15 +2066,6 @@
 				filters={owners}
 				queryName="owner"
 				maxDisplayed={10}
-			/>
-			<ListFilters
-				inline
-				bind:selectedFilter={() => labelFilter, setLabelFilter}
-				filters={allLabels}
-				queryName="label"
-				maxDisplayed={10}
-				color="blue"
-				icon={Tag}
 			/>
 		</div>
 	{/if}
@@ -2132,40 +2128,48 @@
 				</div>
 			{/if}
 		{:else if treeView}
-			<!-- Remount the tree on a MODE change only (treeKey = view/owner/search/label):
+			<div class="border rounded-md bg-surface-tertiary" style={tableStyle}>
+				{@render tableHeader()}
+				<!-- Remount the tree on a MODE change only (treeKey = view/owner/search/label):
 			     expanded folders (their `opened` state is local to each TreeView) collapse
 			     and re-load fresh for the new mode. An in-place order/archive/library/kind
 			     change keeps treeKey stable, so folders stay open and refresh via
 			     reloadItems instead (see loadOwnerItems). -->
-			{#key treeKey}
-				<TreeViewRoot
-					items={treeSource}
-					{collapseAll}
-					sortCompare={compareItems}
-					groupDesc={sortOrder === 'name_desc'}
-					hasMoreServer={treeGlobalHasMore}
-					onLoadMore={fetchMoreServer}
-					pipelineFolders={visiblePipelineFolders}
-					allFolders={treeInjectFolders}
-					allUsers={treeInjectUsers}
-					ownerCounts={!searching && labelFilter == undefined ? ownerCounts : undefined}
-					selfUsername={$userStore?.username}
-					groupOtherUsers={treeLazyMode}
-					ownerLoad={treeLazyMode ? ownerLoad : undefined}
-					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
-					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
-					isSearching={filter !== ''}
-					on:scriptChanged={reloadItemsAndCounts}
-					on:flowChanged={reloadItemsAndCounts}
-					on:appChanged={reloadItemsAndCounts}
-					on:rawAppChanged={reloadItemsAndCounts}
-					on:reload={reloadItemsAndCounts}
-					{showCode}
-					showEditButton={showEditButtons}
-				/>
-			{/key}
+				{#key treeKey}
+					<TreeViewRoot
+						items={treeSource}
+						{collapseAll}
+						sortCompare={compareItems}
+						groupDesc={sortOrder === 'name_desc'}
+						hasMoreServer={treeGlobalHasMore}
+						onLoadMore={fetchMoreServer}
+						pipelineFolders={visiblePipelineFolders}
+						allFolders={treeInjectFolders}
+						allUsers={treeInjectUsers}
+						ownerCounts={!searching && labelFilter == undefined ? ownerCounts : undefined}
+						selfUsername={$userStore?.username}
+						groupOtherUsers={treeLazyMode}
+						ownerLoad={treeLazyMode ? ownerLoad : undefined}
+						onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
+						onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
+						isSearching={filter !== ''}
+						on:scriptChanged={reloadItemsAndCounts}
+						on:flowChanged={reloadItemsAndCounts}
+						on:appChanged={reloadItemsAndCounts}
+						on:rawAppChanged={reloadItemsAndCounts}
+						on:reload={reloadItemsAndCounts}
+						{showCode}
+						showEditButton={showEditButtons}
+					/>
+				{/key}
+			</div>
 		{:else}
-			<div class="border rounded-md bg-surface-tertiary" class:wm-imported={justImported}>
+			<div
+				class="border rounded-md bg-surface-tertiary"
+				class:wm-imported={justImported}
+				style={tableStyle}
+			>
+				{@render tableHeader()}
 				{#if filter === ''}
 					{#each [...visiblePipelineFolders].sort() as folder (folder)}
 						<PipelineRow {folder} onDeleted={reloadItemsAndCounts} />
@@ -2222,6 +2226,72 @@
 		{/if}
 	</div>
 </CenteredPage>
+
+{#snippet sortHeader(label: string, asc: SortOrder, desc: SortOrder, first: SortOrder)}
+	{@const active = filter === '' && (sortOrder === asc || sortOrder === desc)}
+	<Button
+		unifiedSize="2xs"
+		variant="subtle"
+		wrapperClasses="w-fit"
+		disabled={filter !== ''}
+		btnClasses={twMerge(
+			'-ml-1.5 px-1.5 text-2xs font-medium whitespace-nowrap',
+			active ? 'text-primary' : 'text-secondary'
+		)}
+		endIcon={active ? { icon: sortOrder === asc ? ArrowUp : ArrowDown } : undefined}
+		title={filter !== ''
+			? 'Sorting is disabled while searching (results are ranked by relevance)'
+			: `Sort by ${label.toLowerCase()}`}
+		onClick={() => toggleSort(asc, desc, first)}
+	>
+		{label}
+	</Button>
+{/snippet}
+
+{#snippet tableHeader()}
+	<div class="{HOME_TABLE_GRID} pl-5 pr-3 py-1.5 border-b text-2xs font-medium text-secondary">
+		<div class="flex items-center">
+			{#if homeSelection.available}
+				{@const state = homeSelection.renderedSelection}
+				<Checkbox
+					checked={state === 'all'}
+					indeterminate={state === 'some'}
+					title={state === 'all' ? 'Deselect all' : 'Select all'}
+					onChange={() => homeSelection.toggleAllRendered()}
+				/>
+			{/if}
+		</div>
+		<div>{@render sortHeader('Name', 'name_asc', 'name_desc', 'name_asc')}</div>
+		<div class="hidden lg:grid {HOME_TABLE_BADGE_GRID}">
+			<div>
+				<DropdownV2 items={labelItems} placement="bottom-start" fixedHeight={false}>
+					{#snippet buttonReplacement()}
+						<Button
+							nonCaptureEvent
+							unifiedSize="2xs"
+							variant="subtle"
+							wrapperClasses="w-fit"
+							btnClasses={twMerge(
+								'-ml-1.5 px-1.5 text-2xs font-medium whitespace-nowrap',
+								labelFilter ? 'text-accent' : 'text-secondary'
+							)}
+							endIcon={{ icon: ChevronDown }}
+							title="Filter by label"
+						>
+							{labelFilter ? `Label: ${labelFilter}` : 'Labels'}
+						</Button>
+					{/snippet}
+				</DropdownV2>
+			</div>
+		</div>
+		<div class="hidden lg:block">Last run</div>
+		<div class="hidden lg:block">Triggers</div>
+		<div class="hidden lg:block">
+			{@render sortHeader('Last edited', 'updated_asc', 'updated_desc', 'updated_desc')}
+		</div>
+		<div></div>
+	</div>
+{/snippet}
 
 {#if homeSelection.active && $workspaceStore}
 	<BulkActionsBar

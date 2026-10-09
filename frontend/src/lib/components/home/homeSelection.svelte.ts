@@ -150,6 +150,24 @@ export class HomeSelection {
 		else this.anchor = undefined
 	}
 
+	/** How many of the rows on screen are selected, for a select-all control. */
+	get renderedSelection(): 'none' | 'some' | 'all' {
+		let selected = 0
+		for (const key of this.registry.keys()) if (this.selected.has(key)) selected++
+		if (selected === 0) return 'none'
+		return selected === this.registry.size ? 'all' : 'some'
+	}
+
+	/** Select every row on screen, or clear the selection when all already are. */
+	toggleAllRendered(): void {
+		if (this.renderedSelection === 'all') {
+			this.exit()
+			return
+		}
+		for (const [key, item] of this.registry) this.selected.set(key, item)
+		this.anchor = undefined
+	}
+
 	toggle(item: BulkItem, range = false): void {
 		if (range && this.anchor != undefined && this.anchor !== item.key) {
 			if (this.selectRange(this.anchor, item.key)) return

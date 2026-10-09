@@ -41,13 +41,16 @@
 	summary={app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={true}
+	editedAt={app.edited_at}
 	{depth}
 >
-	{#snippet badges()}
+	{#snippet sharedBadge()}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 	{/snippet}
 	{#snippet actions()}
 		<Dropdown
+			size="sm"
+			fixedHeight={false}
 			items={async () => {
 				let { path } = app
 

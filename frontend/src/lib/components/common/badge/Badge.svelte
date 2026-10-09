@@ -2,6 +2,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { type BadgeColor, type BadgeIconProps, ColorModifier } from './model'
 	import { X } from 'lucide-svelte'
+	import { isCompactBadges } from './density'
 
 	interface Props {
 		color?: BadgeColor
@@ -48,6 +49,7 @@
 	}: Props = $props()
 
 	let hidden = $state(false)
+	const compact = isCompactBadges()
 	const colors: Record<BadgeColor, string> = {
 		gray: 'bg-surface-sunken text-primary',
 		blue: 'bg-blue-50 text-blue-800 dark:text-blue-100 dark:bg-blue-700/40',
@@ -127,6 +129,7 @@
 					: 'rounded-md px-2 py-0.5',
 			verySmall ? 'px-0.5 py-0.5' : '',
 			'flex flex-row gap-1 items-center justify-center',
+			compact ? 'text-2xs px-1 py-0 gap-0.5' : '',
 			classNames
 		)
 	)
@@ -151,7 +154,15 @@
 		{#if icon?.icon && icon.position === 'left'}
 			<icon.icon size={12} />
 		{/if}
-		{@render children?.()}
+		{#if compact}
+			<!-- `contents` keeps the children in the badge's flex layout; only the
+			     text colour is softened, not the background. -->
+			<span class="contents [color:color-mix(in_srgb,currentColor_85%,transparent)]">
+				{@render children?.()}
+			</span>
+		{:else}
+			{@render children?.()}
+		{/if}
 		{#if icon?.icon && icon.position === 'right'}
 			<icon.icon size={12} />
 		{/if}

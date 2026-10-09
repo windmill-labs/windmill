@@ -37,7 +37,7 @@
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
 	import EditInForkButton from './EditInForkButton.svelte'
@@ -151,15 +151,17 @@
 	summary={flow.is_draft ? `${flow.summary || flow.draft_path || flow.path}*` : flow.summary}
 	{errorHandlerMuted}
 	canFavorite={!flow.draft_only}
+	editedAt={flow.edited_at}
 	{depth}
 	{rowSelection}
 	titleBadge={flow.chat_input_enabled ? chatBadge : undefined}
 >
-	{#snippet badges()}
+	{#snippet tagBadges()}
 		{#if flow.archived}
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
-		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
+	{/snippet}
+	{#snippet draftBadge()}
 		<DraftBadge
 			is_draft={flow.is_draft}
 			draft_only={flow.draft_only}
@@ -170,36 +172,22 @@
 			path={flow.path}
 			onMigrated={() => dispatch('change')}
 		/>
-		{#if flow.labels?.length}
-			<div class="flex items-center gap-0.5">
-				{#each flow.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-				{/each}
-				{#if flow.labels.length > 3}
-					<Badge
-						color="blue"
-						small
-						class="px-1"
-						title={flow.labels
-							.slice(3)
-							.map((l) => 'Label: ' + l)
-							.join('\n')}>+{flow.labels.length - 3}</Badge
-					>
-				{/if}
-			</div>
-		{/if}
-		<InheritedLabels labels={flow.inherited_labels} />
-		<div class="w-8 center-center"></div>
+	{/snippet}
+	{#snippet sharedBadge()}
+		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
+	{/snippet}
+	{#snippet labelBadges()}
+		<RowLabels labels={flow.labels} inheritedLabels={flow.inherited_labels} />
 	{/snippet}
 	{#snippet actions()}
-		<span class="hidden md:inline-flex gap-x-1">
+		<span class="hidden md:inline-flex gap-x-2">
 			{#if !hideForOperator && showEditButton && flow.canWrite && !flow.archived}
 				<div>
 					<Button
-						variant="subtle"
-						wrapperClasses="w-20"
-						unifiedSize="md"
+						variant="accent"
+						wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible group-data-[row-keyboard-selected=true]/row:visible"
 						startIcon={{ icon: Pen }}
+						unifiedSize="sm"
 						href="{base}/flows/edit/{flow.path}"
 						aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 						aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
@@ -215,6 +203,8 @@
 		</span>
 
 		<Dropdown
+			size="sm"
+			fixedHeight={false}
 			aiId={`flow-row-dropdown-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 			aiDescription={`Open dropdown for flow ${flow.summary?.length > 0 ? flow.summary : flow.path} options`}
 			items={async () => {

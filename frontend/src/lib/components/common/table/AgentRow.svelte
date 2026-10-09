@@ -5,7 +5,7 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
 	import type { ListableResource } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
@@ -71,11 +71,11 @@
 	summary={agent.description}
 	workspaceId={agent.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={false}
+	editedAt={agent.edited_at}
 	{depth}
 	{rowSelection}
 >
-	{#snippet badges()}
-		<SharedBadge canWrite={agent.canWrite} extraPerms={agent.extra_perms} />
+	{#snippet draftBadge()}
 		<DraftBadge
 			is_draft={agent.is_draft}
 			draft_only={agent.draft_only}
@@ -85,17 +85,22 @@
 			path={agent.path}
 			onMigrated={() => dispatch('change')}
 		/>
-		<InheritedLabels labels={agent.inherited_labels} />
+	{/snippet}
+	{#snippet sharedBadge()}
+		<SharedBadge canWrite={agent.canWrite} extraPerms={agent.extra_perms} />
+	{/snippet}
+	{#snippet labelBadges()}
+		<RowLabels labels={undefined} inheritedLabels={agent.inherited_labels} />
 	{/snippet}
 
 	{#snippet actions()}
 		{#if agent.canWrite}
 			<span class="hidden md:inline-flex">
 				<Button
-					variant="subtle"
-					wrapperClasses="w-20"
-					unifiedSize="md"
+					variant="accent"
+					wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible group-data-[row-keyboard-selected=true]/row:visible"
 					startIcon={{ icon: Pen }}
+					unifiedSize="sm"
 					href={editHref}
 				>
 					Edit
@@ -103,6 +108,8 @@
 			</span>
 		{/if}
 		<Dropdown
+			size="sm"
+			fixedHeight={false}
 			items={async () => [
 				...selectMenuItems(rowSelection),
 				...agentMenuItems({

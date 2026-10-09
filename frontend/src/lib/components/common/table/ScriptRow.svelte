@@ -29,7 +29,6 @@
 	import { isDeployable } from '$lib/utils_deployable'
 
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { LanguageIcon } from '../languageIcons'
 	import {
 		Archive,
 		Calendar,
@@ -51,7 +50,8 @@
 	import WacExportDrawer from '$lib/components/scripts/WacExportDrawer.svelte'
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
+	import { defaultScriptLanguages } from '$lib/scripts'
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
@@ -169,10 +169,14 @@
 	{errorHandlerMuted}
 	workspaceId={$workspaceStore ?? ''}
 	canFavorite={!script.draft_only}
+	editedAt={script.created_at}
+	pathSuffix={script.language
+		? (defaultScriptLanguages[script.language] ?? script.language)
+		: undefined}
 	{depth}
 	{rowSelection}
 >
-	{#snippet badges()}
+	{#snippet tagBadges()}
 		{#if script.lock_error_logs}
 			<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>
 		{/if}
@@ -185,7 +189,7 @@
 			<NoMainFuncBadge />
 		{/if}
 		{#if script.auto_kind === 'wac'}
-			<Popover notClickable>
+			<Popover notClickable class="inline-flex items-center">
 				{#snippet text()}
 					Workflow-as-Code
 				{/snippet}
@@ -193,7 +197,7 @@
 			</Popover>
 		{/if}
 		{#if script.auto_kind === 'test'}
-			<Popover notClickable>
+			<Popover notClickable class="inline-flex items-center">
 				{#snippet text()}
 					CI test script
 				{/snippet}
@@ -207,7 +211,11 @@
 				>{script.kind === 'failure' ? 'Error handler' : capitalize(script.kind)}</Badge
 			>
 		{/if}
+	{/snippet}
+	{#snippet sharedBadge()}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
+	{/snippet}
+	{#snippet draftBadge()}
 		<DraftBadge
 			is_draft={script.is_draft}
 			draft_only={script.draft_only}
@@ -218,32 +226,13 @@
 			path={script.path}
 			onMigrated={() => dispatch('change')}
 		/>
-		{#if script.labels?.length}
-			<div class="flex items-center gap-0.5">
-				{#each script.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-				{/each}
-				{#if script.labels.length > 3}
-					<Badge
-						color="blue"
-						small
-						class="px-1"
-						title={script.labels
-							.slice(3)
-							.map((l) => 'Label: ' + l)
-							.join('\n')}>+{script.labels.length - 3}</Badge
-					>
-				{/if}
-			</div>
-		{/if}
-		<InheritedLabels labels={script.inherited_labels} />
-		<div class="w-8 center-center">
-			<LanguageIcon lang={script.language} width={16} height={16} />
-		</div>
+	{/snippet}
+	{#snippet labelBadges()}
+		<RowLabels labels={script.labels} inheritedLabels={script.inherited_labels} />
 	{/snippet}
 
 	{#snippet actions()}
-		<span class="hidden md:inline-flex gap-x-1">
+		<span class="hidden md:inline-flex gap-x-2">
 			{#if !$userStore?.operator}
 				{#if showEditButton}
 					{#if script.use_codebase}
@@ -257,10 +246,10 @@
 							<Button
 								aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
 								aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
-								variant="subtle"
-								wrapperClasses="w-20"
-								unifiedSize="md"
+								variant="accent"
+								wrapperClasses="w-16 invisible group-hover/row:visible group-focus-within/row:visible group-data-[row-keyboard-selected=true]/row:visible"
 								startIcon={{ icon: Pen }}
+								unifiedSize="sm"
 								href="{base}/scripts/edit/{script.path}"
 							>
 								Edit
@@ -274,6 +263,8 @@
 			{/if}
 		</span>
 		<Dropdown
+			size="sm"
+			fixedHeight={false}
 			aiId={`script-row-dropdown-${script.summary?.length > 0 ? script.summary : script.path}`}
 			aiDescription={`Open dropdown for script ${script.summary?.length > 0 ? script.summary : script.path} options`}
 			items={async () => {
