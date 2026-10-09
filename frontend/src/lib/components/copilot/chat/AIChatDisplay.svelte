@@ -71,7 +71,6 @@
 	import { base } from '$lib/base'
 	import type { StarterPrompt } from '$lib/onboardingProfile'
 	import BuildWithAIHeading from './starter/BuildWithAIHeading.svelte'
-	import StarterPromptChips from './starter/StarterPromptChips.svelte'
 	import { RotatingPlaceholder } from './starter/starterPrompts.svelte'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
@@ -145,7 +144,7 @@
 		wideLayout?: boolean
 		emptyHint?: Snippet
 		/** Open an empty chat the way Home's composer looks: the "Build with AI" heading, a
-		 * taller box cycling through these prompts, and their chips under it. Sessions
+		 * taller box cycling through these prompts as its placeholder. Sessions
 		 * set it so the two read as the same entry point. Replaces `emptyHint`. */
 		starterPrompts?: StarterPrompt[]
 		inputPreface?: Snippet
@@ -1290,11 +1289,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{/if}
 			</div>
 		</div>
-		{#if starterHero && starterPrompts}
-			<div class="pt-2">
-				<StarterPromptChips prompts={starterPrompts} onPick={(p) => aiChatInput?.setText(p)} />
-			</div>
-		{/if}
 		{#if (chatHost.mode === AIMode.NAVIGATOR || chatHost.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">

@@ -622,12 +622,6 @@
 		draft.text = removeMentionFromText(draft.text, title)
 	}
 
-	/** Replace the draft's text, the way a starter prompt fills the composer. */
-	export function setText(text: string) {
-		draft.text = text
-		focusInput()
-	}
-
 	export function focusInput() {
 		if (isContextEnabledMode) {
 			contextTextareaComponent?.focus()
