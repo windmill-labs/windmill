@@ -106,9 +106,12 @@
 	// that is about to fail. Saying Running here would claim a job before there is one.
 	const starting = $derived(!pending && !settled && !ran)
 	const running = $derived(!pending && !settled && ran)
+	// A new job is registered as `queued` with no snapshot, so until the first poll returns one
+	// its status is a placeholder, not something seen: the row keeps saying Starting.
+	const unseen = $derived(running && !chatJob?.job)
 	// The job exists but no worker has taken it. Still `running` for everything that only needs
 	// a live job (cancel, logs); only the row tells the two apart. As fresh as the last poll.
-	const waiting = $derived(running && chatJob?.status === 'queued')
+	const waiting = $derived(running && !unseen && chatJob?.status === 'queued')
 	// The job the card is about has not been read yet, or could not be: no pane has anything
 	// to show, but the call's own result still has.
 	const jobPending = $derived(Boolean(inspected) && !inspectedJob)
@@ -178,7 +181,7 @@
 	const verb = $derived(
 		inspected
 			? 'Inspected'
-			: starting
+			: starting || unseen
 				? 'Starting'
 				: waiting
 					? ''
@@ -347,7 +350,7 @@
 	// keeps no timers at all.
 	let now = $state(Date.now())
 	$effect(() => {
-		if (!running || waiting || !chatJob) return
+		if (!running || unseen || waiting || !chatJob) return
 		// `now` last moved whenever the card mounted or a previous run stopped ticking, so the
 		// job's first frame would otherwise read as a negative elapsed time.
 		now = Date.now()
@@ -402,10 +405,16 @@
 	// has no time to give, so its outcome takes the slot — as a word, never "Not run", which
 	// stutters against the "Run <name>" label beside it.
 	const outcome = $derived(failed ? 'Failed' : canceled ? 'Cancelled' : 'Done')
-	// No job yet, so no time and no outcome: the verb already says Starting. A queued job has
+	// No job seen yet, so no time and no outcome: the verb already says Starting. A queued job has
 	// no run time either, and says why in the slot, in the queued hue, in place of the verb.
 	const statusTime = $derived(
-		waiting ? 'Waiting for a worker ·' : running ? elapsed : starting ? '' : duration || outcome
+		starting || unseen
+			? ''
+			: waiting
+				? 'Waiting for a worker ·'
+				: running
+					? elapsed
+					: duration || outcome
 	)
 
 	// What the preview button opens changes with the card: the form while the call is still
