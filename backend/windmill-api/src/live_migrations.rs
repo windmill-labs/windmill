@@ -9,8 +9,7 @@
 use sqlx::{PgConnection, Postgres};
 use tokio::task::JoinHandle;
 use windmill_common::{
-    db::DB, error::Error, global_settings::DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING,
-    hub_resource_types::RETIRE_LEGACY_HUB_SYNC,
+    db::DB, error::Error, global_settings::SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING,
 };
 
 use crate::db::CustomMigrator;
@@ -200,6 +199,7 @@ async fn run_background_migrations(db: &DB) -> Result<(), Error> {
 
 const AUDIT_OPERATION_INDEX: &str = "audit_partitioned_workspace_operation_index";
 const RETIRE_LEGACY_AUDIT: &str = "retire_legacy_audit_table";
+const RETIRE_LEGACY_HUB_SYNC: &str = "retire_legacy_hub_sync_script";
 
 // Short on purpose: a statement waiting for its lock is also a wait for every audit insert
 // queued behind it.
@@ -384,20 +384,19 @@ const LEGACY_HUB_SYNC_HASH: i64 = -28028598712388162;
 
 /// `u/admin/hub_sync` and the schedules running it synced resource types before servers did
 /// it themselves (`windmill_common::hub_resource_types`). Retired only while the script is
-/// still the version Windmill created: a copy someone edited is theirs to keep running, and
-/// when a schedule runs it the server's sync is turned off, as it would undo the edit daily.
+/// still the version Windmill created: a copy someone edited is theirs to keep running.
 async fn retire_legacy_hub_sync(conn: &mut PgConnection) -> Result<(), Error> {
     let mut tx = conn.begin().await?;
-    let Some(latest) = sqlx::query_scalar::<_, i64>(
+    let latest: Option<i64> = sqlx::query_scalar(
         "SELECT hash FROM script
          WHERE workspace_id = 'admins' AND path = 'u/admin/hub_sync' AND archived = false
          ORDER BY created_at DESC LIMIT 1",
     )
     .fetch_optional(&mut *tx)
-    .await?
-    else {
+    .await?;
+    if latest != Some(LEGACY_HUB_SYNC_HASH) {
         return Ok(());
-    };
+    }
 
     let schedules: Vec<(String, bool, serde_json::Value)> = sqlx::query_as(
         "SELECT path, enabled, jsonb_build_object('row', to_jsonb(s)) FROM schedule s
@@ -405,19 +404,22 @@ async fn retire_legacy_hub_sync(conn: &mut PgConnection) -> Result<(), Error> {
     )
     .fetch_all(&mut *tx)
     .await?;
-    if latest != LEGACY_HUB_SYNC_HASH {
-        if !schedules.is_empty() {
-            turn_off_daily_hub_sync(&mut tx, "u/admin/hub_sync was edited and is scheduled")
-                .await?;
-            tx.commit().await?;
+    // An enabled schedule hands over to the server's daily sync in the transaction that deletes
+    // it, so the instance never has both syncs running, nor neither.
+    if schedules.iter().any(|(_, enabled, _)| *enabled) {
+        let inserted = sqlx::query(
+            "INSERT INTO global_settings (name, value) VALUES ($1, 'true'::jsonb)
+             ON CONFLICT (name) DO NOTHING",
+        )
+        .bind(SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if inserted > 0 {
+            tracing::info!(
+                "u/admin/hub_sync ran on an enabled schedule: turned on {SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING}"
+            );
         }
-        return Ok(());
-    }
-    // A superadmin who turned the schedule off chose to keep the hub from overwriting `admins`
-    // every day. Deleting the schedule would drop that choice, so it moves to the setting the
-    // server's own sync reads.
-    if !schedules.is_empty() && schedules.iter().all(|(_, enabled, _)| !enabled) {
-        turn_off_daily_hub_sync(&mut tx, "The u/admin/hub_sync schedule was disabled").await?;
     }
     for (path, _, row) in schedules {
         windmill_queue::schedule::clear_schedule(&mut tx, &path, "admins").await?;
@@ -429,7 +431,7 @@ async fn retire_legacy_hub_sync(conn: &mut PgConnection) -> Result<(), Error> {
             &mut *tx, "admins", "schedule", &path, row, "system",
         )
         .await?;
-        tracing::info!("Deleted schedule {path}: the server now syncs resource types itself");
+        tracing::info!("Deleted schedule {path}, which ran u/admin/hub_sync");
     }
     sqlx::query(
         "UPDATE script SET archived = true WHERE workspace_id = 'admins' AND path = 'u/admin/hub_sync'",
@@ -437,22 +439,7 @@ async fn retire_legacy_hub_sync(conn: &mut PgConnection) -> Result<(), Error> {
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    tracing::info!("Archived u/admin/hub_sync: the server now syncs resource types itself");
-    Ok(())
-}
-
-async fn turn_off_daily_hub_sync(conn: &mut PgConnection, reason: &str) -> Result<(), Error> {
-    let inserted = sqlx::query(
-        "INSERT INTO global_settings (name, value) VALUES ($1, 'true'::jsonb)
-         ON CONFLICT (name) DO NOTHING",
-    )
-    .bind(DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING)
-    .execute(conn)
-    .await?
-    .rows_affected();
-    if inserted > 0 {
-        tracing::info!("{reason}: turned on {DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING}");
-    }
+    tracing::info!("Archived u/admin/hub_sync: servers sync resource types themselves");
     Ok(())
 }
 
@@ -509,10 +496,19 @@ mod tests {
         Ok(())
     }
 
-    async fn hub_resource_type_sync_disabled(db: &DB) -> anyhow::Result<Option<serde_json::Value>> {
+    async fn schedules_and_live_versions(db: &DB) -> anyhow::Result<(i64, i64)> {
+        Ok(sqlx::query_as(
+            "SELECT (SELECT count(*) FROM schedule WHERE workspace_id = 'admins'),
+                    (SELECT count(*) FROM script WHERE path = 'u/admin/hub_sync' AND NOT archived)",
+        )
+        .fetch_one(db)
+        .await?)
+    }
+
+    async fn daily_sync_setting(db: &DB) -> anyhow::Result<Option<serde_json::Value>> {
         Ok(
             sqlx::query_scalar("SELECT value FROM global_settings WHERE name = $1")
-                .bind(DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING)
+                .bind(SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING)
                 .fetch_optional(db)
                 .await?,
         )
@@ -528,45 +524,40 @@ mod tests {
         )
         .execute(&db)
         .await?;
-        let schedules_and_live_versions = || {
-            sqlx::query_as::<_, (i64, i64)>(
-                "SELECT (SELECT count(*) FROM schedule WHERE workspace_id = 'admins'),
-                        (SELECT count(*) FROM script WHERE path = 'u/admin/hub_sync' AND NOT archived)",
-            )
-            .fetch_one(&db)
-        };
 
         retire_legacy_hub_sync(&mut *db.acquire().await?).await?;
-        assert_eq!(schedules_and_live_versions().await?, (1, 2));
-        assert_eq!(
-            hub_resource_type_sync_disabled(&db).await?,
-            Some(serde_json::json!(true))
-        );
+        assert_eq!(schedules_and_live_versions(&db).await?, (1, 2));
+        assert_eq!(daily_sync_setting(&db).await?, None);
 
+        // Unedited, the enabled schedule hands over to the server's daily sync.
         sqlx::query("DELETE FROM script WHERE hash = 42")
             .execute(&db)
             .await?;
-        sqlx::query("DELETE FROM global_settings WHERE name = $1")
-            .bind(DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING)
-            .execute(&db)
-            .await?;
         retire_legacy_hub_sync(&mut *db.acquire().await?).await?;
-        assert_eq!(schedules_and_live_versions().await?, (0, 0));
-        assert_eq!(hub_resource_type_sync_disabled(&db).await?, None);
+        assert_eq!(schedules_and_live_versions(&db).await?, (0, 0));
+        assert_eq!(
+            daily_sync_setting(&db).await?,
+            Some(serde_json::json!(true))
+        );
         Ok(())
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn retire_legacy_hub_sync_keeps_a_disabled_schedule_opt_out(
+    async fn retire_legacy_hub_sync_leaves_the_daily_sync_off_without_an_enabled_schedule(
         db: DB,
     ) -> anyhow::Result<()> {
-        insert_legacy_hub_sync_schedule(&db, false).await?;
+        for disabled_schedule in [true, false] {
+            sqlx::query("UPDATE script SET archived = false WHERE path = 'u/admin/hub_sync'")
+                .execute(&db)
+                .await?;
+            if disabled_schedule {
+                insert_legacy_hub_sync_schedule(&db, false).await?;
+            }
 
-        retire_legacy_hub_sync(&mut *db.acquire().await?).await?;
-        assert_eq!(
-            hub_resource_type_sync_disabled(&db).await?,
-            Some(serde_json::json!(true))
-        );
+            retire_legacy_hub_sync(&mut *db.acquire().await?).await?;
+            assert_eq!(schedules_and_live_versions(&db).await?, (0, 0));
+            assert_eq!(daily_sync_setting(&db).await?, None);
+        }
         Ok(())
     }
 }

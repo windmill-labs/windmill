@@ -356,10 +356,10 @@ export const settings: Record<string, Setting[]> = {
 				parseAccentColor(value) !== undefined
 		},
 		{
-			label: 'Disable daily resource type sync',
+			label: 'Sync resource types from the hub daily',
 			description:
-				'Stop the server from syncing the resource types of the admins workspace from the Hub every day, which overwrites local edits to types the Hub also defines. Superadmins can still sync them on demand with "Sync resource types with Hub".',
-			key: 'disable_hub_resource_type_sync',
+				'Every day, the server updates the resource types of the admins workspace from the Hub, overwriting local edits to the types the Hub also defines. Superadmins can also sync them on demand with "Sync resource types with Hub".',
+			key: 'sync_hub_resource_types_daily',
 			fieldType: 'boolean',
 			storage: 'setting',
 			hideInQuickSetup: true

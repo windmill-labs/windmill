@@ -7,9 +7,9 @@
  */
 
 //! Keeps the `admins` workspace's resource types, which every workspace falls back to, in
-//! step with the hub. Servers run [`spawn_daily_sync`], superadmins run [`sync`] on demand,
-//! and `windmill cache-rt` bakes the public hub's listing into the image for instances that
-//! cannot reach a hub.
+//! step with the hub. Servers run [`spawn_daily_sync`] once a superadmin turns it on,
+//! superadmins run [`sync`] on demand, and `windmill cache-rt` bakes the public hub's listing
+//! into the image for instances that cannot reach a hub.
 
 use std::collections::HashMap;
 
@@ -20,8 +20,7 @@ use serde_json::json;
 use crate::{
     error::{Error, Result},
     global_settings::{
-        load_value_from_global_settings, DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING,
-        DISABLE_HUB_SETTING,
+        load_value_from_global_settings, DISABLE_HUB_SETTING, SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING,
     },
     utils::{get_license_id_or_uid, HTTP_CLIENT_PERMISSIVE, HUB_API_SECRET},
     worker::HUB_RT_CACHE_DIR,
@@ -34,8 +33,6 @@ const CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(600);
 const SYNC_LOCK_ID: i64 = 737_483_925;
 /// `background_task_state.name` of the sync's last attempt and last hub sync.
 const SYNC_STATE_TASK: &str = "hub_resource_type_sync";
-/// The background migration retiring `u/admin/hub_sync`, recorded in `windmill_migrations`.
-pub const RETIRE_LEGACY_HUB_SYNC: &str = "retire_legacy_hub_sync_script";
 
 pub fn cache_path() -> String {
     format!("{}/resource_types.json", *HUB_RT_CACHE_DIR)
@@ -407,8 +404,10 @@ async fn sync_from_cache_file(db: &DB, path: &str) -> Result<Option<SyncOutcome>
     Ok(Some(apply(db, SyncSource::ImageCache, &types).await?))
 }
 
-/// Syncs once a day, from whichever server first finds the sync due. The state it reads
-/// lives in the database, so servers starting or restarting do not each sync again.
+/// While `sync_hub_resource_types_daily` is on, syncs once a day, from whichever server first
+/// finds the sync due. Off by default: each sync overwrites local edits to the `admins` types
+/// the hub also defines. The state it reads lives in the database, so servers starting or
+/// restarting do not each sync again.
 pub fn spawn_daily_sync(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) {
     tokio::spawn(async move {
         // Leaves time for the hub URL and secret settings to load, and spreads out servers
@@ -428,19 +427,9 @@ pub fn spawn_daily_sync(db: DB, mut killpill_rx: tokio::sync::broadcast::Receive
 }
 
 async fn sync_if_due(db: &DB) -> Result<()> {
-    if setting_enabled(db, DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING).await?
+    if !setting_enabled(db, SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING).await?
         || setting_enabled(db, DISABLE_HUB_SETTING).await?
     {
-        return Ok(());
-    }
-    // The retirement is what turns a disabled `u/admin/hub_sync` schedule into the setting
-    // above. Syncing before it has run would overwrite the edits that schedule was protecting.
-    let retired: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM windmill_migrations WHERE name = $1)")
-            .bind(RETIRE_LEGACY_HUB_SYNC)
-            .fetch_one(db)
-            .await?;
-    if !retired {
         return Ok(());
     }
     // A transaction-scoped lock: a dropped transaction rolls back and releases it, so a
@@ -564,12 +553,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn no_daily_sync_before_the_legacy_sync_is_retired(db: DB) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM windmill_migrations WHERE name = $1")
-            .bind(RETIRE_LEGACY_HUB_SYNC)
-            .execute(&db)
-            .await?;
-
+    async fn no_daily_sync_unless_turned_on(db: DB) -> anyhow::Result<()> {
         sync_if_due(&db).await?;
 
         let state: Option<serde_json::Value> =
