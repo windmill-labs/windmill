@@ -35,6 +35,15 @@ describe('edit rights', () => {
 		expect(roleCanAuthor('script', adminOperator, undefined)).toBe(false)
 	})
 
+	// drafts.rs admits an operator's draft of a kind they could deploy, and no other.
+	it('lets an operator draft schedules and triggers until the right is withdrawn', () => {
+		expect(roleCanDraft('schedule', user({}), undefined)).toBe(true)
+		expect(roleCanDraft('trigger', user({}), undefined)).toBe(true)
+		expect(roleCanDraft('schedule', user({}), { manage_schedules: false })).toBe(false)
+		expect(roleCanDraft('trigger', user({}), { manage_triggers: false })).toBe(false)
+		expect(roleCanDraft('resource', user({}), undefined)).toBe(false)
+	})
+
 	// The role alone is not enough: a builder still cannot edit a flow in a folder they only read.
 	it('requires write access to the item on top of the role', () => {
 		const builder = { builder_flows: true }

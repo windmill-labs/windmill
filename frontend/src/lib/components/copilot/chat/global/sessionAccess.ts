@@ -14,6 +14,8 @@ type OperatorRights = Pick<
 const ALL_CAPABILITIES: SessionCapability[] = [
 	'write_draft',
 	'write_flow_draft',
+	'write_schedule_draft',
+	'write_trigger_draft',
 	'run_preview',
 	'run_flow_preview',
 	'deploy',
@@ -53,6 +55,12 @@ export function capabilitiesForRole(role: {
 	}
 	if (roleCanDraft('flow', user, role.operatorSettings)) {
 		capabilities.add('write_flow_draft')
+	}
+	if (roleCanDraft('schedule', user, role.operatorSettings)) {
+		capabilities.add('write_schedule_draft')
+	}
+	if (roleCanDraft('trigger', user, role.operatorSettings)) {
+		capabilities.add('write_trigger_draft')
 	}
 	if (authorsCode) {
 		capabilities.add('run_preview')

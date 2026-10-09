@@ -31,8 +31,8 @@ type OperatorRights =
 	| undefined
 
 /**
- * Whether a user's role lets them author items of `kind` — create one, edit it, save its
- * drafts — in a workspace with these `operator_settings`. The role half of every edit check;
+ * Whether a user's role lets them author items of `kind` — create one, edit it, deploy it —
+ * in a workspace with these `operator_settings` (drafts are `roleCanDraft`). The role half of every edit check;
  * which items they may write is `canEditItem`'s other half. For an operator:
  * - code (scripts, apps, agents, pipelines): never;
  * - flows: where the workspace grants `builder_flows` (`check_operator_can_build_flows`);
@@ -63,17 +63,27 @@ export function roleCanAuthor(
 }
 
 /**
- * Whether the user may save drafts of `kind` — what every session editor writes. Drafts are the
- * one place an admin outranks the operator flag: drafts.rs `require_can_write_path` returns Ok
- * on `is_admin` before its operator branch, while the item handlers refuse an operator with no
- * admin escape, so `roleCanAuthor` stays the rule for creating, deploying and deleting.
+ * Whether the user may save drafts of `kind` — what every session editor and the chat's draft
+ * tools write. Mirrors drafts.rs `require_can_write_path`, which differs from `roleCanAuthor`
+ * twice: an admin outranks the operator flag there (Ok on `is_admin` before the operator
+ * branch, where the item handlers have no admin escape), and an operator drafts only the kinds
+ * they could deploy — flows, schedules and triggers — never resources, variables or groups,
+ * which they edit directly instead.
  */
 export function roleCanDraft(
 	kind: EditKind,
 	user: Pick<UserExt, 'operator' | 'is_admin' | 'is_super_admin'> | undefined,
 	operatorSettings: OperatorRights
 ): boolean {
-	return !!user?.is_admin || !!user?.is_super_admin || roleCanAuthor(kind, user, operatorSettings)
+	if (user?.is_admin || user?.is_super_admin || !user?.operator) return true
+	switch (kind) {
+		case 'flow':
+		case 'schedule':
+		case 'trigger':
+			return roleCanAuthor(kind, user, operatorSettings)
+		default:
+			return false
+	}
 }
 
 /** `roleCanDraft` for the item at `path`, with its own permissions as in `canEditItem`. */

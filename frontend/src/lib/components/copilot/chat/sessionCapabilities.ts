@@ -15,6 +15,11 @@ export type SessionCapability =
 	/** Passes `require_can_write_path` for a flow draft, which an operator also passes where the
 	 * workspace grants `builder_flows`. The server then refuses a draft carrying inline code. */
 	| 'write_flow_draft'
+	/** Passes `require_can_write_path` for a schedule draft: everyone `write_draft` covers, and an
+	 * operator unless the workspace set `manage_schedules` to false. */
+	| 'write_schedule_draft'
+	/** The same for a trigger draft, read from `manage_triggers`. */
+	| 'write_trigger_draft'
 	/** Passes the operator refusal jobs.rs `run_preview_*` makes before starting a job. */
 	| 'run_preview'
 	/** Passes `run_preview_flow`'s `check_operator_can_build_flows`: composed flows only, for an
@@ -50,6 +55,8 @@ export type SessionToolPolicy = readonly SessionCapability[]
 export const NONE: SessionToolPolicy = []
 export const WRITE_DRAFT: SessionToolPolicy = ['write_draft']
 export const WRITE_FLOW_DRAFT: SessionToolPolicy = ['write_flow_draft']
+export const WRITE_SCHEDULE_DRAFT: SessionToolPolicy = ['write_schedule_draft']
+export const WRITE_TRIGGER_DRAFT: SessionToolPolicy = ['write_trigger_draft']
 export const RUN_PREVIEW: SessionToolPolicy = ['run_preview']
 export const RUN_FLOW_PREVIEW: SessionToolPolicy = ['run_flow_preview']
 export const DEPLOY: SessionToolPolicy = ['deploy']

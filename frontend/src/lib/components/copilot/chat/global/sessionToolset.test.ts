@@ -76,10 +76,11 @@ const REACHABLE_PROFILES = [
 			[false, true].flatMap((operator) =>
 				// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
 				(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
-					// The operator rights a workspace can set: none, the builder right, both locks.
+					// The operator rights a workspace can set: none, the builder right, one lock, both.
 					[
 						undefined,
 						{ builder_flows: true },
+						{ manage_triggers: false },
 						{ manage_schedules: false, manage_triggers: false }
 					].map((operatorSettings) => {
 						const access = capabilitiesForRole({
