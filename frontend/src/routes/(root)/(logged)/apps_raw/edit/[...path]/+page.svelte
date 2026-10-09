@@ -4,7 +4,7 @@
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { useOperatorBuilderApps, workspaceListLoaded } from '$lib/operatorWriteRights'
 	import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
@@ -278,6 +278,7 @@
 			}
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
+			await workspaceListLoaded()
 			const seedFiles = {
 				...($operatorBuilderApps ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template)
 			}

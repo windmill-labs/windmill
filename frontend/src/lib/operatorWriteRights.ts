@@ -1,5 +1,5 @@
 import { derived, get, readable, type Readable } from 'svelte/store'
-import { userWorkspaces, workspaceStore } from '$lib/stores'
+import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 /**
@@ -71,3 +71,13 @@ export const navigationOperatorBuilderRights = anyBuilderRight(workspaceStore)
  * workspace rather than the nav's, such as the global AI chat. */
 export const operatorBuilderAppsIn = (workspace: string | undefined) =>
 	get(builderRight('builder_apps', readable(workspace)))
+
+/** Resolves once the workspace list has loaded. Every builder right reads false until then, so
+ * code that picks what a builder starts with on a fresh page load has to wait for it. */
+export async function workspaceListLoaded(): Promise<void> {
+	let unsubscribe = () => {}
+	await new Promise<void>((resolve) => {
+		unsubscribe = usersWorkspaceStore.subscribe((list) => list && resolve())
+	})
+	unsubscribe()
+}

@@ -26,6 +26,7 @@
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { BUILDER_FRAMEWORK_TEMPLATES, FRAMEWORK_TEMPLATES } from './templates'
+	import { conformBuilderAppPolicy } from './builderAppPolicy'
 	import type { Runnable } from './rawAppPolicy'
 	import {
 		type DataTableRef,
@@ -293,13 +294,15 @@
 	)
 
 	function appPolicy(): Policy {
-		return {
+		const policy: Policy = {
 			on_behalf_of: $userStore?.username.includes('@')
 				? $userStore?.username
 				: `u/${$userStore?.username}`,
 			on_behalf_of_email: $userStore?.email,
 			execution_mode: 'publisher'
 		}
+		if ($operatorBuilderApps) conformBuilderAppPolicy(policy, $userStore)
+		return policy
 	}
 
 	const startCardClasses =
