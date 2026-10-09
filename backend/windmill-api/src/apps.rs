@@ -4481,14 +4481,14 @@ async fn execute_component(
                 .unwrap_or(p)
                 .starts_with("hub/")
         });
-        if authed.is_operator
-            && (payload.raw_code.is_some()
-                || previews_hub
-                || !operator_builder_rights(&db, &w_id).await?.apps)
-        {
-            return Err(Error::PermissionDenied(
-                "Operators cannot run preview jobs for security reasons".to_string(),
-            ));
+        if authed.is_operator {
+            let msg = "Operators cannot run preview jobs for security reasons".to_string();
+            if !operator_builder_rights(&db, &w_id).await?.apps {
+                return Err(Error::NotAuthorized(msg));
+            }
+            if payload.raw_code.is_some() || previews_hub {
+                return Err(Error::PermissionDenied(msg));
+            }
         }
         check_scopes(authed, || format!("jobs:run"))?;
         if let Some(p) = payload.path.as_deref() {
