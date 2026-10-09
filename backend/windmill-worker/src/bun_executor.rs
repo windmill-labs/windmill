@@ -3273,9 +3273,9 @@ pub async fn handle_wac_v2_output(
                             .or(if own_runnable { None } else { job.priority }),
                         None,  // authed
                         false, // running
-                        None,  // end_user_email
-                        None,  // trigger
-                        None,  // suspended_mode
+                        job.permissioned_as_end_user_email.clone(),
+                        None, // trigger
+                        None, // suspended_mode
                         job.job_token_scopes.as_deref(),
                     )
                     .await?;
@@ -4086,6 +4086,7 @@ async fn handle_dedicated_bunnative(
                             result,
                             result_columns: None,
                             mem_peak: 0,
+                            resource_usage: None,
                             canceled_by: None,
                             success,
                             cached_res_path: None,
