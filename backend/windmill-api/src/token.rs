@@ -188,7 +188,11 @@ lazy_static! {
     static ref ALL_SCOPES: Vec<ScopeDomain> = {
         let mut groups = vec![ScopeDomain {
             name: "Jobs".to_string(),
-            description: Some("Job management".to_string()),
+            description: Some(
+                "Job management. Generating dependency locks can run package build and \
+                 install scripts on a worker: grant it as you would code execution."
+                    .to_string(),
+            ),
             scopes: vec![
                 ScopeOption {
                     value: "jobs:read".to_string(),
@@ -213,6 +217,11 @@ lazy_static! {
                 ScopeOption {
                     value: "jobs:run:flows".to_string(),
                     label: "Run flows".to_string(),
+                    requires_resource_path: true,
+                },
+                ScopeOption {
+                    value: "jobs:run:dependencies".to_string(),
+                    label: "Generate dependency locks".to_string(),
                     requires_resource_path: true,
                 },
             ],

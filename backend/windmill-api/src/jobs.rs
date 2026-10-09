@@ -2010,9 +2010,11 @@ async fn require_job_within_read_scope(
         }
     }
     // `scope_kind` is the runnable kind a `jobs:run:<kind>:<path>` scope can name, or
-    // NULL for a job no such scope reaches directly (previews, dependency jobs,
-    // flow-inlined scripts) — those are still readable as a step of a matching flow,
-    // through their ancestors. A `singlestepflow` wraps either a script or a flow, so it
+    // NULL for a job no such scope reaches directly (previews, flow-inlined scripts) —
+    // those are still readable as a step of a matching flow, through their ancestors.
+    // A dependency job's path is the one its `jobs:run:dependencies:<path>` check
+    // admitted, but it is filed under `dependencies`, so it never passes for a run of
+    // the deployed runnable at that path. A `singlestepflow` wraps either a script or a flow, so it
     // projects onto the wrapped runnable the same way the batch-rerun query does. An agent
     // run is a preview of the one-step flow `agent_runs::agent_step_flow` builds, filed under the
     // agent's path (`<path>.chat` for a chat turn); the editor's own runs of it look the same,
@@ -2031,6 +2033,7 @@ async fn require_job_within_read_scope(
                     WHEN a.agent THEN 'agents'
                     WHEN j.kind IN ('script', 'script_hub', 'unassigned_script') THEN 'scripts'
                     WHEN j.kind IN ('flow', 'unassigned_flow') THEN 'flows'
+                    WHEN j.kind IN ('dependencies', 'flowdependencies') THEN 'dependencies'
                     WHEN j.kind IN ('singlestepflow', 'unassigned_singlestepflow') THEN
                         CASE WHEN COALESCE(
                                 (SELECT m->'value'->>'type'
@@ -4628,14 +4631,8 @@ async fn cancel_selection(
             } else {
                 ids
             };
-        let Json(mut w_cancelled) = cancel_jobs(
-            ids,
-            &db,
-            &authed,
-            workspace_id.as_str(),
-            force_cancel,
-        )
-        .await?;
+        let Json(mut w_cancelled) =
+            cancel_jobs(ids, &db, &authed, workspace_id.as_str(), force_cancel).await?;
         cancelled.append(&mut w_cancelled);
     }
 
@@ -9525,13 +9522,23 @@ pub struct RunDependenciesResponse {
     pub dependencies: String,
 }
 
+/// The path comes from the request body: one carrying scope syntax (`,`, `:`, `*`) could
+/// put a granted path beside an ungranted one, so it needs a grant covering every path.
+fn check_dependencies_scope(authed: &ApiAuthed, path: &str) -> error::Result<()> {
+    if windmill_common::auth::is_scope_literal_path(path) {
+        check_scopes(authed, || format!("jobs:run:dependencies:{path}"))
+    } else {
+        check_scopes(authed, || "jobs:run:dependencies".to_string())
+    }
+}
+
 async fn push_dependencies_job(
     authed: &ApiAuthed,
     db: &DB,
     w_id: &str,
     req: RunDependenciesRequest,
 ) -> error::Result<Uuid> {
-    check_scopes(authed, || format!("jobs:run"))?;
+    check_dependencies_scope(authed, &req.entrypoint)?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
@@ -9654,7 +9661,7 @@ async fn push_flow_dependencies_job(
     w_id: &str,
     req: RunFlowDependenciesRequest,
 ) -> error::Result<Uuid> {
-    check_scopes(authed, || format!("jobs:run"))?;
+    check_dependencies_scope(authed, &req.path)?;
     check_operator_can_build_flows(db, w_id, authed.is_operator, "run dependencies jobs").await?;
     // The dependency job locks whatever inline code this request carries, on a worker. A
     // composition-only flow has none, so validating here costs a builder nothing and keeps the

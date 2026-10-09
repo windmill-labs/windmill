@@ -170,10 +170,16 @@ const FLOW_JOBS: [&'static str; 6] = [
 /// scoped by the agent's path like a deployed runnable's, as `jobs:run:agents:<path>`.
 const AGENT_JOBS: [&'static str; 1] = ["jobs/run/agent"];
 
+/// Lock resolution for scripts, apps and flows, scoped as `jobs:run:dependencies:<path>`.
+/// Resolving a package can run its build or install scripts on the worker, so this is
+/// still code execution: the scope only takes away the direct ways to run code.
+const DEPENDENCY_JOBS: [&'static str; 2] = ["jobs/run/dependencies", "jobs/run/flow_dependencies"];
+
 lazy_static::lazy_static! {
     static ref RUN_PATH_ACTIONS: Vec<&'static str> = {
-        let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "jobs/run/dependencies","jobs/run/flow_dependencies", "apps_u/execute_component", "apps_u/upload_s3_file"];
+        let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "apps_u/execute_component", "apps_u/upload_s3_file"];
 
+        v.extend(DEPENDENCY_JOBS);
         v.extend(SCRIPT_JOBS);
         v.extend(FLOW_JOBS);
         v.extend(AGENT_JOBS);
@@ -246,6 +252,13 @@ fn determine_kind_from_route(route_path: &str) -> Option<String> {
             || route_path.starts_with("jobs/run_wait_result/preview")
         {
             return None;
+        }
+        // Before the flow check: `jobs/run/flow_dependencies` also starts with `jobs/run/f`.
+        if DEPENDENCY_JOBS
+            .iter()
+            .any(|path| route_path.starts_with(path))
+        {
+            return Some("dependencies".to_string());
         }
         if AGENT_JOBS.iter().any(|path| route_path.starts_with(path)) {
             return Some("agents".to_string());
@@ -586,7 +599,8 @@ pub struct JobReadConfinement {
 }
 
 impl JobReadConfinement {
-    /// Whether a job that ran `runnable_path` as `kind` (`scripts`, `flows` or `agents`)
+    /// Whether a job that ran `runnable_path` as `kind` (`scripts`, `flows`, `agents` or
+    /// `dependencies`)
     /// is inside the confinement. A read path admits every kind; a run scope only its own.
     pub fn admits(&self, kind: &str, runnable_path: &str) -> bool {
         if self.read_paths.allows(runnable_path) {
@@ -1714,6 +1728,24 @@ mod tests {
             scope_for_route("POST", "/api/w/ws/jobs/run/agent/u/x/y").as_deref(),
             Some("jobs:run:agents")
         );
+        for path in [
+            "/api/w/ws/jobs/run/dependencies",
+            "/api/w/ws/jobs/run/dependencies_async",
+            "/api/w/ws/jobs/run/flow_dependencies",
+            "/api/w/ws/jobs/run/flow_dependencies_async",
+        ] {
+            assert_eq!(
+                scope_for_route("POST", path).as_deref(),
+                Some("jobs:run:dependencies"),
+                "{path}"
+            );
+            assert!(check_route_access(&["jobs:run:dependencies".into()], path, "POST").is_ok());
+            assert!(check_route_access(&["jobs:run:flows".into()], path, "POST").is_err());
+        }
+        // A dependencies grant reaches no other run route.
+        for path in ["/api/w/ws/jobs/run/preview", "/api/w/ws/jobs/run/p/u/x/y"] {
+            assert!(check_route_access(&["jobs:run:dependencies".into()], path, "POST").is_err());
+        }
 
         // Preview/bundle runs have no deployed path and their handlers require the
         // broad `jobs:run` scope, so the derived scope must not carry a kind.
