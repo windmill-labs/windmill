@@ -36,7 +36,7 @@ const performance = core.loadExtScript("ext:deno_web/15_performance.js");
 // deno_fetch applies no deadline, so a peer that accepts a request and then
 // never answers leaves `await fetch(...)` pending until the job timeout, which
 // self-hosted defaults to 7 days.
-const ORIGINAL_FETCH = fetch.fetch;
+const DENO_FETCH = fetch.fetch;
 
 // deno_web's timers reject any `this` other than undefined/globalThis, so
 // `timers.setTimeout(...)` passes the module namespace and throws "Illegal
@@ -52,6 +52,14 @@ const abortControllerAbort = Function.prototype.call.bind(
   abortSignal.AbortController.prototype.abort,
 );
 const ReflectApply = Reflect.apply;
+
+// Forwards the original argument count, like every caller below relies on. The
+// extra promise hop under `no_network` costs the same-tick settling of an
+// aborted fetch, which only matters where a request could have been made.
+function ORIGINAL_FETCH() {
+  const p = ReflectApply(DENO_FETCH, undefined, arguments);
+  return noNetwork ? promiseThen(p, undefined, rewordNoNetworkDenial) : p;
+}
 
 // Installed per isolate by __wmInitPerIsolate; 0 disables. Only a backstop
 // for the impossible case of fetch running before that init.
@@ -82,18 +90,14 @@ function fetchResponseTimeoutError(requestUrl, timeoutMs) {
 // --allow-net flag" hint, which names a flag a script author cannot pass.
 let noNetwork = false;
 
-function noNetworkError(input) {
-  let host;
-  try {
-    host = new url.URL(typeof input === "string" ? input : input.url).host;
-  } catch {
-    host = "the request target";
+function rewordNoNetworkDenial(e) {
+  if (e?.name === "NotCapable" && typeof e.message === "string") {
+    e.message = e.message.replace(
+      ", run again with the --allow-net flag",
+      ": the script is annotated //no_network",
+    );
   }
-  const e = new Error(
-    `Requires net access to "${host}", which is denied: the script is annotated //no_network`,
-  );
-  e.name = "NotCapable";
-  return e;
+  throw e;
 }
 
 globalThis.atob = base64.atob;
@@ -103,9 +107,6 @@ globalThis.btoa = base64.btoa;
 // promise through another one would break. Construction still has to reject
 // rather than throw, so it is caught and handed back as a rejection.
 globalThis.fetch = function fetch(input, init = undefined) {
-  if (noNetwork && arguments.length >= 1) {
-    return PromiseReject(noNetworkError(input));
-  }
   const timeoutMs = fetchResponseTimeoutMs;
   // Forwarded with the original argument count, so deno still sees an empty
   // call as empty and raises its own "1 argument required". The default on
