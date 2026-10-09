@@ -643,7 +643,7 @@
 											? 'bg-surface-disabled opacity-60'
 											: 'bg-surface-tertiary'}"
 									>
-										<div class="flex justify-between items-center">
+										<div class="flex justify-between items-center min-h-7">
 											<label
 												class={twMerge(
 													'flex items-center gap-2 flex-1 min-w-0',
@@ -677,7 +677,7 @@
 													>
 														{#snippet trigger()}
 															<Button
-																size="xs"
+																unifiedSize="sm"
 																disabled={isDisabled}
 																variant="default"
 																startIcon={resourcePathArray.length > 0
@@ -717,7 +717,7 @@
 																		onclick={() => {
 																			addResourcePath(scope.value, currentInput)
 																		}}
-																		size="xs"
+																		unifiedSize="sm"
 																		disabled={!currentInput.trim()}
 																	>
 																		Add
