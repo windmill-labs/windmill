@@ -50,6 +50,7 @@
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
+	import { StarterPrompts } from '$lib/components/copilot/chat/starter/starterPrompts.svelte'
 
 	let {
 		sessionId,
@@ -71,6 +72,8 @@
 
 	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
+
+	const starterPrompts = new StarterPrompts()
 
 	// Seed the composer with the unsent prompt a reload preserved on the session
 	// record (script-init: AIChatInput reads it once at mount).
@@ -372,10 +375,6 @@
 		</div>
 	{/snippet}
 
-	<!-- Override the chat's default keyboard-shortcut hint with nothing —
-	     sessions have their own empty-state affordances above. -->
-	{#snippet sessionEmptyHint()}{/snippet}
-
 	{#snippet sessionHeader()}
 		<EditableInput
 			bind:this={summaryInput}
@@ -451,7 +450,7 @@
 	<div class="flex-1 min-h-0 flex flex-col" use:splitterPointerCapture>
 		<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 			<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
-				<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
+				<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-20'}">
 					<AIChat
 						bind:this={aiChat}
 						hideHeader
@@ -465,7 +464,7 @@
 							: session.archived
 								? 'This session is archived. Unarchive it from the banner above to keep working.'
 								: ''}
-						emptyHint={sessionEmptyHint}
+						starterPrompts={starterPrompts.list}
 						{inputPreface}
 					/>
 				</div>

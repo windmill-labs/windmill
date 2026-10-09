@@ -92,6 +92,9 @@
 		// plain-text draft sent from here answers it instead of queueing behind a
 		// turn that only the answer can resume.
 		pendingQuestionToolCallId?: string
+		/** Forwarded to ContextTextarea: the composer that opens a session. */
+		hero?: boolean
+		fadingPlaceholder?: { text: string; visible: boolean }
 	}
 
 	let {
@@ -115,7 +118,9 @@
 		loading,
 		onCancel,
 		onDraftChange = undefined,
-		pendingQuestionToolCallId = undefined
+		pendingQuestionToolCallId = undefined,
+		hero = false,
+		fadingPlaceholder = undefined
 	}: Props = $props()
 
 	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
@@ -615,6 +620,12 @@
 		// has already mutated `selectedContext` to drop the targeted entry.
 		contextTextareaComponent?.unsyncMention(title)
 		draft.text = removeMentionFromText(draft.text, title)
+	}
+
+	/** Replace the draft's text, the way a starter prompt fills the composer. */
+	export function setText(text: string) {
+		draft.text = text
+		focusInput()
 	}
 
 	export function focusInput() {
@@ -1383,6 +1394,10 @@
 				{availableContext}
 				{selectedContext}
 				placeholder={modePlaceholder}
+				{hero}
+				fadingPlaceholder={isFirstMessage && !chatHost.runHeldElsewhere
+					? fadingPlaceholder
+					: undefined}
 				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
 				onRemoveContext={(element) => {
 					selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))

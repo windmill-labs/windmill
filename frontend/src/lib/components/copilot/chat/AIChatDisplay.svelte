@@ -72,6 +72,10 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import { base } from '$lib/base'
+	import type { StarterPrompt } from '$lib/onboardingProfile'
+	import BuildWithAIHeading from './starter/BuildWithAIHeading.svelte'
+	import StarterPromptChips from './starter/StarterPromptChips.svelte'
+	import { RotatingPlaceholder } from './starter/starterPrompts.svelte'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const chatHost = getChatViewHost()
@@ -184,6 +188,7 @@
 		hideModeSelector = false,
 		wideLayout = false,
 		emptyHint,
+		starterPrompts = undefined,
 		inputPreface,
 		footerSettings,
 		initialInstructions = undefined,
@@ -216,6 +221,10 @@
 		// off there.
 		wideLayout?: boolean
 		emptyHint?: Snippet
+		/** Open an empty chat the way Home's composer looks: the "Build with AI" heading, a
+		 * taller box cycling through these prompts, and their chips under it. Sessions
+		 * set it so the two read as the same entry point. Replaces `emptyHint`. */
+		starterPrompts?: StarterPrompt[]
 		inputPreface?: Snippet
 		/** The settings control at the footer's right edge, where the copilot puts its
 		 * model picker. A host that configures its turn elsewhere replaces it here. */
@@ -636,6 +645,12 @@
 	// A step name hangs its icon in the column's left padding (see AssistantMessage), so a
 	// transcript carrying one widens the padding, on both sides to keep the column centred.
 	const agentGutter = $derived(messages.some((m) => m.role === 'assistant' && m.stepName))
+	const starterHero = $derived(!!starterPrompts && messages.length === 0 && !disabled)
+	const starterPlaceholder = new RotatingPlaceholder(
+		() => (starterPrompts ?? []).map((p) => p.prompt),
+		() => starterHero
+	)
+
 	const columnClass = $derived(
 		wideLayout
 			? `w-full max-w-3xl mx-auto ${agentGutter ? 'px-8' : 'px-7'}`
@@ -852,7 +867,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		</div>
 	{/if}
 	{#if messages.length === 0}
-		{#if emptyHint}
+		{#if starterPrompts}
+			<div class={columnClass}>
+				<BuildWithAIHeading />
+			</div>
+		{:else if emptyHint}
 			{@render emptyHint()}
 		{:else}
 			<span class="text-2xs text-gray-500 dark:text-gray-400 text-center px-2 my-2"
@@ -1033,6 +1052,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{disabled}
 				{pendingQuestionToolCallId}
 				isFirstMessage={messages.length === 0}
+				hero={starterHero}
+				fadingPlaceholder={starterHero ? starterPlaceholder : undefined}
 			/>
 			<div
 				class="mt-1 flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
@@ -1372,6 +1393,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{/if}
 			</div>
 		</div>
+		{#if starterHero && starterPrompts}
+			<div class="pt-2">
+				<StarterPromptChips prompts={starterPrompts} onPick={(p) => aiChatInput?.setText(p)} />
+			</div>
+		{/if}
 		{#if (chatHost.mode === AIMode.NAVIGATOR || chatHost.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">
