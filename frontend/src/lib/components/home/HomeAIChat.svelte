@@ -14,7 +14,24 @@
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-	import { aiUserDisabled, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import {
+		aiUserDisabled,
+		hubBaseUrlStore,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
+	import ActingOnPicker from '../sessions/ActingOnPicker.svelte'
+	import { defaultSessionWorkspace, type PendingFork } from '../sessions/sessionState.svelte'
+	import AutonomyModePicker from '../copilot/chat/AutonomyModePicker.svelte'
+	import {
+		AIAutonomyMode,
+		getPersistedAutonomyMode,
+		AIMode,
+		supportsAutoAcceptEdits,
+		supportsAutoAcceptToolConfirmations,
+		supportsPlanMode
+	} from '../copilot/chat/AIChatManager.svelte'
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { base } from '$lib/base'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
@@ -128,12 +145,45 @@
 	let hero = $derived(showComposer && !collapsed)
 	let outerSpacing = $derived(hero ? 'mt-20 mb-16' : 'mt-0 mb-1')
 
+	// The session's own pre-send controls, held here until the hand-off creates the session.
+	// A pick is kept with the workspace it was made in, so switching workspace drops it
+	// rather than carrying a workspace from another family into the new session.
+	let actingOnPick = $state<{ in: string; workspaceId: string; fork?: PendingFork }>()
+	const pickHere = $derived(actingOnPick?.in === $workspaceStore ? actingOnPick : undefined)
+	// defaultSessionWorkspace reads these stores with `get`, so name them to re-run on change.
+	const actingOnId = $derived.by(() => {
+		void $userWorkspaces
+		void $workspaceStore
+		return pickHere?.workspaceId ?? defaultSessionWorkspace()
+	})
+	function pickActingOn(workspaceId: string, fork?: PendingFork) {
+		if ($workspaceStore) actingOnPick = { in: $workspaceStore, workspaceId, fork }
+	}
+
+	// Only a mode picked here is handed off: the persisted one is what the session would
+	// start with anyway, and it can read stale before the user's email resolves.
+	let pickedAutonomyMode = $state<AIAutonomyMode>()
+	// The persisted mode is keyed by the user's email, so re-read it once that resolves.
+	const autonomyMode = $derived.by(() => {
+		void $userStore?.email
+		return pickedAutonomyMode ?? getPersistedAutonomyMode()
+	})
+	const sessionAutonomyAvailability = {
+		autoAcceptEditsAvailable: supportsAutoAcceptEdits(AIMode.GLOBAL),
+		autoAcceptToolConfirmationsAvailable: supportsAutoAcceptToolConfirmations(AIMode.GLOBAL),
+		planModeAvailable: supportsPlanMode(AIMode.GLOBAL)
+	}
+
 	let starting = $state(false)
 	async function start() {
 		if (!canSend || starting || !value.trim()) return
 		starting = true
 		try {
-			await startSessionWithPrompt(value, { autoSend: true })
+			await startSessionWithPrompt(value, {
+				autoSend: true,
+				actingOn: pickHere,
+				autonomyMode: pickedAutonomyMode
+			})
 		} finally {
 			starting = false
 		}
@@ -164,6 +214,12 @@
 				</div>
 			{/if}
 			<BuildWithAIHeading />
+			<ActingOnPicker
+				selectedId={actingOnId}
+				pendingFork={pickHere?.fork}
+				onPick={(id) => pickActingOn(id)}
+				onCreateFork={(fork) => pickActingOn(fork.parent_workspace_id, fork)}
+			/>
 			<!-- Anchors the send button / model settings to the input, not to the whole block — the row
 			     below would otherwise push them down. The inner wrapper stays `relative` in both
 			     states: `blur-sm` is a filter, which makes an element the containing block for its
@@ -201,6 +257,11 @@
 						onclick={start}
 					></Button>
 					<div class="absolute left-3 bottom-4 flex items-center gap-1.5 px-0.5">
+						<AutonomyModePicker
+							mode={autonomyMode}
+							availability={sessionAutonomyAvailability}
+							onChange={(mode) => (pickedAutonomyMode = mode)}
+						/>
 						<AIChatModelSettings />
 					</div>
 				</div>

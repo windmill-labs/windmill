@@ -10,13 +10,9 @@
 		ArrowDown,
 		AtSign,
 		BookOpen,
-		ChevronDown,
-		ChevronsRight,
 		CheckIcon,
-		ClipboardList,
 		FileText,
 		Folder,
-		Hand,
 		HistoryIcon,
 		KeyRound,
 		MousePointer2,
@@ -31,7 +27,8 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pendingUserAction, pendingUserActionDetail, type DisplayMessage } from './shared'
-	import { PLAN_MODE_TEXT_COLOR, PLAN_MODE_TRIGGER_CLASS } from './planMode'
+	import AutonomyModePicker from './AutonomyModePicker.svelte'
+	import { availableAutonomyModeOptions, resolveAutonomyMode } from './autonomyModes'
 	import { PLAN_MODE_MESSAGES } from './planModeMessages'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
@@ -93,80 +90,6 @@
 	// running out isn't a surprise. Once spent, the exhausted banner replaces it.
 	let freeTierUsedPct = $derived(Math.min(100, Math.round((freeTier?.used_ratio ?? 0) * 100)))
 	let showFreeTierUsage = $derived(!!freeTier && !freeTier.exhausted)
-
-	// One row per autonomy posture, in picker order, so adding one touches only this
-	// table. `isAvailable` hides the postures that would do nothing in the current AI
-	// mode, which is why the picker can be shorter than this list.
-	type AutonomyAvailability = {
-		autoAcceptEditsAvailable: boolean
-		autoAcceptToolConfirmationsAvailable: boolean
-		planModeAvailable: boolean
-	}
-	type AutonomyModeOption = {
-		mode: AIAutonomyMode
-		label: string
-		shortLabel?: string
-		icon: typeof Hand
-		iconColor: string
-		/** Tints the whole trigger, not just its icon. Only plan mode needs it. */
-		triggerClass?: string
-		tooltip: (a: AutonomyAvailability) => string
-		isAvailable: (a: AutonomyAvailability) => boolean
-	}
-	// The one posture available everywhere, so also the fallback for a mode the
-	// current AI mode does not offer.
-	const askPermissionOption: AutonomyModeOption = {
-		mode: AIAutonomyMode.DEFAULT,
-		label: 'Ask permission',
-		icon: Hand,
-		iconColor: 'text-secondary',
-		tooltip: (a) =>
-			a.autoAcceptEditsAvailable
-				? 'Requires confirmation for edits and tool calls.'
-				: 'Requires confirmation for tool calls.',
-		isAvailable: () => true
-	}
-	const autonomyModeOptions: AutonomyModeOption[] = [
-		{
-			mode: AIAutonomyMode.PLAN,
-			label: 'Plan (read-only)',
-			shortLabel: 'Plan',
-			icon: ClipboardList,
-			iconColor: PLAN_MODE_TEXT_COLOR,
-			triggerClass: PLAN_MODE_TRIGGER_CLASS,
-			tooltip: () =>
-				'Read-only: the assistant researches and drafts a plan for your approval before it can change anything.',
-			isAvailable: (a) => a.planModeAvailable
-		},
-		askPermissionOption,
-		{
-			mode: AIAutonomyMode.ACCEPT_EDIT,
-			label: 'Auto-accept edits',
-			icon: ChevronsRight,
-			iconColor: 'text-accent',
-			tooltip: () =>
-				'Automatically accepts script and flow edits. Tool calls still ask for confirmation.',
-			isAvailable: (a) => a.autoAcceptEditsAvailable
-		},
-		{
-			mode: AIAutonomyMode.YOLO,
-			label: 'Yolo (bypass permissions)',
-			shortLabel: 'Yolo',
-			icon: ChevronsRight,
-			iconColor: 'text-red-500',
-			tooltip: (a) =>
-				a.autoAcceptEditsAvailable
-					? 'Automatically accepts script and flow edits plus tool confirmations.'
-					: 'Automatically accepts tool confirmations.',
-			isAvailable: (a) => a.autoAcceptToolConfirmationsAvailable
-		}
-	]
-	const autonomyModeOption = (mode: AIAutonomyMode) =>
-		autonomyModeOptions.find((o) => o.mode === mode) ?? askPermissionOption
-	const autonomyModeLabel = (mode: AIAutonomyMode) => {
-		const option = autonomyModeOption(mode)
-		return option.shortLabel ?? option.label
-	}
 
 	let {
 		messages,
@@ -626,18 +549,12 @@
 		autoAcceptToolConfirmationsAvailable: chatHost.autoAcceptToolConfirmationsAvailable,
 		planModeAvailable: chatHost.planModeAvailable
 	})
-	const availableAutonomyModeOptions = $derived(
-		autonomyModeOptions.filter((option) => option.isAvailable(autonomyAvailability))
-	)
-	// Fall back to ask-permission when the persisted mode isn't applicable in the
-	// current AI mode (e.g. auto-accept edits while in a mode without edits).
 	const effectiveAutonomyMode = $derived(
-		availableAutonomyModeOptions.some((option) => option.mode === chatHost.autonomyMode)
-			? chatHost.autonomyMode
-			: AIAutonomyMode.DEFAULT
+		resolveAutonomyMode(chatHost.autonomyMode, autonomyAvailability)
 	)
-	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
-	const effectiveAutonomyModeOption = $derived(autonomyModeOption(effectiveAutonomyMode))
+	const showAutonomyModeSelector = $derived(
+		!disabled && availableAutonomyModeOptions(autonomyAvailability).length > 1
+	)
 
 	// The typing-dots indicator implies the AI is busy, which is misleading while
 	// the loop is parked on the user; surface a text pill instead so users know to
@@ -1254,34 +1171,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							/>
 						{/if}
 						{#if showAutonomyModeSelector}
-							<DropdownV2
-								items={() =>
-									availableAutonomyModeOptions.map((option) => ({
-										displayName: option.label,
-										selected: effectiveAutonomyMode === option.mode,
-										action: () => chatHost.setAutonomyMode(option.mode)
-									}))}
-								placement="bottom-start"
-								fixedHeight={false}
-								customWidth={240}
-							>
-								{#snippet buttonReplacement()}
-									<Button
-										nonCaptureEvent
-										unifiedSize="2xs"
-										variant="default"
-										title={effectiveAutonomyModeOption.tooltip(autonomyAvailability)}
-										btnClasses={effectiveAutonomyModeOption.triggerClass ?? ''}
-										startIcon={{
-											icon: effectiveAutonomyModeOption.icon,
-											classes: effectiveAutonomyModeOption.iconColor
-										}}
-										endIcon={{ icon: ChevronDown }}
-									>
-										{autonomyModeLabel(effectiveAutonomyMode)}
-									</Button>
-								{/snippet}
-							</DropdownV2>
+							<AutonomyModePicker
+								mode={chatHost.autonomyMode}
+								availability={autonomyAvailability}
+								onChange={chatHost.setAutonomyMode}
+							/>
 						{/if}
 						{#if effectiveAutonomyMode === AIAutonomyMode.PLAN}
 							<span class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.modeNote}</span>

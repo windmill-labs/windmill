@@ -321,7 +321,7 @@ function isWorkspacePath(path: string | undefined): path is string {
 // Returns the safe ACCEPT_EDIT default when no user is known yet — the
 // module-level singleton (constructed at import, before the email resolves)
 // re-reads via onUserChange once it does.
-function getPersistedAutonomyMode(): AIAutonomyMode {
+export function getPersistedAutonomyMode(): AIAutonomyMode {
 	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
 	if (!BROWSER || !key) {
 		return AIAutonomyMode.ACCEPT_EDIT
