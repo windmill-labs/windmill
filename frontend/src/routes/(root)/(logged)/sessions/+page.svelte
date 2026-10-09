@@ -44,7 +44,7 @@
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
-	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
@@ -54,7 +54,8 @@
 	import { markSessionRecovered } from '$lib/components/sessions/sessionRecoveryNotice.svelte'
 	import {
 		isGlobalAiEnabled,
-		clearSessionsBetaOptOut
+		clearSessionsBetaOptOut,
+		sessionsAllowedFor
 	} from '$lib/components/copilot/chat/global/gate'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
@@ -205,7 +206,7 @@
 	// load. `recovering` also guards re-entry: recovery mutates the session list
 	// this effect tracks, while the URL that would stop it only updates on `goto`.
 	$effect(() => {
-		if (embedded || !globalEnabled) return
+		if (embedded || !globalEnabled || !sessionsAllowedFor($userStore?.operator)) return
 		if (!sessionState.hydrated || recovering) return
 		// A deliberate delete removes the open session ahead of its own navigation.
 		// Claiming that gap would take over the URL and tell the user the session
@@ -1020,6 +1021,24 @@
 					window.top?.location.assign(u.pathname + u.search)
 				}}>Open sessions</Button
 			>
+		</div>
+	{:else if !sessionsAllowedFor($userStore?.operator)}
+		<!-- Operators without the opt-in keep the legacy docked chat (see `gate.ts`); a direct
+		     URL must not bypass that. -->
+		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
+			<p class="text-primary font-medium">AI Sessions are not available for operators</p>
+			<p>Use the Ask AI chat instead.</p>
+			<Button
+				unifiedSize="xs"
+				onclick={() => {
+					try {
+						localStorage.setItem('ai-chat-open', 'true')
+					} catch {}
+					window.location.href = `${base}/`
+				}}
+			>
+				Open Ask AI chat
+			</Button>
 		</div>
 	{:else if !globalEnabled}
 		<!-- Direct navigation (bookmark, shared link) while the user has opted out

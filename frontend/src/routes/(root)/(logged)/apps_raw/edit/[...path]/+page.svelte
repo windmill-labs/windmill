@@ -529,7 +529,7 @@
 			policy: result.policy
 		}
 		const workspace = $workspaceStore
-		if (mode === 'ai' && prefersSessionHandoff() && workspace) {
+		if (mode === 'ai' && prefersSessionHandoff($userStore?.operator) && workspace) {
 			// The session loads the app by path, so the picked setup is saved before it
 			// opens. `new_draft` tells it the app is still the starter template.
 			try {

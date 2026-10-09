@@ -68,10 +68,7 @@
 		getFavoriteHref,
 		getFavoriteLabel
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import {
-		parseSuperadminSettingsHash,
-		USER_SETTINGS_HASH
-	} from '$lib/components/sidebar/settings'
+	import { parseSuperadminSettingsHash, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import {
 		PanelLeft,
@@ -111,7 +108,7 @@
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { isGlobalAiEnabled, sessionsAllowedFor } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
 	import {
 		isPageItemListPath,
@@ -303,7 +300,10 @@
 	// Session mode is route-derived: the rail shows the sessions sidebar on the
 	// /sessions page and the workspace navigation everywhere else. The switch
 	// (SessionModeSwitch) just navigates in and out of that route.
-	let sessionMode = $derived(page.url.pathname.startsWith(base + '/sessions'))
+	// An operator without the opt-in (`gate.ts`) is refused by /sessions, so their sidebar is not
+	// handed over to a session list the page behind it declines, and they keep the docked chat.
+	const sessionsAllowed = $derived(sessionsAllowedFor($userStore?.operator))
+	let sessionMode = $derived(page.url.pathname.startsWith(base + '/sessions') && sessionsAllowed)
 	// Session mode points the bottom settings entry at the open session's own
 	// workspace. An unsent draft hasn't committed one yet, so it falls back to
 	// the family root.
@@ -324,8 +324,12 @@
 	const globalAiEnabled = isGlobalAiEnabled()
 	// A workspace that hid the assistant (`ai_config.copilot_disabled`) loses both entry
 	// points: the Workspace ⇄ Sessions switch and the legacy Ask-AI button.
-	const sessionsSwitchShown = $derived(globalAiEnabled && !$copilotInfo.workspaceDisabled)
-	const askAiShown = $derived(!globalAiEnabled && !$copilotInfo.workspaceDisabled)
+	const sessionsSwitchShown = $derived(
+		globalAiEnabled && sessionsAllowed && !$copilotInfo.workspaceDisabled
+	)
+	const askAiShown = $derived(
+		(!globalAiEnabled || !sessionsAllowed) && !$copilotInfo.workspaceDisabled
+	)
 
 	if (page.status == 404) {
 		goto('/user/login')
@@ -884,7 +888,7 @@
 	$effect(() => {
 		const ws = $workspaceStore
 		const ready = sessionState.hydrated && $usersWorkspaceStore !== undefined
-		if (globalAiEnabled && ready && ws) {
+		if (globalAiEnabled && sessionsAllowed && ready && ws) {
 			untrack(() => restoreSessionBackups(ws))
 		}
 	})
@@ -1481,9 +1485,9 @@
 			<AiChatLayout
 				{children}
 				noPadding={devOnly || menuHidden}
-				disableAi={globalAiEnabled ? true : sessionMode}
+				disableAi={globalAiEnabled && sessionsAllowed ? true : sessionMode}
 				loadAiConfig={!sessionMode}
-				showSessionsBetaBanner
+				showSessionsBetaBanner={sessionsAllowed}
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
 				isMobile={useDrawer}

@@ -26,7 +26,7 @@ async function newAppSessionHref(url: URL): Promise<string | undefined> {
 	const user = get(userStore)
 	const workspace = get(workspaceStore)
 	// Neither is known yet on a cold load of this URL, which then opens the editor.
-	if (!user || !workspace || !prefersSessionHandoff()) return undefined
+	if (!user || !workspace || !prefersSessionHandoff(user.operator)) return undefined
 	if ((url.searchParams.get('workspace') ?? workspace) !== workspace) return undefined
 	if (get(copilotWorkspace) !== workspace) await loadCopilot(workspace)
 	if (get(copilotWorkspace) !== workspace || !get(copilotInfo).enabled) return undefined
