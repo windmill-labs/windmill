@@ -2109,18 +2109,23 @@ async fn get_id_from_secret(
     prefix: Option<&str>,
 ) -> Result<i64> {
     let mc = build_crypt(db, w_id).await?;
-    let decrypted = mc
-        .decrypt_bytes_to_bytes(&(hex::decode(secret)?))
-        .map_err(|e| Error::internal_err(e.to_string()))?;
-    let mut bytes = str::from_utf8(&decrypted).map_err(to_anyhow)?;
-    if let Some(prefix) = prefix {
-        if !bytes.starts_with(prefix) {
-            return Err(Error::BadRequest("Invalid secret".to_string()));
-        }
-        bytes = bytes.strip_prefix(prefix).unwrap_or("");
+    id_from_secret(&mc, &secret, prefix)
+        .ok_or_else(|| Error::BadRequest("Invalid secret".to_string()))
+}
+
+/// The secret comes from the URL of unauthenticated routes, so every way it can be invalid
+/// must produce the same response: a caller must never learn why a secret was rejected.
+fn id_from_secret(
+    mc: &magic_crypt::MagicCrypt256,
+    secret: &str,
+    prefix: Option<&str>,
+) -> Option<i64> {
+    let decrypted = mc.decrypt_bytes_to_bytes(&hex::decode(secret).ok()?).ok()?;
+    let plaintext = String::from_utf8(decrypted).ok()?;
+    match prefix {
+        Some(prefix) => plaintext.strip_prefix(prefix)?.parse().ok(),
+        None => plaintext.parse().ok(),
     }
-    let id: i64 = bytes.parse().map_err(to_anyhow)?;
-    Ok(id)
 }
 
 async fn get_public_resource(
@@ -6831,6 +6836,39 @@ mod policy_tests {
         let p: Policy = serde_json::from_str(r#"{"execution_mode": "anonymous"}"#).unwrap();
         assert_eq!(p.execution_mode(), ExecutionMode::Anonymous);
         assert_eq!(p.stated_execution_mode(), Some(ExecutionMode::Anonymous));
+    }
+}
+
+#[cfg(test)]
+mod app_secret_tests {
+    use super::{id_from_secret, BUNDLE_SECRET_PREFIX};
+    use magic_crypt::MagicCryptTrait;
+
+    #[test]
+    fn every_invalid_secret_is_rejected_alike() {
+        let mc = magic_crypt::new_magic_crypt!("workspace-key", 256);
+        let other = magic_crypt::new_magic_crypt!("another-key", 256);
+        let valid = hex::encode(mc.encrypt_str_to_bytes("42"));
+        assert_eq!(id_from_secret(&mc, &valid, None), Some(42));
+        let bundle = hex::encode(mc.encrypt_str_to_bytes(format!("{BUNDLE_SECRET_PREFIX}7")));
+        assert_eq!(
+            id_from_secret(&mc, &bundle, Some(BUNDLE_SECRET_PREFIX)),
+            Some(7)
+        );
+
+        let mut tampered = mc.encrypt_str_to_bytes("42");
+        *tampered.last_mut().unwrap() ^= 1;
+        for bad in [
+            "not hex".to_string(),
+            hex::encode(&tampered),
+            hex::encode(other.encrypt_str_to_bytes("42")),
+            hex::encode(mc.encrypt_bytes_to_bytes(&[0xff, 0xfe])),
+            hex::encode(mc.encrypt_str_to_bytes("not a number")),
+            valid.clone(),
+        ] {
+            let prefix = (bad == valid).then_some(BUNDLE_SECRET_PREFIX);
+            assert_eq!(id_from_secret(&mc, &bad, prefix), None, "{bad}");
+        }
     }
 }
 
