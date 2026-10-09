@@ -78,6 +78,10 @@
 
 	const aiChatManager = getAiChatManager()
 
+	const placeholderClass = $derived(
+		`text-hint ${PLACEHOLDER_FADE_CLASS} ${fadingPlaceholder?.visible ? 'opacity-100' : 'opacity-0'}`
+	)
+
 	// Titles currently appearing as `@title` mentions in the textarea. Compared
 	// against the previous snapshot in a $effect (NOT inside handleInput —
 	// the picker mutates `value` programmatically via `updateInstructionsWithContext`,
@@ -809,17 +813,13 @@
 			)}
 		>
 			<div style="transform: translateY({-scrollTop}px)" use:chipClickDelegate>
-				<span class="break-words">
-					{@html getHighlightedText(value)}
-				</span>
+				<!-- The placeholder replaces the (empty) highlight rather than following it: this box is
+				     `pre-wrap`, so whitespace between the two would indent its first line. -->
 				{#if fadingPlaceholder && !value}
-					<span
-						aria-hidden="true"
-						class="text-hint {PLACEHOLDER_FADE_CLASS} {fadingPlaceholder.visible
-							? 'opacity-100'
-							: 'opacity-0'}"
-					>
-						{fadingPlaceholder.text}
+					<span aria-hidden="true" class={placeholderClass}>{fadingPlaceholder.text}</span>
+				{:else}
+					<span class="break-words">
+						{@html getHighlightedText(value)}
 					</span>
 				{/if}
 			</div>
