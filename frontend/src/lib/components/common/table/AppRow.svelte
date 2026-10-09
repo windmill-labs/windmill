@@ -161,7 +161,7 @@
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if showEditButton && app.canWrite && (!$userStore?.operator || ($operatorBuilderApps && app.raw_app))}
+			{#if showEditButton && app.canWrite}
 				<div>
 					<Button
 						aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
