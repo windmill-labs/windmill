@@ -384,19 +384,20 @@ const LEGACY_HUB_SYNC_HASH: i64 = -28028598712388162;
 
 /// `u/admin/hub_sync` and the schedules running it synced resource types before servers did
 /// it themselves (`windmill_common::hub_resource_types`). Retired only while the script is
-/// still the version Windmill created: a copy someone edited is theirs to keep running.
+/// still the version Windmill created: a copy someone edited is theirs to keep running, and
+/// when a schedule runs it the server's sync is turned off, as it would undo the edit daily.
 async fn retire_legacy_hub_sync(conn: &mut PgConnection) -> Result<(), Error> {
     let mut tx = conn.begin().await?;
-    let latest: Option<i64> = sqlx::query_scalar(
+    let Some(latest) = sqlx::query_scalar::<_, i64>(
         "SELECT hash FROM script
          WHERE workspace_id = 'admins' AND path = 'u/admin/hub_sync' AND archived = false
          ORDER BY created_at DESC LIMIT 1",
     )
     .fetch_optional(&mut *tx)
-    .await?;
-    if latest != Some(LEGACY_HUB_SYNC_HASH) {
+    .await?
+    else {
         return Ok(());
-    }
+    };
 
     let schedules: Vec<(String, bool, serde_json::Value)> = sqlx::query_as(
         "SELECT path, enabled, jsonb_build_object('row', to_jsonb(s)) FROM schedule s
@@ -404,20 +405,19 @@ async fn retire_legacy_hub_sync(conn: &mut PgConnection) -> Result<(), Error> {
     )
     .fetch_all(&mut *tx)
     .await?;
+    if latest != LEGACY_HUB_SYNC_HASH {
+        if !schedules.is_empty() {
+            turn_off_daily_hub_sync(&mut tx, "u/admin/hub_sync was edited and is scheduled")
+                .await?;
+            tx.commit().await?;
+        }
+        return Ok(());
+    }
     // A superadmin who turned the schedule off chose to keep the hub from overwriting `admins`
     // every day. Deleting the schedule would drop that choice, so it moves to the setting the
     // server's own sync reads.
     if !schedules.is_empty() && schedules.iter().all(|(_, enabled, _)| !enabled) {
-        sqlx::query(
-            "INSERT INTO global_settings (name, value) VALUES ($1, 'true'::jsonb)
-             ON CONFLICT (name) DO NOTHING",
-        )
-        .bind(DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING)
-        .execute(&mut *tx)
-        .await?;
-        tracing::info!(
-            "The u/admin/hub_sync schedule was disabled: turned on {DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING}"
-        );
+        turn_off_daily_hub_sync(&mut tx, "The u/admin/hub_sync schedule was disabled").await?;
     }
     for (path, _, row) in schedules {
         windmill_queue::schedule::clear_schedule(&mut tx, &path, "admins").await?;
@@ -438,6 +438,21 @@ async fn retire_legacy_hub_sync(conn: &mut PgConnection) -> Result<(), Error> {
     .await?;
     tx.commit().await?;
     tracing::info!("Archived u/admin/hub_sync: the server now syncs resource types itself");
+    Ok(())
+}
+
+async fn turn_off_daily_hub_sync(conn: &mut PgConnection, reason: &str) -> Result<(), Error> {
+    let inserted = sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ($1, 'true'::jsonb)
+         ON CONFLICT (name) DO NOTHING",
+    )
+    .bind(DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING)
+    .execute(conn)
+    .await?
+    .rows_affected();
+    if inserted > 0 {
+        tracing::info!("{reason}: turned on {DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING}");
+    }
     Ok(())
 }
 
@@ -523,8 +538,16 @@ mod tests {
 
         retire_legacy_hub_sync(&mut *db.acquire().await?).await?;
         assert_eq!(schedules_and_live_versions().await?, (1, 2));
+        assert_eq!(
+            hub_resource_type_sync_disabled(&db).await?,
+            Some(serde_json::json!(true))
+        );
 
         sqlx::query("DELETE FROM script WHERE hash = 42")
+            .execute(&db)
+            .await?;
+        sqlx::query("DELETE FROM global_settings WHERE name = $1")
+            .bind(DISABLE_HUB_RESOURCE_TYPE_SYNC_SETTING)
             .execute(&db)
             .await?;
         retire_legacy_hub_sync(&mut *db.acquire().await?).await?;
