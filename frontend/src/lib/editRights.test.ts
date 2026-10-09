@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { UserExt } from '$lib/stores'
-import { canEditItem, roleCanAuthor } from './editRights'
+import { canEditItem, roleCanAuthor, roleCanDraft } from './editRights'
 
 function user(overrides: Partial<UserExt>): UserExt {
 	return {
@@ -26,6 +26,13 @@ describe('edit rights', () => {
 		expect(roleCanAuthor('flow', user({}), builder)).toBe(true)
 		expect(roleCanAuthor('script', user({}), builder)).toBe(false)
 		expect(roleCanAuthor('flow', user({}), undefined)).toBe(false)
+	})
+
+	// drafts.rs admits an admin before its operator branch; the item handlers do not.
+	it('lets an admin who is also an operator save drafts, but not author code', () => {
+		const adminOperator = user({ is_admin: true })
+		expect(roleCanDraft('script', adminOperator, undefined)).toBe(true)
+		expect(roleCanAuthor('script', adminOperator, undefined)).toBe(false)
 	})
 
 	// The role alone is not enough: a builder still cannot edit a flow in a folder they only read.

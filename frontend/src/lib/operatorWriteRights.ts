@@ -2,7 +2,7 @@ import { derived, fromStore, type Readable } from 'svelte/store'
 import { userWorkspaces, workspaceStore } from '$lib/stores'
 import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 import { useActingUser } from '$lib/actingUser.svelte'
-import { canEditItem, roleCanAuthor } from '$lib/editRights'
+import { canDraftItem, canEditItem, roleCanAuthor, roleCanDraft } from '$lib/editRights'
 
 /**
  * `roleCanAuthor` and `canEditItem` answered for the user acting in the operating workspace,
@@ -20,6 +20,9 @@ export function useEditRights(workspace?: () => string | undefined) {
 		roleCanAuthor: (kind: string) => roleCanAuthor(kind, user.current, settings()),
 		canEditItem: (kind: string, path: string, extraPerms: Record<string, boolean> | undefined) =>
 			canEditItem(kind, path, extraPerms, user.current, settings()),
+		roleCanDraft: (kind: string) => roleCanDraft(kind, user.current, settings()),
+		canDraftItem: (kind: string, path: string, extraPerms: Record<string, boolean> | undefined) =>
+			canDraftItem(kind, path, extraPerms, user.current, settings()),
 		/** This hook looks the user up on its own, so an editor that retries a failed lookup on
 		 *  its acting user (`forgetFailures`) must retry this one too, or it stays read-only. */
 		forgetFailures: () => user.forgetFailures()

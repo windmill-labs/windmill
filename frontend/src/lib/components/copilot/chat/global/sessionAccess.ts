@@ -2,7 +2,7 @@ import { get } from 'svelte/store'
 import { userWorkspaces } from '$lib/stores'
 import type { OperatorSettings } from '$lib/gen'
 import { getWorkspaceRole } from '$lib/user'
-import { roleCanAuthor } from '$lib/editRights'
+import { roleCanAuthor, roleCanDraft } from '$lib/editRights'
 import { checkDeployRules } from '$lib/utils_workspace_deploy'
 import type { SessionAccess, SessionCapability } from '../sessionCapabilities'
 
@@ -43,17 +43,15 @@ export function capabilitiesForRole(role: {
 	operatorSettings?: OperatorRights | null
 }): SessionAccess {
 	const capabilities = new Set<SessionCapability>()
-	const user = { operator: role.operator }
+	const user = { operator: role.operator, is_admin: role.isAdmin, is_super_admin: false }
 	const authorsCode = roleCanAuthor('script', user, role.operatorSettings)
 	const authorsFlows = roleCanAuthor('flow', user, role.operatorSettings)
-	// Per-capability precedence, NOT a role ladder: drafts.rs `require_can_write_path`
-	// returns Ok on `authed.is_admin` BEFORE its operator branch, while jobs.rs
-	// `run_preview_*` and the script/flow/app handlers refuse `authed.is_operator` with no
-	// admin escape — and on the session path that flag is never cleared for an admin.
-	if (role.isAdmin || authorsCode) {
+	// Drafts take the admin precedence `roleCanDraft` encodes; previews and the item handlers
+	// do not — and on the session path the operator flag is never cleared for an admin.
+	if (roleCanDraft('script', user, role.operatorSettings)) {
 		capabilities.add('write_draft')
 	}
-	if (role.isAdmin || authorsFlows) {
+	if (roleCanDraft('flow', user, role.operatorSettings)) {
 		capabilities.add('write_flow_draft')
 	}
 	if (authorsCode) {

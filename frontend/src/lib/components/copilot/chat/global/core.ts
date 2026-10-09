@@ -25,7 +25,7 @@ import {
 import { createTwoFilesPatch } from 'diff'
 import { deepEqual } from 'fast-equals'
 import { promptSafe, type ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
-import { canEditItem, roleCanAuthor } from '$lib/editRights'
+import { canDraftItem, roleCanDraft } from '$lib/editRights'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
 	AppWithLastVersion,
@@ -4938,10 +4938,10 @@ async function canEditItemPath(
 	if (role.kind !== 'resolved' || !role.user) return 'unverified'
 	const user = role.user
 	const settings = get(userWorkspaces).find((w) => w.id === workspace)?.operator_settings
-	if (!roleCanAuthor(kind, user, settings)) return 'denied'
+	if (!roleCanDraft(kind, user, settings)) return 'denied'
 	// Folder and ownership rules answer most calls without a request. An item's own
 	// `extra_perms` can only widen them, so the item is fetched only to overturn a denial.
-	if (canEditItem(kind, path, {}, user, settings)) return 'allowed'
+	if (canDraftItem(kind, path, {}, user, settings)) return 'allowed'
 	try {
 		const extraPerms =
 			kind === 'script'
@@ -4949,7 +4949,7 @@ async function canEditItemPath(
 				: kind === 'flow'
 					? (await FlowService.getFlowByPath({ workspace, path })).extra_perms
 					: (await AppService.getAppByPath({ workspace, path })).extra_perms
-		return canEditItem(kind, path, extraPerms, user, settings) ? 'allowed' : 'denied'
+		return canDraftItem(kind, path, extraPerms, user, settings) ? 'allowed' : 'denied'
 	} catch (e) {
 		// Nothing deployed means no sharing to widen the folder rules with.
 		return (e as { status?: number } | null | undefined)?.status === 404 ? 'denied' : 'unverified'

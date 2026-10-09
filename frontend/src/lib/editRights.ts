@@ -62,6 +62,31 @@ export function roleCanAuthor(
 	}
 }
 
+/**
+ * Whether the user may save drafts of `kind` — what every session editor writes. Drafts are the
+ * one place an admin outranks the operator flag: drafts.rs `require_can_write_path` returns Ok
+ * on `is_admin` before its operator branch, while the item handlers refuse an operator with no
+ * admin escape, so `roleCanAuthor` stays the rule for creating, deploying and deleting.
+ */
+export function roleCanDraft(
+	kind: EditKind,
+	user: Pick<UserExt, 'operator' | 'is_admin' | 'is_super_admin'> | undefined,
+	operatorSettings: OperatorRights
+): boolean {
+	return !!user?.is_admin || !!user?.is_super_admin || roleCanAuthor(kind, user, operatorSettings)
+}
+
+/** `roleCanDraft` for the item at `path`, with its own permissions as in `canEditItem`. */
+export function canDraftItem(
+	kind: EditKind,
+	path: string,
+	extraPerms: Record<string, boolean> | undefined,
+	user: UserExt | undefined,
+	operatorSettings: OperatorRights
+): boolean {
+	return roleCanDraft(kind, user, operatorSettings) && canWrite(path, extraPerms ?? {}, user)
+}
+
 /** Whether `user` may edit the item at `path`: their role authors `kind`, and the item's own
  * permissions (`canWrite`: ownership, folder write, `extra_perms`) let them write it. */
 export function canEditItem(
