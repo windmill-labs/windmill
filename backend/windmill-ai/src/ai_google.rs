@@ -583,7 +583,12 @@ pub fn parse_gemini_sse_event(data: &str) -> Result<Option<GeminiParsedEvent>, E
         return Err(error.into_error("Gemini"));
     }
 
-    if let Some(reason) = event.prompt_feedback.and_then(|f| f.block_reason) {
+    // `BLOCK_REASON_UNSPECIFIED` is the protobuf enum's placeholder, not a block.
+    if let Some(reason) = event
+        .prompt_feedback
+        .and_then(|f| f.block_reason)
+        .filter(|r| !matches!(r.as_str(), "" | "BLOCK_REASON_UNSPECIFIED"))
+    {
         return Err(Error::AIError(format!(
             "Gemini blocked the prompt: {reason}"
         )));

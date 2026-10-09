@@ -107,10 +107,6 @@ pub trait SSEParser {
     /// Whether the stream delivered the event that ends a complete response.
     fn is_complete(&self) -> bool;
 
-    /// Whether a stream that closes cleanly without its final event was cut off, so what it
-    /// carried is not the answer. Only true where the provider always sends that event.
-    const REQUIRES_FINAL_EVENT: bool = true;
-
     async fn parse_events(&mut self, response: Response) -> Result<(), Error> {
         let mut stream = response.bytes_stream().eventsource();
         let mut consecutive_errors = 0;
@@ -155,10 +151,7 @@ pub trait SSEParser {
         }
 
         if !self.is_complete() {
-            if Self::REQUIRES_FINAL_EVENT {
-                return Err(truncated_stream_error());
-            }
-            tracing::warn!("AI provider stream ended without its final event");
+            return Err(truncated_stream_error());
         }
         Ok(())
     }
@@ -195,10 +188,6 @@ impl OpenAISSEParser {
 }
 
 impl SSEParser for OpenAISSEParser {
-    // Some OpenAI-compatible servers send neither `[DONE]` nor a `finish_reason`, so a clean
-    // close there can be a whole answer. A cut connection still fails as a transport error.
-    const REQUIRES_FINAL_EVENT: bool = false;
-
     fn is_complete(&self) -> bool {
         self.complete
     }
@@ -641,7 +630,7 @@ impl SSEParser for AnthropicSSEParser {
                     }
                 }
                 AnthropicSSEEvent::Error { error } => {
-                    return Err(error.into_error("Anthropic"));
+                    return Err(error.into_anthropic_error());
                 }
                 AnthropicSSEEvent::MessageStart { message } => {
                     // The only event carrying the prompt-side counts. `message_delta`
@@ -902,12 +891,15 @@ pub enum OpenAIResponsesSSEEvent {
     #[serde(rename = "response.failed")]
     Failed { response: OpenAIResponsesResponse },
 
+    /// Flat (`code`, `message`) from OpenAI, nested under `error` from some compatible servers.
     #[serde(rename = "error")]
     Error {
         #[serde(default)]
         code: Option<serde_json::Value>,
         #[serde(default)]
         message: Option<String>,
+        #[serde(default)]
+        error: Option<StreamErrorBody>,
     },
 
     /// Response created
@@ -1103,8 +1095,9 @@ impl SSEParser for OpenAIResponsesSSEParser {
                     return Err(response.error.unwrap_or_default().into_error("OpenAI"));
                 }
 
-                OpenAIResponsesSSEEvent::Error { code, message } => {
-                    return Err(StreamErrorBody { code, message, ..Default::default() }
+                OpenAIResponsesSSEEvent::Error { code, message, error } => {
+                    return Err(error
+                        .unwrap_or(StreamErrorBody { code, message, ..Default::default() })
                         .into_error("OpenAI"));
                 }
 
@@ -1246,15 +1239,21 @@ mod tests {
         .await
         .unwrap();
 
-        // Not every OpenAI-compatible server sends `[DONE]` or a `finish_reason`.
-        let mut openai = OpenAISSEParser::new(Box::new(NoopSink));
-        openai
+        let truncated = OpenAISSEParser::new(Box::new(NoopSink))
             .parse_events(sse_response(vec![Ok(
                 "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n",
             )]))
             .await
-            .unwrap();
-        assert_eq!(openai.accumulated_content, "Hi");
+            .unwrap_err();
+        assert!(as_transient(&truncated).is_some(), "{truncated}");
+
+        let quota = OpenAIResponsesSSEParser::new(Box::new(NoopSink))
+            .parse_events(sse_response(vec![Ok(
+                "data: {\"type\":\"error\",\"error\":{\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\",\"message\":\"m\"}}\n\n",
+            )]))
+            .await
+            .unwrap_err();
+        assert!(as_transient(&quota).is_none(), "{quota}");
     }
 
     /// The prompt-side counts arrive only on `message_start` and the completion total

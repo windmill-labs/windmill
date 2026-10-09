@@ -48,23 +48,79 @@ pub fn into_final_error(error: Error) -> Error {
     }
 }
 
-/// Whether an error status from a provider may clear on another attempt.
-pub fn is_transient_status(status: StatusCode, body: &str) -> bool {
-    let transient = matches!(
-        status,
-        StatusCode::REQUEST_TIMEOUT | StatusCode::CONFLICT | StatusCode::TOO_MANY_REQUESTS
-    ) || (status.is_server_error()
-        && !matches!(
-            status,
-            StatusCode::NOT_IMPLEMENTED | StatusCode::HTTP_VERSION_NOT_SUPPORTED
-        ));
-    // OpenAI answers a spent balance with the 429 it also uses for rate limits.
-    transient && !body.contains("insufficient_quota")
+/// The statuses the OpenAI and Anthropic SDKs and the Vercel AI SDK retry.
+fn is_retryable_status(status: u16) -> bool {
+    matches!(status, 408 | 409 | 429 | 500..=599)
+}
+
+/// The error for a provider's error response. The rules follow the OpenAI and Anthropic
+/// SDKs (`x-should-retry`, then the status) and gemini-cli (a daily quota is spent until
+/// tomorrow, and the wait Gemini asks for is in its body).
+pub fn response_error(
+    status: StatusCode,
+    headers: &HeaderMap,
+    body: &str,
+    message: String,
+) -> Error {
+    let retryable = match headers.get("x-should-retry").and_then(|v| v.to_str().ok()) {
+        Some("true") => true,
+        Some("false") => false,
+        _ => {
+            is_retryable_status(status.as_u16())
+                // OpenAI answers a spent balance with the 429 it also uses for rate limits.
+                && !body.contains("insufficient_quota")
+                && !google_quota_spent_for_the_day(body)
+        }
+    };
+    if retryable {
+        transient_error(
+            message,
+            retry_after(headers).or_else(|| google_retry_delay(body)),
+        )
+    } else {
+        Error::AIError(message)
+    }
+}
+
+/// The `details` of a Google API error body, where Gemini puts its quota and retry hints.
+fn google_error_details(body: &str) -> Vec<serde_json::Value> {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("error")?.get("details")?.as_array().cloned())
+        .unwrap_or_default()
+}
+
+fn google_quota_spent_for_the_day(body: &str) -> bool {
+    google_error_details(body).iter().any(|detail| {
+        detail
+            .get("violations")
+            .and_then(|v| v.as_array())
+            .is_some_and(|violations| {
+                violations.iter().any(|violation| {
+                    violation
+                        .get("quotaId")
+                        .and_then(|id| id.as_str())
+                        .is_some_and(|id| id.contains("PerDay") || id.contains("Daily"))
+                })
+            })
+    })
+}
+
+/// The `RetryInfo.retryDelay` of a Google API error, a protobuf duration such as `"53s"`.
+fn google_retry_delay(body: &str) -> Option<Duration> {
+    google_error_details(body).iter().find_map(|detail| {
+        let delay = detail.get("retryDelay")?.as_str()?.strip_suffix('s')?;
+        let seconds = delay
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && *v >= 0.0)?;
+        Some(Duration::try_from_secs_f64(seconds).unwrap_or(Duration::MAX))
+    })
 }
 
 /// The wait a provider asked for in its `retry-after-ms` or `retry-after` header. An
 /// HTTP-date `retry-after` is ignored, which falls back to the computed backoff.
-pub fn retry_after(headers: &HeaderMap) -> Option<Duration> {
+fn retry_after(headers: &HeaderMap) -> Option<Duration> {
     let seconds = |name: &str, scale: f64| {
         headers
             .get(name)?
@@ -77,36 +133,6 @@ pub fn retry_after(headers: &HeaderMap) -> Option<Duration> {
             .map(|v| Duration::try_from_secs_f64(v / scale).unwrap_or(Duration::MAX))
     };
     seconds("retry-after-ms", 1000.0).or_else(|| seconds("retry-after", 1.0))
-}
-
-/// The error for a failure the provider reported inside a stream it had already opened
-/// with a 200. The request was accepted, so the failure is taken to be the provider's own
-/// unless its status or kind names the request as the cause.
-pub fn stream_error(status: Option<u16>, kind: Option<&str>, message: String) -> Error {
-    let transient = match (status.and_then(|s| StatusCode::from_u16(s).ok()), kind) {
-        (Some(status), _) => is_transient_status(status, kind.unwrap_or_default()),
-        (None, Some(kind)) => {
-            let kind = kind.to_ascii_lowercase();
-            ![
-                "invalid",
-                "authentication",
-                "permission",
-                "not_found",
-                "quota",
-                "content_filter",
-                "context_length",
-                "too_large",
-            ]
-            .iter()
-            .any(|marker| kind.contains(marker))
-        }
-        (None, None) => true,
-    };
-    if transient {
-        transient_error(message, None)
-    } else {
-        Error::AIError(message)
-    }
 }
 
 /// The error object a provider sends inside a stream: OpenAI-compatible chunks carry
@@ -125,28 +151,71 @@ pub struct StreamErrorBody {
 }
 
 impl StreamErrorBody {
+    /// The error for a failure an OpenAI-compatible or Gemini stream reported after opening
+    /// with a 200, classified as the Vercel AI SDK classifies OpenAI stream errors
+    /// (`openai-stream-error.ts`): the status `code` holds, else the status its code and type
+    /// name, else a server error.
     pub fn into_error(self, provider: &str) -> Error {
-        let status = self
-            .code
-            .as_ref()
-            .and_then(|code| code.as_u64())
-            .and_then(|code| u16::try_from(code).ok());
-        let kind = [
+        let code = self.code_str();
+        let discriminator = [code.as_deref(), self.kind.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        let has = |terms: &[&str]| terms.iter().any(|term| discriminator.contains(term));
+        let status = match code.as_deref().and_then(|code| code.parse::<u16>().ok()) {
+            Some(status @ 400..=599) => status,
+            _ if has(&["insufficient_quota", "rate_limit"]) => 429,
+            _ if has(&["authentication"]) => 401,
+            _ if has(&["permission"]) => 403,
+            _ if has(&["not_found"]) => 404,
+            _ if has(&["invalid", "bad_request", "context_length"]) => 400,
+            _ if has(&["overload"]) => 503,
+            _ if has(&["timeout"]) => 504,
+            _ => 500,
+        };
+        let retryable = !has(&["insufficient_quota"]) && is_retryable_status(status);
+        self.into_classified_error(provider, retryable)
+    }
+
+    /// The error for a failure an Anthropic stream reported after opening with a 200. The
+    /// kinds retried are those the Vercel AI SDK retries, plus `timeout_error`, which
+    /// Anthropic documents as its 504; any other kind is a fault in the request or account.
+    pub fn into_anthropic_error(self) -> Error {
+        let retryable = matches!(
             self.kind.as_deref(),
-            self.code.as_ref().and_then(|code| code.as_str()),
-            self.status.as_deref(),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join("/");
-        let kind = (!kind.is_empty()).then_some(kind);
+            Some("api_error" | "overloaded_error" | "rate_limit_error" | "timeout_error")
+        );
+        self.into_classified_error("Anthropic", retryable)
+    }
+
+    fn code_str(&self) -> Option<String> {
+        match self.code.as_ref()? {
+            serde_json::Value::String(code) => Some(code.clone()),
+            serde_json::Value::Number(code) => Some(code.to_string()),
+            _ => None,
+        }
+    }
+
+    fn into_classified_error(self, provider: &str, retryable: bool) -> Error {
+        let kind = [self.kind.clone(), self.code_str(), self.status]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join("/");
         let message = format!(
             "{provider} stream error{}: {}",
-            kind.as_ref().map(|k| format!(" ({k})")).unwrap_or_default(),
+            (!kind.is_empty())
+                .then(|| format!(" ({kind})"))
+                .unwrap_or_default(),
             self.message.as_deref().unwrap_or("no details")
         );
-        stream_error(status, kind.as_deref(), message)
+        if retryable {
+            transient_error(message, None)
+        } else {
+            Error::AIError(message)
+        }
     }
 }
 
@@ -215,13 +284,9 @@ async fn send_once(request: RequestBuilder) -> Result<Response, Error> {
         .map_err(|e| send_error(e, "Failed to reach the AI provider"))?;
     let status = response.status();
     if status.is_client_error() || status.is_server_error() {
-        let wait = retry_after(response.headers());
+        let headers = response.headers().clone();
         let body = response.text().await.unwrap_or_default();
-        return Err(if is_transient_status(status, &body) {
-            transient_error(body, wait)
-        } else {
-            Error::AIError(body)
-        });
+        return Err(response_error(status, &headers, &body, body.clone()));
     }
     Ok(response)
 }
@@ -262,51 +327,118 @@ impl Backoff {
 mod tests {
     use super::*;
 
+    /// Error responses as providers send them, each with the retry decision of the client
+    /// the rule is taken from.
     #[test]
-    fn classifies_provider_statuses() {
-        for status in [408, 409, 429, 500, 502, 503, 504, 529] {
-            let status = StatusCode::from_u16(status).unwrap();
-            assert!(is_transient_status(status, ""), "{status}");
+    fn classifies_error_responses() {
+        const GEMINI_QUOTA: &str = r#"{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.QuotaFailure","violations":[{"quotaId":"QUOTA_ID"}]},{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"53s"}]}}"#;
+        let cases: &[(u16, &[(&str, &str)], &str, Option<Option<u64>>)] = &[
+            (
+                429,
+                &[],
+                r#"{"error":{"code":"rate_limit_exceeded"}}"#,
+                Some(None),
+            ),
+            (
+                429,
+                &[],
+                r#"{"error":{"type":"insufficient_quota","code":"insufficient_quota"}}"#,
+                None,
+            ),
+            (
+                529,
+                &[],
+                r#"{"type":"error","error":{"type":"overloaded_error"}}"#,
+                Some(None),
+            ),
+            (501, &[], "", Some(None)),
+            (400, &[], "", None),
+            (401, &[], "", None),
+            (400, &[("x-should-retry", "true")], "", Some(None)),
+            (503, &[("x-should-retry", "false")], "", None),
+            (429, &[("retry-after", "2")], "", Some(Some(2))),
+            (
+                429,
+                &[],
+                &GEMINI_QUOTA.replace("QUOTA_ID", "GenerateRequestsPerMinutePerProjectPerModel"),
+                Some(Some(53)),
+            ),
+            (
+                429,
+                &[],
+                &GEMINI_QUOTA.replace(
+                    "QUOTA_ID",
+                    "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+                ),
+                None,
+            ),
+        ];
+        for (status, headers, body, expected) in cases {
+            let headers = headers
+                .iter()
+                .map(|(k, v)| (k.parse().unwrap(), v.parse().unwrap()))
+                .collect::<HeaderMap>();
+            let error = response_error(
+                StatusCode::from_u16(*status).unwrap(),
+                &headers,
+                body,
+                String::new(),
+            );
+            let got = as_transient(&error).map(|t| t.retry_after.map(|d| d.as_secs()));
+            assert_eq!(&got, expected, "{status} {headers:?} {body}");
         }
-        for status in [400, 401, 403, 404, 413, 422, 501] {
-            let status = StatusCode::from_u16(status).unwrap();
-            assert!(!is_transient_status(status, ""), "{status}");
-        }
-        assert!(!is_transient_status(
-            StatusCode::TOO_MANY_REQUESTS,
-            r#"{"error":{"type":"insufficient_quota","code":"insufficient_quota"}}"#
-        ));
     }
 
+    /// In-stream error objects as providers send them, after the 200 opened the stream.
     #[test]
-    fn classifies_mid_stream_errors() {
-        let transient = |e: Error| as_transient(&e).is_some();
-        assert!(transient(stream_error(
-            None,
-            Some("overloaded_error"),
-            "Overloaded".into()
-        )));
-        assert!(transient(stream_error(
-            None,
-            Some("server_error"),
-            "x".into()
-        )));
-        assert!(transient(stream_error(
-            Some(503),
-            Some("UNAVAILABLE"),
-            "x".into()
-        )));
-        assert!(transient(stream_error(None, None, "x".into())));
-        assert!(!transient(stream_error(
-            None,
-            Some("invalid_request_error"),
-            "x".into()
-        )));
-        assert!(!transient(stream_error(
-            Some(400),
-            Some("INVALID_ARGUMENT"),
-            "x".into()
-        )));
+    fn classifies_stream_errors() {
+        let retried = |json: &str, anthropic: bool| {
+            let body: StreamErrorBody = serde_json::from_str(json).unwrap();
+            let error = if anthropic {
+                body.into_anthropic_error()
+            } else {
+                body.into_error("AI provider")
+            };
+            as_transient(&error).is_some()
+        };
+        for (json, expected) in [
+            (r#"{"message":"m","type":"server_error"}"#, true),
+            (
+                r#"{"message":"m","type":"requests","code":"rate_limit_exceeded"}"#,
+                true,
+            ),
+            (
+                r#"{"message":"m","type":"insufficient_quota","code":"insufficient_quota"}"#,
+                false,
+            ),
+            (
+                r#"{"message":"m","type":"invalid_request_error","code":"context_length_exceeded"}"#,
+                false,
+            ),
+            // LiteLLM's proxy puts the upstream status in `code` as a string.
+            (r#"{"message":"m","type":"None","code":"400"}"#, false),
+            (r#"{"message":"m","code":"503"}"#, true),
+            (r#"{"code":503,"message":"m","status":"UNAVAILABLE"}"#, true),
+            (
+                r#"{"code":400,"message":"m","status":"INVALID_ARGUMENT"}"#,
+                false,
+            ),
+            (r#"{"message":"m"}"#, true),
+        ] {
+            assert_eq!(retried(json, false), expected, "{json}");
+        }
+        for (kind, expected) in [
+            ("overloaded_error", true),
+            ("api_error", true),
+            ("rate_limit_error", true),
+            ("timeout_error", true),
+            ("billing_error", false),
+            ("invalid_request_error", false),
+            ("some_new_error", false),
+        ] {
+            let json = format!(r#"{{"type":"{kind}","message":"m"}}"#);
+            assert_eq!(retried(&json, true), expected, "{kind}");
+        }
     }
 
     #[test]

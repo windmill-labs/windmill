@@ -477,8 +477,9 @@ pub async fn assume_role_with_oidc_token(
 // Error Formatting
 // ============================================================================
 
-/// The error for a Bedrock stream that failed after it opened. Only a validation exception
-/// names the request as the cause; the SDK's own retries cover the opening call alone.
+/// The error for a Bedrock stream that failed after it opened, retrying the exceptions the
+/// Vercel AI SDK retries (`amazon-bedrock-stream-error.ts`) and a broken connection. The
+/// SDK's own retries cover the opening call alone.
 pub fn bedrock_stream_error<R: std::fmt::Debug>(
     error: &aws_sdk_bedrockruntime::error::SdkError<
         aws_sdk_bedrockruntime::types::error::ConverseStreamOutputError,
@@ -487,7 +488,14 @@ pub fn bedrock_stream_error<R: std::fmt::Debug>(
 ) -> Error {
     let message = format!("Bedrock stream error: {}", format_bedrock_error(error));
     match error.as_service_error() {
-        Some(e) if e.is_validation_exception() => Error::AIError(message),
+        Some(e)
+            if !(e.is_internal_server_exception()
+                || e.is_model_stream_error_exception()
+                || e.is_service_unavailable_exception()
+                || e.is_throttling_exception()) =>
+        {
+            Error::AIError(message)
+        }
         _ => crate::retry::transient_error(message, None),
     }
 }

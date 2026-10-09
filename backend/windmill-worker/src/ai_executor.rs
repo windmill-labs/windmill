@@ -43,10 +43,7 @@ use windmill_ai::{
         common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
     },
     query_builder::{BuildRequestArgs, ParsedResponse},
-    retry::{
-        as_transient, into_final_error, is_transient_status, retry_after, send_error,
-        transient_error, Backoff, MAX_RETRIES,
-    },
+    retry::{as_transient, into_final_error, response_error, send_error, Backoff, MAX_RETRIES},
     types::*,
     utils::{pinned_ai_client_for, should_use_structured_output_tool},
 };
@@ -1840,7 +1837,7 @@ pub async fn run_agent(
                             }
                             Err(e) => {
                                 let status = resp.status();
-                                let wait = retry_after(resp.headers());
+                                let headers = resp.headers().clone();
                                 let text = resp
                                     .text()
                                     .await
@@ -1912,11 +1909,7 @@ pub async fn run_agent(
                                 } else {
                                     let message =
                                         format!("API error calling {}: {} - {}", endpoint, e, text);
-                                    return Err(if is_transient_status(status, &text) {
-                                        transient_error(message, wait)
-                                    } else {
-                                        Error::AIError(message)
-                                    });
+                                    return Err(response_error(status, &headers, &text, message));
                                 }
                             }
                         }
