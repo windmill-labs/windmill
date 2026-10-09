@@ -1,13 +1,20 @@
 <script lang="ts">
 	import { X } from 'lucide-svelte'
 	import { resource } from 'runed'
-	import { shell } from 'svelte-highlight/languages'
+	import { bash, typescript } from 'svelte-highlight/languages'
 	import { base } from '$lib/base'
 	import { Alert, Button, CopyButton, Tab, TabContent, Tabs } from '$lib/components/common'
+	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
+	import Label from '$lib/components/Label.svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import UserSettings from '$lib/components/UserSettings.svelte'
 	import { SlackAgentsService, type SlackChannelAgent } from '$lib/gen'
+	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import { generateRandomString } from '$lib/utils'
 
 	/**
 	 * The ways to use an agent outside its page: in Slack, anywhere by its `+name` and without one
@@ -18,7 +25,9 @@
 		agentPath,
 		workspace,
 		isAdmin,
+		chat,
 		slackTeamName,
+		botName,
 		signingSecretSet,
 		channels,
 		onChanged
@@ -26,15 +35,19 @@
 		agentPath: string
 		workspace: string
 		isAdmin: boolean
+		/** Whether the agent keeps the conversation. Slack is offered only then: a thread is one. */
+		chat: boolean
 		/** Unset when Slack is not connected to the workspace. */
 		slackTeamName: string | undefined
+		botName: string | undefined
 		/** Agents answer in Slack only when the instance verifies Slack's request signatures. */
 		signingSecretSet: boolean
 		channels: SlackChannelAgent[]
 		onChanged: () => void
 	} = $props()
 
-	let tab = $state('slack')
+	let pickedTab = $state('slack')
+	let tab = $derived(chat ? pickedTab : 'api')
 	let handle = $derived(`+${agentPath.split('/').pop()}`)
 
 	type Choice = { label: string; value: string; name: string }
@@ -44,7 +57,7 @@
 	// Read again whenever the agent's channels change, so a channel just added or removed moves
 	// between the list and the picker.
 	const available = resource(
-		() => ({ ws: isAdmin && slackTeamName ? workspace : undefined, channels }),
+		() => ({ ws: isAdmin && chat && slackTeamName ? workspace : undefined, channels }),
 		async ({ ws }) => (ws ? await listChoices(ws) : [])
 	)
 
@@ -111,22 +124,73 @@
 		}
 	}
 
-	let apiBase = $derived(`${location.origin}${base}/api/w/${workspace}`)
-	let runSnippet = $derived(
-		`curl -X POST "${apiBase}/jobs/run/agent/${agentPath}?memory_id=my-conversation-1" \\
-  -H "Authorization: Bearer $WM_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{"user_message": "Hello"}'`
+	let userSettings: UserSettings | undefined = $state(undefined)
+	let token = $state('')
+	let url = $derived(
+		`${location.origin}${base}/api/w/${workspace}/jobs/run/agent/${agentPath}` +
+			(chat ? '?memory_id=my-conversation-1' : '')
 	)
-	let resultSnippet = $derived(
-		`curl "${apiBase}/jobs_u/completed/get_result_maybe/$JOB_ID" \\
-  -H "Authorization: Bearer $WM_TOKEN"`
+	let resultUrl = $derived(
+		`${location.origin}${base}/api/w/${workspace}/jobs_u/completed/get_result_maybe`
 	)
+	const body = JSON.stringify({ user_message: 'Hello' })
+	let headers = $derived({ 'Content-Type': 'application/json', Authorization: `Bearer ${token}` })
+
+	let curlCode = $derived(`TOKEN='${token}'
+BODY='${body}'
+URL='${url}'
+UUID=$(curl -s -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d "$BODY" "$URL")
+
+URL="${resultUrl}/$UUID"
+while true; do
+  curl -s -H "Authorization: Bearer $TOKEN" "$URL" -o res.json
+  COMPLETED=$(cat res.json | jq .completed)
+  if [ "$COMPLETED" = "true" ]; then
+    cat res.json | jq .result.output
+    break
+  else
+    sleep 1
+  fi
+done`)
+
+	let fetchCode = $derived(`export async function main() {
+  const UUID = await (await sendMessage()).text();
+  return await waitForAnswer(UUID);
+}
+
+async function sendMessage() {
+  return await fetch(\`${url}\`, {
+    method: 'POST',
+    headers: ${JSON.stringify(headers, null, 2).replaceAll('\n', '\n    ')},
+    body: JSON.stringify(${body})
+  });
+}
+
+async function waitForAnswer(UUID) {
+  while (true) {
+    const res = await fetch(\`${resultUrl}/\${UUID}\`, {
+      headers: { Authorization: 'Bearer ${token}' }
+    });
+    const data = await res.json();
+    if (data.completed) return data.result?.output;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}`)
 </script>
 
+<UserSettings
+	bind:this={userSettings}
+	on:tokenCreated={(e) => (token = e.detail)}
+	newTokenWorkspace={workspace}
+	newTokenLabel={`agent-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+	scopes={[`jobs:run:agents:${agentPath}`]}
+/>
+
 <div class="flex flex-col h-full">
-	<Tabs bind:selected={tab} wrapperClass="flex-none w-full">
-		<Tab value="slack" label="Slack" />
+	<Tabs bind:selected={() => tab, (t) => (pickedTab = t)} wrapperClass="flex-none w-full">
+		{#if chat}
+			<Tab value="slack" label="Slack" />
+		{/if}
 		<Tab value="api" label="API" />
 
 		{#snippet content()}
@@ -160,22 +224,26 @@
 						<div class="flex flex-col gap-1">
 							<span class="text-xs font-semibold text-emphasis">Ask it anywhere</span>
 							<span class="text-xs text-secondary">
-								In {slackTeamName}, mention the Windmill bot and start your message with the agent's
-								name, in a channel or in a direct message. Follow-ups in the same thread go to the
-								same agent.
+								In {slackTeamName}, mention the bot and start your message with the agent's name, in a
+								channel or in a direct message. Follow-ups in the same thread that mention the bot go
+								to the same agent.
 							</span>
 							<div class="flex items-center gap-2 mt-1">
 								<code class="text-xs bg-surface-secondary rounded px-2 py-1"
-									>{handle} your question</code
+									>@{botName ?? 'Windmill'} {handle} your question</code
 								>
 								<CopyButton value={handle} title="Copy {handle}" />
+								<Tooltip>
+									{handle} matches the last part of the agent's path. Use the whole path,
+									<code>+{agentPath}</code>, when two agents share that name.
+								</Tooltip>
 							</div>
 						</div>
 
 						<div class="flex flex-col gap-2">
 							<span class="text-xs font-semibold text-emphasis">Default in these channels</span>
 							<span class="text-xs text-secondary">
-								Mentions of the Windmill bot in these channels go to this agent without its name.
+								Mentions of the bot in these channels go to this agent without its name.
 							</span>
 							{#if channels.length === 0}
 								<span class="text-xs text-hint">No channel yet.</span>
@@ -231,26 +299,58 @@
 				</TabContent>
 
 				<TabContent value="api" class="flex flex-col gap-6 p-4">
-					<div class="flex flex-col gap-2">
-						<span class="text-xs font-semibold text-emphasis">Send a message</span>
-						<span class="text-xs text-secondary">
-							Returns the id of the run. Runs that share a <code>memory_id</code> are one conversation,
-							so reuse it for follow-ups and pick a new one to start over. The run is the token owner's,
-							with their permissions.
-						</span>
-						<CopyableCodeBlock code={runSnippet} language={shell} wrap />
-					</div>
-					<div class="flex flex-col gap-2">
-						<span class="text-xs font-semibold text-emphasis">Read the answer</span>
-						<span class="text-xs text-secondary">
-							Poll until <code>completed</code> is true; the answer is the result's
-							<code>output</code>.
-						</span>
-						<CopyableCodeBlock code={resultSnippet} language={shell} wrap />
-					</div>
-					<span class="text-2xs text-hint">
-						Create a token in your <a href="#user-settings">account settings</a>.
+					<span class="text-xs text-secondary">
+						Each call runs the agent as the token's owner and returns the id of the run.{#if chat}{' '}Calls that share a <code>memory_id</code> are one conversation: reuse it for
+							follow-ups and pick a new one to start over.{/if}
 					</span>
+					<Label label="Token">
+						<div class="flex flex-col gap-2">
+							<TextInput
+								bind:value={token}
+								inputProps={{ placeholder: 'Paste your token here once created' }}
+								class="!text-xs !font-normal"
+							/>
+							<div>
+								<Button
+									variant="default"
+									unifiedSize="sm"
+									onClick={() => userSettings?.openDrawer()}
+								>
+									Create an agent-specific token
+									<Tooltip light>
+										The token can only run this agent. It is safe to share as it cannot be used to
+										impersonate you.
+									</Tooltip>
+								</Button>
+							</div>
+						</div>
+					</Label>
+					<Tabs selected="rest">
+						<Tab value="rest" label="REST" />
+						<Tab value="curl" label="Curl" />
+						<Tab value="fetch" label="Fetch" />
+						{#snippet content()}
+							<TabContent value="rest" class="flex flex-col gap-6 mt-2">
+								<Label label="Url"><ClipboardPanel content={url} /></Label>
+								<Label label="Body">
+									<ClipboardPanel content={JSON.stringify(JSON.parse(body), null, 2)} />
+								</Label>
+								<Label label="Headers">
+									<ClipboardPanel content={JSON.stringify(headers, null, 2)} />
+								</Label>
+								<span class="text-xs text-secondary">
+									Then poll <code class="break-all">{resultUrl}/&lbrace;id&rbrace;</code> until <code>completed</code> is
+									true; the answer is the result's <code>output</code>.
+								</span>
+							</TabContent>
+							<TabContent value="curl" class="mt-2">
+								<CopyableCodeBlock code={curlCode} language={bash} wrap />
+							</TabContent>
+							<TabContent value="fetch" class="mt-2">
+								<CopyableCodeBlock code={fetchCode} language={typescript} wrap />
+							</TabContent>
+						{/snippet}
+					</Tabs>
 				</TabContent>
 			</div>
 		{/snippet}

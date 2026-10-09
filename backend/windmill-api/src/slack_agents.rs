@@ -84,6 +84,8 @@ struct AgentSlack {
     slack_team_name: Option<String>,
     /// Agents answer only when the instance verifies Slack's request signatures.
     signing_secret_set: bool,
+    /// The bot's Slack handle, what people mention; `None` when Slack can't be reached.
+    bot_name: Option<String>,
     channels: Vec<ChannelAgent>,
 }
 
@@ -117,7 +119,17 @@ async fn list_agent_channels(
     let signing_secret_set = crate::SLACK_SIGNING_SECRET.is_some();
     #[cfg(not(feature = "oauth2"))]
     let signing_secret_set = false;
-    Ok(Json(AgentSlack { slack_team_name, signing_secret_set, channels }))
+    let bot_name = match slack_team_name {
+        Some(_) => bot_name(&db, &w_id).await,
+        None => None,
+    };
+    Ok(Json(AgentSlack { slack_team_name, signing_secret_set, bot_name, channels }))
+}
+
+async fn bot_name(db: &DB, w_id: &str) -> Option<String> {
+    let token = bot_token(db, w_id).await.ok()?;
+    let res = slack_call(&token, "auth.test", &[]).await.ok()?;
+    res["user"].as_str().map(str::to_string)
 }
 
 #[derive(Deserialize)]

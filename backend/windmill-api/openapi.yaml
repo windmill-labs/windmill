@@ -13471,6 +13471,9 @@ paths:
                   signing_secret_set:
                     type: boolean
                     description: agents answer in Slack only when the instance sets SLACK_SIGNING_SECRET
+                  bot_name:
+                    type: string
+                    description: the bot's Slack handle; absent when Slack can't be reached
                   channels:
                     type: array
                     items:
