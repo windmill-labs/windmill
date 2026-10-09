@@ -5,8 +5,10 @@
 	// renderings without dragging in the whole picker UI.
 	//
 	// The component owns its own metadata + preview loads — callers only
-	// need to hand it a `fileKey`. CSV separator/header are local state so
-	// the user can re-preview the same file with different parsing flags.
+	// need to hand it a `fileKey`. CSV separator/header are local state (unless
+	// the caller passes `csvOptions`) so the user can re-preview the same file
+	// with different parsing flags.
+	import { untrack } from 'svelte'
 	import { FileX2, Loader2 } from 'lucide-svelte'
 	import {
 		HelpersService,
@@ -46,6 +48,11 @@
 		// metadata out themselves (the picker already has its own).
 		showMetadata?: boolean
 		class?: string
+		/** CSV parsing options owned by the caller, which then renders its own controls:
+		 * the preview hides its own and reloads when these change. */
+		csvOptions?: { separator: string; hasHeader: boolean }
+		/** Merged onto the preview body, below the metadata strip. */
+		bodyClass?: string
 		// Bump this to force a re-fetch (metadata + preview). Used by the
 		// asset detail pane after an upstream producer run completes —
 		// without it, the "Asset not yet materialized" empty state stays
@@ -62,6 +69,8 @@
 		loadFileMetadataRequest = HelpersService.loadFileMetadata,
 		showMetadata = false,
 		class: className = '',
+		bodyClass = '',
+		csvOptions = undefined,
 		refreshKey
 	}: Props = $props()
 
@@ -179,8 +188,8 @@
 				fileKey: key,
 				fileSizeInBytes: size,
 				fileMimeType: mimeType,
-				csvSeparator: csvSeparatorChar,
-				csvHasHeader: csvHasHeader,
+				csvSeparator: csvOptions?.separator ?? csvSeparatorChar,
+				csvHasHeader: csvOptions?.hasHeader ?? csvHasHeader,
 				readBytesFrom: 0,
 				readBytesLength: 128 * 1024,
 				storage,
@@ -221,6 +230,16 @@
 			void reloadPreview(fileMetadata.fileKey, fileMetadata.size, fileMetadata.mimeType)
 		}
 	}
+
+	// Skips the first run: the file load already fetches the preview with these options.
+	let lastCsvOptionsKey: string | undefined
+	$effect(() => {
+		const key = csvOptions ? `${csvOptions.separator}|${csvOptions.hasHeader}` : undefined
+		if (lastCsvOptionsKey !== undefined && key !== lastCsvOptionsKey) {
+			untrack(onCsvControlsChanged)
+		}
+		lastCsvOptionsKey = key
+	})
 </script>
 
 <div class={twMerge('flex flex-col h-full w-full overflow-auto text-xs', className)}>
@@ -231,7 +250,7 @@
 			{#if fileMetadata.lastModified}<span>{fileMetadata.lastModified}</span>{/if}
 		</div>
 	{/if}
-	<div class="flex-1 min-h-0 overflow-auto p-4 bg-surface-secondary">
+	<div class={twMerge('flex-1 min-h-0 overflow-auto p-4 bg-surface-secondary', bodyClass)}>
 		{#if !fileKey}
 			<div class="text-tertiary text-xs">No file selected.</div>
 		{:else if fileInfoLoading && !fileMetadata && !notFound && !loadError}
@@ -291,32 +310,36 @@
 				<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
 			</div>
 		{:else if fileMetadata !== undefined && filePreview !== undefined}
-			<div class="flex items-center text-primary mb-4">
-				{#if filePreview.contentType === 'Unknown'}
+			{#if filePreview.contentType === 'Unknown'}
+				<div class="flex items-center text-primary mb-4">
 					Type of file not supported for preview.
-				{:else if filePreview.contentType === 'Csv'}
-					Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
-					<div class="inline-flex w-12 ml-2 mr-2">
-						<select class="h-8" bind:value={csvSeparatorChar} onchange={onCsvControlsChanged}>
-							<option value=",">,</option>
-							<option value=";">;</option>
-							<option value="\t">\t</option>
-							<option value="|">|</option>
-						</select>
-					</div>
-					Header row:
-					<div class="inline-flex item-center w-4 ml-2 mr-2">
-						<input
-							type="checkbox"
-							class="h-5"
-							bind:checked={csvHasHeader}
-							onchange={onCsvControlsChanged}
-						/>
-					</div>
-				{:else}
-					Previewing a {filePreview.contentType?.toLowerCase()} file.
-				{/if}
-			</div>
+				</div>
+			{:else if !csvOptions}
+				<div class="flex items-center text-primary mb-4">
+					{#if filePreview.contentType === 'Csv'}
+						Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
+						<div class="inline-flex w-12 ml-2 mr-2">
+							<select class="h-8" bind:value={csvSeparatorChar} onchange={onCsvControlsChanged}>
+								<option value=",">,</option>
+								<option value=";">;</option>
+								<option value="\t">\t</option>
+								<option value="|">|</option>
+							</select>
+						</div>
+						Header row:
+						<div class="inline-flex item-center w-4 ml-2 mr-2">
+							<input
+								type="checkbox"
+								class="h-5"
+								bind:checked={csvHasHeader}
+								onchange={onCsvControlsChanged}
+							/>
+						</div>
+					{:else}
+						Previewing a {filePreview.contentType?.toLowerCase()} file.
+					{/if}
+				</div>
+			{/if}
 			<pre class="grow whitespace-no-wrap break-words"
 				>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible.{/if}</pre
 			>

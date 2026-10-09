@@ -8,8 +8,21 @@
 		Loader2,
 		Download,
 		Trash,
-		MoveRight
+		MoveRight,
+		Ellipsis,
+		FileText,
+		FileCode,
+		FileJson,
+		FileSpreadsheet,
+		FileImage,
+		FileArchive,
+		FilePlay,
+		FileAudio
 	} from 'lucide-svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import TextInput from './text_input/TextInput.svelte'
+	import Select from './select/Select.svelte'
+	import Toggle from './Toggle.svelte'
 	import {
 		CancelablePromise,
 		HelpersService,
@@ -35,14 +48,13 @@
 		emptyString,
 		parseS3Object,
 		sendUserToast,
-		type S3Object
+		type S3Object,
+		type IconType
 	} from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { Alert, Button } from './common'
-	import Section from './Section.svelte'
+	import { Alert, Button, CopyButton } from './common'
 	import { createEventDispatcher, untrack, type Snippet } from 'svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
-	import TableSimple from './TableSimple.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
 	import S3FilePreview from './S3FilePreview.svelte'
@@ -146,6 +158,12 @@
 
 	let csvSeparatorChar: string = $state(',')
 	let csvHasHeader: boolean = $state(true)
+	const CSV_SEPARATORS = [
+		{ value: ',', label: ',' },
+		{ value: ';', label: ';' },
+		{ value: '\t', label: 'Tab' },
+		{ value: '|', label: '|' }
+	]
 
 	let dispatch = createEventDispatcher<{
 		close: { s3: string; storage: string | undefined } | undefined
@@ -228,6 +246,25 @@
 
 	/** Per-level listing only makes sense while browsing; searching stays flat. */
 	let lazyMode = $derived(lazyFolders && filter.trim() === '')
+
+	/** `nestingLevel` counts two per folder depth. */
+	function treeRowIndent(nestingLevel: number): string {
+		return `padding-left: ${12 + (nestingLevel / 2) * 16}px;`
+	}
+
+	const FILE_ICONS: [RegExp, IconType][] = [
+		[/\.(csv|tsv|xlsx?|parquet|ods)$/i, FileSpreadsheet],
+		[/\.(json|jsonl|ndjson)$/i, FileJson],
+		[/\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?)$/i, FileImage],
+		[/\.(zip|tar|gz|tgz|bz2|xz|7z|rar|zst)$/i, FileArchive],
+		[/\.(mp4|mov|webm|mkv|avi)$/i, FilePlay],
+		[/\.(mp3|wav|ogg|flac|m4a)$/i, FileAudio],
+		[/\.(py|ts|js|go|rs|sh|sql|java|rb|php|ya?ml|toml|html|css|xml)$/i, FileCode],
+		[/\.(txt|md|log|pdf|docx?|rtf)$/i, FileText]
+	]
+	function fileIconFor(name: string): IconType {
+		return FILE_ICONS.find(([re]) => re.test(name))?.[1] ?? FileIcon
+	}
 
 	function nestingLevelOf(key: string): number {
 		const slashes = (key.match(/\//g) ?? []).length
@@ -1048,40 +1085,43 @@
 </script>
 
 {#if workspaceSettingsInitialized === false}
-	{#if fromWorkspaceSettings}
-		<Alert type="error" title="Connection to remote S3 bucket unsuccessful">
-			<div class="flex flex-row gap-x-1 w-full items-center">
-				<p class="text-clip grow min-w-0"> Double check the S3 resource fields and try again. </p>
-			</div>
-		</Alert>
-	{:else if s3ResourcePath}
-		<Alert type="error" title="Could not connect to the object storage of {s3ResourcePath}">
-			<div class="flex flex-row gap-x-1 w-full items-center">
-				<p class="text-clip grow min-w-0">
-					Double check the resource fields and that its object storage is reachable, then try again.
-				</p>
-				<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
-			</div>
-		</Alert>
-	{:else}
-		<Alert type="error" title="Workspace not connected to any S3 storage">
-			<div class="flex flex-row gap-x-1 w-full items-center">
-				<p class="text-clip grow min-w-0">
-					The workspace needs to be connected to an S3 storage to use this feature. You can <a
-						target="_blank"
-						href="{base}/workspace_settings?tab=windmill_lfs">configure it here</a
-					>.
-				</p>
-				<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
-			</div>
-		</Alert>
-	{/if}
+	<div class="p-4">
+		{#if fromWorkspaceSettings}
+			<Alert type="error" title="Connection to remote S3 bucket unsuccessful">
+				<div class="flex flex-row gap-x-1 w-full items-center">
+					<p class="text-clip grow min-w-0"> Double check the S3 resource fields and try again. </p>
+				</div>
+			</Alert>
+		{:else if s3ResourcePath}
+			<Alert type="error" title="Could not connect to the object storage of {s3ResourcePath}">
+				<div class="flex flex-row gap-x-1 w-full items-center">
+					<p class="text-clip grow min-w-0">
+						Double check the resource fields and that its object storage is reachable, then try
+						again.
+					</p>
+					<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
+				</div>
+			</Alert>
+		{:else}
+			<Alert type="error" title="Workspace not connected to any S3 storage">
+				<div class="flex flex-row gap-x-1 w-full items-center">
+					<p class="text-clip grow min-w-0">
+						The workspace needs to be connected to an S3 storage to use this feature. You can <a
+							target="_blank"
+							href="{base}/workspace_settings?tab=windmill_lfs">configure it here</a
+						>.
+					</p>
+					<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
+				</div>
+			</Alert>
+		{/if}
+	</div>
 {:else}
 	{#if fileListUnavailable == true}
 		{#if replaceUnauthorizedWarning}
 			{@render replaceUnauthorizedWarning()}
 		{:else}
-			<div class="mb-2">
+			<div class="p-3 border-b">
 				<Alert type="info" title="Access to S3 bucket restricted">
 					<p>
 						You don't have access to the S3 bucket resource and your administrator has restricted
@@ -1098,28 +1138,25 @@
 			</div>
 		{/if}
 	{/if}
-	<div class="flex flex-row border rounded-md h-full min-h-0 overflow-hidden">
+	<Splitpanes class="h-full min-h-0 overflow-hidden">
 		{#if !fileListUnavailable}
-			<div class="min-w-[30%] border-r flex flex-col min-h-0">
+			<Pane size={28} minSize={15} class="flex flex-col min-h-0">
 				{#if !rootPath}
-					<div class="w-full p-1 border-b">
-						<input
-							type="text"
-							placeholder="Search by path prefix"
+					<div class="mx-3 mt-3">
+						<TextInput
 							bind:value={filter}
-							class="text-xl"
+							inputProps={{ placeholder: 'Search by path prefix...' }}
 						/>
 					</div>
 				{/if}
 				{#if displayedFileKeys.length === 0}
 					{#if fileListLoading}
-						<div class="grow min-h-0 flex justify-center items-center">
-							<div class="flex text-secondary text-xs items-center">
-								<Loader2 size={12} class="animate-spin mr-1" /> Loading content
-							</div>
+						<div class="flex items-center gap-2 text-tertiary p-3">
+							<Loader2 class="animate-spin" size={14} />
+							<span class="text-xs">Loading...</span>
 						</div>
 					{:else}
-						<div class="p-4 text-primary text-xs text-center italic">
+						<div class="p-3 text-tertiary text-xs">
 							{#if filter.trim() !== ''}
 								No files starting with "{filter.trim()}"
 							{:else}
@@ -1131,19 +1168,19 @@
 							can remove every match. Without this the only control that could resume
 							the listing would be hidden behind the empty state. -->
 							<div class="flex justify-center pb-4">
-								<Button variant="default" size="xs2" on:click={() => loadNextFlatPage()}>
+								<Button variant="default" unifiedSize="xs" onClick={() => loadNextFlatPage()}>
 									Keep looking
 								</Button>
 							</div>
 						{/if}
 					{/if}
 				{:else}
-					<div class="grow min-h-0" bind:clientHeight={listDivHeight}>
+					<div class="grow min-h-0 mt-1.5" bind:clientHeight={listDivHeight}>
 						<VirtualList
 							width="100%"
 							height={listDivHeight}
 							itemCount={displayedFileKeys.length}
-							itemSize={42}
+							itemSize={32}
 						>
 							{#snippet header()}{/snippet}
 							{#snippet footer()}{/snippet}
@@ -1155,199 +1192,234 @@
 								{@const load_more_prefix = is_load_more ? item_key.slice(0, -1) : ''}
 								{@const file_info = allFilesByKey[item_key]}
 
-								<div
-									{style}
-									class={twMerge(
-										'hover:bg-surface-hover border-b',
-										index === displayedFileKeys.length - 1 && 'border-b-0'
-									)}
-								>
+								<div {style}>
 									{#if is_load_more}
 										<!-- Indented like the siblings it belongs to, so it must discount
 										the browsing root the same way entry rows do. -->
 										{@const loadMoreNesting =
 											nestingLevelOf(load_more_prefix + 'x') - 2 * rootPathNestingLevel}
 										{@const loadingMore = folderState[load_more_prefix]?.loading === true}
-										<!-- svelte-ignore a11y_click_events_have_key_events -->
-										<!-- svelte-ignore a11y_no_static_element_interactions -->
-										<div
+										<button
 											onclick={() => !loadingMore && loadMore(load_more_prefix)}
-											class={twMerge(
-												'flex flex-row h-full text-xs items-center justify-start text-secondary',
-												loadingMore ? 'cursor-default' : 'cursor-pointer'
-											)}
+											disabled={loadingMore}
+											class="w-full text-xs font-normal flex gap-2 items-center h-8 pr-1 text-secondary hover:bg-surface-hover cursor-pointer disabled:cursor-default disabled:hover:bg-transparent"
+											style={treeRowIndent(loadMoreNesting)}
 										>
-											<div
-												class="flex flex-row w-full gap-2 h-full items-center"
-												style={`margin-left: ${(2 + loadMoreNesting) * 0.25}rem;`}
-											>
-												<!-- Occupies the same slot as the sibling rows' file/folder icon so
-												the labels line up, and holds its width when the spinner swaps in. -->
-												<div class="w-4 shrink-0 flex items-center justify-center">
-													{#if loadingMore}
-														<Loader2 size={16} class="animate-spin" />
-													{:else}
-														<ChevronDown size={16} />
-													{/if}
-												</div>
-												<div class="truncate text-ellipsis w-56">Load more</div>
-											</div>
-										</div>
+											<span class="shrink-0 w-3.5"></span>
+											{#if loadingMore}
+												<Loader2 class="shrink-0 animate-spin" size={14} />
+											{:else}
+												<Ellipsis class="shrink-0" size={14} />
+											{/if}
+											<span class="truncate">Load more</span>
+										</button>
 									{:else if file_info}
 										{@const nestingLevel = file_info.nestingLevel - 2 * rootPathNestingLevel}
-										<!-- svelte-ignore a11y_click_events_have_key_events -->
-										<!-- svelte-ignore a11y_no_static_element_interactions -->
-										<div
+										{@const isSelected = selectedFileKey?.s3 === file_info.full_key}
+										{@const isFolder = file_info.type === 'folder'}
+										{@const RowIcon = isFolder
+											? file_info.collapsed
+												? FolderClosed
+												: FolderOpen
+											: fileIconFor(file_info.display_name)}
+										<button
 											onclick={() => selectItem(index)}
+											title={file_info.full_key.slice(rootPath.length)}
 											class={twMerge(
-												'flex flex-row h-full font-semibold text-xs items-center justify-start',
-												selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
-													? 'bg-surface-hover'
-													: ''
+												'w-full text-xs font-normal text-primary flex gap-2 items-center h-8 pr-1 cursor-pointer',
+												isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover'
 											)}
+											style={treeRowIndent(nestingLevel)}
 										>
-											<div
-												class={`flex flex-row w-full gap-2 h-full items-center`}
-												style={`margin-left: ${(2 + nestingLevel) * 0.25}rem;`}
-											>
-												{#if file_info.type === 'folder'}
-													{#if folderState[file_info.full_key]?.loading}
-														<Loader2 size={16} class="animate-spin" />
-													{:else if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
-															size={16}
-														/>{/if}
-													<div class="truncate text-ellipsis w-56">
-														<!-- An object-store key may contain an empty segment, so `a//` is a real
-														folder whose name is ''. Label it rather than rendering a blank row. -->
-														{#if file_info.display_name === ''}
-															<span class="italic text-secondary">(empty name)</span>
-														{:else}{file_info.display_name}{/if}
-														{#if !lazyMode}
-															({file_info.count}{count % 1000 === 0 &&
-															lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
-																? '+'
-																: ''} item{file_info.count === 1 ? '' : 's'})
-														{/if}
-													</div>
+											{#if isFolder}
+												{#if folderState[file_info.full_key]?.loading}
+													<Loader2 class="shrink-0 text-secondary animate-spin" size={14} />
 												{:else}
-													<FileIcon size={16} />
-													<div class="truncate text-ellipsis w-56">
-														{file_info.display_name}
-													</div>
+													<ChevronDown
+														class={twMerge(
+															'shrink-0 text-secondary transition-transform',
+															file_info.collapsed && '-rotate-90'
+														)}
+														size={14}
+													/>
 												{/if}
-											</div>
-										</div>
+											{:else}
+												<span class="shrink-0 w-3.5"></span>
+											{/if}
+											<RowIcon class="shrink-0" size={14} />
+											<span class="truncate text-left">
+												<!-- An object-store key may contain an empty segment, so `a//` is a real
+												folder whose name is ''. Label it rather than rendering a blank row. -->
+												{#if file_info.display_name === ''}
+													<span class="italic text-secondary">(empty name)</span>
+												{:else}{file_info.display_name}{/if}
+											</span>
+											<span class="grow"></span>
+											{#if isFolder && !lazyMode}
+												<span
+													class="shrink-0 text-2xs text-tertiary mr-2"
+													title="Items inside this folder"
+												>
+													{file_info.count}{count % 1000 === 0 &&
+													lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
+														? '+'
+														: ''}
+												</span>
+											{/if}
+										</button>
 									{/if}
 								</div>
 							{/snippet}
 						</VirtualList>
 					</div>
 					<div
-						class="flex flex-col gap-2 text-2xs justify-center items-center text-secondary w-full border-t py-1"
+						class="flex items-center justify-between gap-2 min-h-8 px-3 py-1 border-t text-2xs text-tertiary"
 					>
 						{#if fileListLoading === true}
-							<div class="flex text-secondary mt-1 text-xs justify-center items-center w-full">
-								<Loader2 size={12} class="animate-spin mr-1" /> Loading content
+							<div class="flex items-center gap-1.5">
+								<Loader2 size={12} class="animate-spin" /> Loading...
 							</div>
 						{:else if lazyMode}
 							<!-- Per-level listing: totals below the tree would be a count of what
 							happens to be expanded, and each folder carries its own Load more row. -->
 							<div>{displayedCount} item{displayedCount === 1 ? '' : 's'} shown</div>
 						{:else}
-							<div>
+							<div class="min-w-0">
 								{displayedCount}{flatHasMore ? '+' : ''}
 								{displayedCount !== count ? 'filtered ' : ''}items (including inside folders)
 							</div>
 
 							{#if flatHasMore}
-								<Button variant="default" size="xs2" on:click={() => loadNextFlatPage()}>
+								<Button variant="subtle" unifiedSize="xs" onClick={() => loadNextFlatPage()}>
 									Load more
 								</Button>
 							{/if}
 						{/if}
 					</div>
 				{/if}
-			</div>
+			</Pane>
 		{/if}
-		<div class="flex flex-col h-full w-full min-h-0 overflow-hidden">
-			{#if fileMetadata === undefined}
-				<div class="p-4">
-					{#if fileInfoLoading}
-						<Section label="Loading..." />
-					{:else if fileListUnavailable}
-						<Section label="No file to preview" />
-					{:else}
-						<Section label="Select a file to preview" />
-					{/if}
-				</div>
-			{:else}
-				<div class="px-3 py-2 flex flex-col gap-2">
-					<div class="flex flex-row items-center justify-between gap-2">
-						<h2 class="text-emphasis text-sm font-semibold break-all min-w-0">
-							{((p) => (p.startsWith(rootPath) ? p.slice(rootPath.length) : p))(
-								fileMetadata.fileKey
-							)}
-						</h2>
-						{#if filePreview !== undefined && (!hideS3SpecificDetails || !readOnlyMode || allowDelete)}
-							<div class="flex gap-2 shrink-0">
-								{#if !hideS3SpecificDetails}
-									{@const downloadApiPath = `/w/${ws}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}${s3ResourcePath ? `&s3_resource_path=${encodeURIComponent(s3ResourcePath)}` : ''}`}
-									{@const downloadName =
-										fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
-									{#if shouldDownloadViaClient()}
-										<Button
-											title="Download file from S3"
-											variant="default"
-											on:click={() => downloadViaClient(downloadApiPath, downloadName)}
-											startIcon={{ icon: Download }}
-											iconOnly={true}
-										/>
-									{:else}
-										<Button
-											title="Download file from S3"
-											variant="default"
-											href={`${base}/api${downloadApiPath}`}
-											download={downloadName}
-											startIcon={{ icon: Download }}
-											iconOnly={true}
-										/>
-									{/if}
-								{/if}
-								{#if !readOnlyMode}
-									<Button
-										title="Move file"
-										variant="default"
-										on:click={() => {
-											moveDestKey = fileMetadata?.fileKey ?? ''
-											moveModalOpen = true
-										}}
-										startIcon={{ icon: MoveRight }}
-										iconOnly={true}
-									/>
-								{/if}
-								{#if !readOnlyMode || allowDelete}
-									<Button
-										title="Delete file"
-										variant="default"
-										on:click={() => {
-											deletionModalOpen = true
-										}}
-										startIcon={{ icon: Trash }}
-										iconOnly={true}
-									/>
-								{/if}
+		<Pane class="flex flex-col min-h-0 overflow-hidden">
+			<div
+				class="flex items-center gap-3 px-3 py-3 min-h-[3.75rem] shrink-0 border-b bg-surface-secondary"
+			>
+				{#if fileMetadata === undefined}
+					<div class="flex items-center gap-2 text-xs text-tertiary">
+						{#if fileInfoLoading}
+							<Loader2 size={14} class="animate-spin" /> Loading...
+						{:else if fileListUnavailable}
+							No file to preview
+						{:else}
+							Select a file to preview
+						{/if}
+					</div>
+				{:else}
+					{@const displayedKey = fileMetadata.fileKey.startsWith(rootPath)
+						? fileMetadata.fileKey.slice(rootPath.length)
+						: fileMetadata.fileKey}
+					{@const slash = displayedKey.lastIndexOf('/')}
+					{@const fileName = displayedKey.slice(slash + 1)}
+					{@const FileKindIcon = fileIconFor(fileName)}
+					{@const details = [
+						fileMetadata.mimeType,
+						fileMetadata.sizeStr,
+						fileMetadata.lastModified && `Modified ${fileMetadata.lastModified}`
+					].filter(Boolean)}
+					<div
+						class="shrink-0 flex items-center justify-center w-9 h-9 rounded-md border bg-surface text-secondary"
+					>
+						<FileKindIcon size={18} />
+					</div>
+					<div class="flex flex-col gap-0.5 min-w-0 grow">
+						<div class="flex items-center gap-1 min-w-0">
+							<span class="truncate text-sm font-semibold text-emphasis" title={displayedKey}>
+								{#if slash >= 0}<span class="font-normal text-tertiary"
+										>{displayedKey.slice(0, slash + 1)}</span
+									>{/if}{fileName}
+							</span>
+							<CopyButton value={displayedKey} title="Copy file key" class="shrink-0" />
+						</div>
+						{#if !hideS3SpecificDetails && details.length > 0}
+							<div class="flex flex-wrap items-center gap-x-1.5 text-xs text-secondary">
+								{#each details as detail, i}
+									{#if i > 0}<span class="text-tertiary">·</span>{/if}
+									<span>{detail}</span>
+								{/each}
 							</div>
 						{/if}
 					</div>
-					{#if !hideS3SpecificDetails}
-						<TableSimple
-							headers={['Last modified', 'Size', 'Type']}
-							data={[fileMetadata]}
-							keys={['lastModified', 'sizeStr', 'mimeType']}
-						/>
+					{#if filePreview?.contentType === 'Csv'}
+						<div class="flex items-center gap-4 shrink-0 text-xs text-secondary">
+							<div class="flex items-center gap-2">
+								<span>Separator</span>
+								<Select
+									size="sm"
+									class="w-16"
+									RightIcon={ChevronDown}
+									items={CSV_SEPARATORS}
+									bind:value={csvSeparatorChar}
+								/>
+							</div>
+							<Toggle size="xs" bind:checked={csvHasHeader} options={{ right: 'Header row' }} />
+						</div>
+						<div class="w-px h-6 border-l shrink-0"></div>
 					{/if}
-				</div>
-			{/if}
+					{#if filePreview !== undefined && (!hideS3SpecificDetails || !readOnlyMode || allowDelete)}
+						<div class="flex gap-1 shrink-0">
+							{#if !hideS3SpecificDetails}
+								{@const downloadApiPath = `/w/${ws}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata.fileKey)}${storage ? `&storage=${storage}` : ''}${s3ResourcePath ? `&s3_resource_path=${encodeURIComponent(s3ResourcePath)}` : ''}`}
+								{@const downloadName = fileName || 'unnamed_download.file'}
+								{#if shouldDownloadViaClient()}
+									<Button
+										title="Download"
+										variant="subtle"
+										unifiedSize="md"
+										onClick={() => downloadViaClient(downloadApiPath, downloadName)}
+										startIcon={{ icon: Download }}
+										iconOnly
+									/>
+								{:else}
+									<Button
+										title="Download"
+										variant="subtle"
+										unifiedSize="md"
+										href={`${base}/api${downloadApiPath}`}
+										download={downloadName}
+										startIcon={{ icon: Download }}
+										iconOnly
+									/>
+								{/if}
+							{/if}
+							{#if !readOnlyMode}
+								<Button
+									title="Move"
+									variant="subtle"
+									unifiedSize="md"
+									onClick={() => {
+										moveDestKey = fileMetadata?.fileKey ?? ''
+										moveModalOpen = true
+									}}
+									startIcon={{ icon: MoveRight }}
+									iconOnly
+								/>
+							{/if}
+							{#if !readOnlyMode || allowDelete}
+								<Button
+									title="Delete"
+									variant="subtle"
+									unifiedSize="md"
+									destructive
+									onClick={() => {
+										deletionModalOpen = true
+									}}
+									startIcon={{ icon: Trash }}
+									iconOnly
+								/>
+							{/if}
+						</div>
+					{/if}
+				{/if}
+			</div>
 
 			<!-- Visual preview extracted to a standalone S3FilePreview component
 			     so the asset detail pane (and other surfaces) can render the
@@ -1363,10 +1435,12 @@
 				workspace={ws}
 				{loadFilePreviewRequest}
 				{loadFileMetadataRequest}
-				class="h-full"
+				class="flex-1 min-h-0"
+				csvOptions={{ separator: csvSeparatorChar, hasHeader: csvHasHeader }}
+				bodyClass="bg-transparent px-3"
 			/>
-		</div>
-	</div>
+		</Pane>
+	</Splitpanes>
 {/if}
 
 <ConfirmationModal
