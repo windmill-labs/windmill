@@ -128,8 +128,9 @@
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
 	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	let {
 		script = $bindable(),
@@ -596,6 +597,7 @@
 			| 'powershell'
 			| 'bunnative'
 			| 'claudesandbox'
+			| 'pisandbox'
 			| 'wac_python'
 			| 'wac_typescript'
 			| 'ci_test_bun'
@@ -1384,7 +1386,7 @@
 	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
 
-{#if !actingUser?.operator}
+{#if editRights.roleCanAuthor('script')}
 	<Drawer
 		placement="right"
 		bind:open={metadataOpen}
@@ -1543,10 +1545,12 @@
 														(lang == script.language &&
 															template != 'bunnative' &&
 															template != 'docker' &&
-															template != 'claudesandbox') ||
+															template != 'claudesandbox' &&
+															template != 'pisandbox') ||
 														(template == 'bunnative' && lang == 'bunnative') ||
 														(template == 'docker' && lang == 'docker') ||
-														(template == 'claudesandbox' && lang == 'bun')}
+														((template == 'claudesandbox' || template == 'pisandbox') &&
+															lang == 'bun')}
 													<Popover
 														disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 													>
@@ -1596,6 +1600,21 @@
 											}}
 										>
 											Claude Sandbox
+										</Button>
+										<Button
+											unifiedSize="xs"
+											variant="default"
+											startIcon={{
+												icon: LanguageIcon,
+												props: { lang: 'pisandbox', width: 16, height: 16 }
+											} as ButtonType.Icon}
+											onclick={() => {
+												template = 'pisandbox'
+												script.language = 'bun'
+												initContent('bun', script.kind, template)
+											}}
+										>
+											Pi Sandbox
 										</Button>
 										<span title="Workflow-as-Code">
 											<Button

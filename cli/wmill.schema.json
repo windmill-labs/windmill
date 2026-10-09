@@ -10,7 +10,7 @@
         "bun",
         "deno"
       ],
-      "description": "Default TypeScript runtime for new scripts"
+      "description": "TypeScript runtime of a plain .ts script (bun when absent)"
     },
     "includes": {
       "type": "array",

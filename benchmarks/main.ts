@@ -175,11 +175,11 @@ export async function main({
   if (
     !useFlows &&
     (scriptPattern === undefined ||
-      ["deno", "python", "go", "bash", "bun", "dedicated"].includes(
+      ["python", "go", "bash", "bun", "dedicated"].includes(
         scriptPattern
       ))
   ) {
-    await createBenchScript(scriptPattern || "deno", workspace);
+    await createBenchScript(scriptPattern || "bun", workspace);
   }
 
   let workers: Worker[] = new Array(num_workers);
@@ -458,7 +458,7 @@ if (import.meta.main) {
     )
     .option(
       "--script-pattern <pattern:string>",
-      "Use a different script pattern among: deno, identity, python, go, bash, dedicated, bun (Default deno)"
+      "Use a different script pattern among: bun, identity, python, go, bash, dedicated (Default bun)"
     )
     .option("--custom <custom_path:string>", "Use custom actions during bench")
     .option(

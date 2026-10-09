@@ -108,7 +108,7 @@
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { isGlobalAiEnabled, sessionsAllowedFor } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
 	import {
 		isPageItemListPath,
@@ -300,11 +300,10 @@
 	// Session mode is route-derived: the rail shows the sessions sidebar on the
 	// /sessions page and the workspace navigation everywhere else. The switch
 	// (SessionModeSwitch) just navigates in and out of that route.
-	// The route decides, except for an operator: /sessions refuses them, so handing their
-	// sidebar over to a session list would offer what the page behind it is declining.
-	let sessionMode = $derived(
-		page.url.pathname.startsWith(base + '/sessions') && !$userStore?.operator
-	)
+	// An operator without the opt-in (`gate.ts`) is refused by /sessions, so their sidebar is not
+	// handed over to a session list the page behind it declines, and they keep the docked chat.
+	const sessionsAllowed = $derived(sessionsAllowedFor($userStore?.operator))
+	let sessionMode = $derived(page.url.pathname.startsWith(base + '/sessions') && sessionsAllowed)
 	// Session mode points the bottom settings entry at the open session's own
 	// workspace. An unsent draft hasn't committed one yet, so it falls back to
 	// the family root.
@@ -326,12 +325,10 @@
 	// A workspace that hid the assistant (`ai_config.copilot_disabled`) loses both entry
 	// points: the Workspace ⇄ Sessions switch and the legacy Ask-AI button.
 	const sessionsSwitchShown = $derived(
-		globalAiEnabled && !$copilotInfo.workspaceDisabled && !$userStore?.operator
+		globalAiEnabled && sessionsAllowed && !$copilotInfo.workspaceDisabled
 	)
-	// The legacy pane's entry point. An operator keeps that pane whatever the beta gate says
-	// (`disableAi` above), so the sidebar must still offer them a way into it.
 	const askAiShown = $derived(
-		(!globalAiEnabled || $userStore?.operator) && !$copilotInfo.workspaceDisabled
+		(!globalAiEnabled || !sessionsAllowed) && !$copilotInfo.workspaceDisabled
 	)
 
 	if (page.status == 404) {
@@ -891,7 +888,7 @@
 	$effect(() => {
 		const ws = $workspaceStore
 		const ready = sessionState.hydrated && $usersWorkspaceStore !== undefined
-		if (globalAiEnabled && ready && ws && !$userStore?.operator) {
+		if (globalAiEnabled && sessionsAllowed && ready && ws) {
 			untrack(() => restoreSessionBackups(ws))
 		}
 	})
@@ -1488,9 +1485,9 @@
 			<AiChatLayout
 				{children}
 				noPadding={devOnly || menuHidden}
-				disableAi={globalAiEnabled && !$userStore?.operator ? true : sessionMode}
+				disableAi={globalAiEnabled && sessionsAllowed ? true : sessionMode}
 				loadAiConfig={!sessionMode}
-				showSessionsBetaBanner={!$userStore?.operator}
+				showSessionsBetaBanner={sessionsAllowed}
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
 				isMobile={useDrawer}

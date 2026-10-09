@@ -25,7 +25,8 @@
 	import { Alert, Badge } from '$lib/components/common'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-	import { react18Template, react19Template, svelte5Template } from './templates'
+	import { BUILDER_FRAMEWORK_TEMPLATES, FRAMEWORK_TEMPLATES } from './templates'
+	import { conformBuilderAppPolicy } from './builderAppPolicy'
 	import type { Runnable } from './rawAppPolicy'
 	import {
 		type DataTableRef,
@@ -46,6 +47,8 @@
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 	import FileEditorIcon from './FileEditorIcon.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 
 	export type RawAppTemplatePickerResult = {
 		files: Record<string, string>
@@ -65,11 +68,14 @@
 		onStart: (result: RawAppTemplatePickerResult, mode: RawAppBuildMode) => void
 	} = $props()
 
-	const templates = [
-		{ name: 'React 19', icon: 'tsx', files: react19Template, recommended: true },
-		{ name: 'React 18', icon: 'tsx', files: react18Template },
-		{ name: 'Svelte 5', icon: 'svelte', files: svelte5Template }
-	]
+	const templates = $derived.by(() => {
+		const files = $operatorBuilderApps ? BUILDER_FRAMEWORK_TEMPLATES : FRAMEWORK_TEMPLATES
+		return [
+			{ name: 'React 19', icon: 'tsx', files: files.react19, recommended: true },
+			{ name: 'React 18', icon: 'tsx', files: files.react18 },
+			{ name: 'Svelte 5', icon: 'svelte', files: files.svelte5 }
+		]
+	})
 
 	let selectedTemplateIndex = $state(0)
 	let selectedDatatable = $state<string | undefined>(undefined)
@@ -82,6 +88,7 @@
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderApps = useOperatorBuilderApps()
 	let opWs = $derived($operatingWorkspace)
 
 	const datatables = createDatatablesResource(() => opWs)
@@ -275,21 +282,27 @@
 		}
 	})
 
-	// With AI turned off for the workspace there is nothing to choose between.
-	const aiOffered = $derived(!$copilotInfo.workspaceDisabled)
+	// With AI turned off for the workspace there is nothing to choose between. A builder is
+	// offered AI only through a session: the docked app mode writes inline code they cannot save.
+	const aiOffered = $derived(
+		!$copilotInfo.workspaceDisabled &&
+			(!$operatorBuilderApps || prefersSessionHandoff($userStore?.operator))
+	)
 
 	const canStart = $derived(
 		!!templates[selectedTemplateIndex] && !newSchemaAlreadyExists && rolesSettled && accessSettled
 	)
 
 	function appPolicy(): Policy {
-		return {
+		const policy: Policy = {
 			on_behalf_of: $userStore?.username.includes('@')
 				? $userStore?.username
 				: `u/${$userStore?.username}`,
 			on_behalf_of_email: $userStore?.email,
 			execution_mode: 'publisher'
 		}
+		if ($operatorBuilderApps) conformBuilderAppPolicy(policy, $userStore)
+		return policy
 	}
 
 	const startCardClasses =

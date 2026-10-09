@@ -102,7 +102,16 @@
 						canceled ||
 						(chatJob !== undefined && ['success', 'failure', 'canceled'].includes(chatJob.status)))
 	)
-	const running = $derived(!pending && !settled)
+	// The form is answered but no job exists yet: the round trip that creates it, or a start
+	// that is about to fail. Saying Running here would claim a job before there is one.
+	const starting = $derived(!pending && !settled && !ran)
+	const running = $derived(!pending && !settled && ran)
+	// A new job is registered as `queued` with no snapshot, so until the first poll returns one
+	// its status is a placeholder, not something seen: the row keeps saying Starting.
+	const unseen = $derived(running && !chatJob?.job)
+	// The job exists but no worker has taken it. Still `running` for everything that only needs
+	// a live job (cancel, logs); only the row tells the two apart. As fresh as the last poll.
+	const waiting = $derived(running && !unseen && chatJob?.status === 'queued')
 	// The job the card is about has not been read yet, or could not be: no pane has anything
 	// to show, but the call's own result still has.
 	const jobPending = $derived(Boolean(inspected) && !inspectedJob)
@@ -170,7 +179,17 @@
 	// Inspecting is done the moment the tool returned, whatever the run it looked at is
 	// still doing — the tense belongs to the call, not to its subject.
 	const verb = $derived(
-		inspected ? 'Inspected' : running ? verbs.present : settled && ran ? verbs.past : verbs.future
+		inspected
+			? 'Inspected'
+			: starting || unseen
+				? 'Starting'
+				: waiting
+					? ''
+					: running
+						? verbs.present
+						: settled && ran
+							? verbs.past
+							: verbs.future
 	)
 
 	// Being cancelled is an outcome like any other, and it is the one the card has to say out
@@ -331,12 +350,28 @@
 	// keeps no timers at all.
 	let now = $state(Date.now())
 	$effect(() => {
-		if (!running || !chatJob) return
+		if (!running || unseen || waiting || !chatJob) return
+		// `now` last moved whenever the card mounted or a previous run stopped ticking, so the
+		// job's first frame would otherwise read as a negative elapsed time.
+		now = Date.now()
 		const timer = setInterval(() => (now = Date.now()), 500)
 		return () => clearInterval(timer)
 	})
 
-	const elapsed = $derived(chatJob ? msToReadableTime(now - chatJob.createdAt, 2) : '')
+	// The clock counts from when a worker took the job, as `duration_ms` does, so the time in the
+	// queue never shows as run time. The server's own `started_at - created_at` is added to the
+	// local creation time rather than reading `started_at` against the browser's clock, which
+	// can be off from the server's by more than the run lasts.
+	const runStartedAt = $derived.by(() => {
+		if (!chatJob) return undefined
+		const j = chatJob.job
+		const queuedMs =
+			j?.started_at && j.created_at ? Date.parse(j.started_at) - Date.parse(j.created_at) : NaN
+		return chatJob.createdAt + (Number.isFinite(queuedMs) ? Math.max(0, queuedMs) : 0)
+	})
+	const elapsed = $derived(
+		runStartedAt !== undefined ? msToReadableTime(Math.max(0, now - runStartedAt), 2) : ''
+	)
 	const duration = $derived(
 		chatJob?.durationMs !== undefined ? msToReadableTime(chatJob.durationMs, 2) : ''
 	)
@@ -370,7 +405,17 @@
 	// has no time to give, so its outcome takes the slot — as a word, never "Not run", which
 	// stutters against the "Run <name>" label beside it.
 	const outcome = $derived(failed ? 'Failed' : canceled ? 'Cancelled' : 'Done')
-	const statusTime = $derived(running ? elapsed : duration || outcome)
+	// No job seen yet, so no time and no outcome: the verb already says Starting. A queued job has
+	// no run time either, and says why in the slot, in the queued hue, in place of the verb.
+	const statusTime = $derived(
+		starting || unseen
+			? ''
+			: waiting
+				? 'Waiting for a worker ·'
+				: running
+					? elapsed
+					: duration || outcome
+	)
 
 	// What the preview button opens changes with the card: the form while the call is still
 	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
@@ -416,7 +461,7 @@
 {#snippet status()}
 	<!-- An inspection reports nothing here: the card is a snapshot the chat will never
 	     update, so a status on it would be frozen at whatever the run happened to be. -->
-	{#if !pending && !inspected}
+	{#if !pending && !inspected && statusTime}
 		<span class={twMerge('shrink-0 whitespace-nowrap text-2xs font-medium', statusClass)}>
 			{statusTime}
 		</span>
@@ -591,7 +636,7 @@
 													: 'No logs.'}
 										</p>
 									{/if}
-									{#if running && !inspected}
+									{#if running && !waiting && !inspected}
 										<div class="mt-1 flex items-center gap-1.5 text-2xs text-tertiary">
 											<Loader2 class="h-3 w-3 animate-spin" />
 											streaming

@@ -175,8 +175,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['ruby', 'Ruby'],
 	['rlang', 'R'],
 	['dbt', 'dbt'],
-	// This array's order is the picker order. Deno is de-emphasized ahead of
-	// deprecation, so it stays last.
+	// Not offered for new scripts (see `processLangs`); listed for the label of
+	// existing ones.
 	['deno', 'Deno']
 	// for related places search: ADD_NEW_LANG
 ]
@@ -197,6 +197,12 @@ export function processInlineLangs(selected: string | undefined, langs: string[]
 }
 
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
+	// Only a script already written in deno keeps the option, whether or not the
+	// workspace's saved order still carries it.
+	langs = langs.filter((lang) => lang !== 'deno')
+	if (selected === 'deno') {
+		langs = [...langs, 'deno']
+	}
 	if (selected === 'nativets') {
 		return langs
 	} else {

@@ -50,6 +50,7 @@
 		type AttachedBlob
 	} from './blobUtils'
 	import { MessageDraft } from './messageDraft.svelte'
+	import { useSessionPermissions } from '$lib/components/sessions/sessionPermissions.svelte'
 	import ExpandableImage, {
 		isImageViewerOpen
 	} from '$lib/components/common/image/ExpandableImage.svelte'
@@ -134,10 +135,28 @@
 		'Refactor a script to add error handling',
 		'List my workspace flows and scripts'
 	]
-	const globalSuggestion =
-		GLOBAL_PLACEHOLDER_SUGGESTIONS[
-			Math.floor(Math.random() * GLOBAL_PLACEHOLDER_SUGGESTIONS.length)
-		]
+	// An operator authors nothing, so nothing above is theirs to ask for; one with the
+	// workspace's builder right can compose flows out of deployed scripts as well.
+	const OPERATOR_PLACEHOLDER_SUGGESTIONS = [
+		'List my workspace flows and scripts',
+		'Show the runs that failed today and why',
+		'Find the script that sends a report and run it',
+		'Rerun the last failed run of a flow'
+	]
+	const BUILDER_PLACEHOLDER_SUGGESTIONS = [
+		...OPERATOR_PLACEHOLDER_SUGGESTIONS,
+		'Compose a flow that chains two deployed scripts'
+	]
+	const permissions = useSessionPermissions(() => chatHost.operatingWorkspace)
+	const suggestionPick = Math.random()
+	const globalSuggestion = $derived.by(() => {
+		const pool = permissions.canOpenEditor('script')
+			? GLOBAL_PLACEHOLDER_SUGGESTIONS
+			: permissions.canOpenEditor('flow')
+				? BUILDER_PLACEHOLDER_SUGGESTIONS
+				: OPERATOR_PLACEHOLDER_SUGGESTIONS
+		return pool[Math.floor(suggestionPick * pool.length)]
+	})
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {

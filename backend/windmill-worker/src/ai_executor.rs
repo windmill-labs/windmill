@@ -43,6 +43,7 @@ use windmill_ai::{
         common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
     },
     query_builder::{BuildRequestArgs, ParsedResponse},
+    retry::{as_transient, into_final_error, response_error, send_error, Backoff, MAX_RETRIES},
     types::*,
     utils::{pinned_ai_client_for, should_use_structured_output_tool},
 };
@@ -1659,10 +1660,17 @@ pub async fn run_agent(
         .await;
 
         let mut retried_context = false;
+        let mut backoff = Backoff::default();
+        let streamed_events = || {
+            stream_event_processor
+                .as_ref()
+                .map_or(0, |processor| processor.streamed_events())
+        };
         let (parsed, request_message_count) = loop {
             // How many messages this request carries, so the provider's prompt count can
             // later be told apart from what the response and its tool results add.
             let request_message_count = messages.context().len();
+            let streamed_before = streamed_events();
 
             // Handle AWS Bedrock provider specially using the official SDK
             let attempt: error::Result<_> = async {
@@ -1818,7 +1826,7 @@ pub async fn run_agent(
                         let resp = build_http_request(&endpoint, &auth_headers, request_body)
                             .send()
                             .await
-                            .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
+                            .map_err(|e| send_error(e, "Failed to call API"))?;
 
                         match resp.error_for_status_ref() {
                             Ok(_) => {
@@ -1829,6 +1837,7 @@ pub async fn run_agent(
                             }
                             Err(e) => {
                                 let status = resp.status();
+                                let headers = resp.headers().clone();
                                 let text = resp
                                     .text()
                                     .await
@@ -1898,10 +1907,9 @@ pub async fn run_agent(
                                     query_builder = create_chat_completions_query_builder(&credentials);
                                     include_usage = true;
                                 } else {
-                                    return Err(Error::internal_err(format!(
-                                        "API error calling {}: {} - {}",
-                                        endpoint, e, text
-                                    )));
+                                    let message =
+                                        format!("API error calling {}: {} - {}", endpoint, e, text);
+                                    return Err(response_error(status, &headers, &text, message));
                                 }
                             }
                         }
@@ -1961,7 +1969,45 @@ pub async fn run_agent(
                         return Err(error);
                     }
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    let Some(transient) = as_transient(&error) else {
+                        return Err(error);
+                    };
+                    // Readers have no way to take back what they were shown, so a call
+                    // that already streamed part of its answer fails as it is.
+                    if streamed_events() != streamed_before {
+                        append_logs(
+                            &job.id,
+                            &job.workspace_id,
+                            "AI provider call failed after part of its answer had streamed; not retried.\n".to_string(),
+                            conn,
+                        )
+                        .await;
+                        return Err(into_final_error(error));
+                    }
+                    let Some(delay) = backoff.next_delay(transient) else {
+                        return Err(into_final_error(error));
+                    };
+                    append_logs(
+                        &job.id,
+                        &job.workspace_id,
+                        format!(
+                            "AI provider call failed: {}. Retrying in {:.1}s (retry {}/{MAX_RETRIES}).\n",
+                            transient.message,
+                            delay.as_secs_f64(),
+                            backoff.retries()
+                        ),
+                        conn,
+                    )
+                    .await;
+                    let mut cancelled = cancel_rx.clone();
+                    tokio::select! {
+                        _ = tokio::time::sleep(delay) => {}
+                        Ok(_) = cancelled.wait_for(|cancelled| *cancelled) => {
+                            return Err(Error::ExecutionErr("Job cancelled".to_string()));
+                        }
+                    }
+                }
             }
         };
 

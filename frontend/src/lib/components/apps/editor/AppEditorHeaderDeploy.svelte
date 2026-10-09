@@ -3,6 +3,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 	import { Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -34,6 +35,7 @@
 	const operatingWorkspaceStore = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
+	const operatorBuilderApps = useOperatorBuilderApps()
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -364,7 +366,7 @@
 <div class="my-6">
 	<Toggle
 		options={{ right: "Isolate the app from the viewer's browser session" }}
-		checked={policy.sandbox == true}
+		checked={$operatorBuilderApps || policy.sandbox == true}
 		on:change={(e) => {
 			policy.sandbox = e.detail || undefined
 			// Counted where the toggle is flipped rather than where the policy is
@@ -387,8 +389,13 @@
 				setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
 			}
 		}}
-		disabled={!savedApp}
+		disabled={!savedApp || $operatorBuilderApps}
 	/>
+	{#if $operatorBuilderApps}
+		<div class="text-xs text-secondary mt-1">
+			Required for apps built by operators, and cannot be turned off.
+		</div>
+	{/if}
 	<div class="text-xs text-secondary mt-1">
 		Controls what the app's browser-side code can reach in each viewer's browser — distinct from the
 		on-behalf-of model above (which sets who its runnables run as). Off by default, the app's code

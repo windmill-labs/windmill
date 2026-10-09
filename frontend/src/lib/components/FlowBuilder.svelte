@@ -110,13 +110,14 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
-	import { useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
 	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const editRights = useEditRights()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -556,8 +557,14 @@
 				// flag that answer for it are per workspace, so the nav user would answer for the wrong
 				// membership when a session editor operates on another workspace.
 				const user = await getUserExt(opWorkspace ?? '').catch(() => undefined)
+				const operatorSettings = $userWorkspaces.find(
+					(w) => w.id === opWorkspace
+				)?.operator_settings
 				agentCanWrite = Object.fromEntries(
-					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user ?? $userStore ?? undefined)])
+					draftAgents.map((a) => [
+						a.path,
+						agentDraftCanWrite(a, user ?? $userStore ?? undefined, operatorSettings)
+					])
 				)
 				// The path is passed, so a draft that renames the agent is refused here too: a rename is
 				// the agent editor's to deploy, and this dialog lists the agent under the path the flow
@@ -1560,7 +1567,7 @@
 <AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
 
 {#key renderCount}
-	{#if !actingUser?.operator || $operatorBuilderFlows}
+	{#if editRights.roleCanAuthor('flow')}
 		{#if $pathStore}
 			<FlowHistory bind:this={flowHistory} path={$pathStore} {onHistoryRestore} />
 		{/if}
@@ -1585,8 +1592,7 @@
 						// Gated like the summary's own editor: a host that allows neither field keeps the
 						// band's segment, which copies the path.
 						pathTrigger:
-							customUi?.topBar?.editablePath != false ||
-							customUi?.topBar?.editableSummary != false
+							customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false
 								? flowPathTrigger
 								: undefined
 					}}

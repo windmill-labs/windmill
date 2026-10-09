@@ -320,12 +320,6 @@ export async function readConfigFile(opts?: { warnIfMissing?: boolean }): Promis
     delete (conf as any)?.environments;
     delete conf?.git_branches;
 
-    if (conf?.defaultTs == undefined) {
-      log.warn(
-        "No defaultTs defined in your wmill.yaml. Using 'bun' as default."
-      );
-    }
-
     // Initialize global nonDottedPaths setting from config
     setNonDottedPaths(conf?.nonDottedPaths ?? false);
 
@@ -376,7 +370,6 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   Required<
     Pick<
       SyncOptions,
-      | "defaultTs"
       | "includes"
       | "excludes"
       | "codebases"
@@ -401,7 +394,6 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
     >
   >
 > = {
-  defaultTs: "bun",
   includes: ["f/**"],
   excludes: [],
   codebases: [],

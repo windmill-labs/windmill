@@ -78,7 +78,7 @@ async fn test_between_steps_zombie_restart_reuses_all_children(
                         "id": "inner",
                         "value": {
                             "type": "rawscript",
-                            "language": "deno",
+                            "language": "bun",
                             "input_transforms": {
                                 "v": { "type": "javascript", "expr": "flow_input.iter.value" }
                             },
@@ -91,7 +91,7 @@ async fn test_between_steps_zombie_restart_reuses_all_children(
                 "id": "after",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "input_transforms": {
                         "loop_res": { "type": "javascript", "expr": "results.fanout" }
                     },
@@ -210,7 +210,7 @@ async fn test_mid_iteration_zombie_not_reused(db: Pool<Postgres>) -> anyhow::Res
                         "id": "inner",
                         "value": {
                             "type": "rawscript",
-                            "language": "deno",
+                            "language": "bun",
                             "input_transforms": {
                                 "v": { "type": "javascript", "expr": "flow_input.iter.value" }
                             },
@@ -223,7 +223,7 @@ async fn test_mid_iteration_zombie_not_reused(db: Pool<Postgres>) -> anyhow::Res
                 "id": "after",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "input_transforms": {
                         "loop_res": { "type": "javascript", "expr": "results.fanout" }
                     },
@@ -331,7 +331,7 @@ async fn test_nested_restart_not_swallowed_by_zombie_reuse(
                             {
                                 "id": "inner_first",
                                 "value": {
-                                    "type": "rawscript", "language": "deno",
+                                    "type": "rawscript", "language": "bun",
                                     "input_transforms": {},
                                     "content": "export function main() { return 'first' }"
                                 }
@@ -339,7 +339,7 @@ async fn test_nested_restart_not_swallowed_by_zombie_reuse(
                             {
                                 "id": "inner_second",
                                 "value": {
-                                    "type": "rawscript", "language": "deno",
+                                    "type": "rawscript", "language": "bun",
                                     "input_transforms": {
                                         "first": { "type": "javascript", "expr": "results.inner_first" }
                                     },
@@ -353,7 +353,7 @@ async fn test_nested_restart_not_swallowed_by_zombie_reuse(
             {
                 "id": "after",
                 "value": {
-                    "type": "rawscript", "language": "deno",
+                    "type": "rawscript", "language": "bun",
                     "input_transforms": {
                         "b": { "type": "javascript", "expr": "results.branch" }
                     },
@@ -466,7 +466,7 @@ async fn test_raw_flow_restart_does_not_reuse_edited_step(
                         "modules": [{
                             "id": "inner",
                             "value": {
-                                "type": "rawscript", "language": "deno",
+                                "type": "rawscript", "language": "bun",
                                 "input_transforms": {
                                     "v": { "type": "javascript", "expr": "flow_input.iter.value" }
                                 },
@@ -478,7 +478,7 @@ async fn test_raw_flow_restart_does_not_reuse_edited_step(
                 {
                     "id": "after",
                     "value": {
-                        "type": "rawscript", "language": "deno",
+                        "type": "rawscript", "language": "bun",
                         "input_transforms": {
                             "loop_res": { "type": "javascript", "expr": "results.fanout" }
                         },
@@ -578,7 +578,7 @@ async fn test_non_monitor_cancel_is_not_reused(db: Pool<Postgres>) -> anyhow::Re
                     "modules": [{
                         "id": "inner",
                         "value": {
-                            "type": "rawscript", "language": "deno",
+                            "type": "rawscript", "language": "bun",
                             "input_transforms": {
                                 "v": { "type": "javascript", "expr": "flow_input.iter.value" }
                             },
@@ -590,7 +590,7 @@ async fn test_non_monitor_cancel_is_not_reused(db: Pool<Postgres>) -> anyhow::Re
             {
                 "id": "after",
                 "value": {
-                    "type": "rawscript", "language": "deno",
+                    "type": "rawscript", "language": "bun",
                     "input_transforms": {
                         "loop_res": { "type": "javascript", "expr": "results.fanout" }
                     },

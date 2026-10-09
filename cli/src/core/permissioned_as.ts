@@ -34,10 +34,14 @@ export async function buildPermissionedAsContext(
     return undefined;
   }
   const user = await wmill.whoami({ workspace });
+  // A superadmin acts as admin in every workspace, so the backend preserves
+  // ownership for them even when their own `usr` row there is not an admin.
   const userIsAdminOrDeployer =
-    user.is_admin || (user.groups ?? []).includes("wm_deployers");
+    user.is_admin ||
+    user.is_super_admin ||
+    (user.groups ?? []).includes("wm_deployers");
   log.debug(
-    `permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`
+    `permissioned_as: user=${user.email}, is_admin=${user.is_admin}, is_super_admin=${user.is_super_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`
   );
   return {
     userCache: new Map(),

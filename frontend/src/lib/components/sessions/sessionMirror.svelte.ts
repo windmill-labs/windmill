@@ -998,9 +998,23 @@ async function flush(): Promise<void> {
 		let settledAny = false
 		let leftForNext = false
 		for (const [ws, w] of work) {
-			const out = await pushWorkspace(ws, w, email)
-			if (out.status === 'abort') return
-			if (out.status === 'off') {
+			// A push carries whole transcripts, and a workspace that keeps no backups is
+			// asked again on every page load: one this page has not heard from yet is asked
+			// with the listing first, which costs nothing to refuse.
+			let probe: 'on' | 'off' | 'failed' = 'on'
+			if (!wsState.has(ws)) {
+				const listing = await fetchListing(ws)
+				if (getCurrentUserEmail() !== email) return
+				probe = listing === 'off' || listing === 'failed' ? listing : 'on'
+				if (probe === 'on') wsState.set(ws, 'on')
+			}
+			if (probe === 'failed') {
+				backOff()
+				continue
+			}
+			const out = probe === 'off' ? undefined : await pushWorkspace(ws, w, email)
+			if (out?.status === 'abort') return
+			if (!out || out.status === 'off') {
 				markOff(ws)
 				await staleWorkspaceSync(ws, email)
 				// Same rule as the loop above: a removal is worth keeping only for a session
@@ -1189,22 +1203,28 @@ function unpackBackup(
 
 type BackupListing = Awaited<ReturnType<typeof AiService.listAiSessionBackups>>
 
-/** The workspace's listing; `off` when it keeps no backups, `failed` when it could not be
- * listed this time. */
-async function listWorkspace(ws: string, email: string): Promise<BackupListing | 'off' | 'failed'> {
+/** The workspace's listing as the server answers it; `off` when it keeps no backups,
+ * `failed` when it could not be listed this time. */
+async function fetchListing(ws: string): Promise<BackupListing | 'off' | 'failed'> {
 	let listing
 	try {
 		listing = await AiService.listAiSessionBackups({ workspace: ws })
 	} catch (e) {
 		const status = statusOf(e)
-		if (status === 404 || status === 403) {
-			markOff(ws)
-			return 'off'
-		}
+		// 404: a build without object storage, or a storage whose resource is gone.
+		// 403: nothing this token may back up.
+		if (status === 404 || status === 403) return 'off'
 		console.warn('Could not list session backups', e)
 		return 'failed'
 	}
-	if (!listing.enabled) {
+	return listing.enabled ? listing : 'off'
+}
+
+/** `fetchListing`, with what it says of the workspace recorded for the page. */
+async function listWorkspace(ws: string, email: string): Promise<BackupListing | 'off' | 'failed'> {
+	const listing = await fetchListing(ws)
+	if (listing === 'failed') return 'failed'
+	if (listing === 'off') {
 		markOff(ws)
 		return 'off'
 	}

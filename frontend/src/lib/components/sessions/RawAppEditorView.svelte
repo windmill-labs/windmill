@@ -16,7 +16,11 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import { removeSession, type SessionRuntime } from './sessionRuntime.svelte'
-	import { FRAMEWORK_TEMPLATES, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
+	import {
+		BUILDER_FRAMEWORK_TEMPLATES,
+		FRAMEWORK_TEMPLATES,
+		STARTER_RUNNABLES
+	} from '$lib/components/raw_apps/templates'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -63,7 +67,10 @@
 		const files = cell.store.val?.files
 		if (!newRawApp || (cell.saved.val && !cell.saved.val.no_deployed) || !files) return false
 		const count = Object.keys(files).length
-		return Object.values(FRAMEWORK_TEMPLATES).some((template: Record<string, string>) => {
+		return [
+			...Object.values(FRAMEWORK_TEMPLATES),
+			...Object.values(BUILDER_FRAMEWORK_TEMPLATES)
+		].some((template: Record<string, string>) => {
 			const keys = Object.keys(template)
 			return count === keys.length && keys.every((k) => files[k] === template[k])
 		})

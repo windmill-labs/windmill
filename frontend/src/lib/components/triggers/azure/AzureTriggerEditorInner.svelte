@@ -9,8 +9,8 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds } from '$lib/stores'
-	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -35,6 +35,7 @@
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import { base } from '$lib/base'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
@@ -45,7 +46,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
-	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let initialPath = $state('')
@@ -65,8 +66,9 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		(permsPath === undefined || canWrite(permsPath, permsForWrite ?? {}, actingUser)) &&
-			!$triggerLock
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
 	)
 	let drawerLoading = $state(true)
 
@@ -83,7 +85,7 @@
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
-	let base_endpoint = $derived(`${window.location.origin}${base}`)
+	let base_endpoint = $derived(apiBaseUrl())
 
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
@@ -160,6 +162,7 @@
 	) {
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -320,7 +323,9 @@
 			topic_name,
 			subscription_name,
 			event_type_filters,
-			base_endpoint,
+			// The capture URL shown to the user stays on the browsing origin, so the
+			// endpoint registered for it must too.
+			base_endpoint: `${window.location.origin}${base}`,
 			path
 		}
 	}

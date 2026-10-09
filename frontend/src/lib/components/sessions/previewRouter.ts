@@ -11,6 +11,7 @@ import {
 	pageKey,
 	pageHref,
 	parsePageItemRoute,
+	parsePipelineRoute,
 	parseHistoricalScriptEdit,
 	parsePreviewItemRoute,
 	RESOURCES_PATH,
@@ -26,6 +27,8 @@ import {
 	type PreviewItemRoute,
 	type TriggerKind
 } from './previewPaths'
+import type { UserExt, UserWorkspace } from '$lib/stores'
+import { sidebarPageAllowed, type OperatorPageKey } from '../sidebar/operatorRoutes'
 // Re-exported so the preview code that already reads locations through this module keeps
 // one import, while a caller needing only a path can reach for the leaf instead.
 export {
@@ -35,6 +38,7 @@ export {
 	pageHref,
 	parseHistoricalScriptEdit,
 	parsePageItemRoute,
+	parsePipelineRoute,
 	parsePreviewItemRoute,
 	stripBase,
 	TRIGGER_PAGES,
@@ -63,7 +67,6 @@ import { buildVariablesFilterSchema } from '$lib/components/variables/variablesF
 import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 import { buildAssetsFilterSchema } from '$lib/components/assets/assetsFilter'
 import { COMPARE_ITEMS_PARAM } from './modifiedItemsMask'
-import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
@@ -102,22 +105,40 @@ export function previewModeFor(item: Pick<WorkspaceItem, 'draftOnly'>): PreviewI
 	return item.draftOnly ? 'edit' : 'view'
 }
 
-export type PreviewPage = { label: string; path: string; icon: DrillIcon }
+export type PreviewPage = {
+	label: string
+	path: string
+	icon: DrillIcon
+	/** The `operator_settings` key that admits an operator, as the sidebar reads it. */
+	operatorKey?: OperatorPageKey
+	adminOnly?: boolean
+}
+
+/** Whether `page` loads for `user` rather than showing its "not available" state. An unknown
+ * user is let through to every page but the admin-only ones. */
+export function previewPageAllowed(
+	page: PreviewPage,
+	user: Pick<UserExt, 'operator' | 'is_admin' | 'is_super_admin'> | undefined,
+	workspace: UserWorkspace | undefined
+): boolean {
+	if (page.adminOnly) return !!user && (user.is_admin || user.is_super_admin)
+	return !page.operatorKey || sidebarPageAllowed(user?.operator, workspace, page.operatorKey)
+}
 
 // Core workspace-level destinations the preview can route to. Intentionally
 // curated — the main pages, not every trigger sub-page (those live behind
 // EE/feature gating in SidebarContent and aren't worth duplicating here).
 export const PREVIEW_PAGES: PreviewPage[] = [
 	{ label: 'Home', path: '/', icon: Home },
-	{ label: 'Runs', path: RUNS_PATH, icon: Play },
-	{ label: 'Variables', path: VARIABLES_PATH, icon: DollarSign },
-	{ label: 'Resources', path: RESOURCES_PATH, icon: Boxes },
-	{ label: 'Schedules', path: SCHEDULES_PATH, icon: Calendar },
-	{ label: 'Assets', path: ASSETS_PATH, icon: Database },
-	{ label: 'Folders', path: FOLDERS_PATH, icon: FolderOpen },
-	{ label: 'Groups', path: GROUPS_PATH, icon: Users },
-	{ label: 'Workspace settings', path: WORKSPACE_SETTINGS_PATH, icon: Settings },
-	{ label: 'Audit logs', path: AUDIT_LOGS_PATH, icon: ScrollText }
+	{ label: 'Runs', path: RUNS_PATH, icon: Play, operatorKey: 'runs' },
+	{ label: 'Variables', path: VARIABLES_PATH, icon: DollarSign, operatorKey: 'variables' },
+	{ label: 'Resources', path: RESOURCES_PATH, icon: Boxes, operatorKey: 'resources' },
+	{ label: 'Schedules', path: SCHEDULES_PATH, icon: Calendar, operatorKey: 'schedules' },
+	{ label: 'Assets', path: ASSETS_PATH, icon: Database, operatorKey: 'assets' },
+	{ label: 'Folders', path: FOLDERS_PATH, icon: FolderOpen, operatorKey: 'folders' },
+	{ label: 'Groups', path: GROUPS_PATH, icon: Users, operatorKey: 'groups' },
+	{ label: 'Workspace settings', path: WORKSPACE_SETTINGS_PATH, icon: Settings, adminOnly: true },
+	{ label: 'Audit logs', path: AUDIT_LOGS_PATH, icon: ScrollText, operatorKey: 'audit_logs' }
 ]
 
 // The Compare & Deploy review page. Kept out of PREVIEW_PAGES (it's not a picker
@@ -502,13 +523,6 @@ export function parsePreviewSelectedId(url: string): string | undefined {
 	}
 }
 
-// A `/pipeline/<folder>` route is the data-pipeline graph editor for that folder
-// (the folder is a single path segment, not a workspace item path). The bare
-// `/pipeline` list page is not an editor. Returns the folder name, or null.
-export function parsePipelineRoute(fullPath: string): string | null {
-	const m = stripBase(fullPath).match(/^\/pipeline\/([^/?#]+)/)
-	return m ? normalizePipelineFolder(decodeURIComponent(m[1])) : null
-}
 
 // The id (before the query) is the artifact's stable routing identity; the name rides in the
 // hash so the tab strip labels it without a store lookup, and the version in the query so the
@@ -562,9 +576,9 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // How a preview tab should render: as an in-process live editor, the deployed
 // item's view page, or an iframe fallback. An item of a wrappable kind (script,
 // flow, raw app) mounts its per-(kind,path) cell editor on `/edit/` and its viewer
-// on `/get/`; a `/pipeline/<folder>` route mounts the data-pipeline graph editor
-// (single, shared runtime.pipelineEditorState — `path` is the folder); the list page
-// of a page item kind mounts that list; everything
+// on `/get/`; a `/pipeline/<folder>` route mounts the data-pipeline graph editor of
+// that folder (`path` is the folder); the list page of a page item kind mounts that
+// list; everything
 // else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }

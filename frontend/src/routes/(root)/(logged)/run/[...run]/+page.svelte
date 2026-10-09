@@ -13,7 +13,6 @@
 		type ScriptArgs
 	} from '$lib/gen'
 	import {
-		canWrite,
 		computeSharableHash,
 		copyToClipboard,
 		encodeState,
@@ -124,6 +123,9 @@
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { useEditRights } from '$lib/operatorWriteRights'
+	import { AGENT_STEP_ID } from '$lib/components/flows/conversations/agentEditorChat'
+	const editRights = useEditRights()
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -1045,7 +1047,7 @@
 		{/if}
 		{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 			{#if !$userStore?.operator}
-				{#if canWrite(job?.script_path ?? '', {}, $userStore)}
+				{#if editRights.canEditItem(isScript ? 'script' : 'flow', job?.script_path ?? '', {})}
 					<Button
 						href={`${stem}/edit/${job?.script_path}?workspace=${$workspaceStore}`}
 						on:click={() => {
@@ -1144,7 +1146,8 @@
 					showStepId
 				>
 					{#snippet errorAction()}
-						{#if failedTopLevelStep}
+						<!-- A saved agent's run is its one step: naming it adds nothing. -->
+						{#if failedTopLevelStep && failedTopLevelStep !== AGENT_STEP_ID}
 							<span>at step {failedTopLevelStep}</span>
 							{#if $enterpriseLicense && canRestart(failedRestart)}
 								<span>·</span>

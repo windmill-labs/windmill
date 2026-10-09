@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.829.0](https://github.com/windmill-labs/windmill/compare/v1.828.0...v1.829.0) (2026-10-09)
+
+
+### Features
+
+* add an api base url instance setting for displayed urls ([#11628](https://github.com/windmill-labs/windmill/issues/11628)) ([6acf185](https://github.com/windmill-labs/windmill/commit/6acf1858540e83b65b5218c50c98af692092d22e))
+* add Pi template to the AI sandbox picker ([#11619](https://github.com/windmill-labs/windmill/issues/11619)) ([a85d0b7](https://github.com/windmill-labs/windmill/commit/a85d0b76cc494aaa4a484a273ec534bdc2958102))
+* agent nits: multi-select, memory-off notice, agent step label ([#11622](https://github.com/windmill-labs/windmill/issues/11622)) ([c52ba2f](https://github.com/windmill-labs/windmill/commit/c52ba2fd30e19986522420ff02fae224a075b4f6))
+* export worker cpu, memory and occupancy metrics ([#11629](https://github.com/windmill-labs/windmill/issues/11629)) ([5d90f96](https://github.com/windmill-labs/windmill/commit/5d90f96863b64e9bc88ed35429f8068a6a788d1e))
+* let a job see that its worker is draining ([#11612](https://github.com/windmill-labs/windmill/issues/11612)) ([588d846](https://github.com/windmill-labs/windmill/commit/588d8463dfa1c8936b8753b5f0fd794ecb115203))
+* let workspace admins delete other users' drafts ([#11644](https://github.com/windmill-labs/windmill/issues/11644)) ([68376fc](https://github.com/windmill-labs/windmill/commit/68376fc011ef6406a820c69217058316514d3f8d))
+* per-script resource rollup and heaviest scripts table ([#11631](https://github.com/windmill-labs/windmill/issues/11631)) ([442357d](https://github.com/windmill-labs/windmill/commit/442357dbe8db0c52995572acd7385dedf4efdc42))
+* pipeline editor: assets-only view, Fix actions and draft triggers ([#11440](https://github.com/windmill-labs/windmill/issues/11440)) ([3dae553](https://github.com/windmill-labs/windmill/commit/3dae553576ba23b2c1f56e4deac01305c4645c01))
+
+
+### Bug Fixes
+
+* advertise the actual signing algorithm in OIDC discovery ([#11637](https://github.com/windmill-labs/windmill/issues/11637)) ([98fc65a](https://github.com/windmill-labs/windmill/commit/98fc65a16bbe2bc9515cdd5443304053c4322274))
+* ask a workspace for its session backups before pushing to it ([#11641](https://github.com/windmill-labs/windmill/issues/11641)) ([2ea846f](https://github.com/windmill-labs/windmill/commit/2ea846f563f5a77cbd3eae2eddee9e38a3700d00))
+* keep instance settings users sub-tabs from being squashed ([#11633](https://github.com/windmill-labs/windmill/issues/11633)) ([fb22e5c](https://github.com/windmill-labs/windmill/commit/fb22e5ce368eba9146e0d51b8fdabb52ca9f68f0))
+* keep raw app deploy panel settings shared with the editor ([#11616](https://github.com/windmill-labs/windmill/issues/11616)) ([0a95ea4](https://github.com/windmill-labs/windmill/commit/0a95ea47facaede2545cc4741d4a70c1c847e11a))
+* load schedules once per page load, poll critical alerts every 30s ([#11639](https://github.com/windmill-labs/windmill/issues/11639)) ([1b4e686](https://github.com/windmill-labs/windmill/commit/1b4e686b2f5de3138df0c3b6ed627ea0fe0a2f7d))
+* name the open workspace settings tab in the page header breadcrumb ([#11617](https://github.com/windmill-labs/windmill/issues/11617)) ([e233908](https://github.com/windmill-labs/windmill/commit/e233908c1e99a246dc7c94fa86ea82c5cbe9d6b3))
+* **python:** add missing import-to-package mappings for common modules ([#11638](https://github.com/windmill-labs/windmill/issues/11638)) ([ab8606f](https://github.com/windmill-labs/windmill/commit/ab8606f37921913ef1410da735abb5742c025225))
+* send hub script completions to the workspace handlers ([#11613](https://github.com/windmill-labs/windmill/issues/11613)) ([d685332](https://github.com/windmill-labs/windmill/commit/d685332771dcdfc718d7a2077fe1cdb3b323909b))
+* set WM_END_USER_EMAIL on direct script and flow runs ([#11636](https://github.com/windmill-labs/windmill/issues/11636)) ([2bdeceb](https://github.com/windmill-labs/windmill/commit/2bdeceba7fb6815cf3150ecb856afb8eb3872e44))
+* store a WAC parent's first start and wall duration ([#11625](https://github.com/windmill-labs/windmill/issues/11625)) ([8f28a58](https://github.com/windmill-labs/windmill/commit/8f28a5860595dbe558e6777a06bb97b6ec6a3e67))
+* sync back volume files rewritten to the same size ([#11620](https://github.com/windmill-labs/windmill/issues/11620)) ([2758920](https://github.com/windmill-labs/windmill/commit/2758920f1182ddd12e6473a644a4a966a435522e))
+* uniform decrypt error and clear stored credentials on logout ([#11632](https://github.com/windmill-labs/windmill/issues/11632)) ([987c321](https://github.com/windmill-labs/windmill/commit/987c321ebcd305df79fa945e941abc2b2e1d3e95))
+
+## [1.828.0](https://github.com/windmill-labs/windmill/compare/v1.827.0...v1.828.0) (2026-10-08)
+
+
+### Features
+
+* add gpt-6.1-sol to the chat, agent steps and weekly ai evals ([#11584](https://github.com/windmill-labs/windmill/issues/11584)) ([8f7e0c7](https://github.com/windmill-labs/windmill/commit/8f7e0c72848b56fa97f6f0141d930c7d15044864))
+* add wmill user list and document post-suspend approvers context ([#11600](https://github.com/windmill-labs/windmill/issues/11600)) ([1c2667c](https://github.com/windmill-labs/windmill/commit/1c2667cd5530925893cf69fd622938b6ffa55d1d))
+* ask before minting the frontend sdk token in the raw app editor ([#11604](https://github.com/windmill-labs/windmill/issues/11604)) ([6e948b0](https://github.com/windmill-labs/windmill/commit/6e948b07d13b85e9251c3a200bf149f167649bc4))
+* improve data table roles and grants UX ([#11562](https://github.com/windmill-labs/windmill/issues/11562)) ([d7d18f0](https://github.com/windmill-labs/windmill/commit/d7d18f00af4e2df8fcb1362c9439d2250d0ce4b6))
+* one page header across routes, and one sidebar for operators and developers ([#11310](https://github.com/windmill-labs/windmill/issues/11310)) ([41162b2](https://github.com/windmill-labs/windmill/commit/41162b270c70ddac6a256bde9acf31a629990e24))
+
+
+### Bug Fixes
+
+* add retry to runScriptByPathAsync and runScriptByHashAsync ([#11485](https://github.com/windmill-labs/windmill/issues/11485)) ([3f3b1c2](https://github.com/windmill-labs/windmill/commit/3f3b1c2c308ddaba377db45308711e7c660d8775))
+* describe exponential retry as multiplier × seconds^attempt ([#11546](https://github.com/windmill-labs/windmill/issues/11546)) ([a2e51cd](https://github.com/windmill-labs/windmill/commit/a2e51cdbaafb7d71b8e8bbd818e40c472098f9ba))
+* keep capturing job logs after a non-UTF-8 output line ([#11595](https://github.com/windmill-labs/windmill/issues/11595)) ([0e7d974](https://github.com/windmill-labs/windmill/commit/0e7d974ce9b468353ecb6618dace710704690687))
+
+
+### Performance Improvements
+
+* load public raw apps without the loading screen ([#11608](https://github.com/windmill-labs/windmill/issues/11608)) ([c09764f](https://github.com/windmill-labs/windmill/commit/c09764fa6516badddbdbb520af32e5d1541cf996))
+
 ## [1.827.0](https://github.com/windmill-labs/windmill/compare/v1.826.0...v1.827.0) (2026-10-07)
 
 

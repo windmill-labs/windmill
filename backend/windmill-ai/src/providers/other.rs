@@ -266,6 +266,7 @@ impl QueryBuilder for OtherQueryBuilder {
             mut events_str,
             stream_event_processor,
             usage: openai_usage,
+            ..
         } = openai_sse_parser;
 
         // Process streaming events with error handling

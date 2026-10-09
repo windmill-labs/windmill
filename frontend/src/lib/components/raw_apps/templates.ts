@@ -1179,6 +1179,271 @@ export const FRAMEWORK_TEMPLATES = {
 
 export type FrameworkKey = keyof typeof FRAMEWORK_TEMPLATES
 
+// An operator with builder rights gets no STARTER_RUNNABLES (they are inline code), so their
+// starter calls nothing and explains how to wire runnables already deployed in the workspace.
+const BUILDER_USES = [
+	{
+		title: 'Forms for your scripts',
+		text: 'Give a script a simple form, so anyone can run it without learning Windmill.'
+	},
+	{
+		title: 'Dashboards',
+		text: 'Show what a script or flow returns as a table or a chart, fresh every time the app opens.'
+	},
+	{
+		title: 'Self-service tools',
+		text: 'Share the app with your team or by link. It runs its scripts as you, so viewers need no access to them.'
+	}
+]
+
+const BUILDER_SAFETY =
+	'Your app can only run scripts and flows already deployed in this workspace, and it runs isolated from each viewer’s session.'
+
+const BUILDER_STEPS = [
+	{
+		title: 'Pick what it runs',
+		description: 'Choose a script or flow already deployed in this workspace.',
+		path: ['Backend panel', '+', 'Select a script or flow'],
+		note: 'You only see the ones you can read. Each one gets an id, such as a.'
+	},
+	{
+		title: 'Show it on the page',
+		description: 'Each runnable becomes a function the page can call by its id.',
+		note: 'Working with an AI assistant? Tell it the id and what to show. This is the line it writes.',
+		code: "import { backend } from './wmill'\n\nconst res = await backend.a({ name: 'world' })"
+	},
+	{
+		title: 'Run long jobs in the background',
+		description: 'backendAsync starts a job without making the page wait.',
+		note: 'Check on it with getJob, or follow its output as it runs with streamJob.',
+		code: "import { backendAsync, getJob } from './wmill'\n\nconst id = await backendAsync.a({ name: 'world' })\nconst job = await getJob(id)"
+	}
+]
+
+const BUILDER_CONTEXT_CODE = 'const ctx = (window as any).ctx\n\nctx.workspace, ctx.ctx?.username'
+
+const builderAppTsx = `import React from 'react'
+import './index.css'
+
+// Windmill injects the viewer (absent for anonymous visitors) and the workspace.
+const ctx = (window as any).ctx ?? {}
+const viewer: { name?: string; username?: string } | undefined = ctx.ctx
+const firstName = (viewer?.name || viewer?.username || '').split(' ')[0]
+
+type Step = { title: string; description: string; note: string; path?: string[]; code?: string }
+
+const uses: { title: string; text: string }[] = ${JSON.stringify(BUILDER_USES, null, 2)}
+
+const steps: Step[] = ${JSON.stringify(BUILDER_STEPS, null, 2)}
+
+const sectionTitle: React.CSSProperties = {
+  margin: '32px 0 12px',
+  fontSize: 12,
+  fontWeight: 600,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  color: 'var(--muted)'
+}
+
+function Card(props: { step: number; title: string; description: string; code?: string; children: React.ReactNode }) {
+  return (
+    <section className="card">
+      <div className="card-header">
+        <span className="card-step">{props.step}</span>
+        <div>
+          <h2>{props.title}</h2>
+          <p className="muted">{props.description}</p>
+        </div>
+      </div>
+      <div className="card-body">{props.children}</div>
+      {props.code && (
+        <pre className="snippet">
+          <code>{props.code}</code>
+        </pre>
+      )}
+    </section>
+  )
+}
+
+const App = () => {
+  return (
+    <main className="app">
+      <header className="hero">
+        <span className="eyebrow">Windmill app{ctx.workspace ? ' · ' + ctx.workspace : ''}</span>
+        <h1>{firstName ? 'Welcome, ' + firstName : 'Welcome'}</h1>
+        <p className="muted">
+          Turn the scripts and flows deployed in this workspace into a tool anyone can use. Edit
+          App.tsx to make it yours.
+        </p>
+      </header>
+      <h2 style={sectionTitle}>What you can build</h2>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))' }}>
+        {uses.map((use) => (
+          <section className="card" key={use.title} style={{ padding: 18, gap: 4 }}>
+            <h2 style={{ fontSize: 15 }}>{use.title}</h2>
+            <p className="muted" style={{ margin: 0 }}>{use.text}</p>
+          </section>
+        ))}
+      </div>
+      <p style={{ margin: '12px 0 0', padding: '10px 14px', borderRadius: 8, background: 'var(--accent-soft)', color: 'var(--fg-strong)' }}>
+        {${JSON.stringify(BUILDER_SAFETY)}}
+      </p>
+      <h2 style={sectionTitle}>How it works</h2>
+      <div className="grid">
+        {steps.map((step, i) => (
+          <Card key={step.title} step={i + 1} title={step.title} description={step.description} code={step.code}>
+            {step.path && (
+              <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                {step.path.map((label, j) => (
+                  <React.Fragment key={label}>
+                    {j > 0 && <span className="muted">→</span>}
+                    <span className="eyebrow">{label}</span>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+            <span className="muted">{step.note}</span>
+          </Card>
+        ))}
+        <Card
+          step={steps.length + 1}
+          title="Know who is viewing"
+          description="Windmill passes the workspace and the viewer to the app."
+          code={${JSON.stringify(BUILDER_CONTEXT_CODE)}}
+        >
+          {ctx.workspace ? (
+            <>
+              <div>
+                <span className="muted">Workspace </span>
+                <strong>{ctx.workspace}</strong>
+              </div>
+              <div>
+                <span className="muted">Viewer </span>
+                <strong>{viewer ? viewer.name || viewer.username : 'Anonymous visitor'}</strong>
+              </div>
+            </>
+          ) : (
+            <span className="muted">The editor preview has no viewer. Deploy the app to see yours here.</span>
+          )}
+        </Card>
+      </div>
+    </main>
+  )
+}
+
+export default App
+`
+
+const builderAppSvelte = `<script lang="ts">
+  // Windmill injects the viewer (absent for anonymous visitors) and the workspace.
+  const ctx = (window as any).ctx ?? {}
+  const viewer: { name?: string; username?: string } | undefined = ctx.ctx
+  const firstName = (viewer?.name || viewer?.username || '').split(' ')[0]
+
+  type Step = { title: string; description: string; note: string; path?: string[]; code?: string }
+
+  const uses: { title: string; text: string }[] = ${JSON.stringify(BUILDER_USES, null, 2)}
+  const steps: Step[] = ${JSON.stringify(BUILDER_STEPS, null, 2)}
+  const contextCode = ${JSON.stringify(BUILDER_CONTEXT_CODE)}
+</script>
+
+{#snippet header(step: number, title: string, description: string)}
+  <div class="card-header">
+    <span class="card-step">{step}</span>
+    <div>
+      <h2>{title}</h2>
+      <p class="muted">{description}</p>
+    </div>
+  </div>
+{/snippet}
+
+<main class="app">
+  <header class="hero">
+    <span class="eyebrow">Windmill app{ctx.workspace ? ' · ' + ctx.workspace : ''}</span>
+    <h1>{firstName ? 'Welcome, ' + firstName : 'Welcome'}</h1>
+    <p class="muted">
+      Turn the scripts and flows deployed in this workspace into a tool anyone can use. Edit
+      App.svelte to make it yours.
+    </p>
+  </header>
+
+  <h2 class="section-title">What you can build</h2>
+  <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr))">
+    {#each uses as use (use.title)}
+      <section class="card" style="padding: 18px; gap: 4px">
+        <h2 style="font-size: 15px">{use.title}</h2>
+        <p class="muted" style="margin: 0">{use.text}</p>
+      </section>
+    {/each}
+  </div>
+  <p class="safety">{${JSON.stringify(BUILDER_SAFETY)}}</p>
+
+  <h2 class="section-title">How it works</h2>
+  <div class="grid">
+    {#each steps as step, i (step.title)}
+      <section class="card">
+        {@render header(i + 1, step.title, step.description)}
+        <div class="card-body">
+          {#if step.path}
+            <div class="row" style="align-items: center; flex-wrap: wrap">
+              {#each step.path as label, j (label)}
+                {#if j > 0}<span class="muted">→</span>{/if}
+                <span class="eyebrow">{label}</span>
+              {/each}
+            </div>
+          {/if}
+          <span class="muted">{step.note}</span>
+        </div>
+        {#if step.code}
+          <pre class="snippet"><code>{step.code}</code></pre>
+        {/if}
+      </section>
+    {/each}
+
+    <section class="card">
+      {@render header(steps.length + 1, 'Know who is viewing', 'Windmill passes the workspace and the viewer to the app.')}
+      <div class="card-body">
+        {#if ctx.workspace}
+          <div><span class="muted">Workspace </span><strong>{ctx.workspace}</strong></div>
+          <div>
+            <span class="muted">Viewer </span>
+            <strong>{viewer ? viewer.name || viewer.username : 'Anonymous visitor'}</strong>
+          </div>
+        {:else}
+          <span class="muted">The editor preview has no viewer. Deploy the app to see yours here.</span>
+        {/if}
+      </div>
+      <pre class="snippet"><code>{contextCode}</code></pre>
+    </section>
+  </div>
+</main>
+
+<style>
+  .section-title {
+    margin: 32px 0 12px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .safety {
+    margin: 12px 0 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--fg-strong);
+  }
+</style>
+`
+
+export const BUILDER_FRAMEWORK_TEMPLATES = {
+	react19: { ...react19Template, '/App.tsx': builderAppTsx },
+	react18: { ...react18Template, '/App.tsx': builderAppTsx },
+	svelte5: { ...svelte5Template, '/App.svelte': builderAppSvelte }
+}
+
 type StarterArg = { type: 'string' | 'number' }
 
 function inlineRunnable(

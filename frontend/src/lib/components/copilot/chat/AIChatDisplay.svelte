@@ -1107,16 +1107,13 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							</Tooltip>
 						{:else if canAttachFiles}
 							<DropdownV2
-								items={async () => {
-									// Both submenus fetch on the menu's first open, so they start
-									// together: awaited inline they queue, and the whole menu —
-									// attachments included — waits out two round trips.
+								items={() => {
 									const closeMenu = () => (plusMenuOpen = false)
 									const inGlobal = chatHost.mode === AIMode.GLOBAL
-									const [skillItems, mcpItems] = await Promise.all([
-										inGlobal ? skillsMenu.items(closeMenu) : undefined,
-										inGlobal ? mcpMenu.items(closeMenu) : undefined
-									])
+									if (inGlobal) {
+										skillsMenu.refresh()
+										mcpMenu.refresh()
+									}
 									return [
 										{
 											displayName: 'Attach file or image',
@@ -1156,23 +1153,24 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 													}
 												]
 											: []),
-										...(skillItems
+										...(inGlobal
 											? [
 													{
 														displayName: 'Skills',
 														icon: BookOpen,
 														separatorTop: true,
-														submenuItems: skillItems
-													}
-												]
-											: []),
-										...(mcpItems
-											? [
+														// Getters so the submenus fill in when their fetch lands
+														// rather than the whole menu waiting on it.
+														get submenuItems() {
+															return skillsMenu.items(closeMenu)
+														}
+													},
 													{
 														displayName: 'MCP connections',
 														icon: Plug,
-														separatorTop: !skillItems,
-														submenuItems: mcpItems
+														get submenuItems() {
+															return mcpMenu.items(closeMenu)
+														}
 													}
 												]
 											: [])

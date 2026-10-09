@@ -9,8 +9,8 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds } from '$lib/stores'
-	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -36,6 +36,7 @@
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import { base } from '$lib/base'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
@@ -48,7 +49,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
-	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let initialPath = $state('')
@@ -69,8 +70,9 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		(permsPath === undefined || canWrite(permsPath, permsForWrite ?? {}, actingUser)) &&
-			!$triggerLock
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
 	)
 	let drawerLoading = $state(true)
 	let topic_id: string = $state('')
@@ -88,7 +90,7 @@
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
-	let base_endpoint = $derived(`${window.location.origin}${base}`)
+	let base_endpoint = $derived(apiBaseUrl())
 	let auto_acknowledge_msg = $state(true)
 	let ack_deadline: number | undefined = $state()
 	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('error_handler')
@@ -163,14 +165,20 @@
 	)
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getGcpCaptureConfig : () => ({}))
 
+	// Set by `openNew(…, { onSaveDraft })`: the caller keeps the trigger as its own
+	// draft, so Save hands it the config instead of writing it.
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
+
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
 		defaultValues?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		saveDraftHandler = undefined
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -201,8 +209,14 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		opts: {
+			onSaveDraft?: (cfg: Record<string, any>) => boolean
+			/** A config this editor saved before, re-applied over the defaults. */
+			draftConfig?: Record<string, any>
+		} = {}
 	) {
+		saveDraftHandler = opts.onSaveDraft
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -244,6 +258,7 @@
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
 			originalConfig = undefined
+			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig)
 		} finally {
 			drawerLoading = false
 		}
@@ -307,6 +322,11 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
+		if (saveDraftHandler) {
+			if (!saveDraftHandler($state.snapshot(getGcpConfig()))) return
+			drawer?.closeDrawer()
+			return
+		}
 		deploymentLoading = true
 		const previousPath = initialPath
 		const cfg = gcpConfig
@@ -359,7 +379,9 @@
 			subscription_id,
 			delivery_type,
 			delivery_config,
-			base_endpoint,
+			// The capture URL shown to the user stays on the browsing origin, so the
+			// endpoint registered for it must too.
+			base_endpoint: `${window.location.origin}${base}`,
 			auto_acknowledge_msg,
 			ack_deadline,
 			topic_id,
@@ -441,7 +463,9 @@
 			? can_write
 				? `Edit GCP Pub/Sub trigger ${initialPath}`
 				: `GCP Pub/Sub trigger ${initialPath}`
-			: 'New GCP Pub/Sub trigger'}
+			: saveDraftHandler
+				? 'Draft GCP Pub/Sub trigger'
+				: 'New GCP Pub/Sub trigger'}
 		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet actions()}
@@ -498,6 +522,7 @@
 			{allowDraft}
 			{isDeployed}
 			onUpdate={updateTrigger}
+			saveLabel={saveDraftHandler ? 'Save draft' : undefined}
 			{onReset}
 			{onDelete}
 			onToggleMode={handleToggleMode}

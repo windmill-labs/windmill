@@ -1,6 +1,9 @@
 import { getDraftItems, type DraftItem } from '$lib/workspaceDrafts.svelte'
+import { get } from 'svelte/store'
+import { userWorkspaces } from '$lib/stores'
 import {
 	checkDeployPermission,
+	checkDeployRules,
 	checkItemExists,
 	deployPermissionForKind,
 	getItemValue,
@@ -27,6 +30,8 @@ import {
 import { maskKey } from './modifiedItemsMask'
 import { sessionState } from './sessionState.svelte'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { AssetService } from '$lib/gen'
+import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 
 export type DeploymentStatus = { status: 'loading' | 'failed'; error?: string }
 
@@ -52,11 +57,23 @@ export interface SessionDeployModelArgs {
 	onItemDiscarded?: (item: DeployItem) => void
 	/** Chat-modified-items mask; undefined shows every draft. */
 	mask?: Set<string>
+	/** Deploys a pipeline folder's draft bundle, which no per-item deploy can: it
+	 *  expands into the folder's scripts and triggers. */
+	deployPipeline?: (folder: string) => Promise<DeployResult>
 }
 
 export interface DiffValues {
 	before: unknown
 	after: unknown
+}
+
+// A pipeline has no row of its own: it exists while its folder holds pipeline scripts.
+async function itemExists(kind: Kind, path: string, workspace: string): Promise<boolean> {
+	if (kind !== PIPELINE_DRAFT_KIND) return checkItemExists(kind, path, workspace)
+	const folder = pipelineFolderFromBundlePath(path)
+	if (!folder) return false
+	const pipelines = await AssetService.listPipelineFolders({ workspace })
+	return pipelines.some((p) => p.folder === folder)
 }
 
 /** Resolves which mask-only candidates still exist in the session workspace
@@ -100,7 +117,7 @@ export function useExistingMaskKeys(
 			// workspace; a discarded or deleted one doesn't.
 			void Promise.all(
 				cands.map((c) =>
-					checkItemExists(c.deployKind, c.path, workspaceId)
+					itemExists(c.deployKind, c.path, workspaceId)
 						.then((exists) => (exists ? c.key : null))
 						.catch(() => null)
 				)
@@ -214,6 +231,9 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	// button disables with a reason instead of failing on click. `ok` defaults
 	// true while resolving (fail-open).
 	let deployPerm = $state<DeployPermission>({ ok: true })
+	// `checkDeployPermission` refuses every operator, but flows.rs lets one with the
+	// workspace's `builder_flows` right deploy flows, under the rules alone.
+	let builderFlowPerm = $state<DeployPermission | undefined>(undefined)
 	let deployPermFetchedFor = ''
 	$effect(() => {
 		const ws = getArgs().workspaceId
@@ -223,11 +243,24 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 			// Reset to fail-open for the new workspace and drop a stale resolution
 			// (a slower fetch for the previous workspace must not gate this one).
 			deployPerm = { ok: true }
-			void checkDeployPermission(ws).then((perm) => {
-				if (deployPermFetchedFor === ws) deployPerm = perm
+			builderFlowPerm = undefined
+			void checkDeployPermission(ws).then(async (perm) => {
+				if (deployPermFetchedFor !== ws) return
+				deployPerm = perm
+				const builder =
+					get(userWorkspaces).find((w) => w.id === ws)?.operator_settings?.builder_flows === true
+				if (perm.refusedBy === 'operator' && builder) {
+					const rules = await checkDeployRules(ws)
+					if (deployPermFetchedFor === ws) builderFlowPerm = rules
+				}
 			})
 		})
 	})
+
+	function permissionFor(kind: Kind): DeployPermission {
+		if (kind === 'flow' && builderFlowPerm) return deployPermissionForKind(builderFlowPerm, kind)
+		return deployPermissionForKind(deployPerm, kind)
+	}
 
 	// ── Deploy execution ─────────────────────────────────────────────────────
 	// Per-item transient deploy state (keyed by DeployItem.key): loading or
@@ -246,11 +279,18 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	async function runPlan(entry: DeployPlanEntry): Promise<DeployResult> {
 		const cur = getArgs().workspaceId
 		switch (entry.op) {
-			case 'deploy_draft':
+			case 'deploy_draft': {
+				const folder =
+					entry.draftKind === PIPELINE_DRAFT_KIND
+						? pipelineFolderFromBundlePath(entry.path)
+						: undefined
+				const deployPipeline = getArgs().deployPipeline
+				if (folder && deployPipeline) return deployPipeline(folder)
 				return deployDraft(entry.draftKind, entry.path, cur, {
 					draftOnly: entry.draftOnly,
 					rawApp: entry.rawApp
 				})
+			}
 			case 'discard':
 				return discardDraft(entry.draftKind, entry.path, cur, entry.draftOnly, entry.legacy)
 		}
@@ -271,8 +311,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		// Don't attempt a deploy we know the user can't make (no write permission on
 		// the path, or refused by the preflight for this kind) — the UI disables it
 		// too; this is the guard behind that.
-		if (!discard && (!item.canWrite || !deployPermissionForKind(deployPerm, item.deployKind).ok))
-			return false
+		if (!discard && (!item.canWrite || !permissionFor(item.deployKind).ok)) return false
 		setStatus(item.key, { status: 'loading' })
 		deploying = true
 		try {
@@ -314,6 +353,16 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 
 	// ── Diff values (one resolver for tree + column) ─────────────────────────
 	async function loadDiffValues(item: DeployItem): Promise<DiffValues> {
+		const pipelineFolder =
+			item.draftKind === PIPELINE_DRAFT_KIND ? pipelineFolderFromBundlePath(item.path) : undefined
+		if (pipelineFolder) {
+			// Dynamic: the pipeline deploy module reaches every trigger kind's save utils.
+			const { loadPipelineDraftDiff } = await import(
+				'$lib/components/assets/AssetGraph/pipelineDeploy.svelte'
+			)
+			if (item.hasDraft) return loadPipelineDraftDiff(getArgs().workspaceId, pipelineFolder)
+			return { before: undefined, after: undefined }
+		}
 		const base = diffBaseFor(item, getArgs().workspaceId)
 		if (base.kind === 'draft') {
 			const { deployed, draft } = await getDraftDiffValues(
@@ -358,7 +407,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		 * that kind stays deployable while a script row does not.
 		 */
 		deployPermissionForKind(kind: Kind): DeployPermission {
-			return deployPermissionForKind(deployPerm, kind)
+			return permissionFor(kind)
 		},
 		deployRow,
 		discardRow

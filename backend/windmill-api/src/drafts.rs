@@ -15,15 +15,16 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use windmill_api_flows::flows::validate_operator_flow;
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     flows::FlowValue,
     user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     users::resolve_username_to_email,
-    utils::{check_proper_path, strip_json_nul},
+    utils::{check_proper_path, require_admin, strip_json_nul},
     variables::{build_crypt, encrypt},
-    workspaces::operator_can_build_flows,
+    workspaces::{operator_builder_rights, BuilderKind},
 };
 
 pub fn workspaced_service() -> Router {
@@ -32,6 +33,10 @@ pub fn workspaced_service() -> Router {
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
         .route("/get_own/{kind}/{*path}", get(get_own_draft))
         .route("/update/{kind}/{*path}", post(update_draft))
+        .route(
+            "/delete_for_user/{kind}/{*path}",
+            post(delete_draft_for_user),
+        )
         .route("/move/{kind}/{*path}", post(move_draft))
         .route("/migrate_legacy/{kind}/{*path}", post(migrate_legacy_draft))
 }
@@ -107,7 +112,7 @@ async fn list_drafts(
     // Without builder rights an operator has no drafts of their own (they can't write any, see
     // `require_can_write_path`), so this list is always empty for them. They can still READ some
     // collaborators' drafts via `/drafts/get`.
-    if authed.is_operator && !operator_can_build_flows(&db, &w_id).await? {
+    if authed.is_operator && !operator_builder_rights(&db, &w_id).await?.any() {
         return Ok(Json(vec![]));
     }
     let all_users = query.all_users.unwrap_or(false);
@@ -491,6 +496,31 @@ async fn update_draft(
                 &db,
                 &user_db,
                 &w_id,
+            )
+            .await?;
+        }
+    }
+
+    // A raw-app draft carries the app value and its policy side by side.
+    if authed.is_operator && kind == UserDraftItemKind::RawApp {
+        if let Some(value) = &req.value {
+            let draft: serde_json::Value = serde_json::from_str(&strip_json_nul(value.0.get()))
+                .map_err(|e| Error::BadRequest(format!("Invalid app draft: {e}")))?;
+            let mut policy = draft
+                .get("policy")
+                .filter(|p| !p.is_null())
+                .map(|p| serde_json::from_value::<crate::apps::Policy>(p.clone()))
+                .transpose()
+                .map_err(|e| Error::BadRequest(format!("Invalid app draft policy: {e}")))?;
+            crate::apps::validate_operator_composed_app(
+                &authed,
+                &db,
+                &user_db,
+                &w_id,
+                crate::apps::BuilderAppWrite::Draft,
+                true,
+                Some(&value.0),
+                policy.as_mut(),
             )
             .await?;
         }
@@ -1000,6 +1030,85 @@ async fn migrate_legacy_draft(
     }
 }
 
+#[derive(Deserialize, Debug)]
+pub struct DeleteDraftForUserQuery {
+    /// Workspace username of the draft owner. Absent: every draft at the path,
+    /// the legacy ownerless one and the caller's own included.
+    pub username: Option<String>,
+}
+
+/// Delete ANOTHER user's draft at a path, or every draft there, for workspace
+/// admins (and superadmins, which carry `is_admin` in a workspace). Covers the
+/// kinds whose authors are visible to others (`shares_drafts_across_users`); the
+/// owner is named by workspace username, as on `/drafts/get`.
+async fn delete_draft_for_user(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
+    Query(query): Query<DeleteDraftForUserQuery>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    if !kind.shares_drafts_across_users() {
+        return Err(Error::NotFound(
+            "drafts for this item kind are private to their owner".to_string(),
+        ));
+    }
+    let path = path.to_path();
+    let username = query.username.as_deref();
+    let owner_email = match username {
+        Some(username) => Some(
+            resolve_username_to_email(&w_id, username, &db)
+                .await?
+                .ok_or_else(|| {
+                    Error::NotFound(format!("no user with username {username} in workspace"))
+                })?,
+        ),
+        None => None,
+    };
+
+    let mut tx = db.begin().await?;
+    let deleted = sqlx::query_scalar!(
+        r#"DELETE FROM draft
+           WHERE workspace_id = $1 AND path = $2 AND typ = $3
+             AND ($4::text IS NULL OR email = $4)
+           RETURNING 1 as "one!""#,
+        &w_id,
+        path,
+        kind as UserDraftItemKind,
+        owner_email.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .len();
+    if deleted == 0 {
+        return Err(Error::NotFound(match username {
+            Some(username) => format!("no draft for {username} at {path}"),
+            None => format!("no draft at {path}"),
+        }));
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "drafts.delete_for_user",
+        ActionKind::Delete,
+        &w_id,
+        Some(path),
+        Some(
+            [
+                ("kind", kind.as_str()),
+                ("username", username.unwrap_or("*")),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(match username {
+        Some(username) => format!("Deleted {username}'s draft at {path}"),
+        None => format!("Deleted {deleted} draft(s) at {path}"),
+    })
+}
+
 /// For variable-kind drafts with `variable.is_secret == true`, encrypt
 /// `variable.value` with the workspace crypt key and mark it
 /// `$encrypted:<base64>` so the secret never persists in plaintext at rest.
@@ -1161,14 +1270,21 @@ pub(crate) async fn require_can_write_path(
     if authed.is_admin {
         return Ok(());
     }
-    // Operators are read-only and never WRITE drafts, except a flow draft where the workspace
-    // granted the builder right: the kind has to be checked, or the right would open drafts of
-    // kinds it says nothing about. Read access is deliberately asymmetric:
+    // Operators are read-only and never WRITE drafts, except of a kind the workspace granted them
+    // the matching builder right for: a flows-only workspace must not get raw-app drafts through
+    // here. Read access is deliberately asymmetric:
     // `require_can_read_path` has no operator block, so an operator can still READ a draft they
     // can read via `/drafts/get`, mirroring their read access to deployed content. Intended.
     if authed.is_operator {
-        let granted =
-            matches!(kind, UserDraftItemKind::Flow) && operator_can_build_flows(db, w_id).await?;
+        let allowed = match kind {
+            UserDraftItemKind::Flow => Some(BuilderKind::Flows),
+            UserDraftItemKind::RawApp => Some(BuilderKind::Apps),
+            _ => None,
+        };
+        let granted = match allowed {
+            Some(kind) => operator_builder_rights(db, w_id).await?.has(kind),
+            None => false,
+        };
         if !granted {
             return Err(Error::PermissionDenied(
                 "operators cannot save drafts".to_string(),

@@ -2,10 +2,11 @@
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Section from './Section.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
-	let url = $derived(`${window.location.protocol}//${window.location.hostname}/`)
+	let url = $derived(`${apiBaseUrl()}/`)
 </script>
 
 <Section label="CLI quick setup">
