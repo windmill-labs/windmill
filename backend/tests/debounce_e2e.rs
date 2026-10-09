@@ -33,7 +33,7 @@ mod debounce_e2e {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export async function main(items: any[]) { return items }",
                     "input_transforms": {
                         "items": { "type": "javascript", "expr": "flow_input.items" }

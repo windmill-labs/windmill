@@ -38,8 +38,8 @@ async fn create_app_with_inline_script(port: u16, path: &str) -> anyhow::Result<
                 "subgrids": {},
                 "hiddenInlineScripts": [{
                     "name": "get_email",
-                    "language": "deno",
-                    "content": "export function main() { return Deno.env.get(\"WM_END_USER_EMAIL\") || \"\"; }",
+                    "language": "bun",
+                    "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }",
                     "path": "f/test/email_app/get_email"
                 }]
             },
@@ -84,8 +84,8 @@ async fn create_raw_app_with_inline_script(port: u16, path: &str) -> anyhow::Res
                 "css": "",
                 "inlineScripts": [{
                     "name": "get_email",
-                    "language": "deno",
-                    "content": "export function main() { return Deno.env.get(\"WM_END_USER_EMAIL\") || \"\"; }"
+                    "language": "bun",
+                    "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }"
                 }]
             },
             "policy": {
@@ -197,8 +197,8 @@ async fn run_app_inline_script(
         "args": {},
         "component": "get_email",
         "raw_code": {
-            "language": "deno",
-            "content": "export function main() { return Deno.env.get(\"WM_END_USER_EMAIL\") || \"\"; }",
+            "language": "bun",
+            "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }",
             "path": format!("{}/get_email", app_path)
         }
     });
@@ -234,8 +234,8 @@ async fn run_raw_app_inline_script(
         "args": {},
         "component": "get_email",
         "raw_code": {
-            "language": "deno",
-            "content": "export function main() { return Deno.env.get(\"WM_END_USER_EMAIL\") || \"\"; }"
+            "language": "bun",
+            "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }"
         }
     });
     if force_viewer {
