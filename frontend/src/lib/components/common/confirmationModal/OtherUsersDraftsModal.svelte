@@ -7,7 +7,8 @@
 	 */
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Users, Pencil, GitCompareArrows, Wrench } from 'lucide-svelte'
+	import { Users, Pencil, GitCompareArrows, Wrench, Trash2 } from 'lucide-svelte'
+	import ConfirmationModal from './ConfirmationModal.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -54,8 +55,33 @@
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let migrateOpen = $state(false)
 
-	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins.
-	const canMigrateLegacy = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
+	let deleting = $state<OtherDraftUser | undefined>(undefined)
+	let deleteBusy = $state(false)
+
+	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins,
+	// and only they can delete a draft that belongs to someone else.
+	const isAdmin = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
+
+	async function deleteDraft(owner: OtherDraftUser) {
+		if (!owner.username) return
+		deleteBusy = true
+		try {
+			await DraftService.deleteDraftForUser({
+				workspace,
+				kind: itemKind,
+				path,
+				username: owner.username
+			})
+			sendUserToast(`Deleted ${owner.username}'s draft`)
+			deleting = undefined
+			isOpen = false
+			await onReload?.()
+		} catch (e) {
+			sendUserToast(`Could not delete draft: ${e.body ?? e.message}`, true)
+		} finally {
+			deleteBusy = false
+		}
+	}
 
 	function ownerLabel(owner: OtherDraftUser): string {
 		return owner.username ?? 'Legacy draft'
@@ -184,7 +210,7 @@
 					>
 						Load
 					</Button>
-					{#if !owner.username && canMigrateLegacy}
+					{#if !owner.username && isAdmin}
 						<Button
 							variant="default"
 							size="xs"
@@ -192,6 +218,17 @@
 							on:click={() => (migrateOpen = true)}
 						>
 							Migrate
+						</Button>
+					{:else if owner.username && isAdmin}
+						<Button
+							variant="default"
+							unifiedSize="sm"
+							destructive
+							startIcon={{ icon: Trash2 }}
+							disabled={busyFor !== null}
+							onclick={() => (deleting = owner)}
+						>
+							Delete
 						</Button>
 					{/if}
 				</li>
@@ -205,6 +242,23 @@
 </Modal2>
 
 <DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
+
+<ConfirmationModal
+	open={deleting !== undefined}
+	title="Delete {deleting?.username}'s draft?"
+	confirmationText="Delete"
+	loading={deleteBusy}
+	onConfirmed={() => {
+		if (deleting) void deleteDraft(deleting)
+	}}
+	onCanceled={() => (deleting = undefined)}
+>
+	<span class="text-sm">
+		This permanently deletes the draft {deleting?.username} has at
+		<span class="font-medium text-primary">{path}</span>. Their unsaved work there is lost and can't
+		be recovered.
+	</span>
+</ConfirmationModal>
 
 <MigrateLegacyDraftModal
 	bind:isOpen={migrateOpen}

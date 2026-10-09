@@ -15,13 +15,14 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use windmill_api_flows::flows::validate_operator_flow;
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     flows::FlowValue,
     user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     users::resolve_username_to_email,
-    utils::{check_proper_path, strip_json_nul},
+    utils::{check_proper_path, require_admin, strip_json_nul},
     variables::{build_crypt, encrypt},
     workspaces::operator_can_build_flows,
 };
@@ -32,6 +33,10 @@ pub fn workspaced_service() -> Router {
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
         .route("/get_own/{kind}/{*path}", get(get_own_draft))
         .route("/update/{kind}/{*path}", post(update_draft))
+        .route(
+            "/delete_for_user/{kind}/{*path}",
+            post(delete_draft_for_user),
+        )
         .route("/move/{kind}/{*path}", post(move_draft))
         .route("/migrate_legacy/{kind}/{*path}", post(migrate_legacy_draft))
 }
@@ -998,6 +1003,65 @@ async fn migrate_legacy_draft(
             Ok(format!("Assigned legacy draft at {path} to you"))
         }
     }
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DeleteDraftForUserQuery {
+    /// Workspace username of the draft owner.
+    pub username: String,
+}
+
+/// Delete ANOTHER user's draft at a path, for workspace admins (and superadmins,
+/// which carry `is_admin` in a workspace). Covers the kinds whose authors are
+/// visible to others (`shares_drafts_across_users`); the owner is named by
+/// workspace username, as on `/drafts/get`.
+async fn delete_draft_for_user(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
+    Query(query): Query<DeleteDraftForUserQuery>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    if !kind.shares_drafts_across_users() {
+        return Err(Error::NotFound(
+            "drafts for this item kind are private to their owner".to_string(),
+        ));
+    }
+    let path = path.to_path();
+    let username = &query.username;
+    let owner_email = resolve_username_to_email(&w_id, username, &db)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("no user with username {username} in workspace")))?;
+
+    let mut tx = db.begin().await?;
+    let deleted = sqlx::query_scalar!(
+        r#"DELETE FROM draft
+           WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email = $4
+           RETURNING 1 as "one!""#,
+        &w_id,
+        path,
+        kind as UserDraftItemKind,
+        &owner_email,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if deleted.is_none() {
+        return Err(Error::NotFound(format!(
+            "no draft for {username} at {path}"
+        )));
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "drafts.delete_for_user",
+        ActionKind::Delete,
+        &w_id,
+        Some(path),
+        Some([("kind", kind.as_str()), ("username", username.as_str())].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("Deleted {username}'s draft at {path}"))
 }
 
 /// For variable-kind drafts with `variable.is_secret == true`, encrypt
