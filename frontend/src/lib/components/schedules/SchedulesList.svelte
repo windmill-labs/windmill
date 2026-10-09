@@ -56,7 +56,7 @@
 	import JobPreview from '$lib/components/jobs/JobPreview.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { page } from '$app/stores'
 	import { useHostedPage } from '$lib/components/hostedPage'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -98,7 +98,15 @@
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
+	// Bumped by every load and on destroy: a load that resumes from an await under an older
+	// value was superseded or outlived the page, and must not fetch or write anything more.
+	let loadGeneration = 0
+	onDestroy(() => {
+		loadGeneration++
+	})
+
 	async function loadSchedules(): Promise<void> {
+		const generation = ++loadGeneration
 		const currentFilters = filters.val
 
 		// Build API parameters from filters.
@@ -139,6 +147,7 @@
 		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, operatingUser.current), ...x }
 		})
+		if (generation !== loadGeneration) return
 
 		// Extract unique values for autocomplete
 		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
@@ -152,23 +161,25 @@
 		// after the schedule core data has been loaded, load all the job stats
 		// TODO: we could potentially not reload the job stats on every call to loadSchedules, but for now it's
 		// simpler to always call it. Update if performance becomes an issue.
-		loadSchedulesWithJobStats()
+		loadSchedulesWithJobStats(generation)
 	}
 
-	// Reload schedules when filters change
+	// One effect for every reason to reload (filters, workspace, user), so that mounting
+	// issues a single load rather than one per reason.
 	$effect(() => {
 		filters.val
-		if ($operatingWorkspace) {
+		if ($operatingWorkspace && operatingUser.current) {
 			untrack(() => loadSchedules())
 		}
 	})
 
-	async function loadSchedulesWithJobStats(): Promise<void> {
+	async function loadSchedulesWithJobStats(generation: number): Promise<void> {
 		loadingSchedulesWithJobStats = true
 		let schedulesWithJobsByPath = new Map<string, ScheduleW>()
 		let schedulesWithJobsList = await ScheduleService.listSchedulesWithJobs({
 			workspace: $operatingWorkspace!
 		})
+		if (generation !== loadGeneration) return
 		schedulesWithJobsList.map((x) => {
 			schedulesWithJobsByPath[x.path] = x
 		})
@@ -222,13 +233,6 @@
 		}
 	}
 
-	$effect(() => {
-		if ($operatingWorkspace && operatingUser.current) {
-			untrack(() => {
-				loadSchedules()
-			})
-		}
-	})
 	let scheduleEditor: ScheduleEditor | undefined = $state()
 
 	// Deep link: #<path> opens that schedule's edit drawer. Tracks the last
