@@ -1295,7 +1295,7 @@
 		{/if}
 		<Pane class="flex flex-col min-h-0 overflow-hidden">
 			{#if fileMetadata === undefined}
-				<div class="p-4">
+				<div class="px-3 py-3">
 					{#if fileInfoLoading}
 						<Section label="Loading..." />
 					{:else if fileListUnavailable}
@@ -1380,15 +1380,17 @@
 			     above for the download/move toolbar; S3FilePreview does an
 			     independent load — fine on this non-hot path, and avoids
 			     plumbing pre-loaded state through component boundaries. -->
-			<S3FilePreview
-				fileKey={fileMetadata?.fileKey}
-				{storage}
-				{s3ResourcePath}
-				workspace={ws}
-				{loadFilePreviewRequest}
-				{loadFileMetadataRequest}
-				class="h-full"
-			/>
+			<div class="flex-1 min-h-0 mx-3 mb-3 rounded-md border overflow-hidden">
+				<S3FilePreview
+					fileKey={fileMetadata?.fileKey}
+					{storage}
+					{s3ResourcePath}
+					workspace={ws}
+					{loadFilePreviewRequest}
+					{loadFileMetadataRequest}
+					class="h-full"
+				/>
+			</div>
 		</Pane>
 	</Splitpanes>
 {/if}
