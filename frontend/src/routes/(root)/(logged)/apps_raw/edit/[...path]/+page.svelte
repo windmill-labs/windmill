@@ -196,6 +196,8 @@
 		// `?new_draft` loads the saved draft instead of blanking it — see
 		// shouldSeedNewDraft.
 		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'raw_app', path)) {
+			await workspaceListLoaded()
+			if (tok !== loadAppToken) return
 			isNewApp = true
 			// Page reused across same-route nav: clear the previous path's
 			// draft-presence state so it doesn't bleed onto the fresh draft.
@@ -278,7 +280,6 @@
 			}
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
-			await workspaceListLoaded()
 			const seedFiles = {
 				...($operatorBuilderApps ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template)
 			}
