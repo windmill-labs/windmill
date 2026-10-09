@@ -7,7 +7,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, pluralize, storeLocalSetting } from '$lib/utils'
-	import { useScheduleLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useScheduleLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -68,6 +68,7 @@
 		useOperatingUser
 	} from '$lib/components/operatingWorkspace.svelte'
 	const scheduleLock = useScheduleLock()
+	const editRights = useEditRights()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -416,7 +417,7 @@
 		is_draft
 	} = s}
 	{@const hasDraft = getLocalDraftHint($operatingWorkspace, 'trigger_schedule', path) ?? is_draft}
-	{@const canEdit = canWrite && !$scheduleLock}
+	{@const canEdit = editRights.canEditItem('schedule', path, extra_perms)}
 	{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 	{@const avg_s = jobs ? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length : undefined}
 
@@ -551,7 +552,7 @@
 						}}
 						checked={!draft_only && enabled}
 						on:change={(e) => {
-							if (canWrite) {
+							if (canEdit) {
 								setScheduleEnabled(path, e.detail)
 							} else {
 								sendUserToast('not enough permission', true)

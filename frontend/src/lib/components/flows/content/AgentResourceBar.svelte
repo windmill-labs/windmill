@@ -8,8 +8,8 @@
 	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore } from '$lib/stores'
-	import { canWrite } from '$lib/utils'
+	import { userStore, userWorkspaces } from '$lib/stores'
+	import { canEditItem } from '$lib/editRights'
 	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
 		AGENT_BRAIN_KEYS,
@@ -235,8 +235,13 @@
 	let unavailable = $derived(linkedInfo?.unavailable ?? false)
 	let canEditAgent = $derived(
 		!!agent &&
-			!$userStore?.operator &&
-			canWrite(agent, linkedInfo?.extraPerms ?? {}, $userStore ?? undefined)
+			canEditItem(
+				'agent',
+				agent,
+				linkedInfo?.extraPerms,
+				$userStore ?? undefined,
+				$userWorkspaces.find((w) => w.id === ws)?.operator_settings
+			)
 	)
 	// The hint flips on the first keystroke in the agent editor, so the badge does not wait for the
 	// debounced autosave and the refetch behind it; the fetched answer covers a draft written

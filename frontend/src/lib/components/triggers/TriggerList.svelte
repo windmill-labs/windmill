@@ -73,7 +73,7 @@
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
 	import { getHttpRoute } from './http/utils'
 	import { getEmailAddress, getEmailDomain } from './email/utils'
 	import { TRIGGER_LIST_CONFIG, type TriggerRow } from './triggerListConfig'
@@ -84,6 +84,7 @@
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	let { triggerKind }: { triggerKind: TriggerKind } = $props()
 
@@ -697,7 +698,7 @@
 	{@const effectiveMode = draft_only ? 'disabled' : mode}
 	{@const live = isLive(row)}
 	{@const copy = copyUrl(row)}
-	{@const canEdit = canWrite && !$triggerLock}
+	{@const canEdit = editRights.canEditItem('trigger', path, extra_perms)}
 
 	<div
 		class={twMerge(
