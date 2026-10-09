@@ -88,7 +88,11 @@
 				username: username ?? undefined
 			})
 		} catch (e) {
-			if (target === 'all') UserDraft.restartSync(itemKind, path, { workspace })
+			if (target === 'all') {
+				UserDraft.restartSync(itemKind, path, { workspace })
+				// `quiesce` cancelled the timer of an edit still waiting to save.
+				void UserDraftDbSyncer.flush(query, { honorAutosaveToggle: true })
+			}
 			sendUserToast(`Could not delete draft: ${e.body ?? e.message}`, true)
 			return
 		} finally {
