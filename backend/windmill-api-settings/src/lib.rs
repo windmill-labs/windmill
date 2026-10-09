@@ -2624,7 +2624,10 @@ async fn sync_cached_resource_types(
         }
     }
 
-    Ok(outcome.summary())
+    Ok(match outcome.source {
+        SyncSource::Hub => outcome.summary(),
+        SyncSource::ImageCache => format!("{}, the hub being unavailable", outcome.summary()),
+    })
 }
 
 #[cfg(test)]

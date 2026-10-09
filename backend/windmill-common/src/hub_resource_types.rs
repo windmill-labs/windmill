@@ -230,8 +230,7 @@ impl SyncOutcome {
                 format!("Synced {synced} resource types from the hub ({unchanged} unchanged)")
             }
             SyncSource::ImageCache => format!(
-                "Synced {synced} resource types from the image's cache, the hub being unavailable \
-                 ({unchanged} unchanged)"
+                "Synced {synced} resource types from the image's cache ({unchanged} unchanged)"
             ),
         }
     }
@@ -351,7 +350,7 @@ async fn sync_from_hub(db: &DB) -> Result<SyncOutcome> {
 }
 
 /// Syncs from the configured hub, falling back to the image's cache when the hub is disabled
-/// or unreachable and the instance has never synced from a hub (see [`sync_from_image_cache`]).
+/// or unreachable and the instance has never synced from a hub.
 pub async fn sync(db: &DB) -> Result<SyncOutcome> {
     let hub_err = if setting_enabled(db, DISABLE_HUB_SETTING).await? {
         Error::BadRequest("The hub is disabled on this instance".to_string())
@@ -361,7 +360,7 @@ pub async fn sync(db: &DB) -> Result<SyncOutcome> {
             Err(e) => e,
         }
     };
-    match sync_from_image_cache(db).await? {
+    match fall_back_to_image_cache(db, &cache_path()).await? {
         Some(outcome) => {
             tracing::warn!("Hub resource type sync failed, used the image's cache: {hub_err}");
             Ok(outcome)
@@ -370,20 +369,27 @@ pub async fn sync(db: &DB) -> Result<SyncOutcome> {
     }
 }
 
-/// Applies the listing baked into the image, unless the instance has synced from a hub
-/// before: the cache is the listing as of the image's build, so it would revert every type
-/// the hub has updated since. `None` when skipped or when the image carries no cache.
-pub async fn sync_from_image_cache(db: &DB) -> Result<Option<SyncOutcome>> {
-    sync_from_cache_file(db, &cache_path()).await
-}
-
-async fn sync_from_cache_file(db: &DB, path: &str) -> Result<Option<SyncOutcome>> {
+/// The cache is the listing as of the image's build, so standing in for the hub on an
+/// instance that has synced from one would revert every type the hub has updated since.
+async fn fall_back_to_image_cache(db: &DB, path: &str) -> Result<Option<SyncOutcome>> {
     if let Some(at) = load_state(db).await?.last_hub_sync_at {
         tracing::info!(
             "Not applying the image's cached resource types: synced from the hub at {at}"
         );
         return Ok(None);
     }
+    sync_from_cache_file(db, path).await
+}
+
+/// Applies the listing baked into the image (`SYNC_CACHED_RT`), on every start and whether or
+/// not the instance has synced from a hub: it is how an instance that cannot reach the public
+/// hub, a private hub listing only its own types included, takes each new image's public types.
+/// `None` when the image carries no cache.
+pub async fn sync_from_image_cache(db: &DB) -> Result<Option<SyncOutcome>> {
+    sync_from_cache_file(db, &cache_path()).await
+}
+
+async fn sync_from_cache_file(db: &DB, path: &str) -> Result<Option<SyncOutcome>> {
     let content = match tokio::fs::read_to_string(path).await {
         Ok(content) => content,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -522,7 +528,9 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn the_image_cache_never_overrides_a_hub_sync(db: DB) -> anyhow::Result<()> {
+    async fn only_sync_cached_rt_applies_the_image_cache_after_a_hub_sync(
+        db: DB,
+    ) -> anyhow::Result<()> {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("resource_types.json");
         std::fs::write(
@@ -538,7 +546,7 @@ mod tests {
             .fetch_one(&db)
         };
 
-        assert!(sync_from_cache_file(&db, path).await?.is_some());
+        assert!(fall_back_to_image_cache(&db, path).await?.is_some());
         assert_eq!(description().await?.as_deref(), Some("image copy"));
 
         record_state(&db, json!({ "last_hub_sync_at": Utc::now() })).await?;
@@ -547,8 +555,11 @@ mod tests {
         )
         .execute(&db)
         .await?;
-        assert!(sync_from_cache_file(&db, path).await?.is_none());
+        assert!(fall_back_to_image_cache(&db, path).await?.is_none());
         assert_eq!(description().await?.as_deref(), Some("hub copy"));
+
+        assert!(sync_from_cache_file(&db, path).await?.is_some());
+        assert_eq!(description().await?.as_deref(), Some("image copy"));
         Ok(())
     }
 

@@ -462,7 +462,7 @@ fn print_help() {
     println!("  LICENSE_KEY = None                     (EE only) Enterprise license key (workers require valid key)");
     println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
     println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
-    println!("  SYNC_CACHED_RT = false                 Sync the image's cached resource types to the admins workspace on server start, until a hub sync has succeeded");
+    println!("  SYNC_CACHED_RT = false                 Sync the image's cached resource types to the admins workspace on server start");
     println!("  HUB_BASE_URL = https://hub.windmill.dev  Hub to fetch scripts from in `cache` mode (server/worker use the DB setting instead)");
     println!();
     println!("Notes:");
