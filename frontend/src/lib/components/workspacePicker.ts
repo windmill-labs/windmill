@@ -19,6 +19,8 @@ export type WorkspaceItem = {
 	 * so read it with `draftOnly` to tell "nothing deployed" from "deployed, with
 	 * edits pending". */
 	hasDraft?: boolean
+	/** The item's own sharing, which `canEditItem` reads with the folder rules. */
+	extraPerms?: Record<string, boolean>
 }
 
 /** Path to display (and group by) in pickers: the friendly draft path when
@@ -140,7 +142,8 @@ export async function loadKind(
 				kind: 'flow' as const,
 				draftPath: f.draft_path,
 				draftOnly: f.draft_only ?? false,
-				hasDraft: f.is_draft ?? false
+				hasDraft: f.is_draft ?? false,
+				extraPerms: f.extra_perms
 			}))
 		} else if (kind === 'script') {
 			const scripts = await ScriptService.listScripts({
@@ -154,7 +157,8 @@ export async function loadKind(
 				kind: 'script' as const,
 				draftPath: s.draft_path,
 				draftOnly: s.draft_only ?? false,
-				hasDraft: s.is_draft ?? false
+				hasDraft: s.is_draft ?? false,
+				extraPerms: s.extra_perms
 			}))
 		} else {
 			const apps = await AppService.listApps({
@@ -168,7 +172,8 @@ export async function loadKind(
 				raw_app: a.raw_app ?? false,
 				draftPath: a.draft_path,
 				draftOnly: a.draft_only ?? false,
-				hasDraft: a.is_draft ?? false
+				hasDraft: a.is_draft ?? false,
+				extraPerms: a.extra_perms
 			}))
 		}
 		// Only commit if the cache version hasn't changed since we started —

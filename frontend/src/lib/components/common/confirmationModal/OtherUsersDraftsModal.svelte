@@ -7,7 +7,8 @@
 	 */
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Users, Pencil, GitCompareArrows, Wrench } from 'lucide-svelte'
+	import { Users, Pencil, GitCompareArrows, Wrench, Trash2 } from 'lucide-svelte'
+	import ConfirmationModal from './ConfirmationModal.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -17,6 +18,11 @@
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { displayDate } from '$lib/utils'
 	import { userStore } from '$lib/stores'
+	import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { goto } from '$app/navigation'
+	import { base } from '$app/paths'
 
 	export type OtherDraftUser = { username?: string | null; draft_saved_at?: string }
 
@@ -54,8 +60,70 @@
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let migrateOpen = $state(false)
 
-	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins.
-	const canMigrateLegacy = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
+	// One owner's draft, or every draft at the path.
+	let deleting = $state<OtherDraftUser | 'all' | undefined>(undefined)
+	let deleteBusy = $state(false)
+
+	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins,
+	// and only they can delete a draft that belongs to someone else.
+	const isAdmin = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
+
+	async function deleteDraft(target: OtherDraftUser | 'all') {
+		const username = target === 'all' ? undefined : target.username
+		if (target !== 'all' && !username) return
+		deleteBusy = true
+		const query = { workspace, itemKind, path }
+		try {
+			// A path-wide delete takes our own draft too. Mute autosave and let any save
+			// already in flight land first: one committing after the delete would put the
+			// draft back for the reload below to read.
+			if (target === 'all') {
+				UserDraft.stopSync(itemKind, path, { workspace })
+				await UserDraftDbSyncer.quiesce(query)
+			}
+			await DraftService.deleteDraftForUser({
+				workspace,
+				kind: itemKind,
+				path,
+				username: username ?? undefined
+			})
+		} catch (e) {
+			if (target === 'all') {
+				UserDraft.restartSync(itemKind, path, { workspace })
+				// `quiesce` cancelled the timer of an edit still waiting to save.
+				void UserDraftDbSyncer.flush(query, { honorAutosaveToggle: true })
+			}
+			sendUserToast(`Could not delete draft: ${e.body ?? e.message}`, true)
+			return
+		} finally {
+			deleteBusy = false
+		}
+		sendUserToast(username ? `Deleted ${username}'s draft` : `Deleted all drafts at ${path}`)
+		deleting = undefined
+		isOpen = false
+
+		// Drop the editor's copy of our draft as well, or its next write would save
+		// it right back. Autosave re-arms on the next interaction.
+		if (target === 'all') {
+			UserDraft.remove(itemKind, path, { workspace })
+			await UserDraftDbSyncer.flush(query)
+			armRestartOnFirstInteraction(workspace, itemKind, path)
+		}
+		// Nothing is left at a never-deployed path once its last draft is gone, so
+		// there is no item to reload the editor on.
+		const lastDraftGone =
+			target === 'all' ||
+			(!hasOwnDraft && otherDraftsUsers.every((o) => ownerKey(o) === ownerKey(target)))
+		if (draftOnly && lastDraftGone) {
+			await goto(`${base}/`)
+			return
+		}
+		try {
+			await onReload?.()
+		} catch (e) {
+			sendUserToast(`Could not reload the editor: ${e.body ?? e.message}`, true)
+		}
+	}
 
 	function ownerLabel(owner: OtherDraftUser): string {
 		return owner.username ?? 'Legacy draft'
@@ -184,7 +252,7 @@
 					>
 						Load
 					</Button>
-					{#if !owner.username && canMigrateLegacy}
+					{#if !owner.username && isAdmin}
 						<Button
 							variant="default"
 							size="xs"
@@ -193,18 +261,64 @@
 						>
 							Migrate
 						</Button>
+					{:else if owner.username && isAdmin}
+						<Button
+							variant="default"
+							unifiedSize="sm"
+							destructive
+							startIcon={{ icon: Trash2 }}
+							disabled={busyFor !== null}
+							onclick={() => (deleting = owner)}
+						>
+							Delete
+						</Button>
 					{/if}
 				</li>
 			{/each}
 		</ul>
 
-		<div class="flex justify-end">
+		<div class="flex justify-end gap-2">
+			{#if isAdmin}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					destructive
+					startIcon={{ icon: Trash2 }}
+					disabled={busyFor !== null}
+					onclick={() => (deleting = 'all')}
+				>
+					Delete all drafts
+				</Button>
+			{/if}
 			<Button variant="default" size="sm" on:click={() => (isOpen = false)}>Close</Button>
 		</div>
 	</div>
 </Modal2>
 
 <DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
+
+<ConfirmationModal
+	open={deleting !== undefined}
+	title={deleting === 'all' ? 'Delete all drafts?' : `Delete ${deleting?.username}'s draft?`}
+	confirmationText="Delete"
+	loading={deleteBusy}
+	onConfirmed={() => {
+		if (deleting) void deleteDraft(deleting)
+	}}
+	onCanceled={() => (deleting = undefined)}
+>
+	<span class="text-sm">
+		{#if deleting === 'all'}
+			This permanently deletes every draft at
+			<span class="font-medium text-primary">{path}</span>, yours included. All unsaved work there
+			is lost and can't be recovered.
+		{:else}
+			This permanently deletes the draft {deleting?.username} has at
+			<span class="font-medium text-primary">{path}</span>. Their unsaved work there is lost and
+			can't be recovered.
+		{/if}
+	</span>
+</ConfirmationModal>
 
 <MigrateLegacyDraftModal
 	bind:isOpen={migrateOpen}

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.828.0
+  version: 1.829.0
   title: Windmill API
 
   contact:
@@ -10924,6 +10924,37 @@ paths:
                     type: string
                     description: "`saved` only, upsert or delete: where the write landed. Differs from the URL path when the item had moved away from it; the editor follows it there. Absent when a delete found nothing to remove and the caller cannot read the path it moved to."
                 required: [status, current_timestamp]
+
+  /w/{workspace}/drafts/delete_for_user/{kind}/{path}:
+    post:
+      summary: delete another user's draft, or every draft at a path (admin only)
+      description: Delete the draft a given user holds at a path, or, without `username`, every draft at that path (the legacy ownerless one and the caller's own included). Workspace admins / superadmins only, and only for script, flow, app and raw_app drafts. Unlike a discard of one's own draft through `drafts/update`, this returns 404 when nothing was deleted.
+      operationId: deleteDraftForUser
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/UserDraftItemKind"
+        - $ref: "#/components/parameters/ScriptPath"
+        - name: username
+          in: query
+          required: false
+          description: Workspace username of the draft owner. Omit to delete every user's draft at the path.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: draft(s) deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: no matching draft at that path
 
   /w/{workspace}/drafts/move/{kind}/{path}:
     post:
@@ -23524,6 +23555,54 @@ paths:
                     - id
                     - values
 
+  /workers/runnable_stats:
+    get:
+      summary: get resource usage per runnable and worker group over a time window (require devops role)
+      operationId: getRunnableStats
+      tags:
+        - worker
+      parameters:
+        - name: window_secs
+          in: query
+          required: false
+          description: how far back to read, in seconds (defaults to one day, capped at the 30-day retention)
+          schema:
+            type: integer
+        - name: worker_group
+          in: query
+          required: false
+          description: only the jobs run by this worker group
+          schema:
+            type: string
+        - name: workspace
+          in: query
+          required: false
+          description: only the jobs of this workspace
+          schema:
+            type: string
+        - name: order_by
+          in: query
+          required: false
+          description: "what the rows are ranked by, descending (default: total_duration)"
+          schema:
+            type: string
+            enum: [total_duration, max_memory, cpu]
+        - name: limit
+          in: query
+          required: false
+          description: number of rows to return (default 100, at most 1000)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: resource usage per runnable and worker group, heaviest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RunnableStats"
+
   /workers/queue_metrics_series:
     get:
       summary: get the queue metrics of a time window, as a bounded line per tag
@@ -31732,6 +31811,7 @@ components:
             - "resource_types.create"
             - "resource_types.update"
             - "resource_types.delete"
+            - "resource_types.sync"
             - "schedule.create"
             - "schedule.setenabled"
             - "schedule.edit"
@@ -35874,6 +35954,45 @@ components:
               Target identity the matched item should be permissioned as. Must be
               `u/<username>`, `g/<groupname>`, or an email that exists in this
               workspace.
+
+    RunnableStats:
+      type: object
+      description: >
+        Resource usage of the jobs of one runnable on one worker group. Memory and CPU are
+        only known for jobs run as a subprocess; memory is the peak of the job's main process.
+      properties:
+        workspace_id:
+          type: string
+        runnable_path:
+          type: string
+          description: path of the script or flow step; `<adhoc>` gathers previews and other runs without a stable path
+        worker_group:
+          type: string
+        job_count:
+          type: integer
+        total_duration_ms:
+          type: integer
+        max_memory_peak:
+          type: integer
+          description: highest peak memory of a job, in kB
+        sum_memory_peak:
+          type: integer
+          description: sum of the peak memory of the jobs that have one, in kB
+        memory_sample_count:
+          type: integer
+          description: number of jobs that have a peak memory reading
+        total_cpu_ms:
+          type: integer
+      required:
+        - workspace_id
+        - runnable_path
+        - worker_group
+        - job_count
+        - total_duration_ms
+        - max_memory_peak
+        - sum_memory_peak
+        - memory_sample_count
+        - total_cpu_ms
 
     WorkerPing:
       type: object

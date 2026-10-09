@@ -23,14 +23,15 @@ import {
 	type NativeTrigger,
 	type NativeServiceName
 } from '$lib/gen'
-import { enterpriseLicense } from '$lib/stores'
+import { enterpriseLicense, userWorkspaces } from '$lib/stores'
 
 import { getLightConfig, sortTriggers, updateTriggersCount, type Trigger } from './utils'
 import { get, type Writable } from 'svelte/store'
 import type { TriggerType } from './utils'
 import type { UserExt } from '$lib/stores'
 import type { ScheduleTrigger } from '../triggers'
-import { canWrite, formatCron, generateRandomString } from '$lib/utils'
+import { formatCron, generateRandomString } from '$lib/utils'
+import { canEditItem } from '$lib/editRights'
 
 export class Triggers {
 	#triggers = $state<Trigger[]>([])
@@ -130,9 +131,14 @@ export class Triggers {
 	updateTriggers(
 		remoteTriggers: any[],
 		type: TriggerType,
+		workspaceId: string,
 		user: UserExt | undefined = undefined
 	): number {
 		const currentTriggers = this.#triggers
+		const operatorSettings = get(userWorkspaces).find(
+			(w) => w.id === workspaceId
+		)?.operator_settings
+		const kind = type === 'schedule' ? 'schedule' : 'trigger'
 		// Identify triggers with draftConfig to preserve
 		const configuredTriggers = currentTriggers.filter(
 			(t) => t.type === type && !t.isDraft && t.draftConfig
@@ -151,7 +157,7 @@ export class Triggers {
 				path: trigger.path,
 				isPrimary: type === 'schedule' && trigger.path === trigger.script_path,
 				isDraft: false,
-				canWrite: canWrite(trigger.path, trigger.extra_perms, user),
+				canWrite: canEditItem(kind, trigger.path, trigger.extra_perms, user, operatorSettings),
 				draftConfig: draftConfig,
 				lightConfig: getLightConfig(type, trigger)
 			}
@@ -199,7 +205,7 @@ export class Triggers {
 				isFlow
 			})
 
-			const scheduleCount = this.updateTriggers(allDeployedSchedules, 'schedule', user)
+			const scheduleCount = this.updateTriggers(allDeployedSchedules, 'schedule', workspaceId, user)
 			const updatedPrimarySchedule = this.#triggers.find((s) => s.isPrimary)
 			triggersCountStore.update((triggersCount) => {
 				return {
@@ -234,7 +240,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const wsCount = this.updateTriggers(wsTriggers, 'websocket', user)
+			const wsCount = this.updateTriggers(wsTriggers, 'websocket', workspaceId, user)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -260,7 +266,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const pgCount = this.updateTriggers(pgTriggers, 'postgres', user)
+			const pgCount = this.updateTriggers(pgTriggers, 'postgres', workspaceId, user)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -286,7 +292,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const kafkaCount = this.updateTriggers(kafkaTriggers, 'kafka', user)
+			const kafkaCount = this.updateTriggers(kafkaTriggers, 'kafka', workspaceId, user)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -312,7 +318,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const natsCount = this.updateTriggers(natsTriggers, 'nats', user)
+			const natsCount = this.updateTriggers(natsTriggers, 'nats', workspaceId, user)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -338,7 +344,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const mqttCount = this.updateTriggers(mqttTriggers, 'mqtt', user)
+			const mqttCount = this.updateTriggers(mqttTriggers, 'mqtt', workspaceId, user)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -364,7 +370,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const amqpCount = this.updateTriggers(amqpTriggers, 'amqp', user)
+			const amqpCount = this.updateTriggers(amqpTriggers, 'amqp', workspaceId, user)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -390,7 +396,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const sqsCount = this.updateTriggers(sqsTriggers, 'sqs', user)
+			const sqsCount = this.updateTriggers(sqsTriggers, 'sqs', workspaceId, user)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -416,7 +422,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const gcpCount = this.updateTriggers(gcpTriggers, 'gcp', user)
+			const gcpCount = this.updateTriggers(gcpTriggers, 'gcp', workspaceId, user)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -442,7 +448,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const azureCount = this.updateTriggers(azureTriggers, 'azure', user)
+			const azureCount = this.updateTriggers(azureTriggers, 'azure', workspaceId, user)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -468,7 +474,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const httpCount = this.updateTriggers(httpTriggers, 'http', user)
+			const httpCount = this.updateTriggers(httpTriggers, 'http', workspaceId, user)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -494,7 +500,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const emailCount = this.updateTriggers(emailTriggers, 'email', user)
+			const emailCount = this.updateTriggers(emailTriggers, 'email', workspaceId, user)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -530,7 +536,7 @@ export class Triggers {
 				extra_perms: {},
 				service_config: t.service_config
 			}))
-			const count = this.updateTriggers(triggerData, serviceName, user)
+			const count = this.updateTriggers(triggerData, serviceName, workspaceId, user)
 			const countProperty = `${serviceName}_count`
 			triggersCountStore.update((triggersCount) => {
 				return {

@@ -9,7 +9,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -43,7 +43,7 @@
 	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const editRights = useEditRights()
 
 	interface Props {
 		flow: Flow & {
@@ -125,7 +125,7 @@
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
 
-	let hideForOperator = $derived($userStore?.operator && !$operatorBuilderFlows)
+	let hideForOperator = $derived(!editRights.roleCanAuthor('flow'))
 </script>
 
 {#if menuOpen}

@@ -29,7 +29,7 @@
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -131,7 +131,7 @@
 	// A ⌘-click opens these in a new tab, which only the query names the workspace for.
 	const operatingHref = useOperatingWorkspaceHref()
 	const actingUser = $derived(operatingUser.current)
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const editRights = useEditRights()
 
 	let flow: Flow | undefined = $state()
 	// Derived, not assigned during the load: in a fork the acting user is looked up
@@ -345,9 +345,7 @@
 		}
 	}
 
-	// Operators with the builder right author flows out of deployed runnables; every other
-	// operator is read-only here.
-	let canAuthorFlow = $derived(!actingUser?.operator || $operatorBuilderFlows)
+	let canAuthorFlow = $derived(editRights.roleCanAuthor('flow'))
 
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()

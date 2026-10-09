@@ -1,29 +1,56 @@
-import { derived, get, readable, type Readable } from 'svelte/store'
+import { derived, fromStore, get, readable, type Readable } from 'svelte/store'
 import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+import { useActingUser } from '$lib/actingUser.svelte'
+import { canDraftItem, canEditItem, roleCanAuthor, roleCanDraft } from '$lib/editRights'
+
+/**
+ * The `editRights` rules (`roleCanAuthor` / `canEditItem` for the item handlers, `roleCanDraft` /
+ * `canDraftItem` for drafts) answered for the user acting in the operating workspace,
+ * with that workspace's `operator_settings` — or in `workspace`, for a component that is handed
+ * one rather than sitting under a host that declares it. Reads context and registers an effect:
+ * call during component initialisation.
+ */
+export function useEditRights(workspace?: () => string | undefined) {
+	const operating = fromStore(useOperatingWorkspace())
+	const ws = workspace ?? (() => operating.current)
+	const user = useActingUser(ws)
+	const workspaces = fromStore(userWorkspaces)
+	const settings = () => workspaces.current.find((w) => w.id === ws())?.operator_settings
+	return {
+		roleCanAuthor: (kind: string) => roleCanAuthor(kind, user.current, settings()),
+		canEditItem: (kind: string, path: string, extraPerms: Record<string, boolean> | undefined) =>
+			canEditItem(kind, path, extraPerms, user.current, settings()),
+		roleCanDraft: (kind: string) => roleCanDraft(kind, user.current, settings()),
+		canDraftItem: (kind: string, path: string, extraPerms: Record<string, boolean> | undefined) =>
+			canDraftItem(kind, path, extraPerms, user.current, settings()),
+		/** This hook looks the user up on its own, so an editor that retries a failed lookup on
+		 *  its acting user (`forgetFailures`) must retry this one too, or it stays read-only. */
+		forgetFailures: () => user.forgetFailures()
+	}
+}
 
 /**
  * Why writes of this kind are locked in the operating workspace, or `undefined` when they are not —
  * the shape `title` and `disabled` both want. See `docs/operator-write-rights.md`.
  *
- * Only `false` locks. A workspace that never configured the key and a non-operator (whose
- * `operator_settings` is null) both hold the right, so `=== true` here would disable the controls
- * for everyone.
+ * The role half of `roleCanAuthor`, phrased for the controls that explain it. `operator_settings`
+ * is non-null exactly for an operator (`isOperatorInWorkspace`), so it stands in for the user.
  */
-function writeLock(key: 'manage_schedules' | 'manage_triggers', noun: string) {
+function writeLock(kind: 'schedule' | 'trigger', noun: string) {
 	return derived([userWorkspaces, useOperatingWorkspace()], ([$userWorkspaces, $workspace]) => {
 		const settings = $userWorkspaces.find((w) => w.id === $workspace)?.operator_settings
 		// Worded as the server words its refusal of the same write.
-		return settings?.[key] === false
-			? `Operators cannot manage ${noun} in this workspace`
-			: undefined
+		return roleCanAuthor(kind, { operator: settings != null }, settings)
+			? undefined
+			: `Operators cannot manage ${noun} in this workspace`
 	})
 }
 
 /** Reads context: call during component initialisation. */
-export const useScheduleLock = () => writeLock('manage_schedules', 'schedules')
+export const useScheduleLock = () => writeLock('schedule', 'schedules')
 /** Reads context: call during component initialisation. */
-export const useTriggerLock = () => writeLock('manage_triggers', 'triggers')
+export const useTriggerLock = () => writeLock('trigger', 'triggers')
 
 /**
  * True when the user is an operator of `workspace` and it granted operators the right to compose

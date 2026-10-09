@@ -44,8 +44,8 @@
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import { enterpriseLicense, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import {
-		canWrite,
 		classNames,
 		debounce,
 		emptySchema,
@@ -96,6 +96,7 @@
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const editRights = useEditRights()
 	const hosted = useHostedPage()
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
@@ -334,7 +335,7 @@
 		const result = (await ResourceService.listResource(apiParams)).map((x) => {
 			return {
 				canWrite:
-					canWrite(x.path, x.extra_perms!, operatingUser.current) &&
+					editRights.canEditItem('resource', x.path, x.extra_perms) &&
 					$operatingWorkspace! == x.workspace_id,
 				...x
 			}

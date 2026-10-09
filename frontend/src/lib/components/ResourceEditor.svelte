@@ -7,7 +7,8 @@
 		type Resource,
 		type ResourceType
 	} from '$lib/gen'
-	import { canWrite } from '$lib/utils'
+	import { canEditItem } from '$lib/editRights'
+	import { userWorkspaces } from '$lib/stores'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
@@ -261,8 +262,16 @@
 		if (!initialPath || !selected) return true
 		const r = fetchedResources[selected]
 		if (!r || !acting.resolved(selected)) return undefined
-		return canWrite(current?.path ?? initialPath, r.extra_perms ?? {}, acting.in(selected))
+		return canEditResourceIn(selected, current?.path ?? initialPath, r.extra_perms)
 	})
+	function canEditResourceIn(
+		ws: string,
+		path: string,
+		extraPerms: Record<string, boolean> | undefined
+	): boolean {
+		const settings = $userWorkspaces.find((w) => w.id === ws)?.operator_settings
+		return canEditItem('resource', path, extraPerms, acting.in(ws), settings)
+	}
 
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
@@ -423,9 +432,7 @@
 	const dirtyCanWrite = $derived(
 		dirtyWorkspaces.every((ws) => {
 			const r = fetchedResources[ws]
-			return (
-				!r || canWrite(states[ws]?.draft?.path ?? initialPath, r.extra_perms ?? {}, acting.in(ws))
-			)
+			return !r || canEditResourceIn(ws, states[ws]?.draft?.path ?? initialPath, r.extra_perms)
 		})
 	)
 

@@ -26,7 +26,7 @@ import {
 import { createTwoFilesPatch } from 'diff'
 import { deepEqual } from 'fast-equals'
 import { promptSafe, type ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
-import { canWrite } from '$lib/utils'
+import { canDraftItem, roleCanDraft } from '$lib/editRights'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
 	AppWithLastVersion,
@@ -214,10 +214,13 @@ import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import type { UserDraftItemKind } from '$lib/gen'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
+	canOpenEditor,
 	DEPLOY,
 	NONE,
+	RUN_FLOW_PREVIEW,
 	RUN_PREVIEW,
 	WRITE_DRAFT,
+	WRITE_FLOW_DRAFT,
 	type SessionAccess,
 	type SessionTool,
 	type SessionToolPolicy
@@ -765,7 +768,7 @@ const listRunsSchema = z.object({
 // superadmin caller; every other caller gets the hedge even where nothing is hidden.
 const NO_WORKERS_VISIBLE_MESSAGE =
 	'No workers came back. This does NOT establish that no workers are running: an instance can hide workers from callers without the devops role, and it does so by returning an empty list rather than an error. ' +
-	'Tell the user you cannot see any workers and that worker visibility may be restricted for your account, and suggest they check the Workers page themselves. Never state that no workers are online or that the instance has none.'
+	'Tell the user you cannot see any workers and that worker visibility may be restricted for your account, and suggest they check the Workers page themselves if they can open it, or ask a workspace admin otherwise. Never state that no workers are online or that the instance has none.'
 const NO_WORKERS_CONNECTED_MESSAGE =
 	'No workers are connected to this instance (none pinged in the last 5 minutes). Queued runs will stay queued until a worker starts.'
 const WORKER_PAGE_SIZE = 100
@@ -1186,12 +1189,30 @@ const openPreviewSchema = z.object({
  * it can open, so it is not offered. Per-PATH write permission is unknowable here —
  * a workspace capability says nothing about `f/finance/*` — and is resolved in the
  * handler instead. Mirrors `open_page` re-narrowing its page enum per user. */
+const openPreviewNoPipelineKind = z
+	.enum(['script', 'flow', 'raw_app'])
+	.describe(
+		'Item kind to preview. Use "raw_app" for code-based apps. The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
+	)
+
 const openPreviewViewOnlySchema = openPreviewSchema.extend({
+	kind: openPreviewNoPipelineKind,
 	mode: z
 		.literal('view')
 		.optional()
 		.describe(
 			'Only "view" — the deployed page with its run form and triggers. You cannot open editors in this workspace.'
+		)
+})
+
+/** A builder operator: the flow editor, and the deployed page for everything else. */
+const openPreviewFlowEditorSchema = openPreviewSchema.extend({
+	kind: openPreviewNoPipelineKind,
+	mode: z
+		.enum(['edit', 'view'])
+		.optional()
+		.describe(
+			'Which side to show. "edit" opens the flow editor and works for flows only: the only editor you can open in this workspace. Pass "view" for a script or app, the deployed page with its run form, triggers and past runs.'
 		)
 })
 
@@ -1409,7 +1430,14 @@ const buildGlobalSystemPrompt = (
 	// Each `can*` mirrors the capability the matching tools declare in `requires`, so a
 	// rule cannot outlive the tool it describes. An unresolved profile keeps every block.
 	const canWriteDraft = !access || access.has('write_draft')
+	const canWriteFlowDraft = !access || access.has('write_flow_draft')
+	// A builder operator: flow drafts and nothing else. Blocks about drafting in general
+	// follow `canWriteAnyDraft`; blocks naming scripts, apps or the other kinds keep `canWriteDraft`.
+	const flowsOnly = canWriteFlowDraft && !canWriteDraft
+	const canWriteAnyDraft = canWriteDraft || canWriteFlowDraft
 	const canRunPreview = !access || access.has('run_preview')
+	const canManageSchedules = !access || access.has('manage_schedules')
+	const canManageTriggers = !access || access.has('manage_triggers')
 	// The deploy tools take their kind as an argument, so `deploy` gates only the folder text.
 	const canCreateFolder = !access || access.has('deploy')
 	// Each gated block carries its own leading newline, so dropping one leaves no blank
@@ -1450,9 +1478,12 @@ The current user's workspace username is "${username}".${instanceLine}
 ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
-		: "Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit scripts, flows, apps, schedules, triggers, resources or variables here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused scripts, flows and apps outside this chat too, so for those suggest asking a workspace admin rather than creating them in the editor."
+		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${flowsOnly ? '' : 'flows, '}scripts, apps, schedules, triggers, resources or variables here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${flowsOnly ? 'scripts and apps' : 'scripts, flows and apps'} outside this chat too, so for those suggest asking a workspace admin rather than creating them in the editor. Resources and variables they can still edit themselves on their pages, so when open_page lists that page, open it for them instead.${when(
+				flowsOnly,
+				'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.'
+			)}`
 }${when(
-		canWriteDraft,
+		canWriteAnyDraft,
 		`
 
 Path conventions:
@@ -1465,25 +1496,35 @@ Path conventions:
 			'; create one with `create_folder` only when the user explicitly asks for a new folder'
 		)}.${folderGuidanceBlock}`
 	)}${when(
-		canCreateFolder && !canWriteDraft,
+		canCreateFolder && !canWriteAnyDraft,
 		'\n- You can create a shared folder with `create_folder` when the user explicitly asks for one. You cannot create anything inside it here, so do not offer to.'
 	)}
 
 Rules:${when(
-		canWriteDraft,
+		canWriteAnyDraft,
 		`
 - Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.`
 	)}
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${when(
-		canWriteDraft,
+		canWriteAnyDraft,
 		`
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.`
 	)}${when(
-		!canWriteDraft,
+		!canWriteAnyDraft,
 		`
-- Three changes are still open to you where the server allows them: discard_local_draft drops a draft this user left behind, deploy_workspace_item deploys one when the user asks, and delete_workspace_item removes an item already deployed in the workspace. You cannot create or edit one.`
+- Three changes are still open to you where the server allows them: discard_local_draft drops a draft this user left behind, deploy_workspace_item deploys one when the user asks, and delete_workspace_item removes an item already deployed in the workspace — each only for the kinds its type lists. You cannot create or edit one.`
+	)}${when(
+		!canManageSchedules || !canManageTriggers,
+		`
+- This workspace does not let this user change ${
+			!canManageSchedules && !canManageTriggers
+				? 'schedules or triggers'
+				: !canManageSchedules
+					? 'schedules'
+					: 'triggers'
+		}, here or in the editor, so never ask them to create or edit one: suggest asking a workspace admin.`
 	)}
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.${when(
 		canWriteDraft,
@@ -1501,6 +1542,10 @@ ${pipelineBullet}`
 		`
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Do the same for a raw app: run test_run_app_runnable on each backend runnable you wrote or changed before saying the app works. A bundle that compiles proves nothing about whether the runnables run. An inline runnable executes the app's draft code; a path runnable executes the DEPLOYED script/flow it names, so a path runnable aimed at something you have not deployed fails here — that failure is the point: report it and offer to deploy that one target. The app itself does not need deploying to be tested.`
+	)}${when(
+		flowsOnly && (!access || access.has('run_flow_preview')),
+		`
+- After creating or editing a flow draft, run test_run_flow with representative args before reporting that it works. It prefers drafts, so testing does not require deployment.`
 	)}
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_run with a returned id to see what that run was called with, what it returned and what it logged — without starting a new test run.
 - get_run also covers what a flow run did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — and works while the flow is still running. Pass step to read one step's result in full (capped at 12k chars).
@@ -1525,7 +1570,11 @@ ${pipelineBullet}`
 			? `${when(
 					!canWriteDraft,
 					`
-- open_preview(kind, path) shows a deployed script / flow / app in the side panel next to the chat — its run form, triggers and past runs, which the user can act on there. Use it when you surface an item they will want to run or inspect. You cannot open item editors in this workspace, so it only ever opens the deployed page.`
+- open_preview(kind, path) shows a deployed script / flow / app in the side panel next to the chat — its run form, triggers and past runs, which the user can act on there. Use it when you surface an item they will want to run or inspect. ${
+						flowsOnly
+							? 'The flow editor is the only editor you can open here: after writing or editing a flow draft, show it with open_preview(kind="flow", path, mode="edit").'
+							: 'You cannot open item editors in this workspace, so it only ever opens the deployed page.'
+					}`
 				)}${when(
 					canWriteDraft,
 					`
@@ -1557,7 +1606,7 @@ Documentation:
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
 - Use read_flow_module_code${when(canWriteDraft, ' and set_flow_module_code')} for inline script bodies.${when(
-		canWriteDraft,
+		canWriteFlowDraft,
 		`
 - Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.`
 	)}
@@ -2554,8 +2603,13 @@ export function getSessionContextPromptSection(
 	// Concatenated onto an already capability-gated prompt, so it has to honour the same
 	// profile rather than assume the gating happened upstream.
 	const canDeploy = !access || access.has('deploy')
-	const canWriteDraft = !access || access.has('write_draft')
-	const canRunPreview = !access || access.has('run_preview')
+	const canWriteDraft = !access || access.has('write_draft') || access.has('write_flow_draft')
+	const canRunPreview = !access || access.has('run_preview') || access.has('run_flow_preview')
+	// The kinds no deploy rule reaches, unless the workspace withdrew them from this user.
+	const unruledKinds = [
+		(!access || access.has('manage_schedules')) && 'schedules',
+		(!access || access.has('manage_triggers')) && 'triggers'
+	].filter((k): k is string => !!k)
 	const targets = ['reads', canWriteDraft && 'drafts', canRunPreview && 'test runs', 'deploys']
 		.filter(Boolean)
 		.join(', ')
@@ -2594,7 +2648,13 @@ export function getSessionContextPromptSection(
 	// promotes the rest instead. The rules gate deletes too, so it is owed to every such profile.
 	if (!canDeploy) {
 		lines.push(
-			"- This workspace refuses direct deployment for this user, except for schedules and triggers — those are the only kinds deploy_workspace_item and delete_workspace_item can still act on. Scripts, flows, apps, resources and variables must be promoted from the session's deploy panel (fork or pull request); do not offer to deploy or delete them directly."
+			`- This workspace refuses direct deployment for this user${
+				unruledKinds.length === 2
+					? ', except for schedules and triggers — those are the only kinds deploy_workspace_item and delete_workspace_item can still act on'
+					: unruledKinds.length === 1
+						? `, except for ${unruledKinds[0]} — the only kind deploy_workspace_item and delete_workspace_item can still act on`
+						: ''
+			}. Scripts, flows, apps, resources and variables must be promoted from the session's deploy panel (fork or pull request); do not offer to deploy or delete them directly.`
 		)
 	}
 	return lines.join('\n')
@@ -3438,9 +3498,14 @@ export const globalTools: SessionTool<{}>[] = [
 			// Every subject is authoring guidance written around the draft tools by name, and a
 			// tool result is the one place the toolset filter cannot reach.
 			const access = (ctx.helpers as GlobalToolHelpers | undefined)?.access
-			if (access && !access.has('write_draft')) {
-				const message =
-					'This session cannot create or edit workspace items, so there is no authoring guidance to give. Tell the user plainly rather than describing how it would be done.'
+			const canAuthor =
+				!access ||
+				access.has('write_draft') ||
+				(parsed.subject === 'flow' && access.has('write_flow_draft'))
+			if (!canAuthor) {
+				const message = access?.has('write_flow_draft')
+					? 'This session can only compose flows, so flow is the one subject with authoring guidance here. Tell the user plainly that you cannot create or edit this kind of item.'
+					: 'This session cannot create or edit workspace items, so there is no authoring guidance to give. Tell the user plainly rather than describing how it would be done.'
 				toolCallbacks.setToolStatus(toolId, { content: 'No authoring guidance' })
 				return message
 			}
@@ -3788,7 +3853,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		requires: WRITE_DRAFT,
+		requires: WRITE_FLOW_DRAFT,
 		def: createToolDef(writeFlowSchema, 'write_flow', 'Create or overwrite a draft flow.'),
 		showDetails: true,
 		streamArguments: true,
@@ -3922,7 +3987,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		requires: WRITE_DRAFT,
+		requires: WRITE_FLOW_DRAFT,
 		def: createToolDef(
 			patchFlowJsonSchema,
 			'patch_flow_json',
@@ -3972,7 +4037,7 @@ export const globalTools: SessionTool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
-		requires: RUN_PREVIEW,
+		requires: RUN_FLOW_PREVIEW,
 		def: testRunFlowToolDef,
 		fn: async (ctx) => {
 			const parsed = testRunFlowSchema.parse(ctx.args)
@@ -4152,16 +4217,17 @@ export const globalTools: SessionTool<{}>[] = [
 		// turns on the kind. Each kind's handler, reached through `deployDraft`'s switch:
 		requires: NONE,
 		kindRequires: {
-			// scripts.rs `create_script_internal`, flows.rs `create_flow`/`update_flow` and
-			// apps.rs `create_app_raw`/`update_app_raw` refuse operators; all run the rules.
+			// scripts.rs `create_script_internal` and apps.rs `create_app_raw`/`update_app_raw`
+			// refuse operators, flows.rs `create_flow`/`update_flow` those without builder
+			// rights; all run the rules.
 			script: ['deploy', 'manage_code'],
-			flow: ['deploy', 'manage_code'],
+			flow: ['deploy', 'manage_flows'],
 			app: ['deploy', 'manage_code'],
 			resource: DEPLOY,
 			variable: DEPLOY,
-			// The schedule and trigger handlers check neither.
-			schedule: NONE,
-			trigger: NONE
+			// No deploy rules here, but `gate_operator_writes` on their routers.
+			schedule: ['manage_schedules'],
+			trigger: ['manage_triggers']
 		} satisfies Record<(typeof ITEM_TYPES)[number], SessionToolPolicy>,
 		def: createToolDef(
 			deployWorkspaceItemSchema,
@@ -4179,8 +4245,17 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		// Rebasing writes a fresh draft, so drafts.rs `require_can_write_path` applies.
-		requires: WRITE_DRAFT,
+		// Rebasing writes a fresh draft, so drafts.rs `require_can_write_path` applies per kind.
+		requires: NONE,
+		kindRequires: {
+			script: WRITE_DRAFT,
+			flow: WRITE_FLOW_DRAFT,
+			app: WRITE_DRAFT,
+			resource: WRITE_DRAFT,
+			variable: WRITE_DRAFT,
+			schedule: WRITE_DRAFT,
+			trigger: WRITE_DRAFT
+		} satisfies Record<(typeof ITEM_TYPES)[number], SessionToolPolicy>,
 		def: createToolDef(
 			rebaseDraftSchema,
 			'rebase_draft',
@@ -4225,13 +4300,14 @@ export const globalTools: SessionTool<{}>[] = [
 		kindRequires: {
 			// scripts.rs `delete_script_by_path` calls `require_admin`; a non-admin archives.
 			script: ['admin'],
-			// flows.rs `delete_flow_by_path` and apps.rs `delete_app` refuse operators.
-			flow: ['deploy', 'manage_code'],
+			// apps.rs `delete_app` refuses operators, flows.rs `delete_flow_by_path` those
+			// without builder rights.
+			flow: ['deploy', 'manage_flows'],
 			app: ['deploy', 'manage_code'],
 			resource: DEPLOY,
 			variable: DEPLOY,
-			schedule: NONE,
-			trigger: NONE
+			schedule: ['manage_schedules'],
+			trigger: ['manage_triggers']
 		} satisfies Record<(typeof ITEM_TYPES)[number], SessionToolPolicy>,
 		def: createToolDef(
 			deleteWorkspaceItemSchema,
@@ -4502,17 +4578,20 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: NONE,
 		def: createToolDef(openPreviewSchema, 'open_preview', OPEN_PREVIEW_DESCRIPTION),
-		// Withhold the editor side from a session that cannot write drafts, so the model
-		// never offers the user a panel it would not get.
+		// Withhold the editors a session cannot save, so the model never offers the user a
+		// panel it would not get.
 		schemaFor: async (helpers) => {
 			const access = (helpers as GlobalToolHelpers | undefined)?.access
-			return access && !access.has('write_draft')
-				? createToolDef(
+			if (canOpenEditor(access, 'script')) {
+				return createToolDef(openPreviewSchema, 'open_preview', OPEN_PREVIEW_DESCRIPTION)
+			}
+			return canOpenEditor(access, 'flow')
+				? createToolDef(openPreviewFlowEditorSchema, 'open_preview', OPEN_PREVIEW_DESCRIPTION)
+				: createToolDef(
 						openPreviewViewOnlySchema,
 						'open_preview',
 						OPEN_PREVIEW_VIEW_ONLY_DESCRIPTION
 					)
-				: createToolDef(openPreviewSchema, 'open_preview', OPEN_PREVIEW_DESCRIPTION)
 		},
 		fn: async (ctx) => {
 			const parsed = openPreviewSchema.parse(ctx.args)
@@ -4848,22 +4927,25 @@ async function openSessionPreview(
 	if (!openPreviewHandler) {
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}
-	// A pipeline has only an editor, and its own capability gates already cover it.
+	// A pipeline has only an editor, so a session that cannot save its nodes has nothing to open.
 	if (args.kind === 'pipeline') {
+		if (!canOpenEditor(access, 'pipeline')) {
+			return 'Error: you cannot open the pipeline editor in this workspace: this user cannot save drafts. Show its scripts with open_preview mode "view" instead.'
+		}
 		return await openPreviewHandler({ ...args, mode: undefined, sessionId })
 	}
 	// Resolved before the gates, not after: the handler reads a missing mode as the editor, so
 	// gating on `args.mode === 'edit'` would wave through every call that simply omitted it —
 	// which is what a model whose schema only offers 'view' does.
 	const mode: 'edit' | 'view' = args.mode ?? 'edit'
-	// The advertised schema already withholds 'edit' from a session that cannot write
-	// drafts; re-check so a model asking outside the enum can't act outside it either.
-	if (mode === 'edit' && access && !access.has('write_draft')) {
+	// The advertised schema already narrows 'edit' to what this session can save; re-check so
+	// a model asking outside the enum can't act outside it either.
+	if (mode === 'edit' && !canOpenEditor(access, args.kind)) {
 		const opened = await openPreviewHandler({ ...args, mode: 'view', sessionId })
-		return `${opened}\nOpened the deployed page instead: you cannot open item editors in this workspace.`
+		return `${opened}\nOpened the deployed page instead: you cannot open ${args.kind === 'flow' ? 'flow' : 'item'} editors in this workspace.`
 	}
-	// `write_draft` is a workspace capability and says nothing about this path, so an
-	// edit that survived it is still checked against the item's own permissions.
+	// The draft capability is workspace-wide and says nothing about this path, so an edit
+	// that survived it is still checked against the item's own permissions.
 	if (mode === 'edit' && workspace) {
 		const verdict = await canEditItemPath(workspace, args.kind, args.path)
 		if (verdict !== 'allowed') {
@@ -4891,10 +4973,12 @@ async function canEditItemPath(
 	const role = await roleForWorkspace(workspace)
 	if (role.kind === 'not_a_member') return 'denied'
 	if (role.kind !== 'resolved' || !role.user) return 'unverified'
-	if (role.user.operator) return 'denied'
+	const user = role.user
+	const settings = get(userWorkspaces).find((w) => w.id === workspace)?.operator_settings
+	if (!roleCanDraft(kind, user, settings)) return 'denied'
 	// Folder and ownership rules answer most calls without a request. An item's own
 	// `extra_perms` can only widen them, so the item is fetched only to overturn a denial.
-	if (canWrite(path, {}, role.user)) return 'allowed'
+	if (canDraftItem(kind, path, {}, user, settings)) return 'allowed'
 	try {
 		const extraPerms =
 			kind === 'script'
@@ -4902,7 +4986,7 @@ async function canEditItemPath(
 				: kind === 'flow'
 					? (await FlowService.getFlowByPath({ workspace, path })).extra_perms
 					: (await AppService.getAppByPath({ workspace, path })).extra_perms
-		return canWrite(path, extraPerms ?? {}, role.user) ? 'allowed' : 'denied'
+		return canDraftItem(kind, path, extraPerms, user, settings) ? 'allowed' : 'denied'
 	} catch (e) {
 		// Nothing deployed means no sharing to widen the folder rules with.
 		return (e as { status?: number } | null | undefined)?.status === 404 ? 'denied' : 'unverified'

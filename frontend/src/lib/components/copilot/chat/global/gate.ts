@@ -25,14 +25,35 @@ export function isGlobalAiEnabled(): boolean {
 	}
 }
 
+const OPERATOR_SESSIONS_KEY = 'wm_operator_ai_sessions'
+
+/**
+ * Operators get AI sessions only in a browser that opted in, until the operator experience
+ * has been tested; everywhere else they keep the docked chat and `/sessions` refuses them.
+ * Set with `localStorage.setItem('wm_operator_ai_sessions', '1')` and reload. To ship it,
+ * delete this and `sessionsAllowedFor`, and drop the `isOperator` argument from every caller.
+ */
+function operatorSessionsEnabled(): boolean {
+	if (typeof localStorage === 'undefined') return false
+	try {
+		return localStorage.getItem(OPERATOR_SESSIONS_KEY) === '1'
+	} catch {
+		return false
+	}
+}
+
+/** Whether this user's role may use AI sessions at all. */
+export function sessionsAllowedFor(isOperator: boolean | undefined): boolean {
+	return !isOperator || operatorSessionsEnabled()
+}
+
 /**
  * Whether an AI entry point hands off to a session instead of driving the docked
  * chat. Deliberately the same condition as the root layout's `disableAi`, so a
  * caller falling back on `false` always has a mounted pane to fall back to.
- * Operators keep that pane (`/sessions` refuses them) until the operator chat ships.
  */
 export function prefersSessionHandoff(isOperator: boolean | undefined): boolean {
-	return isGlobalAiEnabled() && !isOperator
+	return isGlobalAiEnabled() && sessionsAllowedFor(isOperator)
 }
 
 /** Clear the opt-out, then hard-reload so every gated site re-reads it. */
