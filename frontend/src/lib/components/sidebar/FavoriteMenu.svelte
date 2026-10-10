@@ -10,6 +10,7 @@
 			flow: `/flows/get/${path}`,
 			app: `/apps/get/${path}`,
 			raw_app: `/apps_raw/get/${path}`,
+			agent: `/agents/get/${path}`,
 			asset: '#'
 		}[kind]
 	}
@@ -71,7 +72,7 @@
 </script>
 
 <script lang="ts">
-	import { CodeXml, LayoutDashboard, Table2, Star, Trash2 } from 'lucide-svelte'
+	import { Bot, CodeXml, LayoutDashboard, Table2, Star, Trash2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
@@ -141,6 +142,8 @@
 										<BarsStaggered size={16} class="text-teal-500" />
 									{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
 										<LayoutDashboard size={16} class="text-orange-500" />
+									{:else if favorite.kind == 'agent'}
+										<Bot size={16} class="text-violet-500" />
 									{:else if favorite.kind == 'asset'}
 										<Table2 size={16} class="text-primary" />
 									{/if}

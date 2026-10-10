@@ -70,7 +70,7 @@
 	path={agent.draft_path ?? agent.path}
 	summary={agent.description}
 	workspaceId={agent.workspace_id ?? $workspaceStore ?? ''}
-	canFavorite={false}
+	canFavorite={!agent.draft_only}
 	{depth}
 	{rowSelection}
 >
@@ -111,6 +111,7 @@
 					canWrite: agent.canWrite,
 					draftOnly: Boolean(agent.draft_only),
 					wsSpecific: agent.ws_specific,
+					operator: $userStore?.operator,
 					onPermissions: () => shareModal.openDrawer?.(agent.path, 'resource'),
 					onDeploy: () => deploymentDrawer.openDrawer(agent.path, 'resource'),
 					onDelete: (event) => {

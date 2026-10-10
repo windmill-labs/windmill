@@ -9280,6 +9280,12 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: starred_only
+          description: Only the `ai_agent` resources the caller starred
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: resource list
@@ -12696,7 +12702,7 @@ paths:
 
   /w/{workspace}/runnables/list:
     get:
-      summary: list runnables (scripts, flows, apps) merged, ordered and keyset-paginated
+      summary: list runnables (scripts, flows, apps, agents) merged, ordered and keyset-paginated
       operationId: listRunnables
       tags:
         - script
@@ -12713,7 +12719,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - name: kinds
           in: query
-          description: comma-separated subset of script,flow,app (default all)
+          description: comma-separated subset of script,flow,app,agent (default all)
           schema:
             type: string
         - name: show_archived
@@ -12787,7 +12793,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: kinds
           in: query
-          description: comma-separated subset of script,flow,app (default all)
+          description: comma-separated subset of script,flow,app,agent (default all)
           schema:
             type: string
         - name: include_without_main
@@ -24454,7 +24460,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app, asset]
+                  enum: [flow, app, script, raw_app, asset, agent]
       responses:
         "200":
           description: star item
@@ -24477,7 +24483,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app, asset]
+                  enum: [flow, app, script, raw_app, asset, agent]
       responses:
         "200":
           description: unstar item
@@ -30110,9 +30116,10 @@ components:
       description: |
         A row in the merged runnables listing. `type` is the discriminator;
         kind-specific fields (hash/language/kind for scripts, execution_mode/
-        version for apps) are present only for that kind. `edited_at` is the
-        unified last-updated time (a script's created_at, a flow/app's edit
-        time).
+        version for apps, agent_memory/ws_specific for agents) are present only
+        for that kind. An agent is an `ai_agent` resource whose description is
+        reported as `summary`. `edited_at` is the unified last-updated time (a
+        script's created_at, a flow/app/agent's edit time).
       properties:
         type:
           type: string
@@ -30120,6 +30127,7 @@ components:
             - script
             - flow
             - app
+            - agent
         path:
           type: string
         summary:
@@ -30187,6 +30195,11 @@ components:
         version:
           type: integer
           format: int64
+        agent_memory:
+          description: agent-only. The agent's `memory` setting.
+        ws_specific:
+          type: boolean
+          description: agent-only. Whether the agent is workspace-specific, which keeps it out of deploys to other workspaces.
       required:
         - type
         - path

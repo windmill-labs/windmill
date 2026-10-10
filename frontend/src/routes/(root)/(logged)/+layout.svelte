@@ -7,6 +7,7 @@
 		AssetService,
 		FlowService,
 		OpenAPI,
+		ResourceService,
 		ScriptService,
 		SettingService,
 		UserService,
@@ -621,6 +622,11 @@
 			workspace: $workspaceStore ?? '',
 			starredOnly: true
 		})
+		const agents = await ResourceService.listResource({
+			workspace: $workspaceStore ?? '',
+			resourceType: 'ai_agent',
+			starredOnly: true
+		})
 		const assets = await AssetService.listFavoriteAssets({ workspace: $workspaceStore ?? '' })
 		favoriteManager.current = [
 			...scripts.map((s) => ({
@@ -640,6 +646,12 @@
 				path: f.path,
 				href: getFavoriteHref(f.path, 'app'),
 				kind: 'app' as const
+			})),
+			...agents.map((a) => ({
+				label: a.description || getFavoriteLabel(a.path, 'agent'),
+				path: a.path,
+				href: getFavoriteHref(a.path, 'agent'),
+				kind: 'agent' as const
 			})),
 			...assets.map((a) => ({
 				label: getFavoriteLabel(a.path, 'asset'),

@@ -10,7 +10,6 @@
 		type ListableApp,
 		type Script,
 		ScriptService,
-		ResourceService,
 		type Flow,
 		type ListableRawApp,
 		type ListableResource,
@@ -175,12 +174,7 @@
 	let itemKind = $derived(
 		(filterValues.val.kind ?? 'all') as 'script' | 'flow' | 'app' | 'agent' | 'all'
 	)
-	// Agents are `ai_agent` resources, listed through the resource endpoint: the runnables
-	// endpoint has no such kind, so it is asked for nothing on the agent view and for every
-	// kind on the combined one.
-	let showsRunnables = $derived(itemKind !== 'agent')
-	let showsAgents = $derived(itemKind === 'all' || itemKind === 'agent')
-	let runnableKinds = $derived(itemKind === 'all' || itemKind === 'agent' ? undefined : itemKind)
+	let runnableKinds = $derived(itemKind === 'all' ? undefined : itemKind)
 	let archived = $derived(!!filterValues.val.archived)
 	let includeWithoutMain = $derived((filterValues.val.include_library ?? true) as boolean)
 	let filterUserFolders = $derived(!!filterValues.val.only_user_folders)
@@ -318,11 +312,7 @@
 	let flows: TableFlow[] | undefined = $state()
 	let apps: TableApp[] | undefined = $state()
 	let raw_apps: TableRawApp[] | undefined = $state()
-	// Starts empty rather than undefined: the runnables page decides when the list renders,
-	// and agents join it when their own request lands.
-	let agents: TableAgent[] = $state([])
-	let agentOwnerCounts: Record<string, number> = $state({})
-	let agentsGen = 0
+	let agents: TableAgent[] | undefined = $state()
 	// Monotonic fetch-order counter stamped onto each row as it arrives (see TableItem.ord).
 	let fetchOrd = 0
 
@@ -353,7 +343,7 @@
 		}
 	}
 
-	function mapRunnable(it: RunnableItem): TableScript | TableFlow | TableApp {
+	function mapRunnable(it: RunnableItem): TableScript | TableFlow | TableApp | TableAgent {
 		const base = {
 			...it,
 			canWrite:
@@ -367,84 +357,14 @@
 		// combinedItems reads a script's time from `created_at`; the endpoint's
 		// unified `edited_at` holds exactly that for scripts.
 		if (it.type === 'script') return { ...base, created_at: it.edited_at } as unknown as TableScript
+		// An agent row reads its resource's description, which the endpoint reports as `summary`.
+		if (it.type === 'agent') return { ...base, description: it.summary } as unknown as TableAgent
 		return base as unknown as TableFlow | TableApp
 	}
 
-	/**
-	 * The workspace's saved agents, as the kind the home page shows them as. Read from the
-	 * resource listing, which the runnables' keyset order knows nothing of, so the order is applied
-	 * here and the rows are stamped before every runnable ordinal: the agents lead as one block and
-	 * a page of runnables keeps the server's order. Leading rather than trailing, or the list's
-	 * first window would never reach them past a page of runnables.
-	 */
-	async function loadAgents(): Promise<void> {
-		const ws = $workspaceStore
-		const gen = ++agentsGen
-		if (!ws || !$userStore || !showsAgents || archived) {
-			agents = []
-			agentOwnerCounts = {}
-			return
-		}
-		const rows: ListableResource[] = []
-		try {
-			// Paged even though search and scoping run over the whole set here: the listing caps a
-			// page, and only the first carries the draft-only rows, so a short page ends it.
-			const perPage = 1000
-			for (let page = 1; ; page++) {
-				const batch = await ResourceService.listResource({
-					workspace: ws,
-					resourceType: 'ai_agent',
-					includeDraftOnly: true,
-					page,
-					perPage
-				})
-				rows.push(...batch)
-				if (batch.length < perPage || gen !== agentsGen) break
-			}
-		} catch (e: any) {
-			if (gen !== agentsGen) return
-			sendUserToast(`Failed to load agents: ${e?.body ?? e?.message ?? e}`, true)
-			agents = []
-			agentOwnerCounts = {}
-			return
-		}
-		if (gen !== agentsGen) return
-		// Counted before the owner scope: the chips and tree nodes list every owner.
-		const counts: Record<string, number> = {}
-		for (const r of rows) {
-			const owner = effectivePath(r).split('/').slice(0, 2).join('/')
-			counts[owner] = (counts[owner] ?? 0) + 1
-		}
-		agentOwnerCounts = counts
-		const scoped = ownerFilter
-			? rows.filter((r) => effectivePath(r).startsWith(ownerFilter + '/'))
-			: rows
-		const byTime = (r: ListableResource) => new Date(r.edited_at ?? 0).getTime()
-		const sorted = [...scoped].sort((a, b) => {
-			switch (sortOrder) {
-				case 'updated_asc':
-					return byTime(a) - byTime(b)
-				case 'name_asc':
-					return cmp(effectivePath(a), effectivePath(b))
-				case 'name_desc':
-					return cmp(effectivePath(b), effectivePath(a))
-				default:
-					return byTime(b) - byTime(a)
-			}
-		})
-		agents = sorted.map((r, i) => ({
-			...r,
-			summary: r.description || undefined,
-			canWrite: editRights.canEditItem('agent', r.path, (r.extra_perms ?? {}) as any),
-			ord: AGENT_ORD_BASE + i
-		}))
-	}
-	/** Below any ordinal a runnables page stamps (they count up from 0), so agents lead as a block. */
-	const AGENT_ORD_BASE = -1_000_000
-
 	// The merged, server-ordered, keyset-paginated source. `reset` reloads from
 	// the first page (order/filter change or workspace switch); otherwise it
-	// appends the next page. All three kinds arrive interleaved and are split into
+	// appends the next page. Every kind arrives interleaved and are split into
 	// the existing per-kind arrays so the downstream pipeline is unchanged.
 	async function loadRunnables(reset: boolean): Promise<void> {
 		const ws = $workspaceStore
@@ -458,25 +378,6 @@
 		// arrays (mixing streams) or clobber the pending reset's generation.
 		if (!reset && serverCursor === undefined) return
 		if (scripts === undefined) loading = true
-		// One load per reset: agents are fetched whole, so a load-more has nothing to append.
-		const agentsLoad = reset ? loadAgents() : undefined
-		if (!showsRunnables) {
-			// Supersedes a page still in flight, which would otherwise land in the agent view.
-			const gen = ++loadGen
-			serverCursor = undefined
-			hasMoreServer = false
-			// The rows on screen stay until the agents replace them, as a reload keeps them, or the
-			// view reads as empty in between.
-			await agentsLoad
-			if (gen !== loadGen) return
-			scripts = []
-			flows = []
-			apps = []
-			raw_apps = []
-			pipelineMemberFolders = new Set()
-			loading = false
-			return
-		}
 		if (reset) {
 			serverCursor = undefined
 			hasMoreServer = false
@@ -519,18 +420,13 @@
 		// A newer request superseded this one (e.g. order changed mid-flight); drop
 		// this response so a stale page/cursor can't be mixed with the new order.
 		if (gen !== loadGen) return
-		// Landed together with the agents fetched beside it, or a workspace holding only agents
-		// reads as empty until they arrive.
-		if (agentsLoad) {
-			await agentsLoad
-			if (gen !== loadGen) return
-		}
 		serverCursor = res.next_cursor ?? undefined
 		hasMoreServer = !!res.next_cursor
 
 		const s: TableScript[] = reset ? [] : [...(scripts ?? [])]
 		const f: TableFlow[] = reset ? [] : [...(flows ?? [])]
 		const a: TableApp[] = reset ? [] : [...(apps ?? [])]
+		const ag: TableAgent[] = reset ? [] : [...(agents ?? [])]
 		const memberFolders = reset ? new Set<string>() : new Set(pipelineMemberFolders)
 		if (reset) fetchOrd = 0
 		for (const it of res.items ?? []) {
@@ -546,11 +442,14 @@
 				f.push({ ...mapRunnable(it), ord: fetchOrd++ } as TableFlow)
 			} else if (it.type === 'app') {
 				a.push({ ...mapRunnable(it), ord: fetchOrd++ } as TableApp)
+			} else if (it.type === 'agent') {
+				ag.push({ ...mapRunnable(it), ord: fetchOrd++ } as TableAgent)
 			}
 		}
 		scripts = s
 		flows = f
 		apps = a
+		agents = ag
 		raw_apps = []
 		pipelineMemberFolders = memberFolders
 		loading = false
@@ -564,10 +463,13 @@
 	// skipping ones already present. Lets a search reach matches outside the loaded
 	// browse window without re-fetching the whole list.
 	function mergeRunnables(newItems: RunnableItem[]) {
-		const have = new Set([...(scripts ?? []), ...(flows ?? []), ...(apps ?? [])].map(itemKey))
+		const have = new Set(
+			[...(scripts ?? []), ...(flows ?? []), ...(apps ?? []), ...(agents ?? [])].map(itemKey)
+		)
 		const s = [...(scripts ?? [])]
 		const f = [...(flows ?? [])]
 		const a = [...(apps ?? [])]
+		const ag = [...(agents ?? [])]
 		const memberFolders = new Set(pipelineMemberFolders)
 		let changed = false
 		for (const it of newItems) {
@@ -583,12 +485,14 @@
 			if (it.type === 'script') s.push(mapped as TableScript)
 			else if (it.type === 'flow') f.push(mapped as TableFlow)
 			else if (it.type === 'app') a.push(mapped as TableApp)
+			else if (it.type === 'agent') ag.push(mapped as TableAgent)
 			changed = true
 		}
 		if (changed) {
 			scripts = s
 			flows = f
 			apps = a
+			agents = ag
 			pipelineMemberFolders = memberFolders
 		}
 	}
@@ -656,13 +560,6 @@
 		// Track the prefix as open first — even a no-op call (re-expanding a cached node)
 		// means it's on screen, so later reloads must refresh it.
 		openOwners.add(owner)
-		// The agent view has no runnables to page in: its rows are the loaded agents, which
-		// `treeSource` adds itself. Rows an owner held from another kind go with the switch.
-		if (!showsRunnables) {
-			treeOwnerItems = treeOwnerItems.filter((x) => !effectivePath(x).startsWith(`${owner}/`))
-			ownerLoad[owner] = { hasMore: false, loading: false, loaded: true, gen: treeGen }
-			return
-		}
 		const st = ownerLoad[owner]
 		// Only a load for the CURRENT generation blocks a new one. A load left in flight
 		// by a superseded generation (treeGen bumped on a sort/filter reload) has already
@@ -1105,7 +1002,6 @@
 		[() => $workspaceStore, () => archived, () => itemKind, () => includeWithoutMain],
 		async ([ws, showArchived, kind, withoutMain]) => {
 			if (!ws || showArchived) return undefined
-			if (kind === 'agent') return {}
 			try {
 				const res = await ScriptService.countRunnablesByOwner({
 					workspace: ws,
@@ -1121,16 +1017,7 @@
 			}
 		}
 	)
-	// The runnables endpoint never counts an agent, so the loaded agents are added per owner.
-	let ownerCounts = $derived.by(() => {
-		const runnables = ownerCountsRes.current
-		if (runnables == undefined) return undefined
-		const counts = { ...runnables }
-		for (const [owner, n] of Object.entries(agentOwnerCounts)) {
-			counts[owner] = (counts[owner] ?? 0) + n
-		}
-		return counts
-	})
+	let ownerCounts = $derived(ownerCountsRes.current)
 	// The counts decide which owners the tree renders, so drawing it before they land
 	// would show every workspace folder and then prune it away. Hold the skeleton
 	// until the first response instead — it is fetched in parallel with the listing,
@@ -1314,8 +1201,7 @@
 		const kind = itemKind
 		// Any term/scope change restarts search paging.
 		searchCursor = undefined
-		// Agents are all loaded, so the client-side search over them is already complete.
-		if (term === '' || !ws || !$userStore || kind === 'agent') return
+		if (term === '' || !ws || !$userStore) return
 		const handle = setTimeout(async () => {
 			let res: { items: RunnableItem[]; next_cursor?: string }
 			try {
@@ -1371,7 +1257,7 @@
 				search: term,
 				showArchived: showArchived ? true : undefined,
 				includeWithoutMain: withoutMain ? true : undefined,
-				kinds: kind !== 'all' && kind !== 'agent' ? kind : undefined,
+				kinds: kind !== 'all' ? kind : undefined,
 				pathStart: owner ? owner + '/' : undefined,
 				includeDraftOnly: true,
 				perPage: 1000,
@@ -1423,7 +1309,7 @@
 						type: 'raw_app' as 'raw_app',
 						time: new Date(x.edited_at).getTime()
 					})),
-					...agents.map((x) => ({
+					...(agents ?? []).map((x) => ({
 						...x,
 						type: 'agent' as 'agent',
 						time: new Date(x.edited_at ?? 0).getTime()
@@ -1487,12 +1373,10 @@
 	// injected as a node and its rows come from the on-demand `treeOwnerItems` store,
 	// so the tree never depends on which owners happen to be in the loaded window.
 	// Otherwise (scoped/search/label) the tree just groups the global `items`.
-	// Agents ride along in lazy mode too: the owner store is fed by the runnables endpoint,
-	// which never returns one, while the resource listing already holds them all.
 	let treeSource = $derived(
 		treeLazyMode
-			? [...treeOwnerItems, ...agents.map((x) => ({ ...x, type: 'agent' as 'agent' }))].filter(
-					(x) => filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
+			? treeOwnerItems.filter((x) =>
+					filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
 				)
 			: items
 	)
