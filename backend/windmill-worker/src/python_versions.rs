@@ -556,7 +556,7 @@ impl PyV {
             child_cmd.env("SSL_CERT_FILE", cert_path);
         }
         if *NATIVE_CERT {
-            child_cmd.env("UV_NATIVE_TLS", "true");
+            child_cmd.env("UV_SYSTEM_CERTS", "true");
         }
 
         if let Some(mirror) = UV_PYTHON_INSTALL_MIRROR.read().await.as_ref() {
@@ -664,7 +664,7 @@ impl PyV {
         }
 
         if *NATIVE_CERT {
-            vars.push(("UV_NATIVE_TLS", "true"));
+            vars.push(("UV_SYSTEM_CERTS", "true"));
         }
         let output = child_cmd
             // .current_dir(job_dir)
