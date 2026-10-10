@@ -5000,6 +5000,101 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A deployed flow runs a multi-step loop body as the flow node its deploy stored, which
+/// carries its own copy of the flow's `preserve_step_tags`. A preview never loads that node.
+#[sqlx::test(fixtures("base"))]
+async fn test_saved_flow_preserves_nested_step_tags(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use futures::StreamExt;
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = reqwest::Client::new();
+    let flow = json!({
+        "path": "g/all/saved_step_tags", "summary": "", "description": "", "tag": "python3",
+        "schema": { "type": "object", "properties": {}, "required": [] },
+        "value": {
+            "preserve_step_tags": true,
+            "modules": [{
+                "id": "loop",
+                "value": {
+                    "type": "forloopflow", "skip_failures": false,
+                    "iterator": { "type": "static", "value": [2, 3] },
+                    "modules": [{
+                        "id": "own_tag",
+                        "value": {
+                            "type": "rawscript", "language": "bun", "lock": "", "tag": "bun",
+                            "content": "export function main(n: number) { return n * n; }",
+                            "input_transforms": {
+                                "n": { "type": "javascript", "expr": "flow_input.iter.value" }
+                            }
+                        }
+                    }, {
+                        "id": "untagged",
+                        "value": {
+                            "type": "rawscript", "language": "bun", "lock": "",
+                            "content": "export function main(n: number) { return n + 1; }",
+                            "input_transforms": {
+                                "n": { "type": "javascript", "expr": "results.own_tag" }
+                            }
+                        }
+                    }]
+                }
+            }]
+        }
+    });
+    let mut completed = listen_for_completed_jobs(&db).await;
+    client
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/flows/create"
+        ))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&flow)
+        .send()
+        .await?
+        .error_for_status()?;
+    let deployment = in_test_worker(&db, completed.next(), port).await.unwrap();
+    let deployed = completed_job(deployment, &db).await;
+    assert!(deployed.success, "{:?}", deployed.result);
+
+    let job_id = client
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/jobs/run/f/g/all/saved_step_tags"
+        ))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&json!({}))
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?
+        .parse::<Uuid>()?;
+    in_test_worker(&db, completed.find(&job_id), port).await;
+    let job = completed_job(job_id, &db).await;
+    assert!(job.success, "{:?}", job.result);
+    let tags = sqlx::query_as::<_, (String, String)>(
+        "WITH RECURSIVE descendants AS (
+            SELECT id FROM v2_job WHERE id = $1
+            UNION ALL
+            SELECT child.id FROM v2_job child JOIN descendants ON child.parent_job = descendants.id
+        )
+        SELECT DISTINCT flow_step_id, tag FROM v2_job
+        WHERE id IN (SELECT id FROM descendants) AND flow_step_id IN ('own_tag', 'untagged')
+        ORDER BY flow_step_id, tag",
+    )
+    .bind(job_id)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        tags,
+        vec![
+            ("own_tag".to_owned(), "bun".to_owned()),
+            ("untagged".to_owned(), "python3".to_owned())
+        ]
+    );
+    Ok(())
+}
+
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 

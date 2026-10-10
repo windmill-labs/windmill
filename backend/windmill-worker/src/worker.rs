@@ -215,6 +215,8 @@ lazy_static::lazy_static! {
     pub static ref PY311_CACHE_DIR: String = format!("{}python_3_11", *ROOT_CACHE_DIR);
     pub static ref PY312_CACHE_DIR: String = format!("{}python_3_12", *ROOT_CACHE_DIR);
     pub static ref PY313_CACHE_DIR: String = format!("{}python_3_13", *ROOT_CACHE_DIR);
+    pub static ref PY314_CACHE_DIR: String = format!("{}python_3_14", *ROOT_CACHE_DIR);
+    pub static ref PY315_CACHE_DIR: String = format!("{}python_3_15", *ROOT_CACHE_DIR);
 
     pub static ref TAR_JAVA_CACHE_DIR: String = format!("{}tar/java", *ROOT_CACHE_DIR);
 

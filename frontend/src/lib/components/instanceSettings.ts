@@ -836,7 +836,7 @@ export const settings: Record<string, Setting[]> = {
 			description: 'Default python version for newly deployed scripts',
 			key: 'instance_python_version',
 			fieldType: 'select_python',
-			placeholder: '3.10,3.11,3.12,3.13',
+			placeholder: '3.10,3.11,3.12,3.13,3.14,3.15',
 			select_items: [
 				{
 					label: 'Instance default',
@@ -854,6 +854,12 @@ export const settings: Record<string, Setting[]> = {
 				},
 				{
 					label: '3.13'
+				},
+				{
+					label: '3.14'
+				},
+				{
+					label: '3.15'
 				}
 			],
 			storage: 'setting'

@@ -1,39 +1,42 @@
-import * as abortSignal from "ext:deno_web/03_abort_signal.js";
-import * as domException from "ext:deno_web/01_dom_exception.js";
-import * as base64 from "ext:deno_web/05_base64.js";
-import * as console from "ext:deno_console/01_console.js";
-import * as encoding from "ext:deno_web/08_text_encoding.js";
-import * as event from "ext:deno_web/02_event.js";
-import * as fetch from "ext:deno_fetch/26_fetch.js";
-import * as file from "ext:deno_web/09_file.js";
-import * as fileReader from "ext:deno_web/10_filereader.js";
-import * as formData from "ext:deno_fetch/21_formdata.js";
-import * as headers from "ext:deno_fetch/20_headers.js";
-import * as streams from "ext:deno_web/06_streams.js";
-import * as timers from "ext:deno_web/02_timers.js";
-import * as url from "ext:deno_url/00_url.js";
-import * as net from "ext:deno_net/01_net.js";
-import * as tls from "ext:deno_net/02_tls.js";
-import * as urlPattern from "ext:deno_url/01_urlpattern.js";
-import * as webidl from "ext:deno_webidl/00_webidl.js";
-import * as crypto from "ext:deno_crypto/00_crypto.js";
-import * as response from "ext:deno_fetch/23_response.js";
-import * as request from "ext:deno_fetch/23_request.js";
-import "ext:deno_web/02_structured_clone.js";
-import * as globalInterfaces from "ext:deno_web/04_global_interfaces.js";
-// Namespace imports (not side-effect-only) so their constructors are reachable
-// for the globalThis wiring below. The module bodies still execute on
-// evaluation, so their side effects apply.
-import * as messagePort from "ext:deno_web/13_message_port.js";
-import * as compression from "ext:deno_web/14_compression.js";
-import * as performance from "ext:deno_web/15_performance.js";
-import "ext:deno_web/16_image_data.js";
-import "ext:deno_fetch/27_eventsource.js";
+import { core, internals } from "ext:core/mod.js";
+
+// deno_crypto brands CryptoKeys with this symbol and reads it from `internals`
+// when it evaluates; in Deno a deno_node module sets it, which is not loaded here.
+internals.kKeyObject ??= Symbol("kKeyObject");
+
+// Every script loaded here runs at snapshot-build time and is baked into the
+// snapshot. One that is first loaded at run time comes from the residual table
+// build.rs emits instead.
+const abortSignal = core.loadExtScript("ext:deno_web/03_abort_signal.js");
+const domException = core.loadExtScript("ext:deno_web/01_dom_exception.js");
+const base64 = core.loadExtScript("ext:deno_web/05_base64.js");
+const console = core.loadExtScript("ext:deno_web/01_console.js");
+const encoding = core.loadExtScript("ext:deno_web/08_text_encoding.js");
+const event = core.loadExtScript("ext:deno_web/02_event.js");
+const fetch = core.loadExtScript("ext:deno_fetch/26_fetch.js");
+const file = core.loadExtScript("ext:deno_web/09_file.js");
+const fileReader = core.loadExtScript("ext:deno_web/10_filereader.js");
+const formData = core.loadExtScript("ext:deno_fetch/21_formdata.js");
+const headers = core.loadExtScript("ext:deno_fetch/20_headers.js");
+const streams = core.loadExtScript("ext:deno_web/06_streams.js");
+const timers = core.loadExtScript("ext:deno_web/02_timers.js");
+const url = core.loadExtScript("ext:deno_web/00_url.js");
+const urlPattern = core.loadExtScript("ext:deno_web/01_urlpattern.js");
+const webidl = core.loadExtScript("ext:deno_webidl/00_webidl.js");
+const crypto = core.loadExtScript("ext:deno_crypto/00_crypto.js");
+const response = core.loadExtScript("ext:deno_fetch/23_response.js");
+const request = core.loadExtScript("ext:deno_fetch/23_request.js");
+const globalInterfaces = core.loadExtScript(
+  "ext:deno_web/04_global_interfaces.js",
+);
+const messagePort = core.loadExtScript("ext:deno_web/13_message_port.js");
+const compression = core.loadExtScript("ext:deno_web/14_compression.js");
+const performance = core.loadExtScript("ext:deno_web/15_performance.js");
 
 // deno_fetch applies no deadline, so a peer that accepts a request and then
 // never answers leaves `await fetch(...)` pending until the job timeout, which
 // self-hosted defaults to 7 days.
-const ORIGINAL_FETCH = fetch.fetch;
+const DENO_FETCH = fetch.fetch;
 
 // deno_web's timers reject any `this` other than undefined/globalThis, so
 // `timers.setTimeout(...)` passes the module namespace and throws "Illegal
@@ -49,6 +52,14 @@ const abortControllerAbort = Function.prototype.call.bind(
   abortSignal.AbortController.prototype.abort,
 );
 const ReflectApply = Reflect.apply;
+
+// Forwards the original argument count, like every caller below relies on. The
+// extra promise hop under `no_network` costs the same-tick settling of an
+// aborted fetch, which only matters where a request could have been made.
+function ORIGINAL_FETCH() {
+  const p = ReflectApply(DENO_FETCH, undefined, arguments);
+  return noNetwork ? promiseThen(p, undefined, rewordNoNetworkDenial) : p;
+}
 
 // Installed per isolate by __wmInitPerIsolate; 0 disables. Only a backstop
 // for the impossible case of fetch running before that init.
@@ -72,6 +83,21 @@ function fetchResponseTimeoutError(requestUrl, timeoutMs) {
       `with WINDMILL_FETCH_RESPONSE_TIMEOUT_SECS.`,
     "TimeoutError",
   );
+}
+
+// Set per isolate for a `//no_network` script. The denial itself is the
+// isolate's permissions (Rust); this only replaces deno's "run again with the
+// --allow-net flag" hint, which names a flag a script author cannot pass.
+let noNetwork = false;
+
+function rewordNoNetworkDenial(e) {
+  if (e?.name === "NotCapable" && typeof e.message === "string") {
+    e.message = e.message.replace(
+      ", run again with the --allow-net flag",
+      ": the script is annotated //no_network",
+    );
+  }
+  throw e;
 }
 
 globalThis.atob = base64.atob;
@@ -152,7 +178,22 @@ globalThis.console = new console.Console((msg, level) =>
 );
 globalThis.AbortController = abortSignal.AbortController;
 globalThis.AbortSignal = abortSignal.AbortSignal;
-globalThis.crypto = crypto.crypto;
+// A getter, not a value: `crypto.crypto` mints a cppgc object, and the cppgc
+// heap is not attached while this module runs at snapshot-build time.
+Object.defineProperty(globalThis, "crypto", {
+  configurable: true,
+  enumerable: true,
+  get: () => crypto.crypto,
+  // Assignment has to keep working, as it does on a plain property.
+  set(value) {
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value,
+    });
+  },
+});
 globalThis.Crypto = crypto.Crypto;
 globalThis.CryptoKey = crypto.CryptoKey;
 globalThis.SubtleCrypto = crypto.SubtleCrypto;
@@ -233,6 +274,7 @@ globalThis.__wmInitPerIsolate = (config) => {
   if (config != null && typeof config.fetchResponseTimeoutMs === "number") {
     fetchResponseTimeoutMs = config.fetchResponseTimeoutMs;
   }
+  noNetwork = config?.noNetwork === true;
 
   // setTimeOrigin() seeds performance.timeOrigin from the isolate's wall clock;
   // without it timeOrigin is undefined and `timeOrigin + performance.now()` is NaN.
@@ -256,13 +298,14 @@ globalThis.__wmInitPerIsolate = (config) => {
 };
 
 // Expose bootstrapOtel globally so it can be called from Rust after runtime creation.
-// We use dynamic import so deno_telemetry isn't loaded during snapshot creation.
+// Loaded on first call so deno_telemetry isn't evaluated during snapshot creation.
 // Config: [tracingEnabled, metricsEnabled, consoleConfig, deterministic]
 // consoleConfig: 0=ignore, 1=capture, 2=replace
 globalThis.__bootstrapOtel = () => {
-  import("ext:deno_telemetry/telemetry.ts").then(({ bootstrap, enterSpan }) => {
-    bootstrap([1, 0, 1, 0]);
-    // Expose enterSpan for setting parent trace context
-    globalThis.__enterSpan = enterSpan;
-  });
+  const { bootstrap, enterSpan } = core.loadExtScript(
+    "ext:deno_telemetry/telemetry.ts",
+  );
+  bootstrap([1, 0, 1, 0]);
+  // Expose enterSpan for setting parent trace context
+  globalThis.__enterSpan = enterSpan;
 };

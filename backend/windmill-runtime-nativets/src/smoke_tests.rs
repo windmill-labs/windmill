@@ -451,6 +451,10 @@ export async function main(): Promise<{ uuid: string; nonzero: boolean; sha256: 
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
 
+    // `crypto` is installed as an accessor; polyfill-style assignment must
+    // still work rather than throw for want of a setter.
+    (globalThis as any).crypto = globalThis.crypto;
+
     return { uuid, nonzero, sha256 };
 }
 "#;

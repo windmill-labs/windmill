@@ -35,7 +35,9 @@ RUN RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo /usr/local/cargo/b
 # ansible there leaves its venv interpreter as a dangling symlink at runtime, so every
 # ansible-* executable fails with ENOENT ("ansible-galaxy not found"). Pin the tool's
 # interpreter to a persistent image path so the install stays self-contained.
-RUN UV_PYTHON_INSTALL_DIR=/usr/local/uv/py uv tool install ansible && [ -d "$(uv tool dir)/ansible/bin/" ] && find "$(uv tool dir)/ansible/bin/" -mindepth 1 -maxdepth 1 -type f -executable -regextype posix-extended -regex '^((.+/)?)[^.]+' -print0 | xargs -0 ln -sf -t "$UV_TOOL_BIN_DIR/" || true
+# The version is explicit because uv otherwise downloads its newest stable Python, which
+# ansible-core may not support yet: the install succeeds and every executable fails on import.
+RUN UV_PYTHON_INSTALL_DIR=/usr/local/uv/py uv tool install --python 3.14 ansible && [ -d "$(uv tool dir)/ansible/bin/" ] && find "$(uv tool dir)/ansible/bin/" -mindepth 1 -maxdepth 1 -type f -executable -regextype posix-extended -regex '^((.+/)?)[^.]+' -print0 | xargs -0 ln -sf -t "$UV_TOOL_BIN_DIR/" || true
 # dotnet SDK
 RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
     && chmod +x dotnet-install.sh \
