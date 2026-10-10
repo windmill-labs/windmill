@@ -153,11 +153,12 @@ ARG WITH_HELM=true
 ARG WITH_GIT=true
 ARG features=""
 
-# To change latest stable version:
-# 1. Change placeholder in instanceSettings.ts
-# 2. Change LATEST_STABLE_PY in dockerfile
-# 3. Change #[default] annotation for PyVersion in backend
+# Instances keep the Python version they were initialized with, so both are preinstalled:
+# LATEST_STABLE_PY is what instances initialized before the version was raised are on
+# (PyVAlias::default() in the backend), NEW_INSTANCE_PY the one new instances start on
+# (PyVAlias::NEW_INSTANCE). When raising the latter, keep installing every earlier value.
 ARG LATEST_STABLE_PY=3.12
+ARG NEW_INSTANCE_PY=3.15
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
 
@@ -250,6 +251,7 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releas
 # timestamps or Python's mtime-based .pyc invalidation discards these compiled files.
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11 --compile-bytecode
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY --compile-bytecode
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $NEW_INSTANCE_PY --compile-bytecode
 
 
 RUN curl -sL https://deb.nodesource.com/setup_24.x | bash -

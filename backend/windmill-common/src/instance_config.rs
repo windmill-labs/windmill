@@ -1026,6 +1026,7 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "rsa_keys",
     "jwt_secret",
     "min_keep_alive_version",
+    "instance_python_version",
 ];
 
 /// Secrets the server signs with or generated for itself. `jwt_secret` signs API and job

@@ -2891,6 +2891,9 @@ pub fn lockfile_line_has_continuation(line: &str) -> bool {
 pub enum PyVAlias {
     Py310 = 10,
     Py311,
+    // Frozen: what a lock with no `# py:` line runs on, and what the server writes into
+    // `instance_python_version` for an instance that never chose one. Raise `NEW_INSTANCE`
+    // instead, which existing instances never pick up.
     #[default]
     Py312,
     Py313,
@@ -2911,6 +2914,11 @@ impl Into<u32> for PyVAlias {
 }
 
 impl PyVAlias {
+    /// What the server writes into `instance_python_version` when it initializes an instance.
+    /// Raising it also means the images must keep preinstalling every earlier value, or
+    /// instances that started on one download their runtime on first use.
+    pub const NEW_INSTANCE: PyVAlias = PyVAlias::Py315;
+
     pub fn all<T: From<PyVAlias>>() -> Vec<T> {
         use PyVAlias::*;
         vec![
@@ -2922,6 +2930,11 @@ impl PyVAlias {
             Py315.into(),
         ]
     }
+    /// `MAJOR.MINOR`, the form the instance settings store.
+    pub fn version_string(self) -> String {
+        format!("{}.{}", self.major(), self as u32)
+    }
+
     // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
     fn major(&self) -> u32 {
         use PyVAlias::*;
