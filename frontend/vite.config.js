@@ -296,6 +296,10 @@ const config = {
 				cookieDomainRewrite: cookieDomain,
 				configure: isolateAuthCookie
 			},
+			'^/custom\\.css$': {
+				target: remoteUrl,
+				changeOrigin: true
+			},
 			'^/api/w/[^/]+/s3_proxy/.*': {
 				target: remoteUrl,
 				changeOrigin: false, // Important for signature to be correct

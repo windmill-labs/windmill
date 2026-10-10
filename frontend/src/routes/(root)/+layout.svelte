@@ -1,6 +1,7 @@
 <script lang="ts">
 	// First, so its rules precede every component's.
 	import '$lib/assets/app.css'
+	import CustomCss from '$lib/components/CustomCss.svelte'
 	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
@@ -339,4 +340,5 @@
 	applyDarkModeVariant()
 </script>
 
+<CustomCss />
 {@render children?.()}

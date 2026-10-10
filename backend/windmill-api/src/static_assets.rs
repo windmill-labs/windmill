@@ -25,9 +25,34 @@ lazy_static::lazy_static! {
     static ref CSP_POLICY: String = std::env::var("CSP_POLICY").unwrap_or_default();
 }
 
+lazy_static::lazy_static! {
+    static ref CUSTOM_CSS_FILE: Option<String> =
+        std::env::var("CUSTOM_CSS_FILE").ok().filter(|path| !path.is_empty());
+}
+
 // static_handler is a handler that serves static files from the
 pub async fn static_handler(OriginalUri(original_uri): OriginalUri) -> StaticFile {
     StaticFile(original_uri)
+}
+
+/// Serves the stylesheet at `CUSTOM_CSS_FILE`, read on every request so it can change without a
+/// rebuild. Empty when unset: the frontend links it unconditionally.
+pub async fn custom_css() -> Response<Body> {
+    let css = match CUSTOM_CSS_FILE.as_deref() {
+        Some(path) => match tokio::fs::read(path).await {
+            Ok(css) => css,
+            Err(err) => {
+                tracing::warn!("could not read CUSTOM_CSS_FILE {path}: {err}");
+                return Response::builder().status(500).body(Body::empty()).unwrap();
+            }
+        },
+        None => Vec::new(),
+    };
+    Response::builder()
+        .header(axum::http::header::CONTENT_TYPE, "text/css; charset=utf-8")
+        .header(axum::http::header::CACHE_CONTROL, "no-cache")
+        .body(Body::from(css))
+        .unwrap()
 }
 
 #[cfg(feature = "static_frontend")]
