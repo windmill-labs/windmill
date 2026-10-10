@@ -263,11 +263,17 @@ impl PyV {
         // written. Jobs only exist once it is, so reading it here settles that worker for good.
         if setting.is_none() {
             if let Some(Connection::Sql(db)) = conn.as_ref() {
-                setting = load_value_from_global_settings(db, INSTANCE_PYTHON_VERSION_SETTING)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|v| serde_json::from_value::<String>(v).ok());
+                // Same precedence as the settings load: forced value, stored value, environment.
+                let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+                setting = match env("FORCE_INSTANCE_PYTHON_VERSION") {
+                    Some(forced) => Some(forced),
+                    None => load_value_from_global_settings(db, INSTANCE_PYTHON_VERSION_SETTING)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|v| serde_json::from_value::<String>(v).ok())
+                        .or_else(|| env("INSTANCE_PYTHON_VERSION")),
+                };
                 if setting.is_some() {
                     *INSTANCE_PYTHON_VERSION.write().await = setting.clone();
                 }
