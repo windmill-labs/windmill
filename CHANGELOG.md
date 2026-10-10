@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.831.0](https://github.com/windmill-labs/windmill/compare/v1.830.0...v1.831.0) (2026-10-10)
+
+
+### Features
+
+* add python 3.14 and 3.15 to the supported instance versions ([#11654](https://github.com/windmill-labs/windmill/issues/11654)) ([74c9b0c](https://github.com/windmill-labs/windmill/commit/74c9b0cb2eebc16dd5e23f23be89b127bcbe6ec2))
+
+
+### Bug Fixes
+
+* keep preserve_step_tags on saved branch and loop flow nodes ([#11660](https://github.com/windmill-labs/windmill/issues/11660)) ([dedd775](https://github.com/windmill-labs/windmill/commit/dedd77587f3234f3e480388b00340394794ac5bb))
+
 ## [1.830.0](https://github.com/windmill-labs/windmill/compare/v1.829.0...v1.830.0) (2026-10-09)
 
 
