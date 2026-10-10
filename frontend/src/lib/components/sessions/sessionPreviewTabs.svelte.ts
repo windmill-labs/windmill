@@ -114,10 +114,16 @@ function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 	// an item the user left on View does not yank them back to the editor.
 	const mode = target.mode ?? (onto ? (parsePreviewItemRoute(onto.url)?.mode ?? 'edit') : 'edit')
 	if (mode !== 'view') return `${base}${editPathFor(target.item)}`
-	// Not carried over from `onto`: a version pin is something the reader asked for
-	// once, so every other re-point of this tab lands on the current deployed version.
-	const pin = target.version ? `?version=${encodeURIComponent(target.version)}` : ''
-	return `${base}${viewPathFor(target.item)}${pin}`
+	// Neither is carried over from `onto`. A version pin is something the reader asked for
+	// once, so every other re-point of this tab lands on the current deployed version — and a
+	// chat tool call is carried by the tab that was opened for it, so re-pointing that tab
+	// anywhere else, a version included, hands the call back rather than running it against
+	// something it was not confirmed for.
+	const params = new URLSearchParams()
+	if (target.version) params.set('version', target.version)
+	if (target.pendingRunId) params.set('pending_run', target.pendingRunId)
+	const query = params.size > 0 ? `?${params}` : ''
+	return `${base}${viewPathFor(target.item)}${query}`
 }
 
 // Point a tab at a new destination. Clears `friendlyLabel`/`friendlyPath`
@@ -682,6 +688,15 @@ export class SessionPreviewTabs {
 	 * send the tab to the end of the strip, which is not what following a call looks like. */
 	retargetRunForm(toolCallId: string, url: string): void {
 		const tab = this.#tabs.find((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
+		if (!tab) return
+		retargetTab(tab, url)
+		this.#flush()
+	}
+
+	/** Point one known tab at `url`. For a caller that found the tab itself — the deployed
+	 * page that confirmed a run becomes that run, and only the caller knows which page. */
+	retargetById(id: string, url: string): void {
+		const tab = this.#tabs.find((t) => t.id === id)
 		if (!tab) return
 		retargetTab(tab, url)
 		this.#flush()

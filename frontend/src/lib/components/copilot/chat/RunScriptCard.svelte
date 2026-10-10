@@ -421,27 +421,58 @@
 	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
 	// the button is not drawn at all — a form has nowhere to go outside a session, and a
 	// call cancelled before Run never became a run.
+	// A deployed run can be confirmed on the item's own page instead of on this card: the page
+	// takes over the call, so Run there is Run here. A test run has no deployed page — it
+	// executes the draft being written — so it keeps the chat's own form tab.
+	const asDeployedPage = $derived(
+		pending && runForm?.kind === 'run' && !!path && !!aiChatManager.openRunOnDeployedPage
+	)
 	const previewTarget = $derived(
 		pending
-			? aiChatManager.openRunForm
-				? ('form' as const)
-				: undefined
+			? asDeployedPage
+				? ('deployed' as const)
+				: aiChatManager.openRunForm
+					? ('form' as const)
+					: undefined
 			: job
 				? ('run' as const)
 				: undefined
 	)
+	// A conversational flow's page has no run form, so opening it is all it can offer: the
+	// run stays on this card, where there is one to confirm.
+	const carries = $derived(asDeployedPage && !runForm?.conversational)
 	const previewTitle = $derived(
 		previewTarget === 'form'
 			? `Open this form in the preview panel: ${path}`
-			: aiChatManager.openRunInPreview
-				? `Open this run in the preview panel: ${path || runnableName}`
-				: `Open this run in a new tab: ${path || runnableName}`
+			: previewTarget === 'deployed'
+				? carries
+					? `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and confirm this run there: ${path}`
+					: `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'}: ${path}`
+				: aiChatManager.openRunInPreview
+					? `Open this run in the preview panel: ${path || runnableName}`
+					: `Open this run in a new tab: ${path || runnableName}`
 	)
 
 	function openPreview() {
 		const label = runnableName
+		// The panel now shows what this card was showing, so the card folds away rather than
+		// holding a second copy open in the transcript. Through `toggled`, so it reads as an
+		// ordinary collapse the reader can undo. Only when the page is taking the run: a page
+		// opened to look at leaves the form here, and folding it away would hide the only
+		// place this call can still be confirmed.
+		if (carries) toggled = { id: message.tool_call_id, open: false }
 		if (previewTarget === 'form') {
 			aiChatManager.openRunForm?.({ toolCallId: message.tool_call_id, label })
+			return
+		}
+		if (previewTarget === 'deployed') {
+			aiChatManager.openRunOnDeployedPage?.({
+				toolCallId: message.tool_call_id,
+				kind: runnableKind === 'flow' ? 'flow' : 'script',
+				path,
+				summary: label,
+				carries
+			})
 			return
 		}
 		if (!job) return
@@ -477,6 +508,7 @@
 		title={previewTitle}
 		onOpen={openPreview}
 		kindIcon={false}
+		mode={previewTarget === 'deployed' ? 'view' : 'edit'}
 	/>
 {/snippet}
 

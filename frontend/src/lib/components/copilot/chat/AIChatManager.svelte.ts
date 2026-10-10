@@ -582,6 +582,19 @@ export class AIChatManager implements ChatViewHost {
 	 * chat card holds. Unset outside a session: a chat-bound form has nowhere else to go,
 	 * so the card hides the control rather than offering a tab that cannot run. */
 	openRunForm?: (a: { toolCallId: string; label: string }) => void
+	/** Show a DEPLOYED run's item on its own page. With `carries`, that page is handed this
+	 * call: it shows the same form, and Run there answers the call rather than starting a job
+	 * of its own, so the tool still owns the run. Without it the page is only opened to look
+	 * at — a conversational flow's page has no form to confirm on — and the card keeps the
+	 * run. Set only where that page can be shown, a session's preview panel, so the card
+	 * hides the control elsewhere. */
+	openRunOnDeployedPage?: (a: {
+		toolCallId: string
+		kind: 'script' | 'flow'
+		path: string
+		summary: string
+		carries: boolean
+	}) => boolean
 	closeRunForm?: (toolCallId: string) => void
 	/** Hands that tab from the form to the run it just started, in place: the tab keeps its
 	 * position in the strip and stays active if it was. */
@@ -2080,6 +2093,10 @@ export class AIChatManager implements ChatViewHost {
 
 	markRunFormStarted = (toolId: string) => this.#patchRunForm(toolId, { started: true })
 
+	// Nothing to patch on the card — it already carries the tool's own error — so this exists
+	// for the surfaces that confirmed the run and would otherwise wait forever for a job.
+	markRunFormEnded = (toolId: string) => this.closeRunForm?.(toolId)
+
 	// A form restored from history has an entry once it mounts, but no resolve: the loop
 	// that opened it is gone.
 	isRunFormPending = (toolId: string): boolean => !!this.#runForms.get(toolId)?.resolve
@@ -2115,6 +2132,18 @@ export class AIChatManager implements ChatViewHost {
 		if (!this.isRunFormPending(toolId)) return false
 		this.#settleRunForm(toolId, args)
 		return true
+	}
+
+	/** What a parked form is waiting on, for a surface showing that form outside the card. */
+	pendingRunFormArgs = (toolId: string): Record<string, any> | undefined =>
+		this.#runForms.get(toolId)?.draft?.args
+
+	/** Take over what the form is waiting on, for a surface handing the call back with what
+	 * the reader typed into it. A snapshot for the same reason the draft is one: these are
+	 * `$state` proxies off another component, and the draft must not alias them. */
+	setRunFormArgs = (toolId: string, args: Record<string, any>) => {
+		const entry = this.#runForms.get(toolId)
+		if (entry) entry.draft.args = ($state.snapshot(args) ?? {}) as Record<string, any>
 	}
 
 	handleRunFormCancel = (toolId: string) => {
@@ -4197,6 +4226,7 @@ export class AIChatManager implements ChatViewHost {
 					requestUserQuestion: this.requestUserQuestion,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
+					markRunFormEnded: this.markRunFormEnded,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
 					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),

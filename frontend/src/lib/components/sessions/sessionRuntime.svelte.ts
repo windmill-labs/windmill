@@ -1,4 +1,5 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import type { PendingRun } from '$lib/components/details/pendingRun'
 import { get } from 'svelte/store'
 import { base } from '$lib/base'
 import { invalidate as invalidateWorkspaceItems } from '$lib/components/workspacePicker'
@@ -28,6 +29,8 @@ import {
 // the response type still need an explicit cast).
 type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScript }
 type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
+import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
+import { sendUserToast } from '$lib/toast'
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
@@ -73,6 +76,7 @@ import {
 	promptSafe,
 	parseRunFormRoute,
 	resolvePreviewTab,
+	pendingRunIdOf,
 	type PreviewSlot
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -242,6 +246,8 @@ export interface SessionRuntime {
 	 * viewer refetches when this changes — it reads the deployed version from the
 	 * API, so nothing else tells it the editor beside it just published. */
 	deployedRevision(kind: SessionTargetKind, path: string): number
+	/** The chat tool call a viewer tab was opened to answer, named by that tab's own url. */
+	pendingRunFor(toolCallId: string): PendingRun | undefined
 	/** Record that a preview tab landed on `url`. Fires for a newly opened tab and
 	 * for an existing one switched to the other side of its item. */
 	logTabUsage(url: string): void
@@ -589,9 +595,59 @@ function createRuntime(session: Session): SessionRuntime {
 			// Only persist a real width; undefined means "never resized" (defaults to 50).
 			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
+		// Nothing to do here for a call a page was carrying: closing that tab is not a refusal,
+		// and the card it came from still has the form. The call simply goes back to being
+		// confirmable there.
 		onTabsChanged: pruneEditorCells,
 		onTabOpened: logTabUsage
 	})
+
+	/** Calls whose Run has been pressed on a page and whose job has not landed yet. */
+	const heldPresses = new SvelteSet<string>()
+
+	/** The call a viewer tab was opened to answer, for the page that renders it. Built from
+	 * the id the tab carries rather than from state of our own, so there is nothing to keep in
+	 * step: the tab names the call, and the manager says whether it is still waiting. */
+	function pendingRunFor(toolCallId: string): PendingRun | undefined {
+		// Whether the call is still waiting is the manager's to answer. Asking it here rather
+		// than dropping state from each way a call can end is what covers the ways that reach
+		// no hook at all — a submit whose job never started, because the server refused it or
+		// plan mode blocked it after the arguments were already handed over.
+		//
+		// A press already handed over counts as waiting: the call stops being pending the
+		// instant Run is pressed, well before its job exists, and a page that went back to
+		// running on its own in that gap would start a second job for the same request on a
+		// second press.
+		if (!manager.isRunFormPending(toolCallId) && !heldPresses.has(toolCallId)) return undefined
+		return {
+			toolCallId,
+			draftArgs: manager.pendingRunFormArgs(toolCallId),
+			setDraftArgs: (args) => manager.setRunFormArgs(toolCallId, args),
+			// Read here rather than on the page, so the page's own `$derived` rebuilds when the
+			// posture changes while its form sits open.
+			planModeActive: manager.planModeActive,
+			// Both guards belong ahead of the form's own `processSecretArgs`, which writes
+			// ephemeral variables to the workspace: plan mode can be switched on while the form
+			// sits here, and a second press would mint a second set of them.
+			claim: () => {
+				if (manager.planModeActive) {
+					sendUserToast(PLAN_MODE_MESSAGES.runFormRefused, true)
+					return false
+				}
+				if (!manager.beginRunFormSubmit(toolCallId)) return false
+				heldPresses.add(toolCallId)
+				return true
+			},
+			release: () => {
+				heldPresses.delete(toolCallId)
+				manager.endRunFormSubmit(toolCallId)
+			},
+			// False when the call is no longer waiting — a turn stopped out from under the page,
+			// or a job that failed to start. The page says so rather than leaving Run dead.
+			submit: (args) => manager.handleRunFormSubmit(toolCallId, args),
+			decline: () => manager.handleRunFormCancel(toolCallId)
+		}
+	}
 
 	// Let the jobs tray open a run in this session's preview panel (as an iframe
 	// tab over the run page). The global side-panel chat leaves this unset and
@@ -610,16 +666,70 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.openRunForm = ({ toolCallId, label }) => {
 		previewTabs.open({ type: 'runform', toolCallId, label })
 	}
-	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
+	// The reader asked, from the card, to confirm a DEPLOYED run on the item's own page rather
+	// than on the card's form. The page takes over the parked call: its Run hands the
+	// arguments back, so the tool still owns the run and the card still gets its logs.
+	manager.openRunOnDeployedPage = ({ toolCallId, kind, path, summary, carries }) => {
+		// Through the shared adapter rather than building the item here: a session target
+		// spells a code-based app `raw_app` and a workspace item spells it `app` with a
+		// flag, and one place should know that. A script and a flow both resolve to an item,
+		// so this guard is the adapter's contract rather than a case that happens.
+		const target = previewTargetForSessionTarget(kind, path)
+		if (target?.type !== 'item') return false
+		const viewTarget = {
+			...target,
+			item: { ...target.item, summary },
+			mode: 'view' as const,
+			pendingRunId: carries ? toolCallId : undefined
+		}
+		// Re-pointed rather than merely focused, because the url is what hands the tab the
+		// call: a tab already on this item is showing whatever version the reader last chose,
+		// and re-pointing both drops that pin and writes the call onto the tab.
+		const open = previewTabs.tabs.find((t) => {
+			const slot = resolvePreviewTab(t.url)
+			return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
+		})
+		if (open) {
+			previewTabs.navigate(viewTarget, open.id)
+			// `navigate` re-points a tab in place and nothing more, while the call is about to
+			// tell the reader the page is open. `open` would have brought it forward and shown
+			// the panel; this path has to do both itself.
+			previewTabs.select(open.id)
+			previewTabs.setCollapsed(false)
+		} else {
+			previewTabs.open(viewTarget)
+		}
+		return true
+	}
+	manager.closeRunForm = (toolCallId) => {
+		// A page carrying the call outlives it — it is still the item's deployed page — so
+		// nothing closes there; it stops carrying the call because the call stops being
+		// pending, which `pendingRunFor` reads. Only the chat's own form tab, which is the
+		// call and nothing else, goes with it.
+		heldPresses.delete(toolCallId)
+		previewTabs.closeRunForm(toolCallId)
+	}
 	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
-		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
+		const runHref = `${base}/run/${jobId}?workspace=${workspace}`
+		// Either surface the call was waiting on becomes the run it started, in place.
+		heldPresses.delete(toolCallId)
+		const carrying = previewTabs.tabs.find((t) => pendingRunIdOf(t.url) === toolCallId)
+		if (carrying) previewTabs.retargetById(carrying.id, runHref)
+		previewTabs.retargetRunForm(toolCallId, runHref)
 	}
 	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
 	// away from is unmounted but still open, and the card must keep its form hidden until it
 	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
 	// to `tabs` through it, and the runtime is not inside an effect root to push from.
+	// A deployed page carrying the call counts: its form is this call's form, so the card must
+	// not mount a second one there either. Both surfaces answer the same question of the tab
+	// list — which tab, if any, is this call's — so a tab closed or re-pointed hands the form
+	// back to the card by the same fact that stops the page showing it.
 	manager.isRunFormInPreview = (toolCallId) =>
-		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
+		previewTabs.tabs.some(
+			(t) =>
+				parseRunFormRoute(t.url)?.toolCallId === toolCallId || pendingRunIdOf(t.url) === toolCallId
+		)
 
 	manager.openArtifact = (id, name, version) => {
 		previewTabs.open({ type: 'artifact', id, name, version })
@@ -726,6 +836,7 @@ function createRuntime(session: Session): SessionRuntime {
 		flowCell,
 		loadedEditorPath,
 		deployedRevision,
+		pendingRunFor,
 		logTabUsage,
 
 		async loadFlow(workspace: string, path: string, force = false) {

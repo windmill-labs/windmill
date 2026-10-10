@@ -5394,6 +5394,50 @@ describe('global AI tools', () => {
 		expect(refused).toContain('cannot show a run form')
 	})
 
+	// A surface that confirmed the run is waiting for the job it was promised, and a refused
+	// start is the one end it cannot see for itself: the call is neither pending nor cancelled,
+	// and nothing else tells it to stop offering a Run that would never reach a job.
+	it('run_script says the form is over when the job is refused', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/refused',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+		vi.mocked(JobService.runScriptByPath).mockRejectedValueOnce(new Error('not permitted'))
+		const markRunFormEnded = vi.fn()
+
+		await expect(
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/refused', args: { name: 'Ada' } },
+				{ ...toolCallbacks, markRunFormEnded }
+			)
+		).rejects.toThrow('not permitted')
+
+		expect(markRunFormEnded).toHaveBeenCalledWith(expect.any(String))
+	})
+
+	// A chat-enabled flow's deployed page is a conversation with no run form, so it is opened
+	// to look at and the card keeps the run. The card reads this off the form rather than
+	// fetching the flow again.
+	it('run_flow marks a chat-enabled flow as conversational on its form', async () => {
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValue({
+			path: 'f/flows/chat',
+			schema: { properties: { user_message: { type: 'string' } } },
+			value: { modules: [], chat_input_enabled: true }
+		} as any)
+
+		const statuses: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_flow',
+				{ path: 'f/flows/chat', args: { user_message: 'hi' } },
+				{ ...toolCallbacks, setToolStatus: (_id: string, s: any) => statuses.push(s) }
+			)
+		)
+
+		expect(statuses.find((s) => s.runForm)?.runForm?.conversational).toBe(true)
+	})
+
 	// The posture answers wherever it is set, form or no form: what it answers is consent, and a
 	// host without one has nothing left to ask. A secret still becomes a reference first, which
 	// is the only thing the missing form would have done.

@@ -27,6 +27,9 @@
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import type { PendingRun } from '$lib/components/details/pendingRun'
+	import { processSecretArgs } from '$lib/components/secretArgUtils'
+	import type { Schema } from '$lib/common'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
@@ -101,6 +104,7 @@
 		onNavigate = goto,
 		active = true,
 		embedded = false,
+		pendingRun,
 		onLoadState
 	}: {
 		/** The `[...path]` route segment: the flow's path. */
@@ -116,6 +120,10 @@
 		/** Rendered inside a page that is not the flow's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
+		/** A chat tool call waiting on this form, when the reader chose to confirm it here
+		 * rather than on the card. Seeds the arguments it proposed and takes over Run; see
+		 * {@link PendingRun} for why the page must not run it itself. */
+		pendingRun?: PendingRun
 		/** How the load ended, for a host that renders its own state around this page. */
 		onLoadState?: (state: 'loaded' | 'not_found') => void
 	} = $props()
@@ -315,17 +323,38 @@
 		conversationId: string,
 		additionalInputs?: Record<string, any>
 	): Promise<string> {
+		// A chat flow's inputs reach the job straight from the composer, with no RunForm in
+		// between to mint a secret as it is typed — so this is the only place a value the
+		// schema marks `password` can become a reference. Without it the literal is stored in
+		// the job's arguments, where anyone who can read the run can read it. Idempotent, so a
+		// reference that was already minted costs a walk and no round trip.
+		const requestBody = await processSecretArgs(
+			{ user_message: userMessage, ...(additionalInputs ?? {}) },
+			flow?.schema as Schema | undefined,
+			workspace
+		)
 		const run = await JobService.runFlowByPath({
 			workspace: workspace!,
 			path,
 			memoryId: conversationId,
-			requestBody: { user_message: userMessage, ...(additionalInputs ?? {}) },
+			requestBody,
 			skipPreprocessor: true
 		})
 		return run
 	}
 
-	let args: Record<string, any> | undefined = $state(undefined)
+	// While a chat call is carried here, the form edits that call's own draft — the one the
+	// card edits — rather than a copy of it. There is then nothing to keep in step and nothing
+	// to carry back: whatever is typed on either surface is what the call runs with.
+	let ownArgs: Record<string, any> | undefined = $state(undefined)
+	// Falls back once the draft is gone: pressing Run settles the call, and the form must go
+	// on showing what it submitted while the job starts — and still show it if the start is
+	// refused, which leaves the reader on the page with the run to make again.
+	const args = $derived(pendingRun?.draftArgs ?? ownArgs)
+	function setArgs(next: Record<string, any> | undefined) {
+		if (pendingRun) pendingRun.setDraftArgs(next ?? {})
+		else ownArgs = next
+	}
 
 	// Read once on purpose: these args seed the form, so tracking the fragment would
 	// overwrite what the user has typed whenever it changes.
@@ -339,7 +368,7 @@
 				k,
 				JSON.parse(v)
 			])
-			args = Object.fromEntries(params)
+			setArgs(Object.fromEntries(params))
 		} catch (e) {
 			console.error('Was not able to transform hash as args', e)
 		}
@@ -350,6 +379,25 @@
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let runForm: RunForm | undefined = $state()
+
+	// Run hands the arguments to the waiting call instead of starting a job: the tool that
+	// parked on this form starts one itself when it resumes.
+	//
+	// Bound to the call it was built for, not to whichever one the page is carrying when the
+	// press lands: a press runs across `processSecretArgs`, and the call can settle and be
+	// replaced by the next request for this same item inside that round trip. Submitting to
+	// whatever is current would start that one without its reader ever confirming it.
+	const runAction = $derived.by(() => {
+		const call = pendingRun
+		if (!call) return runFlow
+		return (_scheduledForStr: string | undefined, a: Record<string, any>) => {
+			// Kept for the moment the draft stops answering, just below.
+			ownArgs = a
+			if (!call.submit(a)) {
+				sendUserToast('That request is no longer waiting on this form', true)
+			}
+		}
+	})
 
 	// The dev workspace's editor is not one the session panel can host, so from a preview tab
 	// it opens in a new browser tab, as the session editors' own entry does.
@@ -838,7 +886,7 @@
 											{inputSelected}
 										/>
 
-										{#if hasSchema}
+										{#if hasSchema && !pendingRun?.planModeActive}
 											<Toggle
 												bind:checked={jsonView}
 												size="xs"
@@ -868,24 +916,40 @@
 									{@render aiAssistant()}
 								{/if}
 
-								<RunForm
-									bind:scheduledForStr
-									bind:invisible_to_owner
-									bind:overrideTag
-									{overrideTagNote}
-									syncArgsToUrl={!embedded}
-									viewKeybinding
-									{loading}
-									autofocus
-									detailed={false}
-									bind:isValid
-									runnable={flow}
-									runAction={runFlow}
-									bind:args
-									bind:this={runForm}
-									{jsonView}
-									actions={promptForAi ? undefined : aiAssistant}
-								/>
+								{#if pendingRun}
+									<InputSelectedBadge
+										inputSelected="pending_run"
+										onReject={() => pendingRun.decline()}
+									/>
+								{/if}
+
+								<!-- Keyed on the call, so a request arriving on a tab that is already open
+								     builds a new form already holding what it proposed. Re-seeding one
+								     that is already on screen would have to wait for it to exist. -->
+								{#key pendingRun?.toolCallId}
+									<RunForm
+										bind:scheduledForStr
+										bind:invisible_to_owner
+										bind:overrideTag
+										{overrideTagNote}
+										syncArgsToUrl={!embedded}
+										viewKeybinding
+										{loading}
+										autofocus
+										detailed={false}
+										bind:isValid
+										runnable={flow}
+										{runAction}
+										claimRun={pendingRun}
+										argsReadonly={pendingRun?.planModeActive}
+										bind:args={() => args, setArgs}
+										schedulable={!pendingRun}
+										commonParams={!pendingRun}
+										bind:this={runForm}
+										{jsonView}
+										actions={promptForAi ? undefined : aiAssistant}
+									/>
+								{/key}
 							</div>
 
 							<div class="pt-4 flex flex-col gap-1 w-full items-end">
@@ -934,7 +998,7 @@
 			bind:inputSelected
 			on:selected_args={(e) => {
 				const nargs = JSON.parse(JSON.stringify(e.detail))
-				args = nargs
+				setArgs(nargs)
 				if (jsonView) {
 					runForm?.syncJsonEditor()
 				}

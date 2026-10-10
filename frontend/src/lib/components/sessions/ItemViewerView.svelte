@@ -29,6 +29,7 @@
 		kind,
 		path,
 		version,
+		pendingRunId,
 		workspaceId,
 		tabId,
 		container,
@@ -43,6 +44,8 @@
 		path: string
 		/** Deployed version this tab is pinned to, from its URL's `?version=`. */
 		version?: string
+		/** The chat tool call this tab was opened to answer, from its URL's `?pending_run=`. */
+		pendingRunId?: string
 		workspaceId: string
 		/** Whether this side is the one on screen. Hidden sides stay mounted, so this gates
 		 * the window-level keyboard handler — several instances listen on the window. */
@@ -76,6 +79,16 @@
 		lastRevision = rev
 		reloadKey++
 	})
+
+	// The call waiting on this item's run form, when the reader chose to confirm it here
+	// rather than on the card. Read live from the runtime, so it disappears the moment the
+	// call settles — by Run, by Cancel, by a stopped turn or by this tab closing.
+	//
+	// Named by this tab's own url rather than looked up by item, so only the tab opened for
+	// the call carries it. A tab re-pointed anywhere — another version of this item included
+	// — loses the name and hands the call back to the card, which is where it can still be
+	// confirmed as proposed.
+	const pendingRun = $derived(pendingRunId ? runtime.pendingRunFor(pendingRunId) : undefined)
 
 	/** Refetch the deployed item. The host calls this for the reload signals that reach a
 	 * tab from outside it; nothing about becoming visible triggers it, so a form the reader
@@ -218,6 +231,7 @@
 			{onNavigate}
 			{active}
 			embedded
+			{pendingRun}
 			onLoadState={setLoadState}
 		/>
 	{:else if kind === 'flow'}
@@ -228,6 +242,7 @@
 			{onNavigate}
 			{active}
 			embedded
+			{pendingRun}
 			onLoadState={setLoadState}
 		/>
 	{:else}

@@ -46,6 +46,7 @@
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import type { PendingRun } from '$lib/components/details/pendingRun'
 	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import { goto } from '$lib/navigation'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
@@ -127,6 +128,7 @@
 		onNavigate = goto,
 		active = true,
 		embedded = false,
+		pendingRun,
 		onLoadState
 	}: {
 		/** The `[...hash]` route segment: either a script hash or a script path. */
@@ -142,6 +144,10 @@
 		/** Rendered inside a page that is not the script's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
+		/** A chat tool call waiting on this form, when the reader chose to confirm it here
+		 * rather than on the card. Seeds the arguments it proposed and takes over Run; see
+		 * {@link PendingRun} for why the page must not run it itself. */
+		pendingRun?: PendingRun
 		/** How the load ended, for a host that renders its own state around this page.
 		 * Providing it also suppresses the "could not load" toast: a 404 here is the normal
 		 * state of a not-yet-deployed path, which the host explains in place instead. */
@@ -416,7 +422,37 @@
 		}
 	}
 
-	let args: Record<string, any> | undefined = $state(undefined)
+	// While a chat call is carried here, the form edits that call's own draft — the one the
+	// card edits — rather than a copy of it. There is then nothing to keep in step and nothing
+	// to carry back: whatever is typed on either surface is what the call runs with.
+	let ownArgs: Record<string, any> | undefined = $state(undefined)
+	// Falls back once the draft is gone: pressing Run settles the call, and the form must go
+	// on showing what it submitted while the job starts — and still show it if the start is
+	// refused, which leaves the reader on the page with the run to make again.
+	const args = $derived(pendingRun?.draftArgs ?? ownArgs)
+	function setArgs(next: Record<string, any> | undefined) {
+		if (pendingRun) pendingRun.setDraftArgs(next ?? {})
+		else ownArgs = next
+	}
+
+	// Run hands the arguments to the waiting call instead of starting a job: the tool that
+	// parked on this form starts one itself when it resumes.
+	//
+	// Bound to the call it was built for, not to whichever one the page is carrying when the
+	// press lands: a press runs across `processSecretArgs`, and the call can settle and be
+	// replaced by the next request for this same item inside that round trip. Submitting to
+	// whatever is current would start that one without its reader ever confirming it.
+	const runAction = $derived.by(() => {
+		const call = pendingRun
+		if (!call) return runScript
+		return (_scheduledForStr: string | undefined, a: Record<string, any>) => {
+			// Kept for the moment the draft stops answering, just below.
+			ownArgs = a
+			if (!call.submit(a)) {
+				sendUserToast('That request is no longer waiting on this form', true)
+			}
+		}
+	})
 
 	// Read once on purpose: these args seed the form, so tracking the fragment would
 	// overwrite what the user has typed whenever it changes.
@@ -430,7 +466,7 @@
 				k,
 				JSON.parse(v)
 			])
-			args = Object.fromEntries(params)
+			setArgs(Object.fromEntries(params))
 		} catch (e) {
 			console.error('Was not able to transform hash as args', e)
 		}
@@ -456,7 +492,7 @@
 				const current = untrack(() => args)
 				const block = current?.['command'] as Record<string, any> | undefined
 				if (!held || !current || block?.label !== 'retry' || block['dbt_retry_job']) return
-				args = { ...current, command: { ...block, dbt_retry_job: held } }
+				setArgs({ ...current, command: { ...block, dbt_retry_job: held } })
 				if (jsonView) {
 					runForm?.syncJsonEditor()
 				}
@@ -491,14 +527,14 @@
 		// before the worker restores the failed run's own arguments. Dropping them
 		// here routes the retry by a different key than the run it resumes. Same
 		// as the run page's retry.
-		args = {
+		setArgs({
 			...(args ?? {}),
 			command: {
 				...((args?.['command'] as Record<string, any> | undefined) ?? {}),
 				label: 'retry',
 				dbt_retry_job: from
 			}
-		}
+		})
 		if (jsonView) {
 			runForm?.syncJsonEditor()
 		}
@@ -1044,7 +1080,7 @@
 										}}
 										{inputSelected}
 									/>
-									{#if hasSchema}
+									{#if hasSchema && !pendingRun?.planModeActive}
 										<Toggle
 											bind:checked={jsonView}
 											size="xs"
@@ -1095,25 +1131,39 @@
 								{@render aiAssistant()}
 							{/if}
 
-							<RunForm
-								bind:scheduledForStr
-								bind:invisible_to_owner
-								bind:overrideTag
-								{overrideTagNote}
-								syncArgsToUrl={!embedded}
-								viewKeybinding
-								loading={runLoading}
-								autofocus
-								detailed={false}
-								bind:isValid
-								runnable={script}
-								runAction={runScript}
-								bind:args
-								schedulable={true}
-								bind:this={runForm}
-								{jsonView}
-								actions={promptForAi ? undefined : aiAssistant}
-							/>
+							{#if pendingRun}
+								<InputSelectedBadge
+									inputSelected="pending_run"
+									onReject={() => pendingRun.decline()}
+								/>
+							{/if}
+							<!-- Keyed on the call, so a request arriving on a tab that is already open
+							     builds a new form already holding what it proposed. Re-seeding one
+							     that is already on screen would have to wait for it to exist. -->
+							{#key pendingRun?.toolCallId}
+								<RunForm
+									bind:scheduledForStr
+									bind:invisible_to_owner
+									bind:overrideTag
+									{overrideTagNote}
+									syncArgsToUrl={!embedded}
+									viewKeybinding
+									loading={runLoading}
+									autofocus
+									detailed={false}
+									bind:isValid
+									runnable={script}
+									{runAction}
+									claimRun={pendingRun}
+									argsReadonly={pendingRun?.planModeActive}
+									bind:args={() => args, setArgs}
+									schedulable={!pendingRun}
+									commonParams={!pendingRun}
+									bind:this={runForm}
+									{jsonView}
+									actions={promptForAi ? undefined : aiAssistant}
+								/>
+							{/key}
 						</div>
 
 						<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
@@ -1172,7 +1222,7 @@
 					bind:inputSelected
 					on:selected_args={(e) => {
 						const nargs = JSON.parse(JSON.stringify(e.detail))
-						args = nargs
+						setArgs(nargs)
 						if (jsonView) {
 							runForm?.syncJsonEditor()
 						}
