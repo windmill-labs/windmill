@@ -93,19 +93,19 @@ jobs:
             ${{ steps.meta-ee-public.outputs.labels }}-arm64
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
-      - uses: shrink/actions-docker-extract@v3
+      - uses: shrink/actions-docker-extract@v4
         id: extract-ee-amd64
         with:
           image: ${{ steps.meta-ee-public.outputs.tags}}-amd64
           path: "/windmill/target/release/windmill"
 
-      - uses: shrink/actions-docker-extract@v3
+      - uses: shrink/actions-docker-extract@v4
         id: extract-duckdb-ffi-internal
         with:
           image: ${{ steps.meta-ee-public.outputs.tags}}-amd64
           path: "/usr/src/app/libwindmill_duckdb_ffi_internal.so"
 
-      # - uses: shrink/actions-docker-extract@v3
+      # - uses: shrink/actions-docker-extract@v4
       #   id: extract-ee-arm64
       #   with:
       #     image: ${{ steps.meta-ee-public.outputs.tags}}-arm64
