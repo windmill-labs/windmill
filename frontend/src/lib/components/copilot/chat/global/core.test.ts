@@ -241,6 +241,7 @@ vi.mock('$lib/gen', async () => {
 				throw new Error('getResource mock not configured')
 			}),
 			createResource: vi.fn(async () => 'created'),
+			createResourceType: vi.fn(async () => 'created'),
 			updateResource: vi.fn(async () => 'updated'),
 			deleteResource: vi.fn(async () => 'deleted'),
 			// A workspace with no skills, which is what makes `read_skill` refuse a path
@@ -415,6 +416,7 @@ import {
 import { devopsRole, superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { clearWorkspaceRoleCache } from '$lib/user'
+import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 import { get } from 'svelte/store'
 import type { Tool, ToolCallbacks } from '../shared'
 
@@ -8145,5 +8147,29 @@ describe('global prompt identity', () => {
 			folders: ['team_etl', 'analytics']
 		})
 		expect(get(userStore)?.folders).toEqual(['alice_stuff'])
+	})
+})
+
+describe('create_resource_type', () => {
+	// The Add resource type form prefixes custom types with c_ unless an admin turns it off, so a
+	// hub type synced later under the same name cannot clash with one the chat created.
+	it.each([
+		['acme_billing', 'c_acme_billing'],
+		['c_acme_billing', 'c_acme_billing']
+	])('creates %s as %s', async (given, created) => {
+		vi.mocked(ResourceService.createResourceType).mockClear()
+		resourceTypesStore.set(['postgresql'])
+
+		const result = await callGlobalTool('create_resource_type', {
+			name: given,
+			description: 'Acme billing',
+			schema: { type: 'object' }
+		})
+
+		expect(vi.mocked(ResourceService.createResourceType).mock.calls[0][0].requestBody.name).toBe(
+			created
+		)
+		expect(result).toContain(created)
+		expect(get(resourceTypesStore)).toBeUndefined()
 	})
 })

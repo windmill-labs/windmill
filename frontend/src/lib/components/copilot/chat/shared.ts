@@ -49,6 +49,7 @@ import {
 	FlowService,
 	IntegrationService,
 	JobService,
+	ResourceService,
 	type Job,
 	type CompletedJob,
 	type FlowValue,
@@ -1728,12 +1729,31 @@ function parseResourceTypeSchema(schema: unknown): unknown {
 	}
 }
 
+export const HUB_SYNC_INSTRUCTIONS =
+	'Tell the user: no resource of a missing type can be created until a superadmin syncs resource types from the hub, with "Sync resource types with Hub" in the Add resource dialog of the Resources page.'
+
+async function missingResourceTypesNote(
+	workspace: string,
+	names: string[]
+): Promise<string | undefined> {
+	if (names.length === 0) {
+		return undefined
+	}
+	const present = await ResourceService.listResourceTypeNames({ workspace })
+		.then((listed) => new Set(listed))
+		.catch(() => undefined)
+	const missing = present ? names.filter((name) => !present.has(name)) : []
+	return missing.length > 0
+		? `This instance does not have the ${missing.join(', ')} resource type${missing.length > 1 ? 's' : ''} yet. ${HUB_SYNC_INSTRUCTIONS}`
+		: undefined
+}
+
 export const getHubIntegrationTool = {
 	requires: NONE,
 	def: getHubIntegrationToolDef,
 	// Reads one hub document over a GET and writes nothing, so planning may use it.
 	planModeSafe: true,
-	fn: async ({ args, toolId, toolCallbacks }) => {
+	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const { integration } = getHubIntegrationSchema.parse(args)
 		toolCallbacks.setToolStatus(toolId, { content: `Reading the ${integration} integration...` })
 
@@ -1763,6 +1783,10 @@ export const getHubIntegrationTool = {
 		// every section is read as optional: a hub that sends less should return less,
 		// not fail the call.
 		const derived = doc.derived
+		const resourceTypesNote = await missingResourceTypesNote(
+			workspace,
+			(doc.resource_types ?? []).map((rt) => rt.name)
+		)
 		return JSON.stringify({
 			integration: doc.app,
 			display_name: doc.display_name,
@@ -1796,6 +1820,7 @@ export const getHubIntegrationTool = {
 				...(rt.description ? { description: rt.description } : {}),
 				schema: parseResourceTypeSchema(rt.schema)
 			})),
+			...(resourceTypesNote ? { resource_types_note: resourceTypesNote } : {}),
 			example_scripts: (derived?.top_scripts ?? []).slice(0, MAX_INTEGRATION_EXAMPLES).map((s) => ({
 				path: s.path,
 				summary: s.summary,

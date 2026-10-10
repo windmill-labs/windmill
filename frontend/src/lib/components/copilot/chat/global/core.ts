@@ -108,7 +108,7 @@ import {
 	createInlineScriptSession,
 	findUnresolvedInlineScriptRefs
 } from '../flow/inlineScriptsUtils'
-import { searchNpmPackagesTool } from '../script/core'
+import { searchNpmPackagesTool, searchResourceTypes } from '../script/core'
 import type { McpServer } from './mcpTools'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { isSkillEnabled } from '../skills/enabledSkills'
@@ -201,6 +201,7 @@ import {
 } from '$lib/stores'
 import { getWorkspaceRole, type RoleLookup } from '$lib/user'
 import { refreshSuperadmin } from '$lib/refreshUser'
+import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 import { get } from 'svelte/store'
 import {
 	canonicalDraftSideValue,
@@ -728,6 +729,20 @@ const searchResourceTypesSchema = z.object({
 		.max(20)
 		.optional()
 		.describe('Max number of resource types to return. Defaults to 5.')
+})
+
+const createResourceTypeSchema = z.object({
+	name: z
+		.string()
+		.describe(
+			'Type name with the c_ prefix of custom types, e.g. c_acme_billing (added when missing): 1 to 50 letters, digits, "_" or "-". Resources and resource-typed parameters refer to it by this name.'
+		),
+	description: z.string().describe('What a resource of this type connects to.'),
+	schema: z
+		.record(z.string(), z.any())
+		.describe(
+			'JSON Schema of a resource value of this type: { "type": "object", "properties": {...}, "required": [...] }, with every connection field, secrets included (a resource fills those with "$var:" references).'
+		)
 })
 
 const getRunSchema = z.object({
@@ -1438,8 +1453,10 @@ const buildGlobalSystemPrompt = (
 	const canRunPreview = !access || access.has('run_preview')
 	const canManageSchedules = !access || access.has('manage_schedules')
 	const canManageTriggers = !access || access.has('manage_triggers')
-	// The deploy tools take their kind as an argument, so `deploy` gates only the folder text.
+	// The deploy tools take their kind as an argument, so `deploy` gates only the folder and
+	// resource type text.
 	const canCreateFolder = !access || access.has('deploy')
+	const canCreateResourceType = !access || access.has('deploy')
 	// Each gated block carries its own leading newline, so dropping one leaves no blank
 	// line behind and a full-access prompt is byte-for-byte the ungated text.
 	const when = (cond: boolean, block: string) => (cond ? block : '')
@@ -1535,7 +1552,7 @@ Rules:${when(
 - Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (note the source hub path in a comment at the top of the code), or take it as a worked example and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.
 - Before writing your own code against an integration the hub covers, call get_hub_integration with its slug: it returns the resource type to take, its auth fields and the integration's most-used scripts, which beats inferring them from script bodies. Call it for the integration you are about to write against, whichever it is. A search marks an integration \`documented\` when the hub additionally holds provider knowledge checked against the live API — pagination, enums, error codes and gotchas — so read that closely where it appears rather than trusting your own memory of the API.
 - If you have a web search tool and the hub does not cover a third-party API, search for the vendor's own API documentation rather than writing its endpoints and auth from memory, and link the page you relied on. Reserve it for external APIs: search_docs answers questions about Windmill itself.
-${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}- Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
+${when(canCreateResourceType, '- create_resource_type creates a resource type the workspace lacks. The user confirms the schema in the call itself, so that is where you propose it rather than asking first in chat.\n')}${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}- Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}`
 	)}${when(
 		canRunPreview && canWriteDraft,
@@ -4387,31 +4404,72 @@ export const globalTools: SessionTool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Searching resource types for "${parsed.query}"...`
 			})
-			const results = await ResourceService.queryResourceTypes({
+			const { resourceTypes, note } = await searchResourceTypes(
+				parsed.query,
 				workspace,
-				text: parsed.query,
-				limit: parsed.limit ?? 5
-			})
+				parsed.limit ?? 5
+			)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Found ${results.length} resource type(s) for "${parsed.query}"`
+				content: `Found ${resourceTypes.length} resource type(s) for "${parsed.query}"`
 			})
 			const listing = JSON.stringify(
-				results.map((rt) => ({
+				resourceTypes.map((rt) => ({
 					name: rt.name,
 					schema: rt.schema
 				})),
 				null,
 				2
 			)
+			// On an unsynced instance the dedicated type is only missing until a sync, so its note
+			// replaces the "no dedicated type" one, which would have the model create a duplicate.
+			if (note) {
+				return `${listing}\n\n${note}`
+			}
 			// The search is semantic and always returns its closest types, so a miss reads
 			// like a hit unless the absence is spelled out.
 			const words = (parsed.query.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
 				(w) => w.length >= 3
 			)
-			const named = results.some((rt) => words.some((w) => rt.name.toLowerCase().includes(w)))
+			const named = resourceTypes.some((rt) => words.some((w) => rt.name.toLowerCase().includes(w)))
 			return named || words.length === 0
 				? listing
 				: `${listing}\n\nNo resource type name contains "${parsed.query}": these are only the nearest matches, so no dedicated type exists. Searching again with synonyms will not find one — use a fitting generic type above, or create a custom c_<name> type.`
+		}
+	},
+	{
+		// Not a draft: resource types have no draft kind, so this writes the workspace once the
+		// user confirms, under the same right as a deploy.
+		requires: DEPLOY,
+		def: createToolDef(
+			createResourceTypeSchema,
+			'create_resource_type',
+			'Create a resource type in the workspace. Mutates the workspace once the user confirms the schema.',
+			{ strict: false }
+		),
+		showDetails: true,
+		requiresConfirmation: true,
+		confirmationMessage: 'Create resource type',
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = createResourceTypeSchema.parse(args)
+			// The prefix the Add resource type form adds unless an admin turns it off: a hub type
+			// of the same name, synced later, would otherwise clash with this one.
+			const name = parsed.name.startsWith('c_') ? parsed.name : `c_${parsed.name}`
+			await ResourceService.createResourceType({
+				workspace,
+				requestBody: {
+					name,
+					description: parsed.description,
+					schema: parsed.schema
+				}
+			})
+			// Forms show a resource picker only for a type in this cached list, so a script
+			// written against the new type would otherwise get a plain object input.
+			resourceTypesStore.set(undefined)
+			toolCallbacks.setToolStatus(toolId, { content: `Created resource type ${name}` })
+			return JSON.stringify({
+				success: true,
+				message: `Created resource type ${name}. Refer to it by this name.`
+			})
 		}
 	},
 	createDbSchemaTool<{}>({

@@ -14,7 +14,24 @@ vi.mock('@codingame/monaco-vscode-standalone-typescript-language-features', () =
 vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({ default: () => ({}) }))
 vi.mock('$lib/components/vscode', () => ({}))
 
-import { editCodeToolWithDiff } from './core'
+import { ResourceService } from '$lib/gen'
+import { editCodeToolWithDiff, searchResourceTypes } from './core'
+
+describe('searchResourceTypes', () => {
+	it.each([
+		[['ai_skill', 'ai_instruction'], true],
+		[Array.from({ length: 30 }, (_, i) => `type_${i}`), false]
+	])('notes only an instance that never synced with the hub (%#)', async (names, noted) => {
+		vi.spyOn(ResourceService, 'queryResourceTypes').mockResolvedValue([
+			{ name: 'ai_skill', score: 0.8 }
+		])
+		vi.spyOn(ResourceService, 'listResourceTypeNames').mockResolvedValue(names)
+
+		const { note } = await searchResourceTypes('stripe', 'ws', 5)
+
+		expect(note?.includes('never synced') ?? false).toBe(noted)
+	})
+})
 
 describe('editCodeToolWithDiff', () => {
 	it('records the complete script diff after applying replacements', async () => {

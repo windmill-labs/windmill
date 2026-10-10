@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import confluenceFixture from '../../fixtures/frontend/global/hub/confluence.json'
 import servicenowFixture from '../../fixtures/frontend/global/hub/servicenow.json'
 import outreachFixture from '../../fixtures/frontend/global/hub/outreach.json'
+import syncedResourceTypesFixture from '../../fixtures/frontend/global/hub/synced_resource_types.json'
 import type {
 	AppWithLastVersion,
 	CompletedJob,
@@ -98,6 +99,13 @@ export interface BenchmarkWorkspaceResource {
 	description?: string
 }
 
+/** A resource type the instance holds. */
+export interface BenchmarkWorkspaceResourceType {
+	name: string
+	schema?: unknown
+	description?: string
+}
+
 export interface BenchmarkWorkspaceJob {
 	/** Stable id so a case prompt can reference a specific run (e.g. for get_run). */
 	id?: string
@@ -118,6 +126,8 @@ export interface BenchmarkWorkspaceRunnables {
 	variables?: BenchmarkWorkspaceVariable[]
 	aiProviders?: BenchmarkWorkspaceAiProvider[]
 	resources?: BenchmarkWorkspaceResource[]
+	/** Unset means an instance synced with the hub. */
+	resourceTypes?: BenchmarkWorkspaceResourceType[]
 	datatables?: BenchmarkDatatableSeed[]
 	/** DuckLake catalog names, as `list_ducklakes` reports them. */
 	ducklakes?: string[]
@@ -326,6 +336,57 @@ export function listBenchmarkPlainResources(workspace: string): ListableResource
 		extra_perms: {},
 		edited_at: BENCHMARK_TIMESTAMP
 	}))
+}
+
+function benchmarkResourceTypes(workspace: string): BenchmarkWorkspaceResourceType[] {
+	return benchmarkWorkspaceRunnables.get(workspace)?.resourceTypes ?? syncedResourceTypes()
+}
+
+/** Resource type names of a benchmark workspace, as `ResourceService.listResourceTypeNames`
+ * returns them. Null when the workspace is not a benchmark one. */
+export function listBenchmarkResourceTypeNames(workspace: string): string[] | null {
+	if (!benchmarkWorkspaces.has(workspace)) {
+		return null
+	}
+	return benchmarkResourceTypes(workspace).map((rt) => rt.name)
+}
+
+/** Adds a resource type to a benchmark workspace, as `ResourceService.createResourceType` does,
+ * so later searches in the same case find it. */
+export function createBenchmarkResourceType(
+	workspace: string,
+	resourceType: BenchmarkWorkspaceResourceType
+): void {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	if (!runnables) {
+		throw new Error(`Workspace "${workspace}" is not a benchmark workspace`)
+	}
+	const existing = benchmarkResourceTypes(workspace)
+	if (existing.some((rt) => rt.name === resourceType.name)) {
+		throw new Error(`Resource type ${resourceType.name} already exists`)
+	}
+	runnables.resourceTypes = [...existing, resourceType]
+}
+
+/** Stands in for the resource type search: a type matches when a word of the query appears in
+ * its name or description, ranked by how many do. */
+export function queryBenchmarkResourceTypes(
+	workspace: string,
+	text: string,
+	limit = 10
+): { name: string; schema?: unknown; score: number }[] {
+	const words = text
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((word) => word.length >= 3)
+	return benchmarkResourceTypes(workspace)
+		.map((rt) => {
+			const haystack = `${rt.name} ${rt.description ?? ''}`.toLowerCase()
+			return { name: rt.name, schema: rt.schema, score: words.filter((w) => haystack.includes(w)).length }
+		})
+		.filter((rt) => rt.score > 0)
+		.sort((a, b) => b.score - a.score)
+		.slice(0, limit)
 }
 
 /** A seeded resource with its value, as `ResourceService.getResource` returns it. Covers both
@@ -1340,6 +1401,42 @@ const BENCHMARK_HUB_INTEGRATION_META: Record<
 	}
 }
 
+/** The resource type a mocked hub integration takes, as its metadata serves it. */
+function benchmarkHubIntegrationResourceType(app: string): BenchmarkWorkspaceResourceType | null {
+	const real = REAL_HUB_INTEGRATIONS.find((integration) => integration.app === app)
+	if (real) {
+		return real.resource_type
+	}
+	const entry = BENCHMARK_HUB_INTEGRATION_META[app]
+	if (!entry) {
+		return null
+	}
+	return {
+		name: app,
+		description: `${entry.display_name} credentials`,
+		schema: {
+			type: 'object',
+			required: ['apiKey'],
+			properties: {
+				apiKey: { type: 'string', description: `${entry.display_name} API key` }
+			}
+		}
+	}
+}
+
+/** What a hub-synced instance holds: common hub types, plus the one each mocked hub
+ * integration takes, so the hub and the instance agree on them. */
+function syncedResourceTypes(): BenchmarkWorkspaceResourceType[] {
+	const integrations = [
+		...REAL_HUB_INTEGRATIONS.map((integration) => integration.app),
+		...Object.keys(BENCHMARK_HUB_INTEGRATION_META)
+	]
+	return [
+		...syncedResourceTypesFixture,
+		...integrations.flatMap((app) => benchmarkHubIntegrationResourceType(app) ?? [])
+	]
+}
+
 /** Mirrors the hub's own derivation: hosts seen in the shipped scripts, whether they
  * call the provider directly, and how many there are of each kind. */
 function benchmarkDerivedFacts(app: string) {
@@ -1474,7 +1571,7 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 				meta: real.meta,
 				meta_updated_at: null,
 				derived: benchmarkDerivedFacts(app),
-				resource_types: [{ id: 1, ...real.resource_type }]
+				resource_types: [{ id: 1, ...benchmarkHubIntegrationResourceType(app) }]
 			})
 		}
 		const entry = BENCHMARK_HUB_INTEGRATION_META[app]
@@ -1491,23 +1588,7 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 			meta: entry.meta,
 			meta_updated_at: null,
 			derived: benchmarkDerivedFacts(app),
-			resource_types: [
-				{
-					id: 1,
-					name: app,
-					description: `${entry.display_name} credentials`,
-					schema: {
-						type: 'object',
-						required: ['apiKey'],
-						properties: {
-							apiKey: {
-								type: 'string',
-								description: `${entry.display_name} API key`
-							}
-						}
-					}
-				}
-			]
+			resource_types: [{ id: 1, ...benchmarkHubIntegrationResourceType(app) }]
 		})
 	}
 	if (path === '/api/integrations/hub/list') {

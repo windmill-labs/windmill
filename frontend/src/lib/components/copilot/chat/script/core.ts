@@ -19,7 +19,8 @@ import {
 	type ScriptLintResult,
 	formatScriptLintResult,
 	createSearchWorkspaceTool,
-	createGetRunnableDetailsTool
+	createGetRunnableDetailsTool,
+	HUB_SYNC_INSTRUCTIONS
 } from '../shared'
 import { createWorkspaceMutationTools } from '../workspaceTools'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
@@ -41,7 +42,7 @@ const TYPES_CONTEXT_PERCENTAGE = 1
 export const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = []
 
 export function formatResourceTypes(
-	allResourceTypes: ResourceType[],
+	allResourceTypes: Pick<ResourceType, 'name' | 'schema'>[],
 	lang: 'python3' | 'php' | 'bun' | 'deno' | 'nativets' | 'bunnative'
 ) {
 	if (lang === 'python3') {
@@ -67,14 +68,32 @@ export function formatResourceTypes(
 	}
 }
 
-async function getResourceTypes(prompt: string, workspace: string) {
-	const resourceTypes = await ResourceService.queryResourceTypes({
-		workspace: workspace,
-		text: prompt,
-		limit: 5
-	})
+// The hub publishes hundreds of resource types and an instance seeds only a few of its own,
+// so fewer than this means the instance never synced with the hub.
+const UNSYNCED_RESOURCE_TYPE_COUNT = 20
 
-	return resourceTypes
+/**
+ * The note on an unsynced instance cannot wait for an empty result: the similarity search
+ * still returns the nearest of the few types there are (the instance's own `ai_skill` scores
+ * about 0.8 for "confluence").
+ */
+export async function searchResourceTypes(
+	query: string,
+	workspace: string,
+	limit: number
+): Promise<{ resourceTypes: Pick<ResourceType, 'name' | 'schema'>[]; note?: string }> {
+	const [resourceTypes, names] = await Promise.all([
+		ResourceService.queryResourceTypes({ workspace, text: query, limit }),
+		ResourceService.listResourceTypeNames({ workspace }).catch(() => [])
+	])
+	const count = new Set(names).size
+	return {
+		resourceTypes,
+		note:
+			count > 0 && count < UNSYNCED_RESOURCE_TYPE_COUNT
+				? `Only ${count} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. ${HUB_SYNC_INSTRUCTIONS}`
+				: undefined
+	}
 }
 
 export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
@@ -149,13 +168,14 @@ export async function getFormattedResourceTypes(
 		case 'bunnative':
 		case 'python3':
 		case 'php': {
-			const resourceTypes = await getResourceTypes(prompt, workspace)
+			const { resourceTypes, note } = await searchResourceTypes(prompt, workspace, 5)
 
-			const intro = `RESOURCE_TYPES:\n`
+			const found =
+				resourceTypes.length > 0
+					? `RESOURCE_TYPES:\n${formatResourceTypes(resourceTypes, lang)}`
+					: `No resource type found for "${prompt}".`
 
-			const resourceTypesText = formatResourceTypes(resourceTypes, lang)
-
-			return intro + resourceTypesText
+			return note ? `${found}\n\n${note}` : found
 		}
 		default:
 			return ''

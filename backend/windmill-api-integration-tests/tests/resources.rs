@@ -751,6 +751,65 @@ async fn test_resource_cache_handles_job_context(db: Pool<Postgres>) -> anyhow::
     Ok(())
 }
 
+/// Without an embeddings index the resource type search reads the table, so it has to apply the
+/// same scope as the index: the workspace's own types and the global ones in `admins`, never
+/// another workspace's.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_resource_type_search_without_embeddings(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other-workspace', 'test-user')")
+        .execute(&db)
+        .await?;
+    for (workspace, name, description) in [
+        (
+            "test-workspace",
+            "c_acme_billing",
+            "Acme internal billing API",
+        ),
+        (
+            "other-workspace",
+            "c_other_billing",
+            "Another workspace's billing API",
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO resource_type (workspace_id, name, schema, description, created_by) VALUES ($1, $2, '{}'::jsonb, $3, 'test-user')",
+        )
+        .bind(workspace)
+        .bind(name)
+        .bind(description)
+        .execute(&db)
+        .await?;
+    }
+
+    let search = |text: &str| {
+        let url = format!(
+            "http://localhost:{port}/api/w/test-workspace/embeddings/query_resource_types?text={text}"
+        );
+        async move {
+            let resp = authed(client().get(url)).send().await.unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.json::<Vec<serde_json::Value>>()
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|rt| rt["name"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+
+    let billing = search("billing").await;
+    assert_eq!(billing.first().map(String::as_str), Some("c_acme_billing"));
+    assert!(!billing.contains(&"c_other_billing".to_string()));
+    // `ai_skill` is seeded in `admins` by the migrations.
+    assert!(search("skill").await.contains(&"ai_skill".to_string()));
+
+    Ok(())
+}
+
 #[cfg(feature = "mcp")]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "resources_test"))]
 async fn test_mcp_tools(db: Pool<Postgres>) -> anyhow::Result<()> {

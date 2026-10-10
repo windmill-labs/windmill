@@ -5,6 +5,8 @@ export const SCRIPT_BASE = `# Windmill Script Writing Guide
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, still take its connection as one resource-typed parameter, of a custom type holding the connection fields (base URL, account identifiers, credentials), its secret in a variable the resource references. A custom type is named \`c_<name>\`, which keeps it apart from a hub type synced later: the parameter takes \`RT.C<Name>\` in TypeScript, a \`c_<name>\` TypedDict in Python. A plain string parameter or a variable read inside the code only when the user asks for it: the resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records. If looking up resource types reports that the instance is missing the Windmill Hub's types, mention that a superadmin can sync them, since the hub has types for most services. Otherwise, or when the user prefers it to syncing, propose the resource type and ask before creating it
+- Where you have no way to create a resource type yourself, give the user its JSON Schema to add with **Add resource type** on the Resources page, and its name without \`c_\`: the form adds the prefix itself
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -609,6 +611,15 @@ In the flow schema, set the property type to \`"object"\` with format \`"resourc
 }
 \`\`\`
 
+### When No Resource Type Fits
+
+A connection still comes in as one resource input, not as separate string inputs (a URL, a token) or a variable read inside a step: type the input \`resource-c_<name>\` with a custom resource type holding the service's connection fields, its secret in a variable the resource references. The \`c_\` prefix of custom types keeps one apart from a hub type synced later under the same name.
+
+- If looking up resource types reports that the instance is missing the Windmill Hub's types, mention that a superadmin can sync them, since the hub has types for most services.
+- Otherwise, or when the user prefers it to syncing, propose the resource type and ask before creating it.
+- Where you have no way to create a resource type yourself, give the user the schema to add with **Add resource type** on the Resources page, and the name without \`c_\`: the form adds the prefix itself.
+- A plain variable is fine when the user asks for it.
+
 ### As Step Input (Static Reference)
 
 Reference a specific resource using \`$res:\` prefix:
@@ -827,13 +838,24 @@ The prefix must be on the string itself.
 }
 \`\`\`
 
+## When No Resource Type Fits
+
+The Windmill Hub publishes resource types for most services, and an instance gets them by syncing with the hub. When none fits the service:
+
+- If looking up resource types reports that the instance is missing the hub's types, mention that a superadmin can sync them: the hub most likely has one for the service. Create one of your own only if the user still wants it, since after a sync the workspace would hold both.
+- Otherwise, or when the user prefers it to syncing, propose a custom resource type named \`c_<name>\` holding the service's connection fields (base URL, account or region identifiers, credentials), as in "Custom Resource Types" below, and ask the user before creating it: every resource of that type and every script taking one depends on its fields.
+- Where you have no way to create a resource type yourself, give the user the schema to add with **Add resource type** on the Resources page, and the name without \`c_\`: the form adds the prefix itself.
+- A plain variable instead of a resource is fine when the user asks for it; without that, default to the resource, its secret in a variable it references.
+
 ## Custom Resource Types
+
+A custom type's name starts with \`c_\`: the hub's types reach every instance under their plain names, so the prefix keeps a custom type from clashing with one synced later. Scripts and flows refer to the full name: \`format: resource-c_custom_api\`, \`RT.CCustomApi\` in TypeScript, a \`c_custom_api\` TypedDict in Python.
 
 Create custom resource types with JSON Schema:
 
 \`\`\`json
 {
-  "name": "custom_api",
+  "name": "c_custom_api",
   "schema": {
     "type": "object",
     "properties": {
@@ -847,7 +869,7 @@ Create custom resource types with JSON Schema:
 }
 \`\`\`
 
-Save as: \`custom_api.resource-type.json\`
+Save as: \`c_custom_api.resource-type.json\`
 
 ## OAuth Resources
 

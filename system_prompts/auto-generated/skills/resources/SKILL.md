@@ -214,13 +214,23 @@ The prefix must be on the string itself.
 }
 ```
 
+## When No Resource Type Fits
+
+The Windmill Hub publishes resource types for most services, and an instance gets them by syncing with the hub. When none fits the service:
+
+- If looking up resource types reports that the instance is missing the hub's types, mention that a superadmin can sync them: the hub most likely has one for the service. Create one of your own only if the user still wants it, since after a sync the workspace would hold both.
+- Otherwise, or when the user prefers it to syncing, propose a custom resource type named `c_<name>` holding the service's connection fields (base URL, account or region identifiers, credentials), as in "Custom Resource Types" below, and ask the user before creating it: every resource of that type and every script taking one depends on its fields.
+- A plain variable instead of a resource is fine when the user asks for it; without that, default to the resource, its secret in a variable it references.
+
 ## Custom Resource Types
+
+A custom type's name starts with `c_`: the hub's types reach every instance under their plain names, so the prefix keeps a custom type from clashing with one synced later. Scripts and flows refer to the full name: `format: resource-c_custom_api`, `RT.CCustomApi` in TypeScript, a `c_custom_api` TypedDict in Python.
 
 Create custom resource types with JSON Schema:
 
 ```json
 {
-  "name": "custom_api",
+  "name": "c_custom_api",
   "schema": {
     "type": "object",
     "properties": {
@@ -234,7 +244,7 @@ Create custom resource types with JSON Schema:
 }
 ```
 
-Save as: `custom_api.resource-type.json`
+Save as: `c_custom_api.resource-type.json`
 
 ## OAuth Resources
 

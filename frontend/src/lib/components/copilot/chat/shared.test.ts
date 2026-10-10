@@ -57,7 +57,8 @@ vi.mock('$lib/gen', () => ({
 	EmailTriggerService: { createEmailTrigger: vi.fn() },
 	SettingService: { getGlobal: vi.fn() },
 	ResourceService: {
-		getResourceValue: vi.fn(async ({ path }: { path: string }) => ({ content: `body of ${path}` }))
+		getResourceValue: vi.fn(async ({ path }: { path: string }) => ({ content: `body of ${path}` })),
+		listResourceTypeNames: vi.fn(async () => ['confluence'])
 	}
 }))
 
@@ -2292,6 +2293,29 @@ describe('getHubIntegrationTool', () => {
 		)
 
 		expect(!!parsed.scripts_note).toBe(expected)
+	})
+
+	// Without the note the model writes against a type the instance lacks, and the
+	// script's resource picker stays empty until someone syncs.
+	it.each([
+		[['confluence'], false],
+		[['ai_skill'], true]
+	])('flags hub resource types the instance lacks (%s)', async (present, flagged) => {
+		const { IntegrationService, ResourceService } = await import('$lib/gen')
+		Object.assign(IntegrationService, { getHubIntegrationMeta: vi.fn(async () => doc) })
+		vi.mocked(ResourceService.listResourceTypeNames).mockResolvedValueOnce(present)
+
+		const { getHubIntegrationTool } = await import('./shared')
+		const parsed = JSON.parse(
+			await getHubIntegrationTool.fn({
+				args: { integration: 'confluence' },
+				workspace: 'ws',
+				toolId: 't1',
+				toolCallbacks: { setToolStatus: vi.fn() }
+			} as any)
+		)
+
+		expect(parsed.resource_types_note?.includes('confluence') ?? false).toBe(flagged)
 	})
 
 	// A hub that times out has said nothing about whether the integration exists, and

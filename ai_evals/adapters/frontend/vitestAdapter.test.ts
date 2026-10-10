@@ -106,6 +106,9 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkResource,
 		listBenchmarkAiProviderResources,
 		listBenchmarkPlainResources,
+		listBenchmarkResourceTypeNames,
+		queryBenchmarkResourceTypes,
+		createBenchmarkResourceType,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
 		listBenchmarkDataMetrics,
@@ -462,8 +465,23 @@ vi.mock('$lib/gen', async () => {
 				}
 				return value
 			},
-			queryResourceTypes: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)
+			queryResourceTypes: async (data: { workspace: string; text: string; limit?: number }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? queryBenchmarkResourceTypes(data.workspace, data.text, data.limit)
+					: actual.ResourceService.queryResourceTypes(data),
+			listResourceTypeNames: async (data: { workspace: string }) =>
+				listBenchmarkResourceTypeNames(data.workspace) ??
+				actual.ResourceService.listResourceTypeNames(data),
+			createResourceType: async (data: {
+				workspace: string
+				requestBody: { name: string; schema?: unknown; description?: string }
+			}) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) {
+					return actual.ResourceService.createResourceType(data)
+				}
+				createBenchmarkResourceType(data.workspace, data.requestBody)
+				return `resource_type ${data.requestBody.name} created`
+			}
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: async (data: { workspace: string; path: string }) =>
