@@ -451,7 +451,7 @@ headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 hyper-tls = "^0.6"
 hyper-util = { version = "^0.1", features = ["client-legacy", "http1", "tokio"] }
-tokio = { version = "=1.51.5", features = ["full", "tracing", "time"] }
+tokio = { version = "=1.53.2", features = ["full", "tracing", "time"] }
 tokio-stream = { version = "0.1.17" }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
