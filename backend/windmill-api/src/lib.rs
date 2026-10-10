@@ -1184,6 +1184,7 @@ pub async fn run_server(
                 get(windmill_api_settings::get_jwks)
             }
         })
+        .route("/custom.css", get(static_assets::custom_css))
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
 
