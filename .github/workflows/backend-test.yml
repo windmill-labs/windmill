@@ -87,7 +87,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev
         working-directory: /
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache-workspaces: backend
           toolchain: 1.97.0
