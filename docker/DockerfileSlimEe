@@ -30,6 +30,7 @@ FROM ${DEBIAN_IMAGE}
 
 ARG APP=/usr/src/app
 ARG LATEST_STABLE_PY=3.12.13
+ARG NEW_INSTANCE_PY=3.15.0
 
 # UV configuration
 ENV UV_CACHE_DIR=/tmp/windmill/cache/uv
@@ -65,6 +66,7 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releas
 # under the read-only nsjail runtime mount (uv >= 0.9.25). The copy below MUST preserve
 # timestamps or Python's mtime-based .pyc invalidation discards these compiled files.
 RUN UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY --compile-bytecode
+RUN UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $NEW_INSTANCE_PY --compile-bytecode
 
 # Copy to final location with world-writable permissions for arbitrary UID support
 RUN mkdir -p /tmp/windmill/cache && \
