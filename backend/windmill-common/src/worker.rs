@@ -2891,8 +2891,9 @@ pub fn lockfile_line_has_continuation(line: &str) -> bool {
 pub enum PyVAlias {
     Py310 = 10,
     Py311,
-    // Frozen: what an instance with no recorded baseline and a lock with no `# py:` line run
-    // on. Raise `NEW_INSTANCE` instead, which existing instances never pick up.
+    // Frozen: what a lock with no `# py:` line runs on, and what the server writes into
+    // `instance_python_version` for an instance that never chose one. Raise `NEW_INSTANCE`
+    // instead, which existing instances never pick up.
     #[default]
     Py312,
     Py313,
@@ -2913,9 +2914,9 @@ impl Into<u32> for PyVAlias {
 }
 
 impl PyVAlias {
-    /// The version a newly initialized instance records as its baseline. Raising it also
-    /// means the images must keep preinstalling every earlier value, or instances that
-    /// recorded one download their runtime on first use.
+    /// What the server writes into `instance_python_version` when it initializes an instance.
+    /// Raising it also means the images must keep preinstalling every earlier value, or
+    /// instances that started on one download their runtime on first use.
     pub const NEW_INSTANCE: PyVAlias = PyVAlias::Py312;
 
     pub fn all<T: From<PyVAlias>>() -> Vec<T> {

@@ -52,9 +52,6 @@ pub const UV_EXCLUDE_NEWER_SETTING: &str = "uv_exclude_newer";
 pub const UV_PYTHON_INSTALL_MIRROR_SETTING: &str = "uv_python_install_mirror";
 pub const BUN_INSTALL_MIN_RELEASE_AGE_SETTING: &str = "bun_install_min_release_age";
 pub const INSTANCE_PYTHON_VERSION_SETTING: &str = "instance_python_version";
-/// The Python version an instance uses while `instance_python_version` is unset. Written once
-/// by the server, so raising the version new instances start on never moves an existing one.
-pub const INSTANCE_PYTHON_BASELINE_SETTING: &str = "instance_python_baseline";
 pub const RUFF_CONFIG_SETTING: &str = "ruff_config";
 pub const SCIM_TOKEN_SETTING: &str = "scim_token";
 pub const SAML_METADATA_SETTING: &str = "saml_metadata";

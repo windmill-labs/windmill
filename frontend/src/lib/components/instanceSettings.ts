@@ -839,11 +839,6 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: '3.10,3.11,3.12,3.13,3.14,3.15',
 			select_items: [
 				{
-					label: 'Instance default',
-					value: 'default',
-					tooltip: 'The version this instance was initialized with'
-				},
-				{
 					label: '3.10'
 				},
 				{

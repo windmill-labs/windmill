@@ -26,8 +26,8 @@ use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
     python_executor::PYTHON_PATH,
-    HOME_ENV, INDEX_CERT, INSTANCE_PYTHON_BASELINE, INSTANCE_PYTHON_VERSION, NATIVE_CERT, PATH_ENV,
-    PROXY_ENVS, PY_INSTALL_DIR, UV_CACHE_DIR, UV_PYTHON_INSTALL_MIRROR, WIN_ENVS,
+    HOME_ENV, INDEX_CERT, INSTANCE_PYTHON_VERSION, NATIVE_CERT, PATH_ENV, PROXY_ENVS,
+    PY_INSTALL_DIR, UV_CACHE_DIR, UV_PYTHON_INSTALL_MIRROR, WIN_ENVS,
 };
 
 impl From<PyV> for PyVAlias {
@@ -81,31 +81,6 @@ impl DerefMut for PyV {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
-}
-
-/// The version scripts with no pin of their own resolve around: the admin's choice, else the
-/// baseline the instance recorded, else the frozen default. A value that does not parse is
-/// skipped and reported rather than failing the job.
-fn instance_python_version(setting: Option<&str>, baseline: Option<&str>) -> (PyV, Option<String>) {
-    let mut err = None;
-    for (name, value) in [
-        (
-            "instance_python_version",
-            setting.filter(|v| *v != "default"),
-        ),
-        ("instance_python_baseline", baseline),
-    ] {
-        let Some(value) = value else { continue };
-        match pep440_rs::Version::from_str(value) {
-            Ok(v) => return (v.into(), err),
-            Err(_) => {
-                err.get_or_insert_with(|| {
-                    format!("\nCannot parse {name} ({value:?}), ignoring it")
-                });
-            }
-        }
-    }
-    (PyV::default(), err)
 }
 
 impl PyV {
@@ -280,10 +255,17 @@ impl PyV {
         w_id: &str,
         conn: Option<Connection>,
     ) -> Self {
-        let (pyv, err) = instance_python_version(
-            INSTANCE_PYTHON_VERSION.read().await.as_deref(),
-            INSTANCE_PYTHON_BASELINE.read().await.as_deref(),
-        );
+        let mut err = None;
+        let pyv = match INSTANCE_PYTHON_VERSION.read().await.clone() {
+            Some(v) if &v == "default" => PyVAlias::default().into(),
+            Some(v) => pep440_rs::Version::from_str(&v).unwrap_or_else(|_| {
+                let v = PyVAlias::default().into();
+                err = Some(format!("\nCannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to latest_stable ({v:?})", *INSTANCE_PYTHON_VERSION));
+                v
+            }),
+            // Use latest stable
+            None => PyVAlias::default().into(),
+        };
 
         if let Some(msg) = err {
             if let Some(conn) = conn {
@@ -291,7 +273,7 @@ impl PyV {
             }
             tracing::error!(msg);
         }
-        pyv
+        pyv.into()
     }
 
     pub async fn list_available_python_versions() -> Vec<Self> {
@@ -797,20 +779,6 @@ mod tests {
     /// Unsafe helper for testing
     fn pyv(value: &str) -> PyV {
         pep440_rs::Version::from_str(value).unwrap().into()
-    }
-
-    #[test]
-    fn instance_version_prefers_the_setting_then_the_baseline() {
-        let version = |setting, baseline| instance_python_version(setting, baseline).0;
-        assert_eq!(version(Some("3.11"), Some("3.13")), pyv("3.11"));
-        // "default" is what the settings UI stores for "no choice".
-        assert_eq!(version(Some("default"), Some("3.13")), pyv("3.13"));
-        assert_eq!(version(None, Some("3.13")), pyv("3.13"));
-        assert_eq!(version(None, None), PyV::default());
-
-        let (v, err) = instance_python_version(Some("nope"), Some("3.13"));
-        assert_eq!(v, pyv("3.13"));
-        assert!(err.is_some());
     }
 
     async fn assert_resolution(

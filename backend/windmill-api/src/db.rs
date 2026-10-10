@@ -17,7 +17,7 @@ use tokio::task::JoinHandle;
 pub use windmill_common::db::DB;
 use windmill_common::{
     error::Error,
-    global_settings::INSTANCE_PYTHON_BASELINE_SETTING,
+    global_settings::INSTANCE_PYTHON_VERSION_SETTING,
     utils::{generate_lock_id, GIT_VERSION},
     worker::PyVAlias,
 };
@@ -380,9 +380,8 @@ pub async fn migrate(
     }
 
     crate::live_migrations::custom_migrations(&mut custom_migrator).await?;
-    if let Err(e) = seed_instance_python_baseline(custom_migrator.connection(), new_instance).await
-    {
-        tracing::error!("Could not record the instance python baseline: {e:#}");
+    if let Err(e) = seed_instance_python_version(custom_migrator.connection(), new_instance).await {
+        tracing::error!("Could not record the instance python version: {e:#}");
     }
     Ok(Some(crate::live_migrations::spawn_background_migrations(
         db.clone(),
@@ -390,13 +389,15 @@ pub async fn migrate(
     )))
 }
 
-/// Records, once, which Python version this instance runs on while `instance_python_version`
-/// is unset. Only the process that created the schema knows the instance is new, so its value
-/// replaces whatever a server that started alongside it recorded; every other start leaves an
-/// existing record alone and gives an instance that predates the record the frozen default.
+/// Gives `instance_python_version` a concrete value when the instance has none, so the version
+/// scripts resolve around is recorded per instance instead of following whatever a release
+/// compiles in. Only the process that created the schema knows the instance is new, so its value
+/// replaces what a server that started alongside it wrote; every other start fills in the frozen
+/// default, and only where no version was chosen (`default` is what the settings page stored
+/// for that).
 ///
 /// Runs on the migration connection: a `DATABASE_CONNECTIONS=1` pool has no second one to give.
-async fn seed_instance_python_baseline(
+async fn seed_instance_python_version(
     conn: &mut PgConnection,
     new_instance: bool,
 ) -> Result<(), Error> {
@@ -406,14 +407,23 @@ async fn seed_instance_python_baseline(
             "DO UPDATE SET value = EXCLUDED.value",
         )
     } else {
-        (PyVAlias::default(), "DO NOTHING")
+        (
+            PyVAlias::default(),
+            "DO UPDATE SET value = EXCLUDED.value WHERE global_settings.value = '\"default\"'::jsonb",
+        )
     };
+    // The stored setting outranks the `INSTANCE_PYTHON_VERSION` environment variable, so an
+    // instance configured through it would otherwise be moved off its version by this write.
+    let version = std::env::var("INSTANCE_PYTHON_VERSION")
+        .ok()
+        .filter(|v| !v.is_empty() && v.split('.').all(|part| part.parse::<u32>().is_ok()))
+        .unwrap_or_else(|| version.version_string());
     sqlx::query(&format!(
         "INSERT INTO global_settings (name, value) VALUES ($1, to_jsonb($2::text))
          ON CONFLICT (name) {on_conflict}"
     ))
-    .bind(INSTANCE_PYTHON_BASELINE_SETTING)
-    .bind(version.version_string())
+    .bind(INSTANCE_PYTHON_VERSION_SETTING)
+    .bind(version)
     .execute(conn)
     .await?;
     Ok(())
