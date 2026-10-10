@@ -84,6 +84,7 @@ COPY /python-client/docs/ /frontend/static/pydocs/
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 ARG VITE_BASE_URL ""
+# VITE_BASE_URL=/__WM_BASE_PATH__ defers the choice to the BASE_PATH env var of the server.
 # Must be declared for the build-arg to reach the bundle. See frontend/svelte.config.js.
 ARG WM_BUILD_VERSION=""
 # Read more about macro in docker/dev.nu

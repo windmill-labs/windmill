@@ -25,6 +25,35 @@ lazy_static::lazy_static! {
     static ref CSP_POLICY: String = std::env::var("CSP_POLICY").unwrap_or_default();
 }
 
+/// A frontend built with `VITE_BASE_URL=/__WM_BASE_PATH__` takes its base path from the
+/// `BASE_PATH` env var when served, so one build serves any sub-path.
+#[cfg(feature = "static_frontend")]
+const BASE_PATH_PLACEHOLDER: &str = "/__WM_BASE_PATH__";
+
+#[cfg(feature = "static_frontend")]
+lazy_static::lazy_static! {
+    static ref BASE_PATH: String = {
+        let path = std::env::var("BASE_PATH").unwrap_or_default();
+        match path.trim().trim_matches('/') {
+            "" => String::new(),
+            path => format!("/{path}"),
+        }
+    };
+
+    // Decided once from the entry page, so a build without the placeholder pays nothing per request.
+    static ref REBASE_ASSETS: bool = {
+        let placeholder_build = Asset::get(TWO_HUNDRED).is_some_and(|page| {
+            std::str::from_utf8(&page.data).is_ok_and(|html| html.contains(BASE_PATH_PLACEHOLDER))
+        });
+        if !placeholder_build && !BASE_PATH.is_empty() {
+            tracing::warn!(
+                "BASE_PATH is ignored: the frontend was not built with VITE_BASE_URL={BASE_PATH_PLACEHOLDER}"
+            );
+        }
+        placeholder_build
+    };
+}
+
 // static_handler is a handler that serves static files from the
 pub async fn static_handler(OriginalUri(original_uri): OriginalUri) -> StaticFile {
     StaticFile(original_uri)
@@ -71,6 +100,28 @@ fn query_has_flag(query: Option<&str>, flag: &str) -> bool {
     query.is_some_and(|q| q.split('&').any(|kv| kv.split('=').next() == Some(flag)))
 }
 
+#[cfg(feature = "static_frontend")]
+fn rebase(
+    data: std::borrow::Cow<'static, [u8]>,
+    mime: &mime::Mime,
+    base_path: &str,
+) -> std::borrow::Cow<'static, [u8]> {
+    let is_text = mime.type_() == mime::TEXT
+        || mime.subtype() == mime::JAVASCRIPT
+        || mime.subtype() == mime::JSON;
+    if is_text {
+        if let Ok(text) = std::str::from_utf8(&data) {
+            if text.contains(BASE_PATH_PLACEHOLDER) {
+                return text
+                    .replace(BASE_PATH_PLACEHOLDER, base_path)
+                    .into_bytes()
+                    .into();
+            }
+        }
+    }
+    data
+}
+
 fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<Body> {
     if path.starts_with("api/") {
         return Response::builder().status(404).body(Body::empty()).unwrap();
@@ -79,8 +130,12 @@ fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<
     #[cfg(feature = "static_frontend")]
     match Asset::get(path) {
         Some(content) => {
-            let body = Body::from(content.data);
             let mime = mime_guess::from_path(path).first_or_octet_stream();
+            let body = if *REBASE_ASSETS {
+                Body::from(rebase(content.data, &mime, &BASE_PATH))
+            } else {
+                Body::from(content.data)
+            };
             let mut res = Response::builder()
                 .header(header::CONTENT_TYPE, mime.as_ref())
                 .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
@@ -152,6 +207,26 @@ fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<
 #[cfg(all(test, feature = "static_frontend"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_rebase() {
+        let html = br#"src="/__WM_BASE_PATH__/_app/a.js" base="/__WM_BASE_PATH__""#;
+        let rebased = |base: &str, mime: &mime::Mime| rebase(html.as_slice().into(), mime, base);
+
+        assert_eq!(
+            rebased("/windmill", &mime::TEXT_HTML),
+            br#"src="/windmill/_app/a.js" base="/windmill""#.as_slice()
+        );
+        assert_eq!(
+            rebased("", &mime::TEXT_HTML),
+            br#"src="/_app/a.js" base="""#.as_slice()
+        );
+        // binary assets are served untouched
+        assert_eq!(
+            rebased("/windmill", &mime::APPLICATION_OCTET_STREAM),
+            html.as_slice()
+        );
+    }
 
     #[test]
     fn test_query_has_flag() {
