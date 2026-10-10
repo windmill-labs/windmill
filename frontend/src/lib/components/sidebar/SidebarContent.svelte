@@ -348,7 +348,12 @@
 		}))
 	)
 
-	let allTriggerLinks = $derived([...defaultExtraTriggerLinks, ...nativeTriggerLinks])
+	let allTriggerLinks = $derived(
+		[...defaultExtraTriggerLinks, ...nativeTriggerLinks].map((link) => ({
+			...link,
+			href: `${base}${link.href}`
+		}))
+	)
 
 	let triggerMenuLinks = $derived([
 		{
