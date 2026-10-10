@@ -711,7 +711,7 @@ lazy_static::lazy_static! {
     /// registry configuration.
     pub static ref TRUSTED_HOST: Option<String> = non_empty_env("PY_TRUSTED_HOST").or_else(|| non_empty_env("PIP_TRUSTED_HOST"));
     pub static ref INDEX_CERT: Option<String> = non_empty_env("PY_INDEX_CERT").or_else(|| non_empty_env("PIP_INDEX_CERT"));
-    pub static ref NATIVE_CERT: bool = non_empty_env("PY_NATIVE_CERT").or_else(|| non_empty_env("UV_NATIVE_TLS")).map(|flag| flag == "true").unwrap_or(false);
+    pub static ref NATIVE_CERT: bool = non_empty_env("PY_NATIVE_CERT").or_else(|| non_empty_env("UV_SYSTEM_CERTS")).or_else(|| non_empty_env("UV_NATIVE_TLS")).map(|flag| flag == "true").unwrap_or(false);
     /// uv's HTTP request timeout (seconds). The uv invocations use env_clear(), so a
     /// UV_HTTP_TIMEOUT set on the worker is dropped unless forwarded explicitly.
     /// Only forwarded when set; otherwise uv keeps its own default. Lets operators

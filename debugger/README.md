@@ -139,7 +139,7 @@ the debug service. Where two names are listed the first wins; a worker reads the
 | `PY_TRUSTED_HOST` / `PIP_TRUSTED_HOST` | Hosts to trust, whitespace-separated (`--trusted-host`) | - |
 | `PY_INDEX_CERT` / `PIP_INDEX_CERT` | CA bundle for the index, passed to uv as `SSL_CERT_FILE`. Falls back to `SSL_CERT_FILE`, then `REQUESTS_CA_BUNDLE`, then `CURL_CA_BUNDLE`, so a host that configures its CA under any of those names is picked up. Whichever is used **replaces** uv's own roots rather than adding to them, so it has to be a complete bundle: one holding only a private CA leaves every public index untrusted. `bun install` gets the same bundle as `NODE_EXTRA_CA_CERTS`, the only spelling Bun reads | - |
 | `SSL_CERT_DIR` | Directory of certificates, forwarded to uv as-is. Replaces uv's roots the same way the bundle does, so a directory holding only a private CA leaves public indexes untrusted | - |
-| `PY_NATIVE_CERT` / `UV_NATIVE_TLS` | `true` to also trust the platform certificate store (`--native-tls`) | false |
+| `PY_NATIVE_CERT` / `UV_SYSTEM_CERTS` | `true` to also trust the platform certificate store (`--system-certs`) | false |
 | `UV_HTTP_TIMEOUT` | uv HTTP request timeout, in seconds | uv's own default |
 | `DAP_REGISTRY_CONFIG_TIMEOUT_MS` | How long to wait on the settings fetch before installing without it | 10000 |
 
@@ -172,7 +172,7 @@ and the container still boots. `INIT_SCRIPT` remains the hook for anything more 
 the CA update it aborts startup when it fails.
 
 Note what the system store does *not* cover, which is most of what a debug session installs with:
-uv trusts its own bundled roots unless `PY_NATIVE_CERT`/`UV_NATIVE_TLS` is `true`, Bun and Node read
+uv trusts its own bundled roots unless `PY_NATIVE_CERT`/`UV_SYSTEM_CERTS` is `true`, Bun and Node read
 only `NODE_EXTRA_CA_CERTS`, and `requests` carries certifi. Registering the CA fixes Python's stdlib
 `ssl`, `curl` and `git`; the rest still needs the variables above.
 

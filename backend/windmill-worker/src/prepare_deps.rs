@@ -355,7 +355,7 @@ fn uv_registry_args(registry: &RegistryConfig) -> Vec<String> {
         }
     }
     if *NATIVE_CERT {
-        args.push("--native-tls".to_string());
+        args.push("--system-certs".to_string());
     }
     args
 }
