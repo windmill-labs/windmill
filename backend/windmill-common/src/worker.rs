@@ -2917,7 +2917,7 @@ impl PyVAlias {
     /// What the server writes into `instance_python_version` when it initializes an instance.
     /// Raising it also means the images must keep preinstalling every earlier value, or
     /// instances that started on one download their runtime on first use.
-    pub const NEW_INSTANCE: PyVAlias = PyVAlias::Py314;
+    pub const NEW_INSTANCE: PyVAlias = PyVAlias::Py313;
 
     pub fn all<T: From<PyVAlias>>() -> Vec<T> {
         use PyVAlias::*;

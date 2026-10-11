@@ -158,7 +158,7 @@ ARG features=""
 # (PyVAlias::default() in the backend), NEW_INSTANCE_PY the one new instances start on
 # (PyVAlias::NEW_INSTANCE). When raising the latter, keep installing every earlier value.
 ARG LATEST_STABLE_PY=3.12
-ARG NEW_INSTANCE_PY=3.14
+ARG NEW_INSTANCE_PY=3.13
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
 

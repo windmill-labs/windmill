@@ -30,7 +30,7 @@ FROM ${DEBIAN_IMAGE}
 
 ARG APP=/usr/src/app
 ARG LATEST_STABLE_PY=3.12.13
-ARG NEW_INSTANCE_PY=3.14.8
+ARG NEW_INSTANCE_PY=3.13.16
 
 # UV configuration
 ENV UV_CACHE_DIR=/tmp/windmill/cache/uv
