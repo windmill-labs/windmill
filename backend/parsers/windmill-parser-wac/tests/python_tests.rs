@@ -437,25 +437,3 @@ async def main(name: str):
         .iter()
         .any(|n| matches!(&n.node_type, DagNodeType::Step { name, .. } if name == "load")));
 }
-
-#[test]
-fn test_async_for_is_a_loop() {
-    let code = r#"
-from wmill import workflow, task
-
-@task
-async def a(x): ...
-
-@workflow
-async def main(xs: list):
-    async for x in xs:
-        await a(x)
-"#;
-
-    let dag = parse_python_workflow(code).expect("should parse");
-    assert!(matches!(
-        &dag.nodes[0].node_type,
-        DagNodeType::LoopStart { iter_source } if iter_source == "xs"
-    ));
-    assert!(matches!(&dag.nodes[1].node_type, DagNodeType::Step { name, .. } if name == "a"));
-}

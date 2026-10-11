@@ -182,19 +182,6 @@ def main():
         Ok(())
     }
 
-    // Only what precedes `main` is parsed, including when `main` takes type parameters.
-    #[test]
-    fn test_parse_imports_stops_at_generic_main() -> anyhow::Result<()> {
-        for def_main in ["def main[T](x: T):", "async def main[T](x: T):"] {
-            let code = format!("import requests\n\n{def_main}\n    return not valid python\n");
-            assert_eq!(
-                parse_code_for_imports(&code, "f/foo/bar")?,
-                vec![auto("requests")]
-            );
-        }
-        Ok(())
-    }
-
     #[test]
     fn test_parse_imports_main_lookalike_in_docstring() -> anyhow::Result<()> {
         for example in ["def main[T](x: T):", "def main(x):"] {

@@ -274,7 +274,10 @@ impl WacWalker {
                         .iter()
                         .any(|clause| self.body_contains_step(&clause.body))
             }
-            Stmt::For(s) => self.body_contains_step(&s.body) || self.body_contains_step(&s.orelse),
+            // `async for` is not modelled: its body is skipped like any unsupported statement
+            Stmt::For(s) if !s.is_async => {
+                self.body_contains_step(&s.body) || self.body_contains_step(&s.orelse)
+            }
             Stmt::While(s) => {
                 self.body_contains_step(&s.body) || self.body_contains_step(&s.orelse)
             }
@@ -353,7 +356,7 @@ impl WacWalker {
             Stmt::Expr(StmtExpr { value, .. }) => self.walk_expr_stmt(value),
             Stmt::Assign(a) => self.walk_expr_stmt(&a.value),
             Stmt::If(if_stmt) => self.walk_if(if_stmt),
-            Stmt::For(for_stmt) => self.walk_for(for_stmt),
+            Stmt::For(for_stmt) if !for_stmt.is_async => self.walk_for(for_stmt),
             Stmt::While(while_stmt) => self.walk_while(while_stmt),
             Stmt::Try(try_stmt) => self.walk_try(try_stmt),
             Stmt::Return(ret) => self.walk_return(ret),

@@ -58,8 +58,8 @@ lazy_static! {
 lazy_static! {
     static ref PIN_RE: Regex = Regex::new(r"(?:\s*#\s*(pin|repin):\s*)(\S*)").unwrap();
     // Regex to properly match main function definition at line start,
-    // capturing both sync and async variants, with or without PEP 695 type parameters
-    static ref DEF_MAIN_RE: Regex = Regex::new(r"(?m)^(async\s+)?def\s+main\s*[\(\[]").unwrap();
+    // capturing both sync and async variants
+    static ref DEF_MAIN_RE: Regex = Regex::new(r"(?m)^(async\s+)?def\s+main\s*\(").unwrap();
 }
 
 fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<NImport> {

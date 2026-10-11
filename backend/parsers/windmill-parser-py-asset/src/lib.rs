@@ -873,4 +873,25 @@ def main[T](name: str):
             ])
         );
     }
+
+    #[test]
+    fn test_py_asset_parser_schema_qualified_db_without_table() {
+        let input = r#"
+import wmill
+def main():
+    db = wmill.datatable('dt:sch')
+    db.query("ATTACH 'ducklake://other' AS o")
+    db.query("SELECT * FROM t")
+"#;
+        let s = parse_assets(input).map(|o| o.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string())
+                .map(|a| a.into_iter().map(|a| (a.kind, a.path)).collect::<Vec<_>>()),
+            Ok(vec![
+                (AssetKind::DataTable, "dt".to_string()),
+                (AssetKind::DataTable, "dt/sch.t".to_string()),
+                (AssetKind::Ducklake, "other".to_string()),
+            ])
+        );
+    }
 }
