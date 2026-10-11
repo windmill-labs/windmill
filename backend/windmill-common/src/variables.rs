@@ -401,16 +401,22 @@ pub fn legacy_secret_upgrade_pending() -> bool {
 }
 
 /// Re-encrypt the secret variables still in the legacy format in v2, workspace by workspace.
-/// Idempotent, and emits no git-sync event: the plaintexts do not change, and an event per
-/// secret would be a commit per secret in every synced repository.
+/// Idempotent, and emits no git-sync event: the plaintexts do not change.
 pub async fn upgrade_legacy_secret_variables(db: &DB) {
+    struct Running;
+    impl Drop for Running {
+        fn drop(&mut self) {
+            LEGACY_SECRET_UPGRADE_RUNNING.store(false, Ordering::Release);
+        }
+    }
     if !legacy_secret_upgrade_pending()
         || LEGACY_SECRET_UPGRADE_RUNNING.swap(true, Ordering::AcqRel)
     {
         return;
     }
+    // Cleared on drop, so a pass that panics does not stop every later one in this process.
+    let _running = Running;
     upgrade_legacy_secret_variables_pass(db).await;
-    LEGACY_SECRET_UPGRADE_RUNNING.store(false, Ordering::Release);
 }
 
 async fn upgrade_legacy_secret_variables_pass(db: &DB) {
@@ -489,8 +495,11 @@ async fn upgrade_workspace_secret_variables(db: &DB, w_id: &str) -> error::Resul
             }
             match mc.upgrade(&value) {
                 Some(new_value) => {
+                    // In a savepoint, so a value the update rejects (v2 is longer than CBC and
+                    // can pass the column's length limit) is skipped without losing the batch.
+                    let mut sp = sqlx::Acquire::begin(&mut tx).await?;
                     // Only over the value it was computed from, so a write racing it wins.
-                    upgraded += sqlx::query(
+                    match sqlx::query(
                         "UPDATE variable SET value = $1 \
                          WHERE workspace_id = $2 AND path = $3 AND value = $4",
                     )
@@ -498,9 +507,21 @@ async fn upgrade_workspace_secret_variables(db: &DB, w_id: &str) -> error::Resul
                     .bind(w_id)
                     .bind(&path)
                     .bind(&value)
-                    .execute(&mut *tx)
-                    .await?
-                    .rows_affected() as usize;
+                    .execute(&mut *sp)
+                    .await
+                    {
+                        Ok(r) => {
+                            sp.commit().await?;
+                            upgraded += r.rows_affected() as usize;
+                        }
+                        Err(e) => {
+                            sp.rollback().await?;
+                            tracing::warn!(
+                                "secret encryption upgrade: secret variable {path} of workspace {w_id} could not be stored re-encrypted, leaving it as is: {e}"
+                            );
+                            skipped += 1;
+                        }
+                    }
                 }
                 None => {
                     tracing::warn!(
