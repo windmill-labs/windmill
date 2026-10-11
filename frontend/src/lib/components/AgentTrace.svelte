@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { ExternalLink, Globe } from 'lucide-svelte'
 	import { JobService, type Job } from '$lib/gen'
-	import { base } from '$lib/base'
 	import { msToReadableTimeShort } from '$lib/utils'
 	import ChatCollapsibleCard from './copilot/chat/ChatCollapsibleCard.svelte'
 	import ToolContentDisplay from './copilot/chat/ToolContentDisplay.svelte'
@@ -141,7 +140,7 @@
 				{:else if entry.jobId}
 					<a
 						class="text-2xs text-accent inline-flex items-center gap-1 w-fit hover:underline"
-						href="{base}/run/{entry.jobId}?workspace={workspaceId ?? $operatingWorkspace}"
+						href="/run/{entry.jobId}?workspace={workspaceId ?? $operatingWorkspace}"
 						target="_blank"
 						rel="noreferrer"
 					>

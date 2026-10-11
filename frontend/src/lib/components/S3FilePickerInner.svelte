@@ -28,7 +28,6 @@
 		type MoveS3FileData,
 		type MoveS3FileResponse
 	} from '$lib/gen'
-	import { base } from '$lib/base'
 	import {
 		displayDate,
 		displaySize,
@@ -1069,7 +1068,7 @@
 				<p class="text-clip grow min-w-0">
 					The workspace needs to be connected to an S3 storage to use this feature. You can <a
 						target="_blank"
-						href="{base}/workspace_settings?tab=windmill_lfs">configure it here</a
+						href="/workspace_settings?tab=windmill_lfs">configure it here</a
 					>.
 				</p>
 				<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
@@ -1306,7 +1305,7 @@
 										<Button
 											title="Download file from S3"
 											variant="default"
-											href={`${base}/api${downloadApiPath}`}
+											href={`/api${downloadApiPath}`}
 											download={downloadName}
 											startIcon={{ icon: Download }}
 											iconOnly={true}

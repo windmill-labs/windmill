@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import {
 		JobService,
 		ScriptService,
@@ -535,7 +534,7 @@
 				description: `Start a new script from a copy of this one`,
 				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: operatingHref(`${base}/scripts/add?template=${script.path}`),
+					href: operatingHref(`/scripts/add?template=${script.path}`),
 					onClick: interceptNav(onNavigate, `/scripts/add?template=${script.path}`),
 					unifiedSize: 'md',
 					variant: 'subtle',
@@ -572,7 +571,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: operatingHref(`${base}/runs/${script.path}`),
+				href: operatingHref(`/runs/${script.path}`),
 				onClick: interceptNav(onNavigate, `/runs/${script.path}`),
 				unifiedSize: 'md',
 				variant: 'subtle',
@@ -641,7 +640,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: operatingHref(`${base}${editUrl}`),
+						href: operatingHref(editUrl),
 						onClick: interceptNav(onNavigate, editUrl),
 						unifiedSize: 'md',
 						startIcon: Pen,
@@ -986,7 +985,7 @@
 										<Alert type="warning" title="Not HEAD">
 											This hash is not HEAD (latest non-archived version at this path) :
 											<a
-												href="{base}/scripts/get/{topHash}?workspace={workspace}"
+												href="/scripts/get/{topHash}?workspace={workspace}"
 												onclick={interceptNav(onNavigate, `/scripts/get/${topHash}`)}
 												>Go to the HEAD of this path</a
 											>

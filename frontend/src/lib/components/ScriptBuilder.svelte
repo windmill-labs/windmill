@@ -72,7 +72,6 @@
 		Tag,
 		X
 	} from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -2605,7 +2604,7 @@
 						-- materialize
 					</code>
 					to materialize its result, or build it in the
-					<a href="{base}/pipeline" class="text-blue-500 hover:underline">pipeline editor</a>.
+					<a href="/pipeline" class="text-blue-500 hover:underline">pipeline editor</a>.
 					<a
 						href="https://www.windmill.dev/docs/pipelines"
 						target="_blank"

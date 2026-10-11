@@ -38,7 +38,7 @@
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
-	import { pageHref, RUNS_PATH } from '$lib/components/sessions/previewPaths'
+	import { RUNS_PATH } from '$lib/components/sessions/previewPaths'
 	import { twMerge } from 'tailwind-merge'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
@@ -836,7 +836,7 @@
 		<div class={phone ? 'hidden' : 'contents'}>
 			<OpenInSessionButton
 				source={{
-					page: () => pageHref(RUNS_PATH) + window.location.search,
+					page: () => RUNS_PATH + window.location.search,
 					workspaceId: $workspaceStore ?? undefined
 				}}
 				btnProps={{ unifiedSize: 'sm' }}

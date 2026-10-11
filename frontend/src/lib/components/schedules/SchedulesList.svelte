@@ -9,7 +9,6 @@
 	import { canWrite, displayDate, getLocalSetting, pluralize, storeLocalSetting } from '$lib/utils'
 	import { useEditRights, useScheduleLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
-	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -569,7 +568,7 @@
 			</div>
 			<div class="flex gap-2 items-center justify-end">
 				<Button
-					href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+					href={`/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
 					disabled={draft_only}
 					unifiedSize="md"
 					startIcon={{ icon: List }}
@@ -592,7 +591,7 @@
 							displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
 							icon: Eye,
 							action: () => {
-								if (hosted) hosted.openLink(`${base}${href}`)
+								if (hosted) hosted.openLink(href)
 								else goto(href)
 							}
 						},
@@ -644,12 +643,12 @@
 						{
 							displayName: 'View runs',
 							icon: List,
-							href: `${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
+							href: `/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
 						},
 						{
 							displayName: 'Audit logs',
 							icon: Eye,
-							href: `${base}/audit_logs?resource=${path}`
+							href: `/audit_logs?resource=${path}`
 						},
 						{
 							displayName: 'Run now',
@@ -682,7 +681,7 @@
 					{/if}
 					{#each jobs ?? [] as job}
 						{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
-						<a href="{base}/run/{job.id}?workspace={$operatingWorkspace}">
+						<a href="/run/{job.id}?workspace={$operatingWorkspace}">
 							<JobPreview id={job.id} class="p-4">
 								<div>
 									<div

@@ -246,7 +246,6 @@ import {
 	parseItemsMaskParam
 } from '$lib/components/sessions/modifiedItemsMask'
 import {
-	pageHref,
 	TRIGGER_PAGES,
 	type TriggerKind as PageTriggerKind
 } from '$lib/components/sessions/previewRouter'
@@ -336,7 +335,7 @@ export type GlobalActiveEditorContext = {
 export type GlobalActivePreviewContext = {
 	/** Page name as the tab strip shows it, e.g. "Schedules". */
 	label: string
-	/** Base-stripped page path plus the request params the page declares — values kept
+	/** Page path plus the request params the page declares — values kept
 	 * only for the ones addressing a workspace object, and percent-encoded. Never a raw
 	 * location: a tab can host a legacy app whose hash is app state, and a filter value
 	 * can be free text the user typed. Build it with `previewLocationContext`. */
@@ -3461,7 +3460,7 @@ export const openPageTool: SessionTool<{}> = {
 		// is no active session, in which case we offer a link chip instead.
 		const previewResult = openPagePreview({
 			sessionId: sessionIdFromCtx(ctx),
-			href: pageHref(url),
+			href: url,
 			label: pageLabel,
 			newTab: parsed.new_tab ?? false
 		})

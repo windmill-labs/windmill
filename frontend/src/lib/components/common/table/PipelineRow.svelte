@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import ConfirmationModal from '../confirmationModal/ConfirmationModal.svelte'
 	import {
@@ -71,7 +70,7 @@
 <Row
 	kind="data_pipeline"
 	marked={undefined}
-	href="{base}/pipeline/{encodeURIComponent(folder)}"
+	href="/pipeline/{encodeURIComponent(folder)}"
 	workspaceId={$workspaceStore ?? ''}
 	path={`f/${folder}`}
 	summary={label ?? `Pipeline · ${folder}`}

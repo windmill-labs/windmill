@@ -23,7 +23,6 @@
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
@@ -372,7 +371,7 @@
 				description: `Start a new flow from a copy of this one`,
 				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: operatingHref(`${base}/flows/add?template=${flow.path}`),
+					href: operatingHref(`/flows/add?template=${flow.path}`),
 					onClick: interceptNav(onNavigate, `/flows/add?template=${flow.path}`),
 					variant: 'subtle',
 					unifiedSize: 'md',
@@ -409,7 +408,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: operatingHref(`${base}/runs/${flow.path}`),
+				href: operatingHref(`/runs/${flow.path}`),
 				onClick: interceptNav(onNavigate, `/runs/${flow.path}`),
 				unifiedSize: 'md',
 				variant: 'subtle',
@@ -455,7 +454,7 @@
 		buttons.push({
 			label: 'Edit',
 			buttonProps: {
-				href: operatingHref(`${base}/flows/edit/${path}`),
+				href: operatingHref(`/flows/edit/${path}`),
 				onClick: interceptNav(onNavigate, `/flows/edit/${path}`),
 				variant: 'accent',
 				unifiedSize: 'md',
