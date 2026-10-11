@@ -14,8 +14,8 @@ use serde_json::json;
 use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectType, Typ};
 
 use ruff_python_ast::{
-    Expr, ExprAttribute, ExprDict, ExprList, ExprName, Number, Stmt, StmtAssign, StmtClassDef,
-    StmtFunctionDef,
+    Expr, ExprAttribute, ExprDict, ExprList, ExprName, Number, Parameters, Stmt, StmtAssign,
+    StmtClassDef, StmtFunctionDef,
 };
 use ruff_python_parser::parse_module;
 
@@ -79,21 +79,23 @@ fn should_parse_for_models(code: &str) -> bool {
         || code.contains("import dataclasses")
 }
 
+/// What follows `def <name>` or `async def <name>` on a line opening that function's
+/// parameters or type parameters.
+fn strip_def<'a>(line: &'a str, name: &str) -> Option<&'a str> {
+    let rest = line
+        .strip_prefix("async def ")
+        .or_else(|| line.strip_prefix("def "))?
+        .strip_prefix(name)?;
+    (rest.starts_with('(') || rest.starts_with('[')).then_some(rest)
+}
+
 fn filter_non_main(code: &str, main_name: &str) -> String {
-    let def_main = format!("def {}", main_name);
-    let async_def_main = format!("async def {}", main_name);
     let mut filtered_code = String::new();
     let mut code_iter = code.split("\n");
     let mut remaining: String = String::new();
     while let Some(line) = code_iter.next() {
-        let Some((prefix, rest)) = [&async_def_main, &def_main]
-            .into_iter()
-            .find_map(|prefix| Some((prefix, line.strip_prefix(prefix.as_str())?)))
-        else {
-            continue;
-        };
-        if rest.starts_with('(') || rest.starts_with('[') {
-            filtered_code += prefix;
+        if let Some(rest) = strip_def(line, main_name) {
+            filtered_code += &line[..line.len() - rest.len()];
             remaining += rest;
             remaining += "\n";
             remaining += &code_iter.join("\n");
@@ -308,6 +310,27 @@ fn parse_docstring_args(docstring: &str) -> HashMap<String, String> {
     descriptions
 }
 
+/// A line that reads as the definition of `main_name` can also sit inside a string, a docstring
+/// showing an example for instance. When several lines do, only the parsed module tells which
+/// one is the function.
+fn main_params_among_lookalikes(code: &str, main_name: &str) -> Option<Parameters> {
+    code.split('\n')
+        .filter(|line| strip_def(line, main_name).is_some())
+        .nth(1)?;
+    parse_module(code)
+        .ok()?
+        .into_suite()
+        .into_iter()
+        .find_map(|x| match x {
+            Stmt::FunctionDef(StmtFunctionDef { name, parameters, .. })
+                if name.as_str() == main_name =>
+            {
+                Some(*parameters)
+            }
+            _ => None,
+        })
+}
+
 /// skip_params is a micro optimization for when we just want to find the main
 /// function without parsing all the params.
 pub fn parse_python_signature(
@@ -340,6 +363,8 @@ pub fn parse_python_signature(
 
         // Keep AST for Pydantic/dataclass detection
         (params, Some(ast))
+    } else if let Some(params) = main_params_among_lookalikes(code, &main_name) {
+        (Some(params), None)
     } else {
         // No models detected - parse only the filtered main function
         let filtered_code = filter_non_main(code, &main_name);
@@ -1383,6 +1408,22 @@ def main(p: Point, name: str = "world"):
             ))
         );
         assert_eq!(result.args[1].default, Some(json!("world")));
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_main_lookalike_in_docstring() -> anyhow::Result<()> {
+        for example in ["def main[T](x: T):", "def main(x: int, y: int):"] {
+            let code = format!(
+                "\"\"\"Usage example:\n{example}\n    return x\n\"\"\"\n\ndef main(value: str):\n    return value\n"
+            );
+            let result = parse_python_signature(&code, None, false)?;
+            assert_eq!(
+                result.args.iter().map(|a| &a.name).collect::<Vec<_>>(),
+                vec!["value"],
+                "{code}"
+            );
+        }
         Ok(())
     }
 }

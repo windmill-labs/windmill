@@ -157,6 +157,7 @@ pub struct ImportPin {
 }
 
 pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<NImport>> {
+    let full_code = code;
     // Use regex to safely find the main function definition
     let mut code = DEF_MAIN_RE
         .split(code)
@@ -183,9 +184,15 @@ pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<NImp
     // This is needed because we've split off the real main function above
     let code_with_fake_main = format!("{}\n\ndef main(): pass", code);
 
-    let ast = parse_module(&code_with_fake_main)
-        .map_err(|e| anyhow::anyhow!("Error parsing code for imports: {}", e.to_string()))?
-        .into_suite();
+    let (code, ast) = match parse_module(&code_with_fake_main) {
+        Ok(parsed) => (code, parsed.into_suite()),
+        // The split lands on any line reading like the definition of `main`, one inside a
+        // string included: what precedes it is then not a module, while the whole file is.
+        Err(e) => match parse_module(full_code) {
+            Ok(parsed) => (full_code.to_string(), parsed.into_suite()),
+            Err(_) => anyhow::bail!("Error parsing code for imports: {}", e.to_string()),
+        },
+    };
     // Note: We're still using the original code for finding pins,
     // as the TextRange values from the parsed AST would be based on code_with_fake_main
     // but we want to match against the original code

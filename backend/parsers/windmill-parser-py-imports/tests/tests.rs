@@ -194,4 +194,25 @@ def main():
         }
         Ok(())
     }
+
+    #[test]
+    fn test_parse_imports_main_lookalike_in_docstring() -> anyhow::Result<()> {
+        for example in ["def main[T](x: T):", "def main(x):"] {
+            let code = format!(
+                "\"\"\"Usage example:\n{example}\n    return x\n\"\"\"\nimport requests # pin: requests==2.32.0\n\ndef main(value: str):\n    return value\n"
+            );
+            assert_eq!(
+                parse_code_for_imports(&code, "f/foo/bar")?,
+                vec![NImport::Pin {
+                    pins: vec![ImportPin {
+                        pkg: "requests==2.32.0".to_string(),
+                        path: "f/foo/bar".to_string()
+                    }],
+                    key: "requests".to_string()
+                }],
+                "{code}"
+            );
+        }
+        Ok(())
+    }
 }
