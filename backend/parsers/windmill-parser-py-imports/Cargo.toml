@@ -23,7 +23,8 @@ tracing.workspace = true
 
 [dependencies]
 windmill-parser.workspace = true
-rustpython-parser.workspace = true
+ruff_python_parser.workspace = true
+ruff_python_ast.workspace = true
 phf.workspace = true
 itertools.workspace = true
 serde_json.workspace = true
