@@ -13,6 +13,10 @@ use axum::http::header;
 #[cfg(feature = "static_frontend")]
 use http::HeaderValue;
 
+#[cfg(feature = "static_frontend")]
+use bytes::Bytes;
+#[cfg(feature = "static_frontend")]
+use dashmap::DashMap;
 use hyper::Uri;
 #[cfg(feature = "static_frontend")]
 use mime_guess::mime;
@@ -23,6 +27,39 @@ use rust_embed::RustEmbed;
 #[cfg(feature = "static_frontend")]
 lazy_static::lazy_static! {
     static ref CSP_POLICY: String = std::env::var("CSP_POLICY").unwrap_or_default();
+}
+
+/// A frontend built with `VITE_BASE_URL=/__WM_BASE_PATH__` takes its base path from the
+/// `BASE_PATH` env var when served, so one build serves any sub-path.
+#[cfg(feature = "static_frontend")]
+const BASE_PATH_PLACEHOLDER: &str = "/__WM_BASE_PATH__";
+
+#[cfg(feature = "static_frontend")]
+lazy_static::lazy_static! {
+    static ref BASE_PATH: String = {
+        let path = std::env::var("BASE_PATH").unwrap_or_default();
+        match path.trim().trim_matches('/') {
+            "" => String::new(),
+            path => format!("/{path}"),
+        }
+    };
+
+    // Decided once from the entry page, so a build without the placeholder pays nothing per request.
+    static ref REBASE_ASSETS: bool = {
+        let placeholder_build = Asset::get(TWO_HUNDRED).is_some_and(|page| {
+            std::str::from_utf8(&page.data).is_ok_and(|html| html.contains(BASE_PATH_PLACEHOLDER))
+        });
+        if !placeholder_build && !BASE_PATH.is_empty() {
+            tracing::warn!(
+                "BASE_PATH is ignored: the frontend was not built with VITE_BASE_URL={BASE_PATH_PLACEHOLDER}"
+            );
+        }
+        placeholder_build
+    };
+
+    // Embedded assets and `BASE_PATH` are fixed for the life of the process, so each asset is
+    // scanned once: `None` records an asset without the placeholder.
+    static ref REBASED: DashMap<String, Option<Bytes>> = DashMap::new();
 }
 
 // static_handler is a handler that serves static files from the
@@ -71,6 +108,33 @@ fn query_has_flag(query: Option<&str>, flag: &str) -> bool {
     query.is_some_and(|q| q.split('&').any(|kv| kv.split('=').next() == Some(flag)))
 }
 
+/// `data` with the placeholder replaced, or `None` when it is not a text asset carrying it.
+#[cfg(feature = "static_frontend")]
+fn rebase(data: &[u8], mime: &mime::Mime, base_path: &str) -> Option<Bytes> {
+    let is_text = mime.type_() == mime::TEXT
+        || mime.subtype() == mime::JAVASCRIPT
+        || mime.subtype() == mime::JSON;
+    if !is_text {
+        return None;
+    }
+    let text = std::str::from_utf8(data).ok()?;
+    text.contains(BASE_PATH_PLACEHOLDER)
+        .then(|| Bytes::from(text.replace(BASE_PATH_PLACEHOLDER, base_path)))
+}
+
+#[cfg(feature = "static_frontend")]
+fn rebased(path: &str, data: &[u8], mime: &mime::Mime) -> Option<Bytes> {
+    if !*REBASE_ASSETS {
+        return None;
+    }
+    if let Some(hit) = REBASED.get(path) {
+        return hit.value().clone();
+    }
+    let rebased = rebase(data, mime, &BASE_PATH);
+    REBASED.insert(path.to_owned(), rebased.clone());
+    rebased
+}
+
 fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<Body> {
     if path.starts_with("api/") {
         return Response::builder().status(404).body(Body::empty()).unwrap();
@@ -79,8 +143,11 @@ fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<
     #[cfg(feature = "static_frontend")]
     match Asset::get(path) {
         Some(content) => {
-            let body = Body::from(content.data);
             let mime = mime_guess::from_path(path).first_or_octet_stream();
+            let body = match rebased(path, &content.data, &mime) {
+                Some(data) => Body::from(data),
+                None => Body::from(content.data),
+            };
             let mut res = Response::builder()
                 .header(header::CONTENT_TYPE, mime.as_ref())
                 .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
@@ -152,6 +219,27 @@ fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<
 #[cfg(all(test, feature = "static_frontend"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_rebase() {
+        let html = br#"src="/__WM_BASE_PATH__/_app/a.js" base="/__WM_BASE_PATH__""#;
+        let rebased = |base: &str, mime: &mime::Mime| rebase(html, mime, base);
+
+        assert_eq!(
+            rebased("/windmill", &mime::TEXT_HTML).as_deref(),
+            Some(br#"src="/windmill/_app/a.js" base="/windmill""#.as_slice())
+        );
+        assert_eq!(
+            rebased("", &mime::TEXT_HTML).as_deref(),
+            Some(br#"src="/_app/a.js" base="""#.as_slice())
+        );
+        // binary assets and text without the placeholder are left to be served as embedded
+        assert_eq!(rebased("/windmill", &mime::APPLICATION_OCTET_STREAM), None);
+        assert_eq!(
+            rebase(b"no placeholder", &mime::TEXT_HTML, "/windmill"),
+            None
+        );
+    }
 
     #[test]
     fn test_query_has_flag() {
