@@ -25,7 +25,9 @@ pub const MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2: VC = vc(1, 794, 0, "Bun v2 lockf
 pub const MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES: VC = vc(1, 822, 0, "Restricted job tokens");
 // The release that reads AES-256-GCM workspace ciphertext. A worker that predates it reads
 // secrets from the database with the CBC cipher alone and fails every job using a value
-// written in the new format. Must name the release this ships in.
+// written in the new format. Must name the release this ships in. Only worker versions are
+// seen here, not servers; once met, the background pass rewrites every secret variable, so
+// going back below this release leaves them unreadable.
 pub const MIN_VERSION_SUPPORTS_AEAD_SECRETS: VC = vc(1, 831, 0, "AES-GCM secret encryption");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
