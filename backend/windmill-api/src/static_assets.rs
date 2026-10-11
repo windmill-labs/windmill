@@ -13,6 +13,10 @@ use axum::http::header;
 #[cfg(feature = "static_frontend")]
 use http::HeaderValue;
 
+#[cfg(feature = "static_frontend")]
+use bytes::Bytes;
+#[cfg(feature = "static_frontend")]
+use dashmap::DashMap;
 use hyper::Uri;
 #[cfg(feature = "static_frontend")]
 use mime_guess::mime;
@@ -52,6 +56,10 @@ lazy_static::lazy_static! {
         }
         placeholder_build
     };
+
+    // Embedded assets and `BASE_PATH` are fixed for the life of the process, so each asset is
+    // scanned once: `None` records an asset without the placeholder.
+    static ref REBASED: DashMap<String, Option<Bytes>> = DashMap::new();
 }
 
 // static_handler is a handler that serves static files from the
@@ -100,26 +108,31 @@ fn query_has_flag(query: Option<&str>, flag: &str) -> bool {
     query.is_some_and(|q| q.split('&').any(|kv| kv.split('=').next() == Some(flag)))
 }
 
+/// `data` with the placeholder replaced, or `None` when it is not a text asset carrying it.
 #[cfg(feature = "static_frontend")]
-fn rebase(
-    data: std::borrow::Cow<'static, [u8]>,
-    mime: &mime::Mime,
-    base_path: &str,
-) -> std::borrow::Cow<'static, [u8]> {
+fn rebase(data: &[u8], mime: &mime::Mime, base_path: &str) -> Option<Bytes> {
     let is_text = mime.type_() == mime::TEXT
         || mime.subtype() == mime::JAVASCRIPT
         || mime.subtype() == mime::JSON;
-    if is_text {
-        if let Ok(text) = std::str::from_utf8(&data) {
-            if text.contains(BASE_PATH_PLACEHOLDER) {
-                return text
-                    .replace(BASE_PATH_PLACEHOLDER, base_path)
-                    .into_bytes()
-                    .into();
-            }
-        }
+    if !is_text {
+        return None;
     }
-    data
+    let text = std::str::from_utf8(data).ok()?;
+    text.contains(BASE_PATH_PLACEHOLDER)
+        .then(|| Bytes::from(text.replace(BASE_PATH_PLACEHOLDER, base_path)))
+}
+
+#[cfg(feature = "static_frontend")]
+fn rebased(path: &str, data: &[u8], mime: &mime::Mime) -> Option<Bytes> {
+    if !*REBASE_ASSETS {
+        return None;
+    }
+    if let Some(hit) = REBASED.get(path) {
+        return hit.value().clone();
+    }
+    let rebased = rebase(data, mime, &BASE_PATH);
+    REBASED.insert(path.to_owned(), rebased.clone());
+    rebased
 }
 
 fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<Body> {
@@ -131,10 +144,9 @@ fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<
     match Asset::get(path) {
         Some(content) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
-            let body = if *REBASE_ASSETS {
-                Body::from(rebase(content.data, &mime, &BASE_PATH))
-            } else {
-                Body::from(content.data)
+            let body = match rebased(path, &content.data, &mime) {
+                Some(data) => Body::from(data),
+                None => Body::from(content.data),
             };
             let mut res = Response::builder()
                 .header(header::CONTENT_TYPE, mime.as_ref())
@@ -211,20 +223,21 @@ mod tests {
     #[test]
     fn test_rebase() {
         let html = br#"src="/__WM_BASE_PATH__/_app/a.js" base="/__WM_BASE_PATH__""#;
-        let rebased = |base: &str, mime: &mime::Mime| rebase(html.as_slice().into(), mime, base);
+        let rebased = |base: &str, mime: &mime::Mime| rebase(html, mime, base);
 
         assert_eq!(
-            rebased("/windmill", &mime::TEXT_HTML),
-            br#"src="/windmill/_app/a.js" base="/windmill""#.as_slice()
+            rebased("/windmill", &mime::TEXT_HTML).as_deref(),
+            Some(br#"src="/windmill/_app/a.js" base="/windmill""#.as_slice())
         );
         assert_eq!(
-            rebased("", &mime::TEXT_HTML),
-            br#"src="/_app/a.js" base="""#.as_slice()
+            rebased("", &mime::TEXT_HTML).as_deref(),
+            Some(br#"src="/_app/a.js" base="""#.as_slice())
         );
-        // binary assets are served untouched
+        // binary assets and text without the placeholder are left to be served as embedded
+        assert_eq!(rebased("/windmill", &mime::APPLICATION_OCTET_STREAM), None);
         assert_eq!(
-            rebased("/windmill", &mime::APPLICATION_OCTET_STREAM),
-            html.as_slice()
+            rebase(b"no placeholder", &mime::TEXT_HTML, "/windmill"),
+            None
         );
     }
 
