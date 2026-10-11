@@ -1,5 +1,8 @@
-use rustpython_ast::{Constant, Expr, ExprConstant, Visitor};
-use rustpython_parser::{ast::Suite, Parse};
+use ruff_python_ast::{
+    visitor::{walk_expr, walk_stmt, Visitor},
+    Expr, ExprCall, ExprDict, FStringPartRef, InterpolatedStringElement, Keyword, Stmt, StmtAssign,
+};
+use ruff_python_parser::parse_module;
 use std::collections::HashMap;
 use windmill_parser::asset_parser::{
     asset_was_used, merge_assets, parse_asset_syntax, parse_pipeline_annotations, AssetKind,
@@ -8,12 +11,12 @@ use windmill_parser::asset_parser::{
 use AssetUsageAccessType::*;
 
 pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
-    let ast = Suite::parse(input, "main.py")
-        .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
+    let ast = parse_module(input)
+        .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?
+        .into_suite();
 
     let mut assets_finder = AssetsFinder { assets: vec![], var_identifiers: HashMap::new() };
-    ast.into_iter()
-        .for_each(|stmt| assets_finder.visit_stmt(stmt));
+    assets_finder.visit_body(&ast);
 
     for (kind, path, _) in assets_finder.var_identifiers.into_values() {
         // if a db = wmill.datatable() was never used (e.g db.query(...)),
@@ -43,13 +46,72 @@ struct AssetsFinder {
     var_identifiers: HashMap<String, (AssetKind, VarAssetName, VarAssetSchema)>,
 }
 
-impl Visitor for AssetsFinder {
+impl<'a> Visitor<'a> for AssetsFinder {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        if let Stmt::Assign(node) = stmt {
+            self.track_assignment(node);
+        }
+        // Continue with generic visit to catch any other assets in the statement
+        walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        match expr {
+            // A detected asset call does not recurse,
+            // so this is only reached when no further context was found
+            Expr::StringLiteral(s) => self.visit_str(s.value.to_str()),
+            Expr::FString(f) => {
+                // Literal text between two interpolations reads as one string, across the
+                // pieces of an implicitly concatenated f-string too.
+                let mut literal = String::new();
+                for part in &f.value {
+                    match part {
+                        FStringPartRef::Literal(s) => literal.push_str(&s.value),
+                        FStringPartRef::FString(f) => {
+                            for element in &f.elements {
+                                match element {
+                                    InterpolatedStringElement::Literal(l) => {
+                                        literal.push_str(&l.value)
+                                    }
+                                    InterpolatedStringElement::Interpolation(_) => {
+                                        self.visit_str(&std::mem::take(&mut literal))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                self.visit_str(&literal);
+                walk_expr(self, expr);
+            }
+            Expr::Call(node) => {
+                if self.visit_expr_call_inner(node).is_err() {
+                    walk_expr(self, expr);
+                }
+            }
+            _ => walk_expr(self, expr),
+        }
+    }
+}
+
+impl AssetsFinder {
+    fn visit_str(&mut self, s: &str) {
+        if let Some((kind, path)) = parse_asset_syntax(s, false) {
+            self.assets.push(ParseAssetsResult {
+                kind,
+                path: path.to_string(),
+                access_type: None,
+                columns: None,
+            });
+        }
+    }
+
     // Handle assignment statements like: x = wmill.datatable('name')
-    fn visit_stmt_assign(&mut self, node: rustpython_ast::StmtAssign) {
+    fn track_assignment(&mut self, node: &StmtAssign) {
         // Check if the value is a call to a tracked function
         if let Some(Expr::Name(expr_name)) = node.targets.first() {
             // Remove any tracked variables with that name in case of reassignment
-            let Ok(var_name) = expr_name.id.parse::<String>();
+            let var_name = expr_name.id.to_string();
             let removed = self.var_identifiers.remove(&var_name);
             // if a db = wmill.datatable() or similar was removed, but never used (e.g db.query(...)),
             // we still want to register the asset as unknown access type
@@ -69,59 +131,12 @@ impl Visitor for AssetsFinder {
 
             if let Some((kind, name, schema)) = self.extract_asset_from_call(&node.value) {
                 // Track target variable
-                let Ok(var_name) = expr_name.id.parse::<String>();
                 self.var_identifiers
                     .insert(var_name, (kind.clone(), name.clone(), schema.clone()));
             }
         }
-        // Continue with generic visit to catch any other assets in the expression
-        self.generic_visit_stmt_assign(node);
     }
 
-    // visit_call_expr will not recurse if it detects an asset,
-    // so this will only be called when no further context was found
-    fn visit_expr_constant(&mut self, node: ExprConstant) {
-        match node.value {
-            Constant::Str(s) => {
-                if let Some((kind, path)) = parse_asset_syntax(&s, false) {
-                    self.assets.push(ParseAssetsResult {
-                        kind,
-                        path: path.to_string(),
-                        access_type: None,
-                        columns: None,
-                    });
-                }
-            }
-            _ => self.generic_visit_expr_constant(node),
-        }
-    }
-
-    fn visit_expr_call(&mut self, node: rustpython_ast::ExprCall) {
-        match self.visit_expr_call_inner(&node) {
-            Ok(_) => {}
-            Err(_) => {
-                // Check keyword arguments for assets before falling back to generic visit
-                for keyword in &node.keywords {
-                    if let Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) =
-                        &keyword.value
-                    {
-                        if let Some((kind, path)) = parse_asset_syntax(s, false) {
-                            self.assets.push(ParseAssetsResult {
-                                kind,
-                                path: path.to_string(),
-                                access_type: None,
-                                columns: None,
-                            });
-                        }
-                    }
-                }
-                self.generic_visit_expr_call(node);
-            }
-        }
-    }
-}
-
-impl AssetsFinder {
     /// Extract asset info from calls like wmill.datatable('name'), wmill.ducklake('name'), etc.
     fn extract_asset_from_call(
         &self,
@@ -147,18 +162,20 @@ impl AssetsFinder {
 
         // Get the first argument (the asset name)
         let name = call
+            .arguments
             .args
             .first()
             .or_else(|| {
                 // Try keyword argument 'name' or 'path'
-                call.keywords
+                call.arguments
+                    .keywords
                     .iter()
                     .find(|kw| matches!(kw.arg.as_deref(), Some("name") | Some("path")))
                     .map(|kw| &kw.value)
             })
             .and_then(|first_arg| {
-                if let Expr::Constant(ExprConstant { value: Constant::Str(name), .. }) = first_arg {
-                    Some(name.clone())
+                if let Expr::StringLiteral(name) = first_arg {
+                    Some(name.value.to_str().to_string())
                 } else {
                     None
                 }
@@ -179,44 +196,39 @@ impl AssetsFinder {
         Some((kind, name, schema))
     }
 
-    fn visit_expr_call_inner(&mut self, node: &rustpython_ast::ExprCall) -> Result<(), ()> {
+    fn visit_expr_call_inner(&mut self, node: &ExprCall) -> Result<(), ()> {
         let ident: String = node
             .func
             .as_name_expr()
-            .and_then(|o| o.id.parse().ok())
+            .map(|o| o.id.to_string())
             .or_else(|| {
                 node.func
                     .as_attribute_expr()
-                    .and_then(|attr| attr.attr.parse().ok())
+                    .map(|attr| attr.attr.to_string())
             })
             .ok_or(())?;
 
         // `obj_name` is the object (receiver) - i.e., `obj` in `obj.method()`
-        let obj_name: String = if let Expr::Attribute(rustpython_ast::ExprAttribute {
-            value, ..
-        }) = node.func.as_ref()
-        {
-            if let Expr::Name(expr_name) = value.as_ref() {
-                expr_name.id.parse().map_err(|_| ())?
-            } else {
-                return Err(());
-            }
-        } else {
-            return Err(());
-        };
+        let obj_name: String = node
+            .func
+            .as_attribute_expr()
+            .and_then(|attr| attr.value.as_name_expr())
+            .map(|name| name.id.to_string())
+            .ok_or(())?;
 
         if obj_name == "wmill" {
             // Continue
         } else if let Some((kind, ref path, ref schema)) = self.var_identifiers.get(&obj_name) {
             if ident == "query" {
-                let expr_name = node.args.get(0).or_else(|| {
-                    node.keywords
+                let expr_name = node.arguments.args.get(0).or_else(|| {
+                    node.arguments
+                        .keywords
                         .iter()
                         .find(|kw| kw.arg.as_deref() == Some("name"))
                         .map(|kw| &kw.value)
                 });
                 let sql = match expr_name {
-                    Some(Expr::Constant(ExprConstant { value: Constant::Str(sql), .. })) => sql,
+                    Some(Expr::StringLiteral(sql)) => sql.value.to_str(),
                     _ => return Err(()),
                 };
                 // We use the SQL parser to detect RW, specific tables, etc.
@@ -224,7 +236,7 @@ impl AssetsFinder {
                     *kind,
                     path,
                     schema.as_deref(),
-                    &sql,
+                    sql,
                 );
                 match sql_assets {
                     Ok(Some(sql_assets)) => self.assets.extend(sql_assets),
@@ -252,9 +264,10 @@ impl AssetsFinder {
         };
 
         let arg_val = match arg {
-            Arg(i, name) => node.args.get(i).or_else(|| {
+            Arg(i, name) => node.arguments.args.get(i).or_else(|| {
                 // Get arg by name
-                node.keywords
+                node.arguments
+                    .keywords
                     .iter()
                     .find(|kw| kw.arg.as_deref() == Some(name))
                     .map(|kw| &kw.value)
@@ -270,8 +283,9 @@ impl AssetsFinder {
                 self.assets
                     .push(ParseAssetsResult { kind, path, access_type, columns: None });
             }
-            Some(Expr::Constant(ExprConstant { value: Constant::Str(value), .. })) => {
-                let path = parse_asset_syntax(&value, false)
+            Some(Expr::StringLiteral(value)) => {
+                let value = value.value.to_str();
+                let path = parse_asset_syntax(value, false)
                     .map(|(_, p)| p)
                     .unwrap_or(std::borrow::Cow::Borrowed(value));
                 self.assets.push(ParseAssetsResult {
@@ -291,26 +305,24 @@ impl AssetsFinder {
 struct Arg(usize, &'static str);
 
 /// Extract a string-literal keyword argument, e.g. `s3="value"` in a call.
-fn keyword_str_value(keywords: &[rustpython_ast::Keyword], name: &str) -> Option<String> {
+fn keyword_str_value(keywords: &[Keyword], name: &str) -> Option<String> {
     keywords
         .iter()
         .find(|kw| kw.arg.as_deref() == Some(name))
         .and_then(|kw| match &kw.value {
-            Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) => Some(s.clone()),
+            Expr::StringLiteral(s) => Some(s.value.to_str().to_string()),
             _ => None,
         })
 }
 
 /// Extract a string-literal value from a dict literal, e.g. `{"s3": "value"}`.
-fn dict_str_value(dict: &rustpython_ast::ExprDict, name: &str) -> Option<String> {
-    dict.keys
+fn dict_str_value(dict: &ExprDict, name: &str) -> Option<String> {
+    dict.items
         .iter()
-        .zip(dict.values.iter())
-        .find_map(|(key, value)| match (key.as_ref()?, value) {
-            (
-                Expr::Constant(ExprConstant { value: Constant::Str(k), .. }),
-                Expr::Constant(ExprConstant { value: Constant::Str(v), .. }),
-            ) if k.as_str() == name => Some(v.clone()),
+        .find_map(|item| match (item.key.as_ref()?, &item.value) {
+            (Expr::StringLiteral(k), Expr::StringLiteral(v)) if k.value.to_str() == name => {
+                Some(v.value.to_str().to_string())
+            }
             _ => None,
         })
 }
@@ -328,12 +340,13 @@ fn dict_str_value(dict: &rustpython_ast::ExprDict, name: &str) -> Option<String>
 /// matches the TS object form and the `# on s3:///…` trigger form exactly.
 fn s3_object_arg_path(expr: &Expr) -> Option<String> {
     let uri = match expr {
-        Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) => {
+        Expr::StringLiteral(s) => {
+            let s = s.value.to_str();
             match s
                 .strip_prefix("s3://")
                 .and_then(|rest| rest.split_once('/'))
             {
-                Some((_, key)) if !key.is_empty() => s.clone(),
+                Some((_, key)) if !key.is_empty() => s.to_string(),
                 _ => return None,
             }
         }
@@ -347,8 +360,9 @@ fn s3_object_arg_path(expr: &Expr) -> Option<String> {
             if func_name != "S3Object" {
                 return None;
             }
-            let key = keyword_str_value(&call.keywords, "s3")?;
-            let storage = keyword_str_value(&call.keywords, "storage").unwrap_or_default();
+            let key = keyword_str_value(&call.arguments.keywords, "s3")?;
+            let storage =
+                keyword_str_value(&call.arguments.keywords, "storage").unwrap_or_default();
             format!("s3://{storage}/{key}")
         }
         Expr::Dict(dict) => {
@@ -820,6 +834,43 @@ def main():
                 access_type: None,
                 columns: None,
             },])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_recent_syntax() {
+        let input = r#"
+import wmill
+lazy import polars
+
+type Rows = list[dict]
+
+def main[T](name: str):
+    try:
+        with wmill.load_s3_file_reader('s3:///in.csv') as f:
+            f.read()
+    except ValueError, TypeError:
+        pass
+    greeting = t"hello {name}"
+    return f"{wmill.get_resource("u/user/pg")["host"]}"
+"#;
+        let s = parse_assets(input).map(|o| o.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/in.csv".to_string(),
+                    access_type: Some(R),
+                    columns: None,
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::Resource,
+                    path: "u/user/pg".to_string(),
+                    access_type: None,
+                    columns: None,
+                },
+            ])
         );
     }
 }

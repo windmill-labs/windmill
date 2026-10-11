@@ -13,13 +13,11 @@ use itertools::Itertools;
 use serde_json::json;
 use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectType, Typ};
 
-use rustpython_parser::{
-    ast::{
-        Constant, Expr, ExprAttribute, ExprConstant, ExprDict, ExprList, ExprName, Stmt,
-        StmtAssign, StmtAsyncFunctionDef, StmtClassDef, StmtFunctionDef, Suite,
-    },
-    Parse,
+use ruff_python_ast::{
+    Expr, ExprAttribute, ExprDict, ExprList, ExprName, Number, Stmt, StmtAssign, StmtClassDef,
+    StmtFunctionDef,
 };
+use ruff_python_parser::parse_module;
 
 pub mod pydantic_parser;
 
@@ -82,21 +80,21 @@ fn should_parse_for_models(code: &str) -> bool {
 }
 
 fn filter_non_main(code: &str, main_name: &str) -> String {
-    let def_main = format!("def {}(", main_name);
-    let async_def_main = format!("async def {}(", main_name);
+    let def_main = format!("def {}", main_name);
+    let async_def_main = format!("async def {}", main_name);
     let mut filtered_code = String::new();
     let mut code_iter = code.split("\n");
     let mut remaining: String = String::new();
     while let Some(line) = code_iter.next() {
-        if line.starts_with(&async_def_main) {
-            filtered_code += &async_def_main;
-            remaining += line.strip_prefix(&async_def_main).unwrap();
-            remaining += "\n";
-            remaining += &code_iter.join("\n");
-            break;
-        } else if line.starts_with(&def_main) {
-            filtered_code += &def_main;
-            remaining += line.strip_prefix(&def_main).unwrap();
+        let Some((prefix, rest)) = [&async_def_main, &def_main]
+            .into_iter()
+            .find_map(|prefix| Some((prefix, line.strip_prefix(prefix.as_str())?)))
+        else {
+            continue;
+        };
+        if rest.starts_with('(') || rest.starts_with('[') {
+            filtered_code += prefix;
+            remaining += rest;
             remaining += "\n";
             remaining += &code_iter.join("\n");
             break;
@@ -106,6 +104,26 @@ fn filter_non_main(code: &str, main_name: &str) -> String {
         return String::new();
     }
     let mut chars = remaining.chars();
+
+    // PEP 695 type parameters, `def main[T](x: T)`, sit between the name and the parameters.
+    if remaining.starts_with('[') {
+        let mut open_brackets = 0;
+        for c in chars.by_ref() {
+            if c == '[' {
+                open_brackets += 1;
+            } else if c == ']' {
+                open_brackets -= 1;
+            }
+            filtered_code.push(c);
+            if open_brackets == 0 {
+                break;
+            }
+        }
+    }
+    if chars.next() != Some('(') {
+        return String::new();
+    }
+    filtered_code.push('(');
     let mut open_parens = 1;
 
     while let Some(c) = chars.next() {
@@ -183,15 +201,15 @@ fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
 
     let filtered_code = filter_relevant_statements(code);
 
-    let ast = match Suite::parse(&filtered_code, "main.py") {
-        Ok(ast) => ast,
+    let ast = match parse_module(&filtered_code) {
+        Ok(parsed) => parsed.into_suite(),
         Err(_) => return CodeMetadata { enums, descriptions },
     };
 
     for stmt in ast {
         match stmt {
-            Stmt::ClassDef(StmtClassDef { name, body, bases, .. }) if has_enum => {
-                let is_enum = bases.iter().any(|base| {
+            Stmt::ClassDef(class_def) if has_enum => {
+                let is_enum = class_def.bases().iter().any(|base| {
                     matches!(base, Expr::Name(ExprName { id, .. })
                         if id == "Enum" || id == "IntEnum" || id == "StrEnum"
                         || id == "Flag" || id == "IntFlag")
@@ -201,17 +219,15 @@ fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
                     let mut values = Vec::new();
                     let mut members = HashMap::new();
 
+                    let StmtClassDef { name, body, .. } = class_def;
                     for item in body {
                         if let Stmt::Assign(StmtAssign { targets, value, .. }) = item {
                             if let Some(Expr::Name(ExprName { id: target_name, .. })) =
                                 targets.first()
                             {
                                 if !target_name.starts_with('_') {
-                                    if let Expr::Constant(ExprConstant {
-                                        value: Constant::Str(val),
-                                        ..
-                                    }) = value.as_ref()
-                                    {
+                                    if let Expr::StringLiteral(val) = value.as_ref() {
+                                        let val = val.value.to_str();
                                         values.push(val.to_string());
                                         members.insert(target_name.to_string(), val.to_string());
                                     }
@@ -225,15 +241,13 @@ fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
                     }
                 }
             }
-            Stmt::FunctionDef(StmtFunctionDef { name: func_name, body, .. }) if has_docstring => {
-                if &func_name == main_name {
+            Stmt::FunctionDef(StmtFunctionDef {
+                name: func_name, body, is_async: false, ..
+            }) if has_docstring => {
+                if func_name.as_str() == main_name {
                     if let Some(Stmt::Expr(expr_stmt)) = body.first() {
-                        if let Expr::Constant(ExprConstant {
-                            value: Constant::Str(docstring),
-                            ..
-                        }) = expr_stmt.value.as_ref()
-                        {
-                            descriptions = parse_docstring_args(docstring);
+                        if let Expr::StringLiteral(docstring) = expr_stmt.value.as_ref() {
+                            descriptions = parse_docstring_args(docstring.value.to_str());
                         }
                     }
                 }
@@ -310,18 +324,16 @@ pub fn parse_python_signature(
     // - If no models: parse only the filtered main function
     let (params, module) = if should_parse_for_models(code) {
         // Parse full code once for both Pydantic detection and signature extraction
-        let ast = Suite::parse(code, "main.py")
-            .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
+        let ast = parse_module(code)
+            .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?
+            .into_suite();
 
         // Extract main function from full AST
         let params = ast.iter().find_map(|x| match x {
-            Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if name == &main_name => {
-                Some(args.as_ref().clone())
-            }
-            Stmt::AsyncFunctionDef(StmtAsyncFunctionDef { name, args, .. })
-                if name == &main_name =>
+            Stmt::FunctionDef(StmtFunctionDef { name, parameters, .. })
+                if name.as_str() == main_name =>
             {
-                Some(args.as_ref().clone())
+                Some(parameters.as_ref().clone())
             }
             _ => None,
         });
@@ -334,17 +346,15 @@ pub fn parse_python_signature(
         if filtered_code.is_empty() {
             (None, None)
         } else {
-            let ast = Suite::parse(&filtered_code, "main.py")
-                .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
+            let ast = parse_module(&filtered_code)
+                .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?
+                .into_suite();
 
             let params = ast.into_iter().find_map(|x| match x {
-                Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if &name == &main_name => {
-                    Some(*args)
-                }
-                Stmt::AsyncFunctionDef(StmtAsyncFunctionDef { name, args, .. })
-                    if &name == &main_name =>
+                Stmt::FunctionDef(StmtFunctionDef { name, parameters, .. })
+                    if name.as_str() == main_name =>
                 {
-                    Some(*args)
+                    Some(*parameters)
                 }
                 _ => None,
             });
@@ -378,8 +388,6 @@ pub fn parse_python_signature(
 
     if !skip_params && params.is_some() {
         let params = params.unwrap();
-        let def_arg_start = params.args.len() - params.defaults().count();
-
         // Two-pass approach for lazy metadata extraction:
         // Pass 1: Parse types without enum info to determine if metadata is needed
         // Pass 2: Re-parse unknown types with metadata only if necessary
@@ -392,11 +400,11 @@ pub fn parse_python_signature(
             .iter()
             .enumerate()
             .map(|(i, x)| {
-                let arg_name = x.as_arg().arg.to_string();
+                let arg_name = x.parameter.name.to_string();
                 let (typ, has_default) = x
-                    .as_arg()
+                    .parameter
                     .annotation
-                    .as_ref()
+                    .as_deref()
                     .map_or((Typ::Unknown, false), |e| {
                         parse_expr(e, &empty_enums, module_ref)
                     });
@@ -423,21 +431,16 @@ pub fn parse_python_signature(
                 .into_iter()
                 .map(|(i, arg_name, mut typ, mut has_default)| {
                     if matches!(typ, Typ::Resource(_)) && !metadata.enums.is_empty() {
-                        if let Some(annotation) = params.args[i].as_arg().annotation.as_ref() {
+                        if let Some(annotation) = params.args[i].parameter.annotation.as_deref() {
                             (typ, has_default) =
                                 parse_expr(annotation, &metadata.enums, module_ref);
                         }
                     }
 
-                    let default = if i >= def_arg_start {
-                        params
-                            .defaults()
-                            .nth(i - def_arg_start)
-                            .map(|expr| to_value(expr, &metadata.enums))
-                            .flatten()
-                    } else {
-                        None
-                    };
+                    let default = params.args[i]
+                        .default
+                        .as_deref()
+                        .and_then(|expr| to_value(expr, &metadata.enums));
 
                     let should_get_type_from_default = match &typ {
                         Typ::Unknown => true,
@@ -465,10 +468,10 @@ pub fn parse_python_signature(
                     // debounce accumulation support. Falls back to docstring
                     // description if no union array pattern is found.
                     let union_otyp = params.args[i]
-                        .as_arg()
+                        .parameter
                         .annotation
-                        .as_ref()
-                        .and_then(|ann| detect_py_union_array_otyp(ann.as_ref()));
+                        .as_deref()
+                        .and_then(detect_py_union_array_otyp);
 
                     Arg {
                         otyp: union_otyp.or_else(|| {
@@ -509,12 +512,8 @@ pub fn parse_python_signature(
     }
 }
 
-fn parse_expr(
-    e: &Box<Expr>,
-    enums: &HashMap<String, EnumInfo>,
-    module: Option<&[Stmt]>,
-) -> (Typ, bool) {
-    match e.as_ref() {
+fn parse_expr(e: &Expr, enums: &HashMap<String, EnumInfo>, module: Option<&[Stmt]>) -> (Typ, bool) {
+    match e {
         Expr::Name(ExprName { id, .. }) => (parse_typ(id.as_ref(), enums, module), false),
         Expr::Attribute(x) => {
             if let Some(name) = x.value.as_name_expr() {
@@ -531,12 +530,9 @@ fn parse_expr(
             }
         }
         Expr::BinOp(x) => {
-            if matches!(
-                x.right.as_ref(),
-                Expr::Constant(ExprConstant { value: Constant::None, .. })
-            ) {
+            if x.right.is_none_literal_expr() {
                 (parse_expr(&x.left, enums, module).0, true)
-            } else if detect_py_union_array_otyp(e.as_ref()).is_some() {
+            } else if detect_py_union_array_otyp(e).is_some() {
                 // T | list[T] — parsed type is Unknown; otyp is set separately
                 (Typ::Unknown, false)
             } else {
@@ -552,7 +548,7 @@ fn parse_expr(
                                 .elts
                                 .iter()
                                 .map(|x| match x {
-                                    Expr::Constant(c) => c.value.as_str().map(|x| x.to_string()),
+                                    Expr::StringLiteral(s) => Some(s.value.to_str().to_string()),
                                     _ => None,
                                 })
                                 .filter_map(|x| x)
@@ -625,15 +621,26 @@ fn map_resource_name(x: &str) -> String {
     }
 }
 
-fn to_value<R>(et: &Expr<R>, enums: &HashMap<String, EnumInfo>) -> Option<serde_json::Value> {
+fn to_value(et: &Expr, enums: &HashMap<String, EnumInfo>) -> Option<serde_json::Value> {
     match et {
-        Expr::Constant(ExprConstant { value, .. }) => Some(constant_to_value(value)),
-        Expr::Dict(ExprDict { keys, values, .. }) => {
-            let v = keys
-                .into_iter()
-                .zip(values)
-                .map(|(k, v)| {
-                    let key = k
+        Expr::NoneLiteral(_) => Some(json!(null)),
+        Expr::BooleanLiteral(b) => Some(json!(b.value)),
+        Expr::StringLiteral(s) => Some(json!(s.value.to_str())),
+        Expr::BytesLiteral(b) => Some(json!(b.value.bytes().collect::<Vec<u8>>())),
+        Expr::NumberLiteral(n) => Some(match &n.value {
+            Number::Int(i) => {
+                serde_json::from_str(&i.to_string()).unwrap_or(json!("invalid number"))
+            }
+            Number::Float(f) => json!(f),
+            Number::Complex { real, imag } => json!([real, imag]),
+        }),
+        Expr::EllipsisLiteral(_) => Some(json!("...")),
+        Expr::Dict(ExprDict { items, .. }) => {
+            let v = items
+                .iter()
+                .map(|item| {
+                    let key = item
+                        .key
                         .as_ref()
                         .map(|e| to_value(e, enums))
                         .flatten()
@@ -642,7 +649,7 @@ fn to_value<R>(et: &Expr<R>, enums: &HashMap<String, EnumInfo>) -> Option<serde_
                             _ => None,
                         })
                         .unwrap_or_else(|| "no_key".to_string());
-                    (key, to_value(&v, enums))
+                    (key, to_value(&item.value, enums))
                 })
                 .collect::<HashMap<String, _>>();
             Some(json!(v))
@@ -669,20 +676,6 @@ fn to_value<R>(et: &Expr<R>, enums: &HashMap<String, EnumInfo>) -> Option<serde_
         }
         Expr::Call { .. } => Some(json!(FUNCTION_CALL)),
         _ => None,
-    }
-}
-
-fn constant_to_value(c: &Constant) -> serde_json::Value {
-    match c {
-        Constant::None => json!(null),
-        Constant::Bool(b) => json!(b),
-        Constant::Str(s) => json!(s),
-        Constant::Bytes(b) => json!(b),
-        Constant::Int(i) => serde_json::from_str(&i.to_string()).unwrap_or(json!("invalid number")),
-        Constant::Tuple(t) => json!(t.iter().map(constant_to_value).collect::<Vec<_>>()),
-        Constant::Float(f) => json!(f),
-        Constant::Complex { real, imag } => json!([real, imag]),
-        Constant::Ellipsis => json!("..."),
     }
 }
 
@@ -1321,6 +1314,75 @@ def main(color: Color = Color.RED):
             result.args[0].otyp,
             Some("Color selection from Color enum".to_string())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_type_params() -> anyhow::Result<()> {
+        for code in [
+            "def main[T](x: str, y: int = 3):\n    return x\n",
+            "async def main[T: (int, str), *Ts](x: str, y: int = 3):\n    return x\n",
+            // parsed whole rather than pre-filtered down to `main`
+            "from dataclasses import dataclass\n\ndef main[T](x: str, y: int = 3):\n    return x\n",
+        ] {
+            let result = parse_python_signature(code, None, false)?;
+            assert_eq!(result.auto_kind, None, "{code}");
+            assert_eq!(
+                result
+                    .args
+                    .iter()
+                    .map(|a| (a.name.as_str(), &a.typ, &a.default))
+                    .collect::<Vec<_>>(),
+                vec![
+                    ("x", &Typ::Str(None), &None),
+                    ("y", &Typ::Int, &Some(json!(3)))
+                ],
+                "{code}"
+            );
+        }
+        Ok(())
+    }
+
+    // A script with a model class is parsed whole, so syntax anywhere in it reaches the parser.
+    #[test]
+    fn test_parse_python_sig_recent_syntax() -> anyhow::Result<()> {
+        let code = r#"
+from dataclasses import dataclass
+lazy import requests
+lazy from pandas import DataFrame
+
+type Alias = list[int]
+
+@dataclass
+class Point:
+    x: int
+
+try:
+    import a
+except ImportError, ValueError:
+    pass
+
+D = {"a": 1}
+L = [[1], [2]]
+PEP701 = f"{D["a"]} {'\n'.join(["x"])}"
+PEP798 = [*a for a in L]
+
+def main(p: Point, name: str = "world"):
+    return t"hello {name}"
+"#;
+        let result = parse_python_signature(code, None, false)?;
+        assert_eq!(result.args.len(), 2);
+        assert_eq!(
+            result.args[0].typ,
+            Typ::Object(ObjectType::new(
+                Some("Point".to_string()),
+                Some(vec![windmill_parser::ObjectProperty {
+                    key: "x".to_string(),
+                    typ: Box::new(Typ::Int)
+                }])
+            ))
+        );
+        assert_eq!(result.args[1].default, Some(json!("world")));
         Ok(())
     }
 }

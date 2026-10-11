@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use rustpython_parser::{
-    ast::{
-        Expr, ExprAwait, ExprCall, ExprName, Stmt, StmtExpr, StmtFor, StmtIf, StmtReturn, StmtTry,
-        StmtTryStar, StmtWhile,
-    },
-    Parse,
+use ruff_python_ast::{
+    CmpOp, ElifElseClause, ExceptHandler, Expr, ExprAttribute, ExprAwait, ExprCall, ExprName,
+    Number, Parameters, Stmt, StmtExpr, StmtFor, StmtFunctionDef, StmtIf, StmtReturn, StmtTry,
+    StmtWhile,
 };
+use ruff_python_parser::parse_module;
+use ruff_text_size::{Ranged, TextSize};
 
 use crate::dag::{DagEdge, DagNode, DagNodeType, Param, WorkflowDag};
 use crate::validation::{self, CompileError};
@@ -42,9 +42,9 @@ type TaskFunctions = HashMap<String, Option<String>>;
 fn collect_task_functions(stmts: &[Stmt]) -> TaskFunctions {
     let mut tasks = HashMap::new();
     for stmt in stmts {
-        if let Stmt::AsyncFunctionDef(func) = stmt {
+        if let Stmt::FunctionDef(func @ StmtFunctionDef { is_async: true, .. }) = stmt {
             for dec in &func.decorator_list {
-                match dec {
+                match &dec.expression {
                     // @task  (bare decorator)
                     Expr::Name(ExprName { id, .. }) if id.as_str() == "task" => {
                         tasks.insert(func.name.to_string(), None);
@@ -68,13 +68,9 @@ fn collect_task_functions(stmts: &[Stmt]) -> TaskFunctions {
                 if let Expr::Name(ExprName { id, .. }) = call.func.as_ref() {
                     if id.as_str() == "task_script" || id.as_str() == "task_flow" {
                         // Extract the path from the first positional argument
-                        let path = call.args.first().and_then(|arg| {
-                            if let Expr::Constant(c) = arg {
-                                if let rustpython_parser::ast::Constant::Str(s) = &c.value {
-                                    return Some(s.to_string());
-                                }
-                            }
-                            None
+                        let path = call.arguments.args.first().and_then(|arg| match arg {
+                            Expr::StringLiteral(s) => Some(s.value.to_str().to_string()),
+                            _ => None,
                         });
                         // Extract variable name from target
                         if let Some(Expr::Name(ExprName { id: var_name, .. })) =
@@ -92,13 +88,11 @@ fn collect_task_functions(stmts: &[Stmt]) -> TaskFunctions {
 
 /// Extract the `path=` keyword argument from a `@task(path="...")` call.
 fn extract_task_path_kwarg(call: &ExprCall) -> Option<String> {
-    for kw in &call.keywords {
+    for kw in &call.arguments.keywords {
         if let Some(ref arg) = kw.arg {
             if arg.as_str() == "path" {
-                if let Expr::Constant(c) = &kw.value {
-                    if let rustpython_parser::ast::Constant::Str(s) = &c.value {
-                        return Some(s.to_string());
-                    }
+                if let Expr::StringLiteral(s) = &kw.value {
+                    return Some(s.value.to_str().to_string());
                 }
             }
         }
@@ -150,10 +144,9 @@ impl WacWalker {
 
     fn line_of_expr(&self, expr: &Expr) -> usize {
         let offset = match expr {
-            Expr::Call(c) => c.range.start().to_usize(),
-            Expr::Await(a) => a.range.start().to_usize(),
-            Expr::Attribute(a) => a.range.start().to_usize(),
-            Expr::Name(n) => n.range.start().to_usize(),
+            Expr::Call(_) | Expr::Await(_) | Expr::Attribute(_) | Expr::Name(_) => {
+                expr.start().to_usize()
+            }
             _ => 0,
         };
         self.line_index.line_of(offset)
@@ -161,17 +154,15 @@ impl WacWalker {
 
     fn line_of_stmt(&self, stmt: &Stmt) -> usize {
         let offset = match stmt {
-            Stmt::If(s) => s.range.start().to_usize(),
-            Stmt::For(s) => s.range.start().to_usize(),
-            Stmt::While(s) => s.range.start().to_usize(),
-            Stmt::Return(s) => s.range.start().to_usize(),
-            Stmt::Expr(s) => s.range.start().to_usize(),
-            Stmt::Try(s) => s.range.start().to_usize(),
-            Stmt::TryStar(s) => s.range.start().to_usize(),
-            Stmt::Assign(s) => s.range.start().to_usize(),
-            Stmt::AnnAssign(s) => s.range.start().to_usize(),
-            Stmt::FunctionDef(s) => s.range.start().to_usize(),
-            Stmt::AsyncFunctionDef(s) => s.range.start().to_usize(),
+            Stmt::If(_)
+            | Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::Return(_)
+            | Stmt::Expr(_)
+            | Stmt::Try(_)
+            | Stmt::Assign(_)
+            | Stmt::AnnAssign(_)
+            | Stmt::FunctionDef(_) => stmt.start().to_usize(),
             _ => 0,
         };
         self.line_index.line_of(offset)
@@ -190,9 +181,7 @@ impl WacWalker {
     /// Check if an expression is `asyncio.gather(...)` call
     fn is_asyncio_gather_call(expr: &Expr) -> bool {
         if let Expr::Call(call) = expr {
-            if let Expr::Attribute(rustpython_parser::ast::ExprAttribute { value, attr, .. }) =
-                call.func.as_ref()
-            {
+            if let Expr::Attribute(ExprAttribute { value, attr, .. }) = call.func.as_ref() {
                 if attr.as_str() == "gather" {
                     if let Expr::Name(ExprName { id, .. }) = value.as_ref() {
                         return id.as_str() == "asyncio";
@@ -222,20 +211,20 @@ impl WacWalker {
     fn expr_to_source(expr: &Expr) -> String {
         match expr {
             Expr::Compare(c) => {
-                let left = Self::expr_to_source(&c.left);
-                if let Some(comparator) = c.comparators.first() {
+                let left = Self::expr_to_source(&c.operands[0]);
+                if let Some(comparator) = c.comparators().first() {
                     let right = Self::expr_to_source(comparator);
                     let op = match c.ops.first() {
-                        Some(rustpython_parser::ast::CmpOp::Gt) => ">",
-                        Some(rustpython_parser::ast::CmpOp::Lt) => "<",
-                        Some(rustpython_parser::ast::CmpOp::GtE) => ">=",
-                        Some(rustpython_parser::ast::CmpOp::LtE) => "<=",
-                        Some(rustpython_parser::ast::CmpOp::Eq) => "==",
-                        Some(rustpython_parser::ast::CmpOp::NotEq) => "!=",
-                        Some(rustpython_parser::ast::CmpOp::In) => "in",
-                        Some(rustpython_parser::ast::CmpOp::NotIn) => "not in",
-                        Some(rustpython_parser::ast::CmpOp::Is) => "is",
-                        Some(rustpython_parser::ast::CmpOp::IsNot) => "is not",
+                        Some(CmpOp::Gt) => ">",
+                        Some(CmpOp::Lt) => "<",
+                        Some(CmpOp::GtE) => ">=",
+                        Some(CmpOp::LtE) => "<=",
+                        Some(CmpOp::Eq) => "==",
+                        Some(CmpOp::NotEq) => "!=",
+                        Some(CmpOp::In) => "in",
+                        Some(CmpOp::NotIn) => "not in",
+                        Some(CmpOp::Is) => "is",
+                        Some(CmpOp::IsNot) => "is not",
                         None => "?",
                     };
                     format!("{left} {op} {right}")
@@ -253,14 +242,14 @@ impl WacWalker {
                 format!("{value}.{}", a.attr)
             }
             Expr::Name(n) => n.id.to_string(),
-            Expr::Constant(c) => match &c.value {
-                rustpython_parser::ast::Constant::Str(s) => format!("\"{s}\""),
-                rustpython_parser::ast::Constant::Int(i) => i.to_string(),
-                rustpython_parser::ast::Constant::Float(f) => f.to_string(),
-                rustpython_parser::ast::Constant::Bool(b) => b.to_string(),
-                rustpython_parser::ast::Constant::None => "None".to_string(),
-                _ => "...".to_string(),
+            Expr::StringLiteral(s) => format!("\"{}\"", s.value.to_str()),
+            Expr::NumberLiteral(n) => match &n.value {
+                Number::Int(i) => i.to_string(),
+                Number::Float(f) => f.to_string(),
+                Number::Complex { .. } => "...".to_string(),
             },
+            Expr::BooleanLiteral(b) => b.value.to_string(),
+            Expr::NoneLiteral(_) => "None".to_string(),
             _ => "...".to_string(),
         }
     }
@@ -279,7 +268,12 @@ impl WacWalker {
         match stmt {
             Stmt::Expr(StmtExpr { value, .. }) => self.expr_contains_step(value),
             Stmt::Assign(a) => self.expr_contains_step(&a.value),
-            Stmt::If(s) => self.body_contains_step(&s.body) || self.body_contains_step(&s.orelse),
+            Stmt::If(s) => {
+                self.body_contains_step(&s.body)
+                    || s.elif_else_clauses
+                        .iter()
+                        .any(|clause| self.body_contains_step(&clause.body))
+            }
             Stmt::For(s) => self.body_contains_step(&s.body) || self.body_contains_step(&s.orelse),
             Stmt::While(s) => {
                 self.body_contains_step(&s.body) || self.body_contains_step(&s.orelse)
@@ -289,19 +283,7 @@ impl WacWalker {
                     || self.body_contains_step(&s.orelse)
                     || self.body_contains_step(&s.finalbody)
                     || s.handlers.iter().any(|h| match h {
-                        rustpython_parser::ast::ExceptHandler::ExceptHandler(eh) => {
-                            self.body_contains_step(&eh.body)
-                        }
-                    })
-            }
-            Stmt::TryStar(s) => {
-                self.body_contains_step(&s.body)
-                    || self.body_contains_step(&s.orelse)
-                    || self.body_contains_step(&s.finalbody)
-                    || s.handlers.iter().any(|h| match h {
-                        rustpython_parser::ast::ExceptHandler::ExceptHandler(eh) => {
-                            self.body_contains_step(&eh.body)
-                        }
+                        ExceptHandler::ExceptHandler(eh) => self.body_contains_step(&eh.body),
                     })
             }
             Stmt::Return(_) => false,
@@ -319,11 +301,12 @@ impl WacWalker {
         match expr {
             Expr::Await(ExprAwait { value, .. }) => self.expr_contains_step(value),
             Expr::Call(call) => {
-                if self.is_task_fn_call(&Expr::Call(call.clone())) {
-                    return true;
-                }
-                if Self::is_asyncio_gather_call(&Expr::Call(call.clone())) {
-                    return call.args.iter().any(|a| self.expr_contains_step(a));
+                if Self::is_asyncio_gather_call(expr) {
+                    return call
+                        .arguments
+                        .args
+                        .iter()
+                        .any(|a| self.expr_contains_step(a));
                 }
                 false
             }
@@ -373,9 +356,8 @@ impl WacWalker {
             Stmt::For(for_stmt) => self.walk_for(for_stmt),
             Stmt::While(while_stmt) => self.walk_while(while_stmt),
             Stmt::Try(try_stmt) => self.walk_try(try_stmt),
-            Stmt::TryStar(try_stmt) => self.walk_try_star(try_stmt),
             Stmt::Return(ret) => self.walk_return(ret),
-            Stmt::FunctionDef(_) | Stmt::AsyncFunctionDef(_) => {
+            Stmt::FunctionDef(_) => {
                 if self.stmt_contains_step(stmt) {
                     self.errors.push(validation::error_step_in_nested_function(
                         self.line_of_stmt(stmt),
@@ -392,7 +374,7 @@ impl WacWalker {
         if let Expr::Await(ExprAwait { value, .. }) = expr {
             // await task_fn(...)
             if let Expr::Call(call) = value.as_ref() {
-                if self.is_task_fn_call(&Expr::Call(call.clone())) {
+                if self.is_task_fn_call(value) {
                     return self.emit_step(call, expr);
                 }
                 // Check for SDK-level calls: step(), sleep(), wait_for_approval()
@@ -430,15 +412,12 @@ impl WacWalker {
             "step" => {
                 // step("name", fn) — extract the name from the first string argument
                 let name = call
+                    .arguments
                     .args
                     .first()
-                    .and_then(|arg| {
-                        if let Expr::Constant(c) = arg {
-                            if let rustpython_parser::ast::Constant::Str(s) = &c.value {
-                                return Some(s.to_string());
-                            }
-                        }
-                        None
+                    .and_then(|arg| match arg {
+                        Expr::StringLiteral(s) => Some(s.value.to_str().to_string()),
+                        _ => None,
                     })
                     .unwrap_or_else(|| "step".to_string());
                 let id = self.next_id();
@@ -452,6 +431,7 @@ impl WacWalker {
             }
             "sleep" => {
                 let seconds = call
+                    .arguments
                     .args
                     .first()
                     .map(|arg| Self::expr_to_source(arg))
@@ -517,10 +497,10 @@ impl WacWalker {
         });
 
         let mut step_ids = Vec::new();
-        for arg in &gather_call.args {
+        for arg in &gather_call.arguments.args {
             // Each arg should be task_fn(...)
             if let Expr::Call(call) = arg {
-                if self.is_task_fn_call(&Expr::Call(call.clone())) {
+                if self.is_task_fn_call(arg) {
                     let (name, script) = self
                         .extract_step_info_from_task_call(call)
                         .unwrap_or(("unknown".into(), "unknown".into()));
@@ -553,15 +533,33 @@ impl WacWalker {
     }
 
     fn walk_if(&mut self, if_stmt: &StmtIf) -> Option<(String, String)> {
-        let has_steps_in_body = self.body_contains_step(&if_stmt.body);
-        let has_steps_in_else = self.body_contains_step(&if_stmt.orelse);
+        self.walk_if_chain(
+            if_stmt.start(),
+            &if_stmt.test,
+            &if_stmt.body,
+            &if_stmt.elif_else_clauses,
+        )
+    }
+
+    /// An `elif` is laid out as an `if` nested alone in the `else` of the clause before it.
+    fn walk_if_chain(
+        &mut self,
+        start: TextSize,
+        test: &Expr,
+        body: &[Stmt],
+        clauses: &[ElifElseClause],
+    ) -> Option<(String, String)> {
+        let has_steps_in_body = self.body_contains_step(body);
+        let has_steps_in_else = clauses
+            .iter()
+            .any(|clause| self.body_contains_step(&clause.body));
 
         if !has_steps_in_body && !has_steps_in_else {
             return None;
         }
 
-        let line = self.line_index.line_of(if_stmt.range.start().to_usize());
-        let condition_source = Self::expr_to_source(&if_stmt.test);
+        let line = self.line_index.line_of(start.to_usize());
+        let condition_source = Self::expr_to_source(test);
 
         let branch_id = self.next_id();
         let branch_node_id = self.add_node(DagNode {
@@ -573,15 +571,19 @@ impl WacWalker {
 
         let mut last_ids = Vec::new();
 
-        if let Some((true_first, true_last)) = self.walk_body(&if_stmt.body) {
+        if let Some((true_first, true_last)) = self.walk_body(body) {
             self.add_edge(&branch_node_id, &true_first, Some("true".to_string()));
             last_ids.push(true_last);
         } else {
             last_ids.push(branch_node_id.clone());
         }
 
-        if !if_stmt.orelse.is_empty() {
-            if let Some((else_first, else_last)) = self.walk_body(&if_stmt.orelse) {
+        if let Some((clause, clauses)) = clauses.split_first() {
+            let orelse = match &clause.test {
+                Some(test) => self.walk_if_chain(clause.start(), test, &clause.body, clauses),
+                None => self.walk_body(&clause.body),
+            };
+            if let Some((else_first, else_last)) = orelse {
                 self.add_edge(&branch_node_id, &else_first, Some("false".to_string()));
                 last_ids.push(else_last);
             } else {
@@ -611,7 +613,7 @@ impl WacWalker {
             return None;
         }
 
-        let line = self.line_index.line_of(for_stmt.range.start().to_usize());
+        let line = self.line_index.line_of(for_stmt.start().to_usize());
         let iter_source = Self::expr_to_source(&for_stmt.iter);
 
         let start_id = self.next_id();
@@ -644,7 +646,7 @@ impl WacWalker {
             return None;
         }
 
-        let line = self.line_index.line_of(while_stmt.range.start().to_usize());
+        let line = self.line_index.line_of(while_stmt.start().to_usize());
         let condition = Self::expr_to_source(&while_stmt.test);
 
         let start_id = self.next_id();
@@ -677,39 +679,14 @@ impl WacWalker {
             || self.body_contains_step(&try_stmt.orelse)
             || self.body_contains_step(&try_stmt.finalbody)
             || try_stmt.handlers.iter().any(|h| match h {
-                rustpython_parser::ast::ExceptHandler::ExceptHandler(eh) => {
-                    self.body_contains_step(&eh.body)
-                }
+                ExceptHandler::ExceptHandler(eh) => self.body_contains_step(&eh.body),
             });
 
         if !has_steps {
             return None;
         }
 
-        let line = self.line_index.line_of(try_stmt.range.start().to_usize());
-        self.emit_try_catch_branch(
-            &try_stmt.body,
-            &try_stmt.handlers,
-            &try_stmt.finalbody,
-            line,
-        )
-    }
-
-    fn walk_try_star(&mut self, try_stmt: &StmtTryStar) -> Option<(String, String)> {
-        let has_steps = self.body_contains_step(&try_stmt.body)
-            || self.body_contains_step(&try_stmt.orelse)
-            || self.body_contains_step(&try_stmt.finalbody)
-            || try_stmt.handlers.iter().any(|h| match h {
-                rustpython_parser::ast::ExceptHandler::ExceptHandler(eh) => {
-                    self.body_contains_step(&eh.body)
-                }
-            });
-
-        if !has_steps {
-            return None;
-        }
-
-        let line = self.line_index.line_of(try_stmt.range.start().to_usize());
+        let line = self.line_index.line_of(try_stmt.start().to_usize());
         self.emit_try_catch_branch(
             &try_stmt.body,
             &try_stmt.handlers,
@@ -721,7 +698,7 @@ impl WacWalker {
     fn emit_try_catch_branch(
         &mut self,
         try_body: &[Stmt],
-        handlers: &[rustpython_parser::ast::ExceptHandler],
+        handlers: &[ExceptHandler],
         finally_body: &[Stmt],
         line: usize,
     ) -> Option<(String, String)> {
@@ -746,7 +723,7 @@ impl WacWalker {
         // Except handlers
         for handler in handlers {
             match handler {
-                rustpython_parser::ast::ExceptHandler::ExceptHandler(eh) => {
+                ExceptHandler::ExceptHandler(eh) => {
                     if let Some((catch_first, catch_last)) = self.walk_body(&eh.body) {
                         self.add_edge(&branch_node_id, &catch_first, Some("except".to_string()));
                         last_ids.push(catch_last);
@@ -783,7 +760,7 @@ impl WacWalker {
     }
 
     fn walk_return(&mut self, ret: &StmtReturn) -> Option<(String, String)> {
-        let line = self.line_index.line_of(ret.range.start().to_usize());
+        let line = self.line_index.line_of(ret.start().to_usize());
         let id = self.next_id();
         let node_id = self.add_node(DagNode {
             id: id.clone(),
@@ -796,12 +773,12 @@ impl WacWalker {
 }
 
 /// Extract workflow function parameters (no longer skips ctx)
-fn extract_params(args: &rustpython_parser::ast::Arguments) -> Vec<Param> {
+fn extract_params(args: &Parameters) -> Vec<Param> {
     let mut params = Vec::new();
     for arg_with_default in args.args.iter().chain(args.posonlyargs.iter()) {
-        let name = arg_with_default.def.arg.to_string();
+        let name = arg_with_default.parameter.name.to_string();
         let typ = arg_with_default
-            .def
+            .parameter
             .annotation
             .as_ref()
             .map(|ann| WacWalker::expr_to_source(ann));
@@ -811,59 +788,34 @@ fn extract_params(args: &rustpython_parser::ast::Arguments) -> Vec<Param> {
 }
 
 pub fn parse_python_workflow(code: &str) -> Result<WorkflowDag, Vec<CompileError>> {
-    let ast = rustpython_parser::ast::Suite::parse(code, "<workflow>")
-        .map_err(|e| vec![CompileError { message: format!("Parse error: {e}"), line: 0 }])?;
+    let ast = parse_module(code)
+        .map_err(|e| vec![CompileError { message: format!("Parse error: {e}"), line: 0 }])?
+        .into_suite();
 
     // First pass: collect @task functions
     let task_functions = collect_task_functions(&ast);
 
-    // Find the @workflow async def
-    let workflow_fn = ast.iter().find_map(|stmt| {
-        if let Stmt::AsyncFunctionDef(func) = stmt {
-            let has_workflow_decorator = func.decorator_list.iter().any(|dec| {
-                if let Expr::Name(ExprName { id, .. }) = dec {
-                    id.as_str() == "workflow"
-                } else {
-                    false
-                }
-            });
-            if has_workflow_decorator {
-                return Some(func);
+    let workflow_fns = || {
+        ast.iter().filter_map(|stmt| match stmt {
+            Stmt::FunctionDef(func)
+                if func.decorator_list.iter().any(|dec| {
+                    matches!(&dec.expression, Expr::Name(ExprName { id, .. }) if id.as_str() == "workflow")
+                }) =>
+            {
+                Some(func)
             }
-        }
-        // Also check non-async for error reporting
-        if let Stmt::FunctionDef(func) = stmt {
-            let has_workflow_decorator = func.decorator_list.iter().any(|dec| {
-                if let Expr::Name(ExprName { id, .. }) = dec {
-                    id.as_str() == "workflow"
-                } else {
-                    false
-                }
-            });
-            if has_workflow_decorator {
-                return None; // Will be reported as not-async below
-            }
-        }
-        None
-    });
+            _ => None,
+        })
+    };
 
-    // Check for non-async workflow function
-    let non_async_workflow = ast.iter().find_map(|stmt| {
-        if let Stmt::FunctionDef(func) = stmt {
-            let has_workflow_decorator = func.decorator_list.iter().any(|dec| {
-                if let Expr::Name(ExprName { id, .. }) = dec {
-                    id.as_str() == "workflow"
-                } else {
-                    false
-                }
-            });
-            if has_workflow_decorator {
-                let line_index = LineIndex::new(code);
-                return Some(line_index.line_of(func.range.start().to_usize()));
-            }
-        }
-        None
-    });
+    // Find the @workflow async def
+    let workflow_fn = workflow_fns().find(|func| func.is_async);
+
+    // Check for non-async workflow function. The statement starts at its first decorator,
+    // the name sits on the `def` line the error points at.
+    let non_async_workflow = workflow_fns()
+        .find(|func| !func.is_async)
+        .map(|func| LineIndex::new(code).line_of(func.name.start().to_usize()));
 
     if let Some(line) = non_async_workflow {
         if workflow_fn.is_none() {
@@ -875,7 +827,7 @@ pub fn parse_python_workflow(code: &str) -> Result<WorkflowDag, Vec<CompileError
         vec![CompileError { message: "No @workflow async function found.".to_string(), line: 0 }]
     })?;
 
-    let params = extract_params(&workflow_fn.args);
+    let params = extract_params(&workflow_fn.parameters);
     let source_hash = compute_source_hash(code);
 
     let mut walker = WacWalker::new(code, task_functions);
@@ -893,14 +845,4 @@ fn compute_source_hash(code: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(code.as_bytes());
     format!("{:x}", hasher.finalize())
-}
-
-trait ToUsize {
-    fn to_usize(self) -> usize;
-}
-
-impl ToUsize for rustpython_parser::text_size::TextSize {
-    fn to_usize(self) -> usize {
-        u32::from(self) as usize
-    }
 }
