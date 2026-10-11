@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte'
-	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -117,7 +116,7 @@
 		if (mode === 'code') {
 			// The session was opened for this app alone; with nothing said in it, it goes.
 			const unused = runtime.manager.displayMessages.length === 0
-			await goto(withWorkspaceParam(`${base}/apps_raw/edit/${path}`, workspaceId))
+			await goto(withWorkspaceParam(`/apps_raw/edit/${path}`, workspaceId))
 			if (unused) removeSession(runtime.sessionId)
 			return
 		}

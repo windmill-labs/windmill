@@ -1,5 +1,3 @@
-import { base } from '$lib/base'
-
 // Href for a workspace-switch link in the sidebar WorkspaceMenu: stay on the
 // current path and just swap the `workspace` query param, so a modifier/middle
 // click (open in new tab, which bypasses the onClick fast-path) lands on the
@@ -20,7 +18,7 @@ export function workspaceMenuHref(args: {
 	landOnHome?: boolean
 }): string {
 	if (args.landOnHome) {
-		return `${base}/?workspace=${encodeURIComponent(args.id)}`
+		return `/?workspace=${encodeURIComponent(args.id)}`
 	}
 	const params = new URLSearchParams(args.searchParams)
 	params.set('workspace', args.id)

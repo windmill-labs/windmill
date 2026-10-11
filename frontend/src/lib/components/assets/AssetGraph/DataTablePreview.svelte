@@ -16,7 +16,6 @@
 	import { parseDbInputFromAssetSyntax } from '$lib/utils'
 	import { AlertTriangle, Database, Loader2, Settings } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { base } from '$lib/base'
 	import { twMerge } from 'tailwind-merge'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -180,7 +179,7 @@
 				</span>
 			</div>
 			<Button
-				href="{base}/workspace_settings?tab=windmill_data_tables"
+				href="/workspace_settings?tab=windmill_data_tables"
 				variant="accent"
 				unifiedSize="sm"
 				startIcon={{ icon: Settings }}

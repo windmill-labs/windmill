@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { base } from '$lib/base'
 	import { capitalize, pluralize, sendUserToast } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -195,7 +194,7 @@
 		<Button
 			endIcon={{ icon: ExternalLink }}
 			variant="accent"
-			href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
+			href="/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
 		>
 		<p class="text-xs text-primary mt-1">
 			See invoices, change billing information or subscription details.
@@ -591,7 +590,7 @@
 							<Button
 								size="xs"
 								color="bg-blue-500 text-white"
-								href="{base}/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
+								href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
 							>
 								Upgrade to Team plan</Button
 							>

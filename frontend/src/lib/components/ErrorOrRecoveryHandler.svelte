@@ -43,7 +43,6 @@
 	import ChannelSelector from '$lib/components/ChannelSelector.svelte'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { base } from '$lib/base'
 	import { enterpriseLicense } from '$lib/stores'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import { classNames, emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
@@ -543,7 +542,7 @@
 
 									<a
 										target="_blank"
-										href={`${base}/run/${connectionTestJob.uuid}?workspace=${effectiveWorkspace}`}
+										href={`/run/${connectionTestJob.uuid}?workspace=${effectiveWorkspace}`}
 										class="inline-flex items-center gap-1"
 									>
 										{connectionTestJob.uuid}
@@ -636,7 +635,7 @@
 								Message sent via Windmill job
 								<a
 									target="_blank"
-									href={`${base}/run/${connectionTestJob.uuid}?workspace=${effectiveWorkspace}`}
+									href={`/run/${connectionTestJob.uuid}?workspace=${effectiveWorkspace}`}
 								>
 									{connectionTestJob.uuid}
 								</a>
@@ -694,7 +693,7 @@
 					report is sent without adding an entry to the instance critical alert feed. Canceled jobs
 					are not reported.
 				</span>
-				<a class="text-xs w-fit" href="{base}/?workspace=admins#superadmin-settings">
+				<a class="text-xs w-fit" href="/?workspace=admins#superadmin-settings">
 					Configure the instance critical alert channels
 				</a>
 			</div>

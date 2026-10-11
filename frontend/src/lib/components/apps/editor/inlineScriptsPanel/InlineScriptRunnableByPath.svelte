@@ -3,7 +3,6 @@
 
 	const bubble = createBubbler()
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
-	import { base } from '$lib/base'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
@@ -327,7 +326,7 @@
 					startIcon={{ icon: GitFork }}
 					endIcon={{ icon: ExternalLink }}
 					target="_blank"
-					href="{base}/flows/add?hub={hubFlowId}"
+					href="/flows/add?hub={hubFlowId}"
 				>
 					Fork
 				</Button>
@@ -348,7 +347,7 @@
 					startIcon={{ icon: Eye }}
 					endIcon={{ icon: ExternalLink }}
 					target="_blank"
-					href="{base}/flows/get/{runnable.path}?workspace={$operatingWorkspace}"
+					href="/flows/get/{runnable.path}?workspace={$operatingWorkspace}"
 				>
 					Details
 				</Button>

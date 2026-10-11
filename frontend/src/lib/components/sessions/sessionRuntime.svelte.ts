@@ -1,6 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { get } from 'svelte/store'
-import { base } from '$lib/base'
 import { invalidate as invalidateWorkspaceItems } from '$lib/components/workspacePicker'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -599,7 +598,7 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.openRunInPreview = ({ jobId, workspace, label }) => {
 		previewTabs.open({
 			type: 'page',
-			href: `${base}/run/${jobId}?workspace=${workspace}`,
+			href: `/run/${jobId}?workspace=${workspace}`,
 			label
 		})
 	}
@@ -612,7 +611,7 @@ function createRuntime(session: Session): SessionRuntime {
 	}
 	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
 	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
-		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
+		previewTabs.retargetRunForm(toolCallId, `/run/${jobId}?workspace=${workspace}`)
 	}
 	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
 	// away from is unmounted but still open, and the card must keep its form hidden until it

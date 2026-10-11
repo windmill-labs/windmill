@@ -9,7 +9,6 @@ import {
 	pageItemPageHref,
 	pageItemUrl,
 	pageKey,
-	pageHref,
 	parsePageItemRoute,
 	parsePipelineRoute,
 	parseHistoricalScriptEdit,
@@ -17,7 +16,7 @@ import {
 	RESOURCES_PATH,
 	RUNS_PATH,
 	SCHEDULES_PATH,
-	stripBase,
+	barePath,
 	VARIABLES_PATH,
 	WORKSPACE_SETTINGS_PATH,
 	triggerLabelForPath,
@@ -35,12 +34,11 @@ export {
 	pageItemListPath,
 	pageItemUrl,
 	pageKey,
-	pageHref,
 	parseHistoricalScriptEdit,
 	parsePageItemRoute,
 	parsePipelineRoute,
 	parsePreviewItemRoute,
-	stripBase,
+	barePath,
 	TRIGGER_PAGES,
 	type PageItemRef,
 	type PreviewItemMode,
@@ -163,7 +161,7 @@ const DRAWER_ANCHOR_PAGES = [SCHEDULES_PATH, VARIABLES_PATH, RESOURCES_PATH] as 
 export function drawerAnchorFor(location: string): string | undefined {
 	const hashAt = location.indexOf('#')
 	if (hashAt < 0) return undefined
-	const route = stripBase(location)
+	const route = barePath(location)
 	const known =
 		(DRAWER_ANCHOR_PAGES as readonly string[]).includes(route) ||
 		Object.values(TRIGGER_PAGES).some((p) => p.path === route)
@@ -251,7 +249,7 @@ function pageRequestParamTable(): Record<string, readonly string[]> {
 
 /** The query params a request can set on `path` — empty for a page that takes none. */
 export function pageRequestParams(path: string): readonly string[] {
-	return pageRequestParamTable()[stripBase(path)] ?? []
+	return pageRequestParamTable()[barePath(path)] ?? []
 }
 
 /** What a preview location means, read against the page it points at. */
@@ -283,7 +281,7 @@ export function describeLocation(loc: string): PreviewLocation {
 		return { identity: `/scripts/edit/${historical.path}@${historical.hash}`, view: '', anchor: '' }
 	}
 	const canonical = canonicalizeObservedLoc(loc)
-	const path = stripBase(canonical)
+	const path = barePath(canonical)
 	const bare = canonical.split('#')[0]
 	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
 	return {
@@ -435,10 +433,10 @@ export function previewLocationContext(loc: string): {
 	}
 }
 
-// Match a base-stripped preview pathname to a known page, for breadcrumb
+// Match a preview pathname to a known page, for breadcrumb
 // labelling + picker highlight. Exact match; '/' only matches home.
 export function matchPreviewPage(path: string): PreviewPage | undefined {
-	const clean = stripBase(path)
+	const clean = barePath(path)
 	return PREVIEW_PAGES.find((p) => p.path === clean)
 }
 
@@ -448,7 +446,7 @@ export function matchPreviewPage(path: string): PreviewPage | undefined {
  * matched — they take the generic path in `SessionPreviewTabs.open`, which
  * dedupes on the location ignoring the hash and re-points the tab it finds. */
 export function matchReusablePage(href: string): PreviewPage | undefined {
-	if (stripBase(href) === COMPARE_PAGE.path) return COMPARE_PAGE
+	if (barePath(href) === COMPARE_PAGE.path) return COMPARE_PAGE
 	return matchPreviewPage(href)
 }
 
@@ -466,11 +464,11 @@ export function previewLocationLabel(url: string): string {
 	if (page) return page.label
 	const trigger = triggerLabelForPath(url)
 	if (trigger) return trigger
-	const run = stripBase(url).match(/^\/run\/([^/?#]+)/)
+	const run = barePath(url).match(/^\/run\/([^/?#]+)/)
 	// Job ids are time-ordered, so runs started moments apart share their head.
 	if (run) return `Run ${decodeURIComponent(run[1]).slice(-8)}`
 	// The runs of one item, as a detail page's Runs button links them.
-	const itemRuns = stripBase(url).match(/^\/runs\/(.+)$/)
+	const itemRuns = barePath(url).match(/^\/runs\/(.+)$/)
 	if (itemRuns) return `Runs · ${decodeURIComponent(itemRuns[1]).split('/').pop()}`
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) return pipelineFolder
@@ -478,7 +476,7 @@ export function previewLocationLabel(url: string): string {
 	if (historical) return `${historical.path.split('/').pop()} @ ${historical.hash.slice(0, 8)}`
 	const parsed = parsePreviewItemRoute(url)
 	if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
-	return stripBase(url)
+	return barePath(url)
 }
 
 /** The friendly display leaf for a preview tab, or `undefined` to fall back to
@@ -522,7 +520,6 @@ export function parsePreviewSelectedId(url: string): string | undefined {
 		return undefined
 	}
 }
-
 
 // The id (before the query) is the artifact's stable routing identity; the name rides in the
 // hash so the tab strip labels it without a store lookup, and the version in the query so the
@@ -596,7 +593,7 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	if (runForm) return { kind: 'runform', toolCallId: runForm.toolCallId }
 	const pageItem = parsePageItemRoute(url)
 	if (pageItem) return { kind: 'pageitem', ref: pageItem }
-	const route = stripBase(url)
+	const route = barePath(url)
 	if (isPageItemListPath(route)) return { kind: 'pagelist', path: route }
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) {

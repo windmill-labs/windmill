@@ -15,7 +15,6 @@
 		type FlowNote,
 		type FlowValue
 	} from '$lib/gen'
-	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import WorkflowTimeline from './WorkflowTimeline.svelte'
 	import DisplayResult from './DisplayResult.svelte'
@@ -1937,7 +1936,7 @@
 							</Button>
 						{:else}
 							<Button
-								href="{base}/api{logsApiPath}"
+								href="/api{logsApiPath}"
 								download={logsName}
 								color="light"
 								size="xs"
@@ -2199,7 +2198,7 @@
 																				class="text-right text-xs"
 																				rel="noreferrer"
 																				target="_blank"
-																				href="{base}/run/{node.job_id ??
+																				href="/run/{node.job_id ??
 																					''}?workspace={job?.workspace_id}"
 																			>
 																				{truncateRev(node.job_id ?? '', 10)}
