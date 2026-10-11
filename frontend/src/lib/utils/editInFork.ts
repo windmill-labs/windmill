@@ -1,4 +1,3 @@
-import { base } from '$lib/base'
 import { get } from 'svelte/store'
 import {
 	userStore,
@@ -75,13 +74,13 @@ export function canCreateFork(user: UserExt | undefined): boolean {
 function editPathFor(itemType: ItemType, itemPath: string): string {
 	switch (itemType) {
 		case 'script':
-			return `${base}/scripts/edit/${itemPath}`
+			return `/scripts/edit/${itemPath}`
 		case 'flow':
-			return `${base}/flows/edit/${itemPath}`
+			return `/flows/edit/${itemPath}`
 		case 'app':
-			return `${base}/apps/edit/${itemPath}`
+			return `/apps/edit/${itemPath}`
 		case 'raw_app':
-			return `${base}/apps_raw/edit/${itemPath}`
+			return `/apps_raw/edit/${itemPath}`
 	}
 }
 
@@ -101,7 +100,7 @@ export function buildForkEditUrl(
  * workspace the page loads in, so a caller acting on another one names it. */
 export function forkWorkspaceUrl(itemType: ItemType, itemPath: string, workspace?: string): string {
 	const from = workspace ? `&workspace=${encodeURIComponent(workspace)}` : ''
-	return `${base}/user/fork_workspace?rd=${encodeURIComponent(editPathFor(itemType, itemPath))}${from}`
+	return `/user/fork_workspace?rd=${encodeURIComponent(editPathFor(itemType, itemPath))}${from}`
 }
 
 /** The item's editor in the dev workspace — the target `buildForkEditUrl` produces when a dev exists. */

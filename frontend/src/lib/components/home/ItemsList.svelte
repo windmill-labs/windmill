@@ -19,7 +19,7 @@
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { disableHubStore, userStore, workspaceStore } from '$lib/stores'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
@@ -50,7 +50,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
-	import { canWrite, getLocalSetting, isOwner, storeLocalSetting } from '$lib/utils'
+	import { getLocalSetting, isOwner, storeLocalSetting } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
@@ -64,7 +64,7 @@
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
 
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const editRights = useEditRights()
 
 	interface Props {
 		subtab?: 'flow' | 'script' | 'app' | 'agent'
@@ -357,11 +357,12 @@
 		const base = {
 			...it,
 			canWrite:
-				canWrite(it.path, (it.extra_perms ?? {}) as any, $userStore) &&
-				(it.type === 'script' || it.workspace_id == $workspaceStore) &&
-				// The builder right covers flows only; a script or an app is still off limits, so
-				// the row must not offer edit or delete for those.
-				(!$userStore?.operator || (it.type === 'flow' && $operatorBuilderFlows))
+				editRights.canEditItem(
+					it.type === 'app' && it.raw_app ? 'raw_app' : it.type,
+					it.path,
+					(it.extra_perms ?? {}) as any
+				) &&
+				(it.type === 'script' || it.workspace_id == $workspaceStore)
 		}
 		// combinedItems reads a script's time from `created_at`; the endpoint's
 		// unified `edited_at` holds exactly that for scripts.
@@ -434,7 +435,7 @@
 		agents = sorted.map((r, i) => ({
 			...r,
 			summary: r.description || undefined,
-			canWrite: canWrite(r.path, (r.extra_perms ?? {}) as any, $userStore) && !$userStore?.operator,
+			canWrite: editRights.canEditItem('agent', r.path, (r.extra_perms ?? {}) as any),
 			ord: AGENT_ORD_BASE + i
 		}))
 	}
@@ -1211,7 +1212,10 @@
 	 * whose direct-deploy protection cleared `showEditButtons` — must not be shown them.
 	 * Reading archived items is not a write, so it is not gated on this.
 	 */
-	let canCreateHere = $derived((!$userStore?.operator || $operatorBuilderFlows) && showEditButtons)
+	// Every author can create a flow or a full-code app, except a builder granted only the other.
+	let canCreateHere = $derived(
+		(editRights.roleCanAuthor('flow') || editRights.roleCanAuthor('raw_app')) && showEditButtons
+	)
 
 	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
 	// false until the first load resolves: a skeleton already means "loading", and the
@@ -2042,7 +2046,7 @@
 				     script and flow hub pickers observe. Nor for a builder: a hub project brings
 				     scripts and apps along. -->
 				<CreateActionsMenu
-					onImportHubProject={$disableHubStore || $operatorBuilderFlows
+					onImportHubProject={$disableHubStore || !editRights.roleCanAuthor('script')
 						? undefined
 						: () => (hubPickerOpen = true)}
 				/>

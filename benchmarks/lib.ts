@@ -2,7 +2,7 @@ import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 
-export const VERSION = "v1.828.0";
+export const VERSION = "v1.830.0";
 
 export async function login(email: string, password: string): Promise<string> {
   return await windmill.UserService.login({
@@ -87,10 +87,6 @@ export async function createBenchScript(
     schemaProperties = {
       uuid: { default: null, description: "", type: "string" },
     };
-  } else if (scriptPattern === "deno") {
-    scriptContent =
-      'export function main(){ return Deno.env.get("WM_JOB_ID"); }';
-    language = "deno";
   } else if (scriptPattern === "nativets") {
     scriptContent =
       '//native\nexport async function main(){ return (await fetch(BASE_URL + "/api/version")).text() }';
@@ -256,10 +252,10 @@ export const getFlowPayload = (flowPattern: string): api.FlowPreview => {
             id: "a",
             value: {
               input_transforms: {},
-              language: api.RawScript.language.DENO,
+              language: "bun" as api.RawScript.language,
               type: "rawscript",
               content:
-                'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
+                'export function main(){ return Bun.env["WM_FLOW_JOB_ID"]; }',
             },
           },
           {
@@ -277,7 +273,7 @@ export const getFlowPayload = (flowPattern: string): api.FlowPreview => {
                         expr: "results.a",
                       },
                     },
-                    language: api.RawScript.language.DENO,
+                    language: "bun" as api.RawScript.language,
                     type: "rawscript",
                     content: "export function main(x: string){ return x; }",
                   },
@@ -298,10 +294,10 @@ export const getFlowPayload = (flowPattern: string): api.FlowPreview => {
             id: "a",
             value: {
               input_transforms: {},
-              language: api.RawScript.language.DENO,
+              language: "bun" as api.RawScript.language,
               type: "rawscript",
               content:
-                'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
+                'export function main(){ return Bun.env["WM_FLOW_JOB_ID"]; }',
             },
           },
           {
@@ -321,7 +317,7 @@ export const getFlowPayload = (flowPattern: string): api.FlowPreview => {
                             expr: "results.a",
                           },
                         },
-                        language: api.RawScript.language.DENO,
+                        language: "bun" as api.RawScript.language,
                         type: "rawscript",
                         content: "export function main(x: string){ return x; }",
                       },
@@ -339,7 +335,7 @@ export const getFlowPayload = (flowPattern: string): api.FlowPreview => {
                             expr: "results.a",
                           },
                         },
-                        language: api.RawScript.language.DENO,
+                        language: "bun" as api.RawScript.language,
                         type: "rawscript",
                         content: "export function main(x: string){ return x; }",
                       },
@@ -490,10 +486,10 @@ export const getFlowPayload = (flowPattern: string): api.FlowPreview => {
             id: "a",
             value: {
               input_transforms: {},
-              language: api.RawScript.language.DENO,
+              language: "bun" as api.RawScript.language,
               type: "rawscript",
               content:
-                'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
+                'export function main(){ return Bun.env["WM_FLOW_JOB_ID"]; }',
             },
           },
           {

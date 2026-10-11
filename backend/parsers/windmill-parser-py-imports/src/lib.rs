@@ -351,13 +351,16 @@ async fn parse_python_imports_inner(
     temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<HashMap<String, NImportResolved>> {
     tracing::debug!("Parsing python imports for path: {}", path);
-    let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
+    let PythonAnnotations { py310, py311, py312, py313, py314, py315, .. } =
+        PythonAnnotations::parse(&code);
     tracing::debug!(
-        "Found python annotations - py310: {}, py311: {}, py312: {}, py313: {}",
+        "Found python annotations - py310: {}, py311: {}, py312: {}, py313: {}, py314: {}, py315: {}",
         py310,
         py311,
         py312,
-        py313
+        py313,
+        py314,
+        py315
     );
 
     let mut push_version_specifiers = |perform, unparsed: String| -> error::Result<()> {
@@ -373,6 +376,8 @@ async fn parse_python_imports_inner(
     push_version_specifiers(py311, "==3.11.*".to_owned())?;
     push_version_specifiers(py312, "==3.12.*".to_owned())?;
     push_version_specifiers(py313, "==3.13.*".to_owned())?;
+    push_version_specifiers(py314, "==3.14.*".to_owned())?;
+    push_version_specifiers(py315, "==3.15.*".to_owned())?;
 
     for x in code.lines() {
         if x.starts_with("# py:") || x.starts_with("#py:") {

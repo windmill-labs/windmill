@@ -215,6 +215,11 @@ lazy_static! {
                     label: "Run flows".to_string(),
                     requires_resource_path: true,
                 },
+                ScopeOption {
+                    value: "jobs:run:dependencies".to_string(),
+                    label: "Generate dependency locks".to_string(),
+                    requires_resource_path: true,
+                },
             ],
         }];
 

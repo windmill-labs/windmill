@@ -8,7 +8,6 @@
 	 * the browser out of the session.
 	 */
 	import { setContext, untrack } from 'svelte'
-	import { base } from '$lib/base'
 	import ScriptDetail from '$lib/components/details/ScriptDetail.svelte'
 	import FlowDetail from '$lib/components/details/FlowDetail.svelte'
 	import InWorkspaceAppViewer from '$lib/components/apps/editor/InWorkspaceAppViewer.svelte'
@@ -20,8 +19,9 @@
 		parseHistoricalScriptEdit,
 		parsePreviewItemRoute,
 		previewLocationLabel,
-		stripBase
+		barePath
 	} from './previewRouter'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 
 	let {
 		runtime,
@@ -54,6 +54,9 @@
 		'aiChatManager',
 		untrack(() => runtime.manager)
 	)
+
+	const permissions = useSessionPermissions(() => workspaceId)
+	const canEdit = $derived(permissions.canOpenEditor(kind))
 
 	// This reads the deployed version over the API rather than from the editor cell the
 	// chat mutates, so it is the one preview kind that does not self-sync (the invariant
@@ -109,7 +112,7 @@
 	// opens as its own tab, another side or version of an item re-points this tab, and
 	// any other page opens as a page tab. Nothing reaches the top-level router.
 	function onNavigate(url: string): void {
-		const clean = stripBase(url)
+		const clean = barePath(url)
 		const query = new URL(url, 'http://x').searchParams
 		const run = clean.match(/^\/run\/([^/?#]+)$/)
 		if (run) {
@@ -151,7 +154,7 @@
 		}
 		runtime.previewTabs.open({
 			type: 'page',
-			href: `${base}${clean}${query.size ? `?${query}` : ''}`,
+			href: `${clean}${query.size ? `?${query}` : ''}`,
 			label: previewLocationLabel(clean)
 		})
 	}
@@ -197,11 +200,14 @@
 			<div class="text-sm text-primary">Not deployed yet</div>
 			<div class="text-xs text-tertiary max-w-sm">
 				Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
-				version to view. Deploy it from the editor to see it here.
+				version to view.{#if canEdit}
+					Deploy it from the editor to see it here.{/if}
 			</div>
-			<Button unifiedSize="sm" variant="default" startIcon={{ icon: Pen }} on:click={toEditSide}>
-				Back to editor
-			</Button>
+			{#if canEdit}
+				<Button unifiedSize="sm" variant="default" startIcon={{ icon: Pen }} on:click={toEditSide}>
+					Back to editor
+				</Button>
+			{/if}
 		</div>
 	{:else if kind === 'script'}
 		<ScriptDetail

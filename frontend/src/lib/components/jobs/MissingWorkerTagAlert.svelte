@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$app/paths'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { WorkerService } from '$lib/gen'
 	import { resource } from 'runed'
@@ -43,7 +42,7 @@
 			{subject} run as Windmill jobs tagged <b>{tag}</b>, and no worker is currently listening to
 			that tag, so they stay queued until one is. If no worker group is meant to serve it, add
 			<b>{tag}</b>
-			to a group's worker tags on the <a href="{base}/workers">workers page</a>.
+			to a group's worker tags on the <a href="/workers">workers page</a>.
 		</Alert>
 	</div>
 {/if}

@@ -10,7 +10,7 @@
 	import type { TriggerMode } from '$lib/gen'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
-	import { stripBase, TRIGGER_PAGES, SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
+	import { barePath, TRIGGER_PAGES, SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
 	import { pageDrawerSessionSource } from '../sessions/pageDrawerSession'
 	import { page } from '$app/state'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -74,7 +74,7 @@
 	// when it renders in a script/flow editor's Triggers panel, which has the
 	// editor's own button. A trigger being created has no path to deep-link at.
 	const triggerPagePath = $derived.by(() => {
-		const route = stripBase(page.url.pathname)
+		const route = barePath(page.url.pathname)
 		if (route === SCHEDULES_PATH) return route
 		return Object.values(TRIGGER_PAGES).some((p) => p.path === route) ? route : undefined
 	})

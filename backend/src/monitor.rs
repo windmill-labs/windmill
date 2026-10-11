@@ -4136,6 +4136,20 @@ pub async fn monitor_db(
                     }
                     _ => {}
                 }
+                match windmill_common::runnable_job_stats::cleanup_old_runnable_job_stats(
+                    db,
+                    windmill_common::runnable_job_stats::RETENTION_DAYS,
+                )
+                .await
+                {
+                    Ok(count) if count > 0 => {
+                        tracing::info!("Deleted {} old runnable job stats rows", count);
+                    }
+                    Err(e) => {
+                        tracing::error!("Error cleaning up runnable job stats: {:?}", e);
+                    }
+                    _ => {}
+                }
             }
         }
     };

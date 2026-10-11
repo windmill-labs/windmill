@@ -5,7 +5,6 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { sendUserToast } from '$lib/toast'
 
-	import { base } from '$lib/base'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { copilotInfo } from '$lib/aiStore'
 	import { untrack } from 'svelte'
@@ -132,7 +131,7 @@
 					<div class="block text-primary">
 						<p class="text-sm"
 							>Enable Windmill AI in the <a
-								href="{base}/workspace_settings?tab=ai"
+								href="/workspace_settings?tab=ai"
 								target="_blank"
 								class="inline-flex flex-row items-center gap-1"
 								>workspace settings <ExternalLink size={16} /></a

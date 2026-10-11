@@ -15,7 +15,6 @@
 	import OtherUsersDraftsModal, { type OtherDraftUser } from './OtherUsersDraftsModal.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$app/paths'
 	import { goto } from '$app/navigation'
 	import StaleDraftModal from './StaleDraftModal.svelte'
 	import ConfirmationModal from './ConfirmationModal.svelte'
@@ -163,7 +162,7 @@
 			}
 			const target = destination ?? newPath
 			sendUserToast(`This item was moved to ${target}. You are now editing it there.`)
-			await goto(`${base}/${seg}/${target}`)
+			await goto(`/${seg}/${target}`)
 		})
 	})
 </script>
