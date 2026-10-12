@@ -69,6 +69,8 @@
 	} from 'lucide-svelte'
 	import { hubPaths } from '$lib/hub'
 	import { isCloudHosted } from '$lib/cloud'
+	import { untrack } from 'svelte'
+	import { syncSlackBotArg } from './handlerSlackArg'
 	import SmtpConfigurationStatus from './common/smtp/SmtpConfigurationStatus.svelte'
 	import { SettingService } from '$lib/gen'
 	import { isSmtpSettingsValid } from './instanceSettings/SmtpSettings.svelte'
@@ -316,12 +318,13 @@
 		loadSmtpConfiguration()
 	})
 
+	let builtinArgs: Record<string, any> | undefined
 	$effect(() => {
-		if (handlerSelected === 'slack' && isSlackHandler(handlerPath)) {
-			handlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
-		} else {
-			handlerExtraArgs['slack'] = undefined
-		}
+		const isSlackBuiltin = handlerSelected === 'slack' && isSlackHandler(handlerPath)
+		const args = handlerExtraArgs
+		// A replaced args object (Discard, reload) holds the stored config, not what the built-in set.
+		untrack(() => syncSlackBotArg(args, isSlackBuiltin, args === builtinArgs))
+		builtinArgs = isSlackBuiltin ? args : undefined
 	})
 
 	let lastHandlerSelected: ErrorHandler | undefined = $state(undefined)
