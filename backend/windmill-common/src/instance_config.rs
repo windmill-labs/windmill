@@ -1522,6 +1522,10 @@ pub async fn apply_settings_diff(
 }
 
 /// [`apply_settings_diff`], reporting each write to `observer`.
+///
+/// AUTHORIZATION: writes instance-wide settings, credentials included, and checks
+/// nothing; `observer` records and authorizes nothing. Callers MUST have established
+/// superadmin or equivalent system authority.
 pub async fn apply_settings_diff_observed(
     db: &sqlx::Pool<sqlx::Postgres>,
     diff: &SettingsDiff,
@@ -1580,6 +1584,10 @@ pub async fn apply_configs_diff(
 }
 
 /// [`apply_configs_diff`], reporting each write to `observer`.
+///
+/// AUTHORIZATION: writes worker group configs, whose init scripts run on the workers, and
+/// checks nothing; `observer` records and authorizes nothing. Callers MUST have
+/// established superadmin or equivalent system authority.
 pub async fn apply_configs_diff_observed(
     db: &sqlx::Pool<sqlx::Postgres>,
     diff: &ConfigsDiff,

@@ -3304,9 +3304,16 @@ async fn resolve_license_key_value(conn: &Connection, quiet: bool) -> anyhow::Re
 
 /// [`reload_license_key`] for a process that may legitimately run before any key exists
 /// (a config sync is what installs it), where the absent key is not an error to report.
-pub async fn load_license_key_if_set(conn: &Connection) {
+/// `loaded` is the key the previous call saw, so polling does not re-validate, and
+/// re-report, an unchanged one.
+pub async fn load_license_key_if_changed(conn: &Connection, loaded: &mut String) {
     match resolve_license_key_value(conn, true).await {
-        Ok(value) if !value.is_empty() => apply_license_key(value, conn).await,
+        Ok(value) if value != *loaded => {
+            if !value.is_empty() {
+                apply_license_key(value.clone(), conn).await;
+            }
+            *loaded = value;
+        }
         Ok(_) => {}
         Err(e) => tracing::error!("{e:#}"),
     }
