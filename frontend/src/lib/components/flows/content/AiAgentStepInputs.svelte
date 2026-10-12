@@ -706,8 +706,11 @@
 												<p class="mt-1 text-2xs text-hint">
 													{#if spec.key === 'reasoning_effort' && effortCapability?.known && !effortCapability.supported}
 														{effortModel} does not take a reasoning effort.
+													{:else if spec.key === 'reasoning_effort'}
+														Saved on the agent: {savedProvider.reasoning_effort || 'none'}. Left empty, the
+														model runs at its default.
 													{:else}
-														Saved on the agent: {savedProvider[spec.key] || 'none'}
+														Saved on the agent: {savedProvider.model || 'none'}
 													{/if}
 												</p>
 											{/if}

@@ -220,25 +220,28 @@ describe('providerWithOverrides', () => {
 		})
 	})
 
-	it('keeps an expression, falling back to the saved value when it is empty', () => {
-		const folded = providerWithOverrides(saved, {
-			reasoning_effort: { type: 'javascript', expr: 'flow_input.effort' }
-		}) as { type: 'javascript'; expr: string }
-		expect(folded.type).toBe('javascript')
-		const run = (effort: unknown) => new Function('flow_input', `return ${folded.expr}`)({ effort })
-		expect(run('low')).toEqual({ ...saved, reasoning_effort: 'low' })
-		expect(run('')).toEqual(saved)
+	it('keeps an expression, resolving as the linked step did', () => {
+		const run = (overrides: Record<string, string>, flow_input: Record<string, unknown>) => {
+			const folded = providerWithOverrides(
+				saved,
+				Object.fromEntries(
+					Object.entries(overrides).map(([key, expr]) => [key, { type: 'javascript', expr }])
+				)
+			) as { type: 'javascript'; expr: string }
+			expect(folded.type).toBe('javascript')
+			return JSON.parse(
+				JSON.stringify(new Function('flow_input', `return ${folded.expr}`)(flow_input))
+			)
+		}
+		const other = { kind: 'openai', resource: '$res:u/a/openai', model: 'gpt-5-mini' }
+		const effort = { reasoning_effort: 'flow_input.effort' }
+		const model = { model: 'flow_input.model' }
 
-		const byModel = providerWithOverrides(saved, {
-			model: { type: 'javascript', expr: 'flow_input.model' }
-		}) as { type: 'javascript'; expr: string }
-		const runModel = (model: unknown) =>
-			JSON.parse(JSON.stringify(new Function('flow_input', `return ${byModel.expr}`)({ model })))
-		expect(runModel('')).toEqual(saved)
-		expect(runModel('gpt-5-mini')).toEqual({
-			kind: 'openai',
-			resource: '$res:u/a/openai',
-			model: 'gpt-5-mini'
-		})
+		expect(run(effort, { effort: 'low' })).toEqual({ ...saved, reasoning_effort: 'low' })
+		// An effort the step sets to nothing is no effort, not the saved one.
+		expect(run(effort, { effort: '' })).toEqual({ ...other, model: 'gpt-5' })
+		expect(run(model, { model: '' })).toEqual(saved)
+		expect(run(model, { model: 'gpt-5-mini' })).toEqual(other)
+		expect(run({ ...model, ...effort }, { model: 'gpt-5-mini', effort: '' })).toEqual(other)
 	})
 })

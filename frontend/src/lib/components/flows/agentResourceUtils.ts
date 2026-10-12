@@ -189,52 +189,42 @@ export function linkedAgentStepSchema(schema: any): any {
 
 /**
  * The `provider` of a step unlinked from its agent: the saved one with the step's overrides folded
- * in, since an unlinked step sets model and effort nowhere else. Mirrors the worker: an empty
- * override keeps the saved value, and another model drops the saved effort.
+ * in, since an unlinked step sets model and effort nowhere else. Follows the worker's
+ * `override_provider_model`, so the step runs on what it ran on while linked.
  */
 export function providerWithOverrides(
 	provider: any,
 	overrides: Partial<Record<AgentOverrideKey, InputTransform>> | undefined
 ): InputTransform | undefined {
 	if (!provider || typeof provider !== 'object') return undefined
-	const set = (key: AgentOverrideKey): any => {
+	const authored = (key: AgentOverrideKey): any => {
 		const t = overrides?.[key] as any
-		if (t?.type === 'javascript' && t.expr) return t
-		if (t?.type === 'static' && typeof t.value === 'string' && t.value.trim()) return t
-		return undefined
+		return t?.type === 'static' || (t?.type === 'javascript' && t.expr) ? t : undefined
 	}
-	const model = set('model')
-	const effort = set('reasoning_effort')
-	const folded = { ...provider }
-	if (model?.type === 'static' && model.value.trim() !== provider.model && !effort) {
-		delete folded.reasoning_effort
-	}
+	const text = (t: any): string => (typeof t.value === 'string' ? t.value.trim() : '')
+	const model = authored('model')
+	const effort = authored('reasoning_effort')
+	const { model: savedModel, reasoning_effort: savedEffort, ...rest } = provider
+
 	if (model?.type !== 'javascript' && effort?.type !== 'javascript') {
-		if (model) folded.model = model.value.trim()
-		if (effort) folded.reasoning_effort = effort.value.trim()
-		return { type: 'static', value: folded }
-	}
-	const field = (key: AgentOverrideKey, t: any) => {
-		if (!t && folded[key] === undefined) return []
-		// The saved effort holds only while the model expression resolves to the saved model.
-		if (!t && key === 'reasoning_effort' && model?.type === 'javascript') {
-			const savedModel = JSON.stringify(folded.model)
-			return [
-				`${key}: ((${model.expr}) || ${savedModel}) === ${savedModel} ? ${JSON.stringify(folded[key])} : undefined`
-			]
+		const runModel = (model && text(model)) || savedModel
+		const runEffort = effort ? text(effort) : runModel === savedModel ? savedEffort : undefined
+		return {
+			type: 'static',
+			value: { ...rest, model: runModel, ...(runEffort ? { reasoning_effort: runEffort } : {}) }
 		}
-		if (!t) return [`${key}: ${JSON.stringify(folded[key])}`]
-		if (t.type === 'static') return [`${key}: ${JSON.stringify(t.value.trim())}`]
-		const saved = folded[key] === undefined ? 'undefined' : JSON.stringify(folded[key])
-		return [`${key}: (${t.expr}) || ${saved}`]
 	}
-	const { model: _m, reasoning_effort: _e, ...rest } = folded
+	const literal = (value: unknown) => (value === undefined ? 'undefined' : JSON.stringify(value))
+	const source = (t: any) => (t.type === 'javascript' ? `(${t.expr})` : literal(text(t)))
+	// One object literal, the shape the flow's expression evaluator and the chat composer both read.
+	const runModel = model ? `(${source(model)} || ${literal(savedModel)})` : literal(savedModel)
+	const runEffort = effort
+		? `${source(effort)} || undefined`
+		: `${runModel} === ${literal(savedModel)} ? ${literal(savedEffort)} : undefined`
 	const fields = [
-		...Object.entries(rest).map(
-			([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`
-		),
-		...field('model', model),
-		...field('reasoning_effort', effort)
+		...Object.entries(rest).map(([key, value]) => `${JSON.stringify(key)}: ${literal(value)}`),
+		`model: ${runModel}`,
+		`reasoning_effort: ${runEffort}`
 	]
 	return { type: 'javascript', expr: `({ ${fields.join(', ')} })` }
 }

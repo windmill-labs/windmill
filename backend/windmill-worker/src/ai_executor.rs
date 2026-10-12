@@ -261,8 +261,10 @@ fn keep_authored_memory_id(
 }
 
 /// A step's own `model` and `reasoning_effort` inputs replace the provider's, which is how a step
-/// linked to a saved agent picks them per run. An empty value keeps the provider's. A reasoning
-/// token is per model, so a different model without an effort of its own runs at its default.
+/// linked to a saved agent picks them per run. An empty model keeps the provider's, since a run
+/// needs one; an empty effort is no effort, which is how a model that reasons only on request is
+/// turned off. A reasoning token is per model, so a different model without an effort of its own
+/// runs at its default.
 /// Only an input the step authored counts: the arguments of an agent run as a tool also carry
 /// whatever the calling model sent, which must not choose the model it runs on.
 fn override_provider_model(
@@ -270,7 +272,7 @@ fn override_provider_model(
     local_args: &HashMap<String, Box<RawValue>>,
     step_input_transforms: &HashMap<String, InputTransform>,
 ) {
-    let given = |key: &str| {
+    let authored = |key: &str| {
         step_input_transforms
             .get(key)
             .filter(|t| {
@@ -279,19 +281,22 @@ fn override_provider_model(
                     InputTransform::Javascript { .. } | InputTransform::Static { .. }
                 )
             })
-            .and_then(|_| local_args.get(key))
-            .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+            .map(|_| {
+                local_args
+                    .get(key)
+                    .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default()
+            })
     };
-    if let Some(model) = given("model") {
+    if let Some(model) = authored("model").filter(|m| !m.is_empty()) {
         if model != provider.model {
             provider.model = model;
             provider.reasoning_effort = None;
         }
     }
-    if let Some(effort) = given("reasoning_effort") {
-        provider.reasoning_effort = Some(effort);
+    if let Some(effort) = authored("reasoning_effort") {
+        provider.reasoning_effort = Some(effort).filter(|e| !e.is_empty());
     }
 }
 
@@ -3012,8 +3017,13 @@ mod tests {
         assert_eq!(provider.model, "saved-model");
 
         assert_eq!(run(json!({})), saved);
-        assert_eq!(run(json!({ "model": "", "reasoning_effort": null })), saved);
+        assert_eq!(run(json!({ "model": "" })), saved);
         assert_eq!(run(json!({ "model": "saved-model" })), saved);
+        // An effort the step sets to nothing is no effort, not the saved one.
+        assert_eq!(
+            run(json!({ "reasoning_effort": null })),
+            ("saved-model".to_string(), None)
+        );
         assert_eq!(
             run(json!({ "reasoning_effort": "low" })),
             ("saved-model".to_string(), Some("low".to_string()))

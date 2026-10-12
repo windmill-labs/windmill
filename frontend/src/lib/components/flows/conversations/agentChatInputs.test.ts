@@ -528,9 +528,18 @@ describe('a step linked to a saved agent', () => {
 		expect(agentModelWiringInputs(wiring).sort()).toEqual(['effort', 'model'])
 	})
 
-	it('shows what the agent saved for an input left empty, the effort only on its own model', () => {
+	it('shows the saved model for a model input left empty, and no effort for an empty effort', () => {
 		const wiring = resolveAgentModelWiring([wired], saved)!
 		expect(wiredFieldValue(wiring, {}, 'model')).toBe('claude-sonnet-4-5')
+		// Empty is how a model that reasons only on request is turned off.
+		expect(wiredFieldValue(wiring, { effort: '' }, 'reasoning_effort')).toBe('')
+	})
+
+	it('shows the saved effort where the step sets none, only on the saved model', () => {
+		const wiring = resolveAgentModelWiring(
+			[linked({ model: { type: 'javascript', expr: 'flow_input.model' } })],
+			saved
+		)!
 		expect(wiredFieldValue(wiring, {}, 'reasoning_effort')).toBe('high')
 		expect(
 			wiredFieldValue(wiring, { model: 'claude-haiku-4-5' }, 'reasoning_effort')

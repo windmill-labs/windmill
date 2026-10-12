@@ -288,7 +288,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		group: 'overrides',
 		label: 'Reasoning effort',
 		tooltip:
-			'Runs this step at another reasoning effort than the one saved on the agent. Set it to an expression to choose the effort per run: an empty value keeps the saved effort. Overriding the model without it runs that model at its default effort.',
+			'Runs this step at another reasoning effort than the one saved on the agent. Set it to an expression to choose the effort per run. An empty value sends no effort, so the model runs at its default. Overriding the model without it does the same.',
 		implicit: '',
 		defaultHint: 'Default: the effort saved on the agent'
 	}

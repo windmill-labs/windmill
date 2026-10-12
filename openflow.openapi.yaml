@@ -1197,9 +1197,9 @@ components:
               description: |
                 String. Only on a step linked to a saved agent (see `agent`): replaces the reasoning
                 effort saved on the agent for this step's runs, as a provider-native token (e.g.
-                'low', 'high', 'none'). An empty value keeps the saved effort, unless `model`
-                replaces the saved model, which then runs at its default effort. A step that is
-                not linked sets both inside `provider`.
+                'low', 'high', 'none'). An empty value sends no effort, so the model runs at its
+                default. Leave the input out to keep the saved effort, which holds only while the
+                step runs the saved model. A step that is not linked sets both inside `provider`.
           # Only the flow-local inputs are always present: a step linked to an `ai_agent` resource
           # (see `agent`) keeps just those and takes provider/output_type from the resource. Even
           # `user_message` may be absent, when memory is off and `previous_messages` is the prompt.

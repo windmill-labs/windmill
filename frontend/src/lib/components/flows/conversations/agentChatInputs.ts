@@ -86,7 +86,8 @@ export type AgentModelWiring = {
 	someAgentCannotRun?: boolean
 	/**
 	 * What a step linked to a saved agent runs on where it overrides nothing: an empty model
-	 * input keeps the saved model, and the saved effort applies only on that model.
+	 * input keeps the saved model, and the saved effort applies only on that model, to a step
+	 * that sets no effort of its own.
 	 */
 	saved?: { model?: string; reasoning_effort?: string }
 }
@@ -138,8 +139,8 @@ function parseLinkedStep(
 }
 
 /**
- * The value a provider field runs on, given what the composer holds. Where the wiring is a
- * linked agent's, an empty value is the agent's saved one.
+ * The value a provider field runs on, given what the composer holds, as the worker's
+ * `override_provider_model` resolves a linked agent's.
  */
 export function wiredFieldValue(
 	wiring: AgentModelWiring,
@@ -151,7 +152,8 @@ export function wiredFieldValue(
 	const own = name ? values[name] : wiring.fixed[field]
 	if (!wiring.saved || (own !== undefined && own !== '')) return own
 	if (field === 'model') return wiring.saved.model
-	if (field === 'reasoning_effort') {
+	// An effort the step overrides is the run's whatever it holds: empty there is no effort.
+	if (field === 'reasoning_effort' && !name) {
 		return wiredFieldValue(wiring, values, 'model') === wiring.saved.model
 			? wiring.saved.reasoning_effort
 			: own
