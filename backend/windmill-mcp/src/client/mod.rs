@@ -66,7 +66,11 @@ impl McpClient {
                 )
             })?;
 
-        let parsed_url = reqwest::Url::parse(&resource.url).context("Invalid MCP server URL")?;
+        let mut parsed_url =
+            reqwest::Url::parse(&resource.url).context("Invalid MCP server URL")?;
+        // reqwest moves userinfo to a header, so its errors print the URL without it.
+        let _ = parsed_url.set_username("");
+        let _ = parsed_url.set_password(None);
         let server_url = ServerUrl {
             full: parsed_url.to_string(),
             origin: parsed_url.origin().ascii_serialization(),
@@ -90,7 +94,8 @@ impl McpClient {
                         headers.insert(name, value);
                     }
                     _ => {
-                        tracing::warn!("Invalid header: {}={}", key, value);
+                        // The value may be a resolved secret: name the header only.
+                        tracing::warn!("Invalid header: {}", key);
                     }
                 }
             }
