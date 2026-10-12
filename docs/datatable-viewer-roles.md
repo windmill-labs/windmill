@@ -27,7 +27,7 @@ A policy names its role as text, so renaming the role breaks it.
 | Where | What |
 |---|---|
 | `windmill-common/src/workspaces.rs` | `DATATABLE_VIEWER_ROLE`, `parse_datatable_ref`, `DatatableAccess` |
-| `windmill-common/src/datatable_roles_ee.rs` | `resolve_viewer_login`, `ensure_role_set_login`, `retire_role_set_logins_of` |
+| `windmill-common/src/datatable_roles_ee.rs` | `resolve_viewer_login`, `ensure_role_set_login`, `retire_role_set_logins_of`, `sweep_unused_role_set_logins` |
 | `windmill-api-jobs/src/execution.rs` | `run_end_user_email`, where a run's viewer is recorded |
 
 ## What holds it together
@@ -52,6 +52,12 @@ A policy names its role as text, so renaming the role breaks it.
 - **A `datatable_role_set` row always names a login that can authenticate.** The row is written
   after the login exists and removed, in its own commit, before the login is dropped or made
   `NOLOGIN`. A login without a row is taken back with a new password on next use.
+- **Set logins are bounded by use, not by the number of role combinations.** One exists only for
+  a set some viewer actually connected with, so there are at most as many as (viewer, data table)
+  pairs. `last_used_at` is recorded at most once a day, and `sweep_unused_role_set_logins`, run
+  from the monitor loop, drops those unused for 30 days; a dropped one is made again on demand.
+  The sweep goes by this instance's rows, never by the cluster's `wm_set_*` roles: a cluster can
+  serve several Windmill instances.
 - **Disabling or dropping a role retires every set login holding it.** `NOLOGIN` on a role does
   not reach a login that is a member of it.
 - **It travels in the reference, not in an annotation.** A worker that predates `?as=` refuses the
@@ -66,6 +72,3 @@ table, the same trust as an app in viewer execution mode or a script someone els
 run. Whoever can deploy a publisher-mode app, or a script that others run, can therefore read
 through the non-`admin` roles of the people who use it; nothing on the data table opts in to
 that.
-
-A set login is dropped only with one of its roles. One that no viewer resolves to any more stays
-on the cluster, holding only roles that still exist.

@@ -1947,6 +1947,28 @@ async fn connecting_as_the_viewer_takes_the_roles_that_name_them_and_no_other(
         // No recorded viewer must not fall back to the job's owner.
         assert!(as_viewer(None).await.is_err());
 
+        // A set login nobody connects with any more is dropped, a recent one is kept, and a
+        // dropped one is made again for the next viewer who needs it.
+        let exists = || async {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)",
+            )
+            .bind(&login)
+            .fetch_one(&db)
+            .await
+        };
+        windmill_common::datatable_roles::sweep_unused_role_set_logins(&db).await?;
+        assert!(exists().await?, "a set login in use was swept");
+        sqlx::query("UPDATE datatable_role_set SET last_used_at = now() - interval '31 days'")
+            .execute(&db)
+            .await?;
+        windmill_common::datatable_roles::sweep_unused_role_set_logins(&db).await?;
+        assert!(!exists().await?, "an unused set login was kept");
+        assert_eq!(
+            as_viewer(Some("test2@windmill.dev")).await?["user"],
+            login.as_str()
+        );
+
         // A disabled role must not stay reachable through a login that is a member of it.
         authed(
             client().post(format!("{roles_url}/{}", ids[1])),

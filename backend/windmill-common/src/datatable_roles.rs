@@ -419,6 +419,13 @@ pub async fn drop_datatable_role(
     crate::datatable_roles_oss::drop_datatable_role(db, tx, cluster, name).await
 }
 
+/// Drop the logins made for a connection as several roles at once that nobody has connected with
+/// for a month, on every cluster. They are made again on demand, so this only bounds how many
+/// exist. Safe to call from any server at any time: it serializes on the role catalog lock.
+pub async fn sweep_unused_role_set_logins(db: &DB) -> Result<()> {
+    crate::datatable_roles_oss::sweep_unused_role_set_logins(db).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
