@@ -10,6 +10,7 @@ import { createBundle, detectFrameworks } from "./bundle.ts";
 import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
 import { inferSchema } from "../../utils/metadata.ts";
+import { statedIsolation } from "./app.ts";
 import {
   getFolderSuffix,
   hasFolderSuffix,
@@ -41,6 +42,12 @@ function validateRawAppYaml(appData: any): {
     errors.push("Missing required field: 'summary'");
   } else if (typeof appData.summary !== "string") {
     errors.push("Field 'summary' must be a string");
+  }
+
+  try {
+    statedIsolation(appData, true);
+  } catch (error: any) {
+    errors.push(error.message);
   }
 
   // Note: 'runnables' is no longer required in raw_app.yaml

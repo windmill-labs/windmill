@@ -5625,6 +5625,27 @@ Name the parameters by adding comments before the statement:
 SELECT * FROM users WHERE name = ? AND age > ?;
 \`\`\`
 
+## Array parameters
+
+Declare a list with a \`[]\` suffix on the element type (\`(varchar[])\`,
+\`(int[])\`), or \`(array)\` for an untyped one. Snowflake cannot bind an array
+directly, so Windmill binds the list as JSON text: wrap the placeholder with
+\`PARSE_JSON(?)\`, and cast to \`ARRAY\` where a function expects one.
+
+\`\`\`sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+WHERE ARRAY_CONTAINS(o.owner_group::VARIANT, PARSE_JSON(?)::ARRAY);
+\`\`\`
+
+Or join on the elements with \`FLATTEN\`:
+
+\`\`\`sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+JOIN TABLE(FLATTEN(input => PARSE_JSON(?))) g ON g.value::STRING = o.owner_group;
+\`\`\`
+
 ## Receiving an S3Object as a script parameter
 
 Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
@@ -6818,6 +6839,18 @@ A draft app is reachable by nobody; deploying is what exposes it, and its backen
 
 Either one lets those people run the app's backend runnables, so never open an app up unless the user asks.
 \`public: true\` in \`raw_app.yaml\` deploys the app for anonymous users, and \`guests: true\` for guests. Remove the line and the next push closes the app again.
+
+## Sandbox isolation and frontend API access
+
+By default a deployed app's frontend runs with the viewer's own Windmill session. A sandboxed app is isolated from it: the frontend reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. The scopes are \`jobs:run\`, \`jobs:read\`, \`users:read\`, \`resources:read\`, \`variables:read\`, \`flow_conversations:read\` and \`flow_conversations:write\`; grant only the ones the frontend calls.
+In \`raw_app.yaml\`:
+
+\`\`\`yaml
+sandbox: true
+frontend_api: [jobs:run, users:read]
+\`\`\`
+
+A file with a \`sandbox\` key states both settings: \`sandbox: false\` turns isolation off, and a missing \`frontend_api\` means no scopes. A file without the key leaves the deployed app's isolation and scopes as they are, so removing \`sandbox: true\` does not unsandbox it. \`frontend_api\` needs \`sandbox: true\`; the push fails otherwise.
 
 ## Data Tables
 
