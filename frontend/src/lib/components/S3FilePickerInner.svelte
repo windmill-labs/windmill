@@ -26,7 +26,6 @@
 	import Toggle from './Toggle.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import DBTable from './DBTable.svelte'
 	import type { IDbTableOps } from './dbOps'
 	import { resource } from 'runed'
 	import { staticDbTableOps } from './staticDbTableOps'
@@ -1160,6 +1159,12 @@
 	})
 </script>
 
+{#snippet tableLoading()}
+	<div class="flex items-center gap-2 p-3 text-xs text-tertiary">
+		<Loader2 size={14} class="animate-spin" /> Loading table...
+	</div>
+{/snippet}
+
 {#if workspaceSettingsInitialized === false}
 	<div class="p-4">
 		{#if fromWorkspaceSettings}
@@ -1522,17 +1527,20 @@
 			{#if showTable}
 				<div class="flex-1 min-h-0 relative">
 					{#if currentTable?.ops}
-						{#key currentTable.ops}
-							<DBTable dbTableOps={currentTable.ops} />
-						{/key}
+						<!-- Lazy: the (logged) layout mounts this picker and DBTable reaches monaco. -->
+						{#await import('./DBTable.svelte')}
+							{@render tableLoading()}
+						{:then DBTable}
+							{#key currentTable.ops}
+								<DBTable.default dbTableOps={currentTable.ops} />
+							{/key}
+						{/await}
 					{:else if tableOps.error}
 						<div class="p-3 text-xs text-red-600 dark:text-red-400 break-words">
 							Could not read this file as a table: {tableOps.error.message}
 						</div>
 					{:else}
-						<div class="flex items-center gap-2 p-3 text-xs text-tertiary">
-							<Loader2 size={14} class="animate-spin" /> Loading table...
-						</div>
+						{@render tableLoading()}
 					{/if}
 				</div>
 			{:else}

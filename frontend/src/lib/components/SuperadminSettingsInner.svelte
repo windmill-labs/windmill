@@ -17,7 +17,7 @@
 	import { truncate } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		ArrowRightLeft,
 		Ban,
@@ -46,6 +46,8 @@
 		tabToAuthSubTab,
 		categoryToTabMap,
 		buildSearchableSettingItems,
+		listedNavigationGroups,
+		usesExternalOidcSigner,
 		type SearchableSettingItem
 	} from './instanceSettings'
 	import TextInput from './text_input/TextInput.svelte'
@@ -227,7 +229,14 @@
 		return instanceSettings?.buildFullDiff() ?? { original: '', modified: '' }
 	}
 	// --- Settings search ---
-	const searchableItems = buildSearchableSettingItems()
+	let externalOidcSigner = $state(false)
+	$effect(() => {
+		if ($enterpriseLicense) usesExternalOidcSigner().then((v) => (externalOidcSigner = v))
+	})
+	const navigationGroups = $derived(
+		listedNavigationGroups(instanceSettingsNavigationGroups, externalOidcSigner)
+	)
+	const searchableItems = $derived(buildSearchableSettingItems(navigationGroups))
 
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined
 	let highlightTimeout: ReturnType<typeof setTimeout> | undefined
@@ -300,11 +309,7 @@
 			<!-- Sidebar Navigation -->
 			<div class="w-52 shrink-0 h-full overflow-auto p-4 bg-surface flex flex-col">
 				<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
-				<SidebarNavigation
-					groups={instanceSettingsNavigationGroups}
-					selectedId={tab}
-					onNavigate={handleNavigate}
-				/>
+				<SidebarNavigation groups={navigationGroups} selectedId={tab} onNavigate={handleNavigate} />
 				{#if $workspaceStore !== 'admins'}
 					<div class="mt-4 pt-2 border-t border-surface-hover">
 						<a
