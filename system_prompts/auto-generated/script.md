@@ -1414,12 +1414,12 @@ SELECT * FROM users WHERE name = ? AND age > ?;
 Declare a list with a `[]` suffix on the element type (`(varchar[])`,
 `(int[])`), or `(array)` for an untyped one. Snowflake cannot bind an array
 directly, so Windmill binds the list as JSON text: wrap the placeholder with
-`PARSE_JSON(?)` to get an `ARRAY`.
+`PARSE_JSON(?)`, and cast to `ARRAY` where a function expects one.
 
 ```sql
 -- ? groups (varchar[])
 SELECT o.* FROM orders o
-WHERE ARRAY_CONTAINS(o.owner_group::VARIANT, PARSE_JSON(?));
+WHERE ARRAY_CONTAINS(o.owner_group::VARIANT, PARSE_JSON(?)::ARRAY);
 ```
 
 Or join on the elements with `FLATTEN`:
