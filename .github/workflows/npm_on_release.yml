@@ -27,7 +27,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - run: cd chat-sdk && npm ci && npm run build && npm publish --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_WINDMILL_LABS }}
   publish_cli:
     runs-on: ubicloud-standard-8
     steps:
