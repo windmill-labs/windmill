@@ -495,8 +495,9 @@ async fn upgrade_workspace_secret_variables(db: &DB, w_id: &str) -> error::Resul
             }
             match mc.upgrade(&value) {
                 Some(new_value) => {
-                    // In a savepoint, so a value the update rejects (v2 is longer than CBC and
-                    // can pass the column's length limit) is skipped without losing the batch.
+                    // In a savepoint, so a value the update rejects (v2 is up to 44 chars longer
+                    // than CBC, which a column narrower than 15040 cannot hold) is skipped
+                    // without losing the batch.
                     let mut sp = sqlx::Acquire::begin(&mut tx).await?;
                     // Only over the value it was computed from, so a write racing it wins.
                     match sqlx::query(
