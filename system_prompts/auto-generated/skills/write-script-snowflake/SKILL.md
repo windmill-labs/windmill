@@ -84,6 +84,27 @@ Name the parameters by adding comments before the statement:
 SELECT * FROM users WHERE name = ? AND age > ?;
 ```
 
+## Array parameters
+
+Declare a list with a `[]` suffix on the element type (`(varchar[])`,
+`(int[])`), or `(array)` for an untyped one. Snowflake cannot bind an array
+directly, so Windmill binds the list as JSON text: wrap the placeholder with
+`PARSE_JSON(?)` to get an `ARRAY`.
+
+```sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+WHERE ARRAY_CONTAINS(o.owner_group::VARIANT, PARSE_JSON(?));
+```
+
+Or join on the elements with `FLATTEN`:
+
+```sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+JOIN TABLE(FLATTEN(input => PARSE_JSON(?))) g ON g.value::STRING = o.owner_group;
+```
+
 ## Receiving an S3Object as a script parameter
 
 Declare the arg with type `(s3object)`. Windmill renders an S3 file picker for
