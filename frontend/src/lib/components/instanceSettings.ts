@@ -377,6 +377,15 @@ export const settings: Record<string, Setting[]> = {
 				value === null ||
 				value === '' ||
 				parseAccentColor(value) !== undefined
+		},
+		{
+			label: 'Sync resource types from the hub daily',
+			description:
+				'Every day, the server updates the resource types of the admins workspace from the Hub, overwriting local edits to the types the Hub also defines. Superadmins can also sync them on demand with "Sync resource types with Hub".',
+			key: 'sync_hub_resource_types_daily',
+			fieldType: 'boolean',
+			storage: 'setting',
+			hideInQuickSetup: true
 		}
 	],
 	Jobs: [
@@ -832,7 +841,7 @@ export const settings: Record<string, Setting[]> = {
 			// 1. Change placeholder in instanceSettings.ts
 			// 2. Change LATEST_STABLE_PY in dockerfile
 			// 3. Change #[default] annotation for PyVersion in backend
-			placeholder: '3.10,3.11,3.12,3.13',
+			placeholder: '3.10,3.11,3.12,3.13,3.14,3.15',
 			select_items: [
 				{
 					label: 'Latest Stable',
@@ -850,6 +859,12 @@ export const settings: Record<string, Setting[]> = {
 				},
 				{
 					label: '3.13'
+				},
+				{
+					label: '3.14'
+				},
+				{
+					label: '3.15'
 				}
 			],
 			storage: 'setting'

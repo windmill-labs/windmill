@@ -87,7 +87,6 @@
 	import CaptureButton from './triggers/CaptureButton.svelte'
 	import { setContext } from 'svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
-	import { base } from '$lib/base'
 	import DispatchEventsButton from '$lib/components/runs/DispatchEventsButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
 	import { getStringError } from './copilot/chat/utils'
@@ -2254,7 +2253,7 @@
 									<div class="flex items-center gap-2">
 										<a
 											class="text-3xs text-blue-600 hover:underline font-mono"
-											href={`${base}/run/${testJob.id}?workspace=${opWs}`}
+											href={`/run/${testJob.id}?workspace=${opWs}`}
 											target="_blank"
 											rel="noopener noreferrer"
 											title="Open this run"
@@ -2741,7 +2740,7 @@
 									{#snippet popoverOverride()}
 										<div class="text-sm">
 											Enable Windmill AI in the <a
-												href="{base}/workspace_settings?tab=ai"
+												href="/workspace_settings?tab=ai"
 												target="_blank"
 												class="inline-flex flex-row items-center gap-1"
 											>

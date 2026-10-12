@@ -30,7 +30,6 @@
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { emptyString, escapeHtml, parseQueryParams } from '$lib/utils'
-	import { base } from '$lib/base'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
@@ -354,7 +353,7 @@
 				// See (root)/+layout.svelte for why /projects/import skips the picker.
 			} else if (
 				resolvedRd?.startsWith('/user/workspaces') ||
-				resolvedRd?.startsWith(`${base}/projects/import`)
+				resolvedRd?.startsWith('/projects/import')
 			) {
 				goto(resolvedRd)
 			} else if (resolvedRd == '/#user-settings') {
@@ -575,7 +574,7 @@
 		if (automatic) params.set('auto', 'true')
 		if (guestApp) params.set('guest_app', guestApp)
 		const query = params.size > 0 ? '?' + params.toString() : ''
-		let url = base + '/api/oauth/login/' + provider + query
+		let url = '/api/oauth/login/' + provider + query
 		console.log('storeRedirect', popup, url)
 
 		if (popup) {
@@ -856,7 +855,7 @@
 					{#if smtpConfigured}
 						<div class="text-center pt-2">
 							<a
-								href="{base}/user/forgot-password"
+								href="/user/forgot-password"
 								class="text-2xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
 							>
 								Forgot password?

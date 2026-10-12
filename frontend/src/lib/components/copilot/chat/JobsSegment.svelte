@@ -8,7 +8,6 @@
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import { ChevronUp, Hourglass, ThumbsUp, TimerOff } from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import { slide } from 'svelte/transition'
 	import { JobService, type Job } from '$lib/gen'
 	import { msToReadableTime } from '$lib/utils'
@@ -211,7 +210,7 @@
 	}
 
 	function runHref(job: ChatJob): string {
-		return `${base}/run/${job.jobId}?workspace=${job.workspace}`
+		return `/run/${job.jobId}?workspace=${job.workspace}`
 	}
 
 	function openRun(job: ChatJob) {

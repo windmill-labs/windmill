@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte'
-	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import {
 		AzureTriggerService,
@@ -73,7 +72,7 @@
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
 	import { getHttpRoute } from './http/utils'
 	import { getEmailAddress, getEmailDomain } from './email/utils'
 	import { TRIGGER_LIST_CONFIG, type TriggerRow } from './triggerListConfig'
@@ -84,6 +83,7 @@
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	let { triggerKind }: { triggerKind: TriggerKind } = $props()
 
@@ -148,7 +148,7 @@
 	}
 
 	function openLink(href: string) {
-		if (hosted) hosted.openLink(`${base}${href}`)
+		if (hosted) hosted.openLink(href)
 		else goto(href)
 	}
 
@@ -697,7 +697,7 @@
 	{@const effectiveMode = draft_only ? 'disabled' : mode}
 	{@const live = isLive(row)}
 	{@const copy = copyUrl(row)}
-	{@const canEdit = canWrite && !$triggerLock}
+	{@const canEdit = editRights.canEditItem('trigger', path, extra_perms)}
 
 	<div
 		class={twMerge(
@@ -824,7 +824,7 @@
 						{
 							displayName: 'Audit logs',
 							icon: Eye,
-							href: `${base}/audit_logs?resource=${path}`
+							href: `/audit_logs?resource=${path}`
 						},
 						{
 							displayName: 'Permissions',

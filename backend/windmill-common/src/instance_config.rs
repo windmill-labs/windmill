@@ -267,6 +267,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_hub: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_hub_resource_types_daily: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_build_binary_on_deploy: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_sessions_instance_storage_fallback: Option<bool>,

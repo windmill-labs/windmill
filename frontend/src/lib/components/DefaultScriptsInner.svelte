@@ -16,11 +16,13 @@
 	let { small = false }: Props = $props()
 
 	function computeLangs(defaultScripts: WorkspaceDefaultScripts | undefined): Script['language'][] {
-		const allLangs = Object.keys(defaultScriptLanguages) as Script['language'][]
+		const allLangs = (Object.keys(defaultScriptLanguages) as Script['language'][]).filter(
+			(l) => l != 'deno'
+		)
 		if (!defaultScripts || defaultScripts.order == undefined) return allLangs
 		return defaultScripts.order
 			?.concat(allLangs.filter((l) => !defaultScripts.order?.includes(l)))
-			.filter((x) => x != 'nativets') as Script['language'][]
+			.filter((x) => x != 'nativets' && x != 'deno') as Script['language'][]
 	}
 
 	async function changePosition(i: number, up: boolean) {

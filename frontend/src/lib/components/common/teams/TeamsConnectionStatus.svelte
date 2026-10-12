@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
 	import { Plug, RotateCw, Unplug } from 'lucide-svelte'
-	import { base } from '$lib/base'
 
 	interface Props {
 		isConnected: boolean | undefined
@@ -15,7 +14,7 @@
 
 	// Connection URLs based on mode
 	let connectUrl = $derived(
-		mode === 'instance' ? `${base}/#superadmin-settings` : `${base}/workspace_settings?tab=teams`
+		mode === 'instance' ? `/#superadmin-settings` : `/workspace_settings?tab=teams`
 	)
 </script>
 

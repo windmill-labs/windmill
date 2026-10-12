@@ -24,7 +24,6 @@
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import { fixupUrlAfterWorkspaceSwitch } from './workspaceSwitchUrl'
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
@@ -367,7 +366,7 @@
 	{#if (isCloudHosted() || $superadmin || canForkHere) && !strictWorkspaceSelect}
 		<div class="py-1" role="none">
 			{#if isCloudHosted() || $superadmin}
-				<MenuItem href="{base}/user/create_workspace" class={itemClass} {item}>
+				<MenuItem href="/user/create_workspace" class={itemClass} {item}>
 					<Plus size={16} />
 					Workspace
 				</MenuItem>
@@ -383,7 +382,7 @@
 	{#if canManageWorkspace && !strictWorkspaceSelect}
 		<div class="py-1" role="none">
 			<MenuItem
-				href="{base}/workspace_settings?workspace={$workspaceStore}"
+				href="/workspace_settings?workspace={$workspaceStore}"
 				class={itemClass}
 				{item}
 			>
@@ -397,7 +396,7 @@
 	{#if !strictWorkspaceSelect}
 		<div class="py-1" role="none">
 			<MenuItem
-				href="{base}/user/workspaces"
+				href="/user/workspaces"
 				onClick={() => clearWorkspaceFromStorage()}
 				class={itemClass}
 				{item}
