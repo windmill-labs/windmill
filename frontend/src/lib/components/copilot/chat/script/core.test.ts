@@ -15,7 +15,12 @@ vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({ default:
 vi.mock('$lib/components/vscode', () => ({}))
 
 import { ResourceService } from '$lib/gen'
-import { editCodeToolWithDiff, searchResourceTypes } from './core'
+import {
+	editCodeToolWithDiff,
+	resolveResourceTypeSync,
+	resourceTypeSyncBlock,
+	searchResourceTypes
+} from './core'
 
 describe('searchResourceTypes', () => {
 	it.each([
@@ -30,6 +35,27 @@ describe('searchResourceTypes', () => {
 		const { note } = await searchResourceTypes('stripe', 'ws', 5)
 
 		expect(note?.includes('never synced') ?? false).toBe(noted)
+	})
+})
+
+// The transition is what keeps the note out of the system prompt: a conversation that was
+// told "not synced" has to be told once when that stops being true, and nobody else is.
+describe('resolveResourceTypeSync', () => {
+	const synced = Array.from({ length: 30 }, (_, i) => `type_${i}`)
+	const told = (state: 'unsynced' | 'now_synced') => ({
+		role: 'user',
+		content: resourceTypeSyncBlock(state)
+	})
+
+	it.each([
+		['unsynced instance', ['ai_skill'], [], 'unsynced'],
+		['always synced', synced, [], undefined],
+		['synced after an unsynced note', synced, [told('unsynced')], 'now_synced'],
+		['already told it synced', synced, [told('unsynced'), told('now_synced')], undefined]
+	] as const)('%s', async (label, names, history, expected) => {
+		vi.spyOn(ResourceService, 'listResourceTypeNames').mockResolvedValue([...names])
+
+		expect(await resolveResourceTypeSync(`ws-${label}`, history)).toBe(expected)
 	})
 })
 

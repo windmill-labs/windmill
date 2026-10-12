@@ -108,7 +108,12 @@ import {
 	createInlineScriptSession,
 	findUnresolvedInlineScriptRefs
 } from '../flow/inlineScriptsUtils'
-import { searchNpmPackagesTool, searchResourceTypes } from '../script/core'
+import {
+	resourceTypeSyncBlock,
+	searchNpmPackagesTool,
+	searchResourceTypes,
+	type ResourceTypeSync
+} from '../script/core'
 import type { McpServer } from './mcpTools'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { isSkillEnabled } from '../skills/enabledSkills'
@@ -355,6 +360,8 @@ export type GlobalUserMessageOptions = {
 	/** Text files attached to this message; listed by reference below — the model
 	 * reads their content on demand via the file tools. */
 	files?: AttachedTextFile[]
+	/** From `resolveResourceTypeSync`; absent on a synced instance, which is told nothing. */
+	resourceTypeSync?: ResourceTypeSync
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
@@ -9236,6 +9243,10 @@ export function prepareGlobalUserMessage(
 			content += `- ${ref} — ${lines} lines, ${f.content.length} chars\n`
 		}
 		content += '\n'
+	}
+
+	if (options.resourceTypeSync) {
+		content += resourceTypeSyncBlock(options.resourceTypeSync)
 	}
 
 	content += `## INSTRUCTIONS:\n${instructions}`

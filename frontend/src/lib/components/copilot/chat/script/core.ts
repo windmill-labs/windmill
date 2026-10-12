@@ -1,4 +1,4 @@
-import { ResourceService, JobService } from '$lib/gen/services.gen'
+import { ResourceService, JobService } from '$lib/gen'
 import type { AIProvider, AIProviderModel, ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, toCamel } from '$lib/utils'
 import { compile, phpCompile, pythonCompile } from '../../utils'
@@ -94,6 +94,49 @@ export async function searchResourceTypes(
 				? `Only ${count} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. ${HUB_SYNC_INSTRUCTIONS}`
 				: undefined
 	}
+}
+
+export type ResourceTypeSync = 'unsynced' | 'now_synced'
+
+const NOT_SYNCED_HEADING = '## RESOURCE TYPES NOT SYNCED'
+const SYNCED_HEADING = '## RESOURCE TYPES SYNCED'
+
+// An instance does not go back to unsynced, so one seen synced is never asked again.
+const syncedWorkspaces = new Set<string>()
+
+/**
+ * Whether the next user message has to say the instance lacks the hub's types, or that an
+ * earlier such note no longer holds. It rides in the user message, not the system prompt,
+ * so a sync during a conversation leaves the cached prefix untouched; `history` is what
+ * tells a sync that happened mid-conversation from an instance that was always synced.
+ */
+export async function resolveResourceTypeSync(
+	workspace: string,
+	history: readonly { role: string; content?: unknown }[]
+): Promise<ResourceTypeSync | undefined> {
+	if (!syncedWorkspaces.has(workspace)) {
+		const count = await ResourceService.listResourceTypeNames({ workspace })
+			.then((names) => new Set(names).size)
+			.catch(() => 0)
+		if (count === 0) {
+			return undefined
+		}
+		if (count < UNSYNCED_RESOURCE_TYPE_COUNT) {
+			return 'unsynced'
+		}
+		syncedWorkspaces.add(workspace)
+	}
+	const lastNote = history
+		.filter((m) => m.role === 'user')
+		.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '')))
+		.findLast((text) => text.includes(NOT_SYNCED_HEADING) || text.includes(SYNCED_HEADING))
+	return lastNote?.includes(NOT_SYNCED_HEADING) ? 'now_synced' : undefined
+}
+
+export function resourceTypeSyncBlock(state: ResourceTypeSync): string {
+	return state === 'unsynced'
+		? `${NOT_SYNCED_HEADING}\nThis instance has not synced the Windmill Hub's resource types, so no hub type exists here yet (stripe, slack, postgresql, ...), including the one a hub script takes. ${HUB_SYNC_INSTRUCTIONS}\n\n`
+		: `${SYNCED_HEADING}\nThe instance now holds the Windmill Hub's resource types: the earlier "not synced" note no longer applies.\n\n`
 }
 
 export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
