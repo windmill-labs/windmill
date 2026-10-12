@@ -1116,6 +1116,10 @@ A draft app is reachable by nobody; deploying is what exposes it, and its backen
 Either one lets those people run the app's backend runnables, so never open an app up unless the user asks.
 When a deploy widens who may open the app, tell the user in plain words.
 
+## Sandbox isolation and frontend API access
+
+By default a deployed app's frontend runs with the viewer's own Windmill session. A sandboxed app is isolated from it: the frontend reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. The scopes are \`jobs:run\`, \`jobs:read\`, \`users:read\`, \`resources:read\`, \`variables:read\`, \`flow_conversations:read\` and \`flow_conversations:write\`; grant only the ones the frontend calls.
+
 ## Data Tables
 
 Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the \`wmill\` client; the frontend never queries them directly. **When the app needs to store or persist data** (user data, settings, application state, records, logs), use a data table.
