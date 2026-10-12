@@ -2494,11 +2494,8 @@ mod tests {
 
     // A cache hit returns before the job runs, so the key is all that keeps a result computed
     // for one viewer (a data table used as the viewer, `WM_END_USER_EMAIL`) from another.
-    #[tokio::test]
-    async fn a_cached_result_is_keyed_by_the_recorded_viewer() {
-        let db_url = std::env::var("DATABASE_URL")
-            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
-        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+    #[sqlx::test(migrations = "../migrations")]
+    async fn a_cached_result_is_keyed_by_the_recorded_viewer(pool: sqlx::PgPool) {
         let client = test_client();
 
         // The last two differ only in where the viewer's address ends and the first argument
@@ -2529,13 +2526,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-            let path = cached_result_path(&pool, &client, &job, None).await;
-            sqlx::query("DELETE FROM job_perms WHERE job_id = $1")
-                .bind(job.id)
-                .execute(&pool)
-                .await
-                .unwrap();
-            paths.push(path.unwrap());
+            paths.push(cached_result_path(&pool, &client, &job, None).await.unwrap());
         }
         assert_eq!(
             paths[0], paths[1],
