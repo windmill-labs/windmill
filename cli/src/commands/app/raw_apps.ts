@@ -461,7 +461,7 @@ export async function pushRawApp(
     log.info(colors.yellow.bold(`Creating raw app ${remotePath} bundle...`));
     // Detect frameworks to determine entry point
     const frameworks = detectFrameworks(localPath);
-    const entryFile = frameworks.svelte || frameworks.vue
+    const entryFile = frameworks.svelte
       ? "index.ts"
       : "index.tsx";
     const entryPoint = localPath + entryFile;

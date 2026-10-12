@@ -114,7 +114,7 @@ async function validateBuild(
 
     // Try to create a bundle - this will validate that all dependencies are in place
     const frameworks = detectFrameworks(appDir);
-    const entryFile = frameworks.svelte || frameworks.vue ? "index.ts" : "index.tsx";
+    const entryFile = frameworks.svelte ? "index.ts" : "index.tsx";
     const entryPoint = path.join(appDir, entryFile);
     await createBundle({
       entryPoint,

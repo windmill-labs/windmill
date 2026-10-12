@@ -6351,7 +6351,7 @@ You need three values to run the command:
 
 1. **summary** — a short description of the app
 2. **path** — the windmill path, e.g. \`f/folder/my_app\` or \`u/username/my_app\`
-3. **framework** — one of \`react19\` (recommended), \`react18\`, \`svelte5\`, \`vue\`
+3. **framework** — one of \`react19\` (recommended), \`react18\`, \`svelte5\`
 
 **summary and path**: if the user's request did not supply them, ask. Do not guess values and do not invent paths.
 
@@ -6423,7 +6423,7 @@ my_app{{RAW_APP_SUFFIX}}/
 ├── DATATABLES.md          # Database schemas (run 'wmill app generate-agents' to refresh)
 ├── raw_app.yaml           # App configuration (summary, path, data settings)
 ├── index.tsx              # Frontend entry point
-├── App.tsx                # Main React/Svelte/Vue component
+├── App.tsx                # Main React/Svelte component
 ├── index.css              # Styles
 ├── package.json           # Frontend dependencies
 ├── wmill.ts               # Auto-generated backend type definitions (DO NOT EDIT)
@@ -6581,7 +6581,7 @@ For the rest, tell the user which command fits their intent and let them run it 
 
 # Windmill Raw Apps
 
-Raw apps let you build custom frontends with React, Svelte, or Vue that connect to Windmill backend runnables and datatables.
+Raw apps let you build custom frontends with React or Svelte that connect to Windmill backend runnables and datatables.
 
 ## App shape
 
@@ -6597,7 +6597,7 @@ A new app gets the setup Windmill's own new-app dialog gives one: a framework, t
 
 ### Framework
 
-Use the framework the user named. When they named none, follow what there is to follow: the app being edited, or the apps the request points at. With nothing to follow, use **React 19**, the recommended default, **without asking**. React 18, Svelte 5 and Vue are for when they are asked for.
+Use the framework the user named. When they named none, follow what there is to follow: the app being edited, or the apps the request points at. With nothing to follow, use **React 19**, the recommended default, **without asking**. React 18 and Svelte 5 are for when they are asked for. These three are the only frameworks the raw app bundler builds. When the user asks to build or convert an app in another framework, write no code in it: say it is not available and offer these three instead.
 
 ### Data setup
 
@@ -6627,7 +6627,7 @@ Then build what was chosen: the data table and schema become the app's \`data.da
 
 ### Entrypoint
 
-The entrypoint is \`index.tsx\` for React and \`index.ts\` for Svelte and Vue. It is both the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint: the preview executes the bundle against an empty \`<div id="root">\` and auto-renders nothing, so the entrypoint must mount a top-level \`App\` itself. Keep the UI in \`App.tsx\` / \`App.svelte\` / \`App.vue\` and keep the entrypoint as the mount shim.
+The entrypoint is \`index.tsx\` for React and \`index.ts\` for Svelte. It is both the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint: the preview executes the bundle against an empty \`<div id="root">\` and auto-renders nothing, so the entrypoint must mount a top-level \`App\` itself. Keep the UI in \`App.tsx\` / \`App.svelte\` and keep the entrypoint as the mount shim.
 
 React (\`index.tsx\`):
 
@@ -6639,7 +6639,7 @@ import App from './App'
 createRoot(document.getElementById('root')!).render(<App />)
 \`\`\`
 
-Svelte (\`index.ts\`): \`mount(App, { target: document.getElementById('root')! })\`. Vue (\`index.ts\`): \`createApp(App).mount('#root')\`.
+Svelte (\`index.ts\`): \`mount(App, { target: document.getElementById('root')! })\`.
 
 **Never replace the entrypoint with a bare component** (\`export default function App() { ... }\` and no mount call). A component that is defined but never mounted renders a blank screen with **no error thrown** — it never executes, so nothing reaches the console or the error overlay. If an app renders blank, check that the entrypoint still mounts \`App\` into \`#root\`.
 
@@ -8102,7 +8102,7 @@ app related commands
 - \`app dev [app_folder:string]\` - Start a development server for building apps with live reload and hot module replacement
   - \`--port <port:number>\` - Port to run the dev server on (will find next available port if occupied)
   - \`--host <host:string>\` - Host to bind the dev server to
-  - \`--entry <entry:string>\` - Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)
+  - \`--entry <entry:string>\` - Entry point file (default: index.ts for Svelte, index.tsx otherwise)
   - \`--no-open\` - Don't automatically open the browser
   - \`--recording\` - Frame the app in a shell with a Record button, to capture a replayable session recording of the app under development
 - \`app lint [app_folder:string]\` - Lint a raw app folder to validate structure and buildability
@@ -8113,7 +8113,7 @@ app related commands
 - \`app new\` - create a new raw app from a template
   - \`--summary <summary:string>\` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
   - \`--path <path:string>\` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
-  - \`--framework <framework:string>\` - Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--framework <framework:string>\` - Framework template: react19 | react18 | svelte5. Skips the prompt when provided. Triggers non-interactive mode.
   - \`--datatable <datatable:string>\` - Datatable to wire up. Without this flag in non-interactive mode, no datatable is configured.
   - \`--schema <schema:string>\` - Schema to use with --datatable. If it doesn't exist yet, a sql_to_apply/ migration (CREATE SCHEMA IF NOT EXISTS) is written for it.
   - \`--overwrite\` - Overwrite the target directory if it already exists, without prompting.
