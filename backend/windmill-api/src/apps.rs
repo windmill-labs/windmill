@@ -479,11 +479,6 @@ pub struct PolicyTriggerableInputs {
     delete_after_secs: Option<i32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sensitive_inputs: Vec<String>,
-    /// Argument name -> context property (`username`, `email`, `groups`, `workspace`,
-    /// `author`). The server fills these from the viewer's session and discards whatever
-    /// the request sent under the same name, so a runnable can filter on them.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    ctx_inputs: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tag: Option<String>,
 }
@@ -2776,47 +2771,6 @@ fn validate_raw_app_path_keys(value: &RawValue) -> Result<()> {
     Ok(())
 }
 
-/// Records, on each triggerable of `policy`, the context inputs its runnable declares in
-/// the app `value` (`fields.<arg> = { type: "ctx", ctx: "<property>" }`). Derived here
-/// rather than taken from the caller: the CLI and the editor each build the policy with
-/// their own copy of the derivation, and a deploy from one that never wrote `ctx_inputs`
-/// would leave the runnable trusting whatever identity the viewer sends.
-fn stamp_ctx_inputs(policy: &mut Policy, value: &RawValue) {
-    let Some(triggerables) = policy.triggerables_v2.as_mut() else {
-        return;
-    };
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value.get()) else {
-        return;
-    };
-    let Some(runnables) = parsed.get("runnables").and_then(|r| r.as_object()) else {
-        return;
-    };
-    for (id, runnable) in runnables {
-        let ctx_inputs: HashMap<String, String> = runnable
-            .get("fields")
-            .and_then(|f| f.as_object())
-            .into_iter()
-            .flatten()
-            .filter(|(_, f)| f.get("type").and_then(|t| t.as_str()) == Some("ctx"))
-            .filter_map(|(arg, f)| Some((arg.clone(), f.get("ctx")?.as_str()?.to_string())))
-            .collect();
-        // A triggerable is keyed `<runnable id>:<kind>/<path or sha>`.
-        for (key, triggerable) in triggerables.iter_mut() {
-            let of_runnable = key
-                .strip_prefix(id.as_str())
-                .and_then(|rest| rest.strip_prefix(':'))
-                .is_some_and(|rest| {
-                    ["rawscript/", "script/", "flow/"]
-                        .iter()
-                        .any(|kind| rest.starts_with(kind))
-                });
-            if of_runnable {
-                triggerable.ctx_inputs = ctx_inputs.clone();
-            }
-        }
-    }
-}
-
 async fn create_app_internal<'a>(
     authed: ApiAuthed,
     db: sqlx::Pool<sqlx::Postgres>,
@@ -2831,7 +2785,6 @@ async fn create_app_internal<'a>(
     check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
     check_proper_path(&app.path)?;
     validate_frontend_sdk_scopes(&app.policy)?;
-    stamp_ctx_inputs(&mut app.policy, &app.value.0);
     if raw_app {
         validate_raw_app_path_keys(&app.value.0)?;
     }
@@ -4058,9 +4011,6 @@ async fn update_app_internal<'a>(
                 npolicy.triggerables = None;
                 npolicy.triggerables_v2 = Some(triggerables);
             }
-            if let Some(nvalue) = ns.value.as_ref() {
-                stamp_ctx_inputs(&mut npolicy, &nvalue.0);
-            }
             validate_frontend_sdk_scopes(&npolicy)?;
             // The policy is written wholesale, so one that states no mode would
             // otherwise re-permission the app to the create-time default: a
@@ -4440,11 +4390,55 @@ lazy_static! {
     /// - the caller's `version` still matches `cached_version` (a redeploy bumps the
     ///   version -> instant refetch, for free since it's in the request);
     /// - the `notify_app_policy_change` event has not evicted the key (policy-only
-    ///   change or deletion, which don't bump the version — see
+    ///   change or deletion, which don't bump the version, and a deploy, since a
+    ///   caller can still name the version it replaced — see
     ///   `invalidate_app_policy_cache` and `process_notify_event`);
     /// - the entry is within its TTL (backstop for a missed event or a restart).
-    static ref APP_POLICY_CACHE: cache::Cache<(String, String), (Option<i64>, Arc<Policy>, std::time::Instant)> =
+    static ref APP_POLICY_CACHE: cache::Cache<(String, String), (Option<i64>, Arc<DeployedPolicy>, std::time::Instant)> =
         cache::Cache::new(1000);
+}
+
+/// What `execute_component` runs a deployed app against.
+struct DeployedPolicy {
+    policy: Policy,
+    /// Runnable id -> argument -> context property (`username`, `email`, `groups`,
+    /// `workspace`, `author`), for every `ctx` field the app's runnables declare. Read
+    /// from the deployed app rather than taken from the request, which only says what
+    /// the browser chose to send: a runnable filters rows on these.
+    ctx_inputs: HashMap<String, HashMap<String, String>>,
+}
+
+async fn deployed_ctx_inputs(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+) -> Result<HashMap<String, HashMap<String, String>>> {
+    let runnables = sqlx::query_scalar::<_, Option<sqlx::types::Json<serde_json::Value>>>(
+        "SELECT app_version.value -> 'runnables' FROM app
+        JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
+        WHERE app.path = $1 AND app.workspace_id = $2",
+    )
+    .bind(path)
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    let Some(serde_json::Value::Object(runnables)) = runnables.map(|r| r.0) else {
+        return Ok(HashMap::new());
+    };
+    Ok(runnables
+        .into_iter()
+        .filter_map(|(id, runnable)| {
+            let ctx_inputs: HashMap<String, String> = runnable
+                .get("fields")?
+                .as_object()?
+                .iter()
+                .filter(|(_, f)| f.get("type").and_then(|t| t.as_str()) == Some("ctx"))
+                .filter_map(|(arg, f)| Some((arg.clone(), f.get("ctx")?.as_str()?.to_string())))
+                .collect();
+            (!ctx_inputs.is_empty()).then_some((id, ctx_inputs))
+        })
+        .collect())
 }
 
 /// Backstop time-to-live for an [`APP_POLICY_CACHE`] entry — the maximum a policy
@@ -4499,7 +4493,7 @@ async fn execute_component(
         _ => {}
     };
 
-    let arc_policy: Arc<Policy>;
+    let arc_policy: Arc<DeployedPolicy>;
     let policy_triggerables_default = Default::default();
     // Preview mode means the request was issued from the editor; the editing
     // user is already trusted by the policy check, so client-supplied `tag`
@@ -4582,7 +4576,7 @@ async fn execute_component(
     //    - The policy and triggerables are fetched from the database.
     //    - In case of inline script, if an entry exists in the `app_script` table, push
     //      an `AppScript` job payload, as in (.1) otherwise.
-    let (policy, policy_triggerables) = match payload {
+    let (policy, policy_triggerables, ctx_inputs) = match payload {
         // 1. "preview" mode.
         ExecuteApp {
             force_viewer_static_fields: Some(static_inputs),
@@ -4599,9 +4593,9 @@ async fn execute_component(
                 allow_user_resources: force_viewer_allow_user_resources.unwrap_or_default(),
                 delete_after_secs: force_viewer_delete_after_secs,
                 sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
-                ctx_inputs: HashMap::new(),
                 tag: None,
             },
+            None,
         ),
         // 2. "run" mode.
         _ => {
@@ -4631,9 +4625,12 @@ async fn execute_component(
                 .map(|(_, p, _)| p);
             let policy = if let Some(p) = fresh {
                 arc_policy = p;
-                &*arc_policy
+                &arc_policy.policy
             } else {
-                arc_policy = Arc::new(policy_fut.await?);
+                arc_policy = Arc::new(DeployedPolicy {
+                    policy: policy_fut.await?,
+                    ctx_inputs: deployed_ctx_inputs(&db, &w_id, path).await?,
+                });
                 APP_POLICY_CACHE.insert(
                     cache_key,
                     (
@@ -4642,7 +4639,7 @@ async fn execute_component(
                         std::time::Instant::now(),
                     ),
                 );
-                &*arc_policy
+                &arc_policy.policy
             };
 
             // Caller-supplied inline code (`raw_code`), with or without an
@@ -4704,7 +4701,11 @@ async fn execute_component(
                 })
                 .ok_or_else(|| Error::BadRequest(format!("Path {path} forbidden by policy")))?;
 
-            (policy, policy_triggerables)
+            (
+                policy,
+                policy_triggerables,
+                arc_policy.ctx_inputs.get(&payload.component),
+            )
         }
     };
 
@@ -4782,6 +4783,7 @@ async fn execute_component(
     let (mut args, job_id) = build_args(
         policy,
         policy_triggerables,
+        ctx_inputs,
         payload.args,
         opt_authed.as_ref(),
         &user_db,
@@ -6267,9 +6269,9 @@ async fn build_args(
         one_of_inputs,
         allow_user_resources,
         sensitive_inputs,
-        ctx_inputs,
         ..
     }: &PolicyTriggerableInputs,
+    ctx_inputs: Option<&HashMap<String, String>>,
     mut args: HashMap<String, Box<RawValue>>,
     authed: Option<&ApiAuthed>,
     user_db: &UserDB,
@@ -6279,9 +6281,9 @@ async fn build_args(
     let mut job_id: Option<Uuid> = None;
     let mut safe_args = HashMap::<String, Box<RawValue>>::new();
 
-    // Before anything reads `args`: a context input the policy declares is never taken
+    // Before anything reads `args`: a context input the runnable declares is never taken
     // from the request, or a viewer could name someone else as themselves.
-    for (k, prop) in ctx_inputs {
+    for (k, prop) in ctx_inputs.into_iter().flatten() {
         args.remove(k);
         safe_args.insert(
             k.to_string(),

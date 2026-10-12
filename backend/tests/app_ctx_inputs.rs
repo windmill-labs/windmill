@@ -45,8 +45,8 @@ async fn a_declared_ctx_input_ignores_the_value_the_viewer_sends(
                     }
                 }
             },
-            // As a client that knows nothing of `ctx_inputs` deploys it: the server
-            // reads the declaration from the runnable itself.
+            // The policy says nothing of context inputs: the server reads the
+            // declaration from the deployed runnable.
             "policy": {
                 "execution_mode": "anonymous",
                 "triggerables_v2": {
