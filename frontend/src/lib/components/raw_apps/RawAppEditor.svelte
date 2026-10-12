@@ -493,6 +493,9 @@ addEventListener('message', function (e) {
 	// editor counts as building: reads made then would see an empty page.
 	buildTracker.start()
 	const BUILD_PENDING_TEXT = `The app is still building (or its build never started, e.g. no index entrypoint file): no build result arrived within ${RAW_APP_BUILD_WAIT_MS / 1000} seconds, so the preview shows an older build or nothing yet. Call get_app_runtime_logs to check the build, then retry.`
+	// A failed build never reaches the preview, which keeps the last good one, if any.
+	const buildFailedText = (error: string) =>
+		`The latest build failed, so the preview does not include the latest edits (it shows the last build that succeeded, or nothing if none has). Fix the build first. Build error:\n${error}`
 	const PREVIEW_SETTLE_MS = 1000
 	let editorDestroyed = false
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
@@ -1984,6 +1987,13 @@ addEventListener('message', function (e) {
 		await buildTracker.wait()
 		if (editorDestroyed) return undefined
 		if (buildTracker.pending) return { text: BUILD_PENDING_TEXT }
+		const res = await readPreviewDom(query)
+		return res && buildError !== undefined
+			? { text: `${buildFailedText(buildError)}\n\n${res.text}` }
+			: res
+	}
+
+	const readPreviewDom: RawAppDomRequester = async (query: RawAppDomQuery) => {
 		const selector = query.selector?.trim()
 		const res = await requestFromPreview('domRead', { selector })
 		if (!res) return undefined
@@ -2153,6 +2163,7 @@ addEventListener('message', function (e) {
 		await buildTracker.wait()
 		if (editorDestroyed) throw new Error('The app preview was closed')
 		if (buildTracker.pending) throw new Error(BUILD_PENDING_TEXT)
+		if (buildError !== undefined) throw new Error(buildFailedText(buildError))
 		const body = await requestFromPreview('elementRect', { selector: 'body' })
 		if (!body?.rect) throw new Error('App preview is not ready')
 		const { width, height } = body.rect
