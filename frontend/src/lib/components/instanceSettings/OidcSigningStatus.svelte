@@ -54,6 +54,17 @@
 					{status.signer.last_refresh_error}
 				</Alert>
 			{/if}
+			{#if status.signer.keys_from_store}
+				<Alert type="warning" title="The signer has not answered since this server started">
+					The keys below are those stored by the last accepted listing. Tokens cannot be signed
+					until the signer answers.
+				</Alert>
+			{/if}
+			{#if status.signer.tls_files_error}
+				<Alert type="warning" title="The mTLS files on disk are not in use">
+					{status.signer.tls_files_error}. The previous certificate and key are kept.
+				</Alert>
+			{/if}
 		{/if}
 		<DataTable size="xs">
 			<Head>

@@ -1014,7 +1014,7 @@ Windmill Community Edition {GIT_VERSION}
         // Before the first load: it can sign a token for instance object storage.
         #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
         windmill_common::oidc_ee::init_oidc_signing(
-            conn.as_sql(),
+            &conn,
             server_mode,
             killpill_rx.resubscribe(),
         )
@@ -2111,6 +2111,9 @@ async fn process_notify_event(
                 }
                 SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING => {
                     // Read by the daily resource type sync each time it runs
+                }
+                "oidc_external_signer" => {
+                    // Written by servers that sign with an external signer, read when signing
                 }
                 "plain_emails_telemetry" => {
                     let enabled = sqlx::query_scalar!(

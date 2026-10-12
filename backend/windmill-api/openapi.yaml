@@ -7495,6 +7495,12 @@ paths:
                         type: number
                       current_rps:
                         type: number
+                      keys_from_store:
+                        type: boolean
+                        description: the keys served are those stored by the last accepted listing, the signer has not answered this server yet
+                      tls_files_error:
+                        type: string
+                        description: why the mTLS files on disk are not the ones in use
 
   /w/{workspace}/oidc/token/{audience}:
     post:
