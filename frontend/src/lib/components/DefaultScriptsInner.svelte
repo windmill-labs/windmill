@@ -31,6 +31,10 @@
 			;[norder[i], norder[i + 1]] = [norder[i + 1], norder[i]]
 		}
 		defaultScripts.update((s) => ({ ...s, order: norder }))
+		await persist()
+	}
+
+	async function persist() {
 		await WorkspaceService.editDefaultScripts({
 			workspace: $operatingWorkspace!,
 			requestBody: $defaultScripts
@@ -76,7 +80,7 @@
 					size="xs"
 					color="red"
 					checked={$defaultScripts?.hidden?.includes(lang)}
-					on:change={(e) => {
+					on:change={async (e) => {
 						let toggled = e.detail
 						if (toggled) {
 							defaultScripts.update((s) => ({
@@ -89,6 +93,7 @@
 								hidden: (s?.hidden ?? []).filter((h) => h != lang)
 							}))
 						}
+						await persist()
 					}}
 				/>
 			</div>
