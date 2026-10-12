@@ -1,5 +1,5 @@
 //! An MCP resource header whose value is a `$var:` reference reaches the MCP
-//! server as the variable's value when an AI agent loads the resource.
+//! server as the variable's value, and only for a caller allowed to read it.
 #![cfg(feature = "mcp")]
 
 use sqlx::{Pool, Postgres};
@@ -9,6 +9,30 @@ use windmill_test_utils::*;
 use windmill_worker::{load_mcp_tools, McpResourceConfig};
 
 const SECRET_VALUE: &str = "S3CRET-MCP-HEADER-VALUE";
+
+/// A secret variable and an MCP resource at `url` sending it as a header.
+async fn seed(db: &Pool<Postgres>, url: &str) -> anyhow::Result<()> {
+    let mc = windmill_common::variables::build_crypt(db, "test-workspace").await?;
+    sqlx::query(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms)
+         VALUES ('test-workspace', 'u/test-user/mcp_header', $1, true, '', '{}')",
+    )
+    .bind(windmill_common::variables::encrypt(&mc, SECRET_VALUE))
+    .execute(db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, extra_perms, created_by)
+         VALUES ('test-workspace', 'u/test-user/mcp', $1, 'mcp', '{}', 'test-user')",
+    )
+    .bind(serde_json::json!({
+        "name": "mcp",
+        "url": url,
+        "headers": { "X-Api-Key": "$var:u/test-user/mcp_header", "X-Plain": "plain" }
+    }))
+    .execute(db)
+    .await?;
+    Ok(())
+}
 
 #[sqlx::test(fixtures("base"))]
 async fn test_mcp_header_var_ref_is_resolved(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -25,26 +49,7 @@ async fn test_mcp_header_var_ref_is_resolved(db: Pool<Postgres>) -> anyhow::Resu
         let n = socket.read(&mut buf).await?;
         anyhow::Ok(String::from_utf8_lossy(&buf[..n]).to_lowercase())
     });
-
-    let mc = windmill_common::variables::build_crypt(&db, "test-workspace").await?;
-    sqlx::query(
-        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms)
-         VALUES ('test-workspace', 'u/test-user/mcp_header', $1, true, '', '{}')",
-    )
-    .bind(windmill_common::variables::encrypt(&mc, SECRET_VALUE))
-    .execute(&db)
-    .await?;
-    sqlx::query(
-        "INSERT INTO resource (workspace_id, path, value, resource_type, extra_perms, created_by)
-         VALUES ('test-workspace', 'u/test-user/mcp', $1, 'mcp', '{}', 'test-user')",
-    )
-    .bind(serde_json::json!({
-        "name": "mcp",
-        "url": format!("http://127.0.0.1:{mcp_port}/mcp"),
-        "headers": { "X-Api-Key": "$var:u/test-user/mcp_header", "X-Plain": "plain" }
-    }))
-    .execute(&db)
-    .await?;
+    seed(&db, &format!("http://127.0.0.1:{mcp_port}/mcp")).await?;
 
     let server = ApiServer::start(db.clone()).await?;
     let client = AuthedClient::new(
@@ -66,6 +71,40 @@ async fn test_mcp_header_var_ref_is_resolved(db: Pool<Postgres>) -> anyhow::Resu
         "the header must carry the variable's value, not the reference: {request}"
     );
     assert!(request.contains("x-plain: plain"), "{request}");
+
+    Ok(())
+}
+
+/// A token scoped to the resource alone must not have the API read the
+/// variable a header points at.
+#[sqlx::test(fixtures("base"))]
+async fn test_mcp_header_var_ref_requires_variable_scope(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    seed(&db, "https://mcp.invalid.windmill.test").await?;
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes)
+         VALUES (encode(sha256('RES_ONLY_TOKEN'::bytea), 'hex'), 'RES_ONLY_T', 'RES_ONLY_TOKEN',
+                 'test@windmill.dev', 'resources only', false, '{resources:read}')",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let resp = reqwest::Client::new()
+        .get(format!(
+            "http://localhost:{}/api/w/test-workspace/resources/mcp_tools/u/test-user/mcp",
+            server.addr.port()
+        ))
+        .header("Authorization", "Bearer RES_ONLY_TOKEN")
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{body}");
+    assert!(
+        body.contains("variables:read:u/test-user/mcp_header"),
+        "{body}"
+    );
 
     Ok(())
 }
