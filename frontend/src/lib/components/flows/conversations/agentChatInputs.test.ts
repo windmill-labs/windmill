@@ -541,6 +541,11 @@ describe('a step linked to a saved agent', () => {
 			saved
 		)!
 		expect(wiredFieldValue(wiring, {}, 'reasoning_effort')).toBe('high')
+		const none = resolveAgentModelWiring(
+			[linked({ reasoning_effort: { type: 'static', value: '' } })],
+			saved
+		)!
+		expect(wiredFieldValue(none, {}, 'reasoning_effort')).toBe('')
 		expect(
 			wiredFieldValue(wiring, { model: 'claude-haiku-4-5' }, 'reasoning_effort')
 		).toBeUndefined()

@@ -126,7 +126,8 @@ function parseLinkedStep(
 		if (!transform) continue
 		if (transform.type === 'static') {
 			const value = typeof transform.value === 'string' ? transform.value.trim() : ''
-			if (value) fixed[field] = value
+			// An empty model keeps the saved one; an empty effort is the step's choice of none.
+			if (value || field === 'reasoning_effort') fixed[field] = value
 			continue
 		}
 		if (transform.type !== 'javascript') return undefined
@@ -150,10 +151,10 @@ export function wiredFieldValue(
 	if (wiring.whole) return values[wiring.whole]?.[field]
 	const name = wiring.fields[field]
 	const own = name ? values[name] : wiring.fixed[field]
-	if (!wiring.saved || (own !== undefined && own !== '')) return own
-	if (field === 'model') return wiring.saved.model
+	if (!wiring.saved) return own
+	if (field === 'model') return own || wiring.saved.model
 	// An effort the step overrides is the run's whatever it holds: empty there is no effort.
-	if (field === 'reasoning_effort' && !name) {
+	if (field === 'reasoning_effort' && !name && own === undefined) {
 		return wiredFieldValue(wiring, values, 'model') === wiring.saved.model
 			? wiring.saved.reasoning_effort
 			: own

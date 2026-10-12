@@ -281,12 +281,15 @@ fn override_provider_model(
                     InputTransform::Javascript { .. } | InputTransform::Static { .. }
                 )
             })
-            .map(|_| {
-                local_args
+            .map(|t| match t {
+                // A static null is not evaluated for a tool, which leaves the caller's argument
+                // in its place.
+                InputTransform::Static { value } if value.get() == "null" => String::new(),
+                _ => local_args
                     .get(key)
                     .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
                     .map(|s| s.trim().to_string())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             })
     };
     if let Some(model) = authored("model").filter(|m| !m.is_empty()) {
@@ -3014,6 +3017,12 @@ mod tests {
         .unwrap();
         let sent = serde_json::from_value(json!({ "model": "other" })).unwrap();
         override_provider_model(&mut provider, &sent, &HashMap::new());
+        assert_eq!(provider.model, "saved-model");
+        let null = HashMap::from([(
+            "model".to_string(),
+            InputTransform::Static { value: to_raw_value(&serde_json::Value::Null) },
+        )]);
+        override_provider_model(&mut provider, &sent, &null);
         assert_eq!(provider.model, "saved-model");
 
         assert_eq!(run(json!({})), saved);
