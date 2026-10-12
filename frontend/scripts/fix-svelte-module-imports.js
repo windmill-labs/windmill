@@ -54,6 +54,8 @@ execFileSync(
 		chatSdkSrc,
 		'--outDir',
 		chatSdkDest,
+		'--rootDir',
+		dirname(chatSdkSrc),
 		'--declaration',
 		'--target',
 		'ES2021',
@@ -69,8 +71,8 @@ execFileSync(
 const IMPORT_SPECIFIER_RE = /(\bfrom\s*|\bimport\s*\(?\s*)(['"])(\.\.?(?:\/[^'"]*)?)\2/g
 const OAUTH_CONNECT_RE = /^(\.\.\/)+backend\/oauth_connect\.json$/
 const CHAT_SDK_RE = /^(\.\.\/)+chat-sdk\/src\/index\.ts$/
-const DIRECTORY_RE = /^\.\.?$|\/$/
-const ALIASED_GLOB_RE = /import\.meta\.glob\(\s*['"]\$/
+const DIRECTORY_RE = /(^|\/)\.\.?$|\/$/
+const ALIASED_GLOB_RE = /import\.meta\.glob(?:<[^>]*>)?\(\s*\[?\s*['"]\$/
 
 function* walk(dir) {
 	for (const entry of readdirSync(dir)) {
