@@ -1106,6 +1106,9 @@ async sleep(seconds: number): Promise<void>
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
  * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, \`fn\` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -1949,6 +1952,9 @@ async sleep(seconds: number): Promise<void>
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
  * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, \`fn\` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -2898,6 +2904,9 @@ async sleep(seconds: number): Promise<void>
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
  * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, \`fn\` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -5161,12 +5170,15 @@ def workflow(func)
 # \`\`fn\`\`'s result is encoded as JSON and decoded back before it is returned,
 # so the round that runs the body sees the same types every replay sees:
 # a \`\`datetime\`\` comes back as a string, a tuple as a list.
+# 
+# Called from inside a task body, \`\`fn\`\` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 # 
 # Inside a @workflow, the parent job suspends and auto-resumes after \`\`seconds\`\`.
-# Outside a workflow, falls back to \`\`asyncio.sleep\`\`.
+# Outside a workflow, or inside a task body, falls back to \`\`asyncio.sleep\`\`.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
@@ -7651,6 +7663,9 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>)
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
  * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ *
+ * Called from inside a task body, \`fn\` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 export async function step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -7837,12 +7852,15 @@ def workflow(func)
 # \`\`fn\`\`'s result is encoded as JSON and decoded back before it is returned,
 # so the round that runs the body sees the same types every replay sees:
 # a \`\`datetime\`\` comes back as a string, a tuple as a list.
+#
+# Called from inside a task body, \`\`fn\`\` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 #
 # Inside a @workflow, the parent job suspends and auto-resumes after \`\`seconds\`\`.
-# Outside a workflow, falls back to \`\`asyncio.sleep\`\`.
+# Outside a workflow, or inside a task body, falls back to \`\`asyncio.sleep\`\`.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
