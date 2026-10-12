@@ -228,5 +228,17 @@ describe('providerWithOverrides', () => {
 		const run = (effort: unknown) => new Function('flow_input', `return ${folded.expr}`)({ effort })
 		expect(run('low')).toEqual({ ...saved, reasoning_effort: 'low' })
 		expect(run('')).toEqual(saved)
+
+		const byModel = providerWithOverrides(saved, {
+			model: { type: 'javascript', expr: 'flow_input.model' }
+		}) as { type: 'javascript'; expr: string }
+		const runModel = (model: unknown) =>
+			JSON.parse(JSON.stringify(new Function('flow_input', `return ${byModel.expr}`)({ model })))
+		expect(runModel('')).toEqual(saved)
+		expect(runModel('gpt-5-mini')).toEqual({
+			kind: 'openai',
+			resource: '$res:u/a/openai',
+			model: 'gpt-5-mini'
+		})
 	})
 })

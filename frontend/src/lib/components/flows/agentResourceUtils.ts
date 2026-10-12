@@ -206,7 +206,7 @@ export function providerWithOverrides(
 	const model = set('model')
 	const effort = set('reasoning_effort')
 	const folded = { ...provider }
-	if (model && !(model.type === 'static' && model.value.trim() === provider.model) && !effort) {
+	if (model?.type === 'static' && model.value.trim() !== provider.model && !effort) {
 		delete folded.reasoning_effort
 	}
 	if (model?.type !== 'javascript' && effort?.type !== 'javascript') {
@@ -215,7 +215,15 @@ export function providerWithOverrides(
 		return { type: 'static', value: folded }
 	}
 	const field = (key: AgentOverrideKey, t: any) => {
-		if (!t) return folded[key] === undefined ? [] : [`${key}: ${JSON.stringify(folded[key])}`]
+		if (!t && folded[key] === undefined) return []
+		// The saved effort holds only while the model expression resolves to the saved model.
+		if (!t && key === 'reasoning_effort' && model?.type === 'javascript') {
+			const savedModel = JSON.stringify(folded.model)
+			return [
+				`${key}: ((${model.expr}) || ${savedModel}) === ${savedModel} ? ${JSON.stringify(folded[key])} : undefined`
+			]
+		}
+		if (!t) return [`${key}: ${JSON.stringify(folded[key])}`]
 		if (t.type === 'static') return [`${key}: ${JSON.stringify(t.value.trim())}`]
 		const saved = folded[key] === undefined ? 'undefined' : JSON.stringify(folded[key])
 		return [`${key}: (${t.expr}) || ${saved}`]

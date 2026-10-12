@@ -263,13 +263,23 @@ fn keep_authored_memory_id(
 /// A step's own `model` and `reasoning_effort` inputs replace the provider's, which is how a step
 /// linked to a saved agent picks them per run. An empty value keeps the provider's. A reasoning
 /// token is per model, so a different model without an effort of its own runs at its default.
+/// Only an input the step authored counts: the arguments of an agent run as a tool also carry
+/// whatever the calling model sent, which must not choose the model it runs on.
 fn override_provider_model(
     provider: &mut ProviderWithResource,
     local_args: &HashMap<String, Box<RawValue>>,
+    step_input_transforms: &HashMap<String, InputTransform>,
 ) {
     let given = |key: &str| {
-        local_args
+        step_input_transforms
             .get(key)
+            .filter(|t| {
+                matches!(
+                    t,
+                    InputTransform::Javascript { .. } | InputTransform::Static { .. }
+                )
+            })
+            .and_then(|_| local_args.get(key))
             .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
@@ -879,7 +889,7 @@ pub async fn handle_ai_agent_job(
     };
 
     keep_authored_memory_id(&mut args, &step_input_transforms);
-    override_provider_model(&mut args.provider, &local_args);
+    override_provider_model(&mut args.provider, &local_args, &step_input_transforms);
 
     // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
     // a linked resource's tool set may still contain AIAgent or AIDecision tools (the editor can't
@@ -2977,11 +2987,29 @@ mod tests {
                 "reasoning_effort": "high"
             }))
             .unwrap();
-            let local_args = serde_json::from_value(step).unwrap();
-            override_provider_model(&mut provider, &local_args);
+            let local_args: HashMap<String, Box<RawValue>> = serde_json::from_value(step).unwrap();
+            let authored = local_args
+                .keys()
+                .map(|key| {
+                    (
+                        key.clone(),
+                        InputTransform::Javascript { expr: String::new() },
+                    )
+                })
+                .collect();
+            override_provider_model(&mut provider, &local_args, &authored);
             (provider.model, provider.reasoning_effort)
         };
         let saved = ("saved-model".to_string(), Some("high".to_string()));
+
+        // An argument the step did not author is the calling model's, on an agent run as a tool.
+        let mut provider: ProviderWithResource = serde_json::from_value(
+            json!({ "kind": "openai", "resource": {}, "model": "saved-model" }),
+        )
+        .unwrap();
+        let sent = serde_json::from_value(json!({ "model": "other" })).unwrap();
+        override_provider_model(&mut provider, &sent, &HashMap::new());
+        assert_eq!(provider.model, "saved-model");
 
         assert_eq!(run(json!({})), saved);
         assert_eq!(run(json!({ "model": "", "reasoning_effort": null })), saved);
