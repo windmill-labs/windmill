@@ -8,7 +8,6 @@
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$lib/base'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/state'
 	import { replaceState } from '$app/navigation'
@@ -288,7 +287,7 @@
 				<Button
 					variant="default"
 					target="_blank"
-					href="{base}/?workspace=admins"
+					href="/?workspace=admins"
 					endIcon={{ icon: ExternalLink }}
 				>
 					Admins workspace
@@ -309,7 +308,7 @@
 				{#if $workspaceStore !== 'admins'}
 					<div class="mt-4 pt-2 border-t border-surface-hover">
 						<a
-							href="{base}/?workspace=admins"
+							href="/?workspace=admins"
 							target="_blank"
 							class="flex items-center gap-2 px-2 py-1.5 text-xs text-secondary hover:text-primary transition-colors"
 						>
@@ -372,7 +371,7 @@
 								</div>
 							{/if}
 
-							<Tabs bind:selected={usersSubTab} class="mb-4">
+							<Tabs bind:selected={usersSubTab} class="mb-4" wrapperClass="shrink-0">
 								<Tab value="users" label="Users" />
 								{#if extJwtTokens.length > 0}
 									<Tab value="ext_jwt" label="External JWTs" />
@@ -623,7 +622,7 @@
 																		in
 																		{#if workspace_id}
 																			<a
-																				href="{base}/workspace_settings?tab=users&workspace={workspace_id}"
+																				href="/workspace_settings?tab=users&workspace={workspace_id}"
 																				class="hover:underline"
 																				title={workspace_id}
 																				onclick={() => closeDrawer?.()}
@@ -635,7 +634,7 @@
 																	</span>
 																{:else if groupRole}
 																	<a
-																		href="{base}/groups"
+																		href="/groups"
 																		class="text-2xs text-tertiary mt-0.5 ml-1 hover:underline"
 																		title={groupRoleTooltip}
 																		onclick={() => closeDrawer?.()}
@@ -655,7 +654,7 @@
 																					displayName: 'Manage in workspace',
 																					icon: Settings,
 																					action: () => closeDrawer?.(),
-																					href: `${base}/workspace_settings?tab=users&workspace=${workspace_id}`
+																					href: `/workspace_settings?tab=users&workspace=${workspace_id}`
 																				}
 																			]}
 																		/>

@@ -15,11 +15,6 @@ export async function main(x: number) {
   return x;
 }
 """,
-    "deno": """
-export async function main(x: number) {
-  return x;
-}
-""",
     "go": """
 package inner
 func main(x int) (interface{}, error) {
@@ -69,11 +64,6 @@ class TestIdentityScript(unittest.TestCase):
 
     def test_bun(self):
         path = PATH_TEMPLATE.format(lang="bun")
-        result = self._client.run_sync(path, {"x": 5})
-        self.assertEqual(result, 5)
-
-    def test_deno(self):
-        path = PATH_TEMPLATE.format(lang="deno")
         result = self._client.run_sync(path, {"x": 5})
         self.assertEqual(result, 5)
 

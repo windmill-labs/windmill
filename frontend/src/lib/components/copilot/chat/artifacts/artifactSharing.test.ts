@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('$lib/base', () => ({ base: '' }))
-
 import { shareWorkspaceId } from './artifactSharing'
 
 describe('shareWorkspaceId', () => {

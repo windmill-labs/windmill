@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
 	import { goto } from '$app/navigation'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import FolderPicker from '$lib/components/FolderPicker.svelte'
@@ -45,7 +44,7 @@
 	async function openExistingPipeline(folder: string) {
 		onOpen?.()
 		const modeQuery = mode !== 'view' ? `?mode=${mode}` : ''
-		await goto(`${base}/pipeline/${encodeURIComponent(folder)}${modeQuery}`)
+		await goto(`/pipeline/${encodeURIComponent(folder)}${modeQuery}`)
 	}
 
 	async function openPicked() {

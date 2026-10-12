@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import {
 		JobService,
 		ScriptService,
@@ -104,6 +103,7 @@
 		useOperatingUser,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
@@ -173,6 +173,9 @@
 			script.workspace_id == workspace &&
 			canWrite(script.path, script.extra_perms!, actingUser)
 	)
+	const editRights = useEditRights()
+	// The edit actions also need a role that authors scripts, which no operator has.
+	const canEdit = $derived(can_write && editRights.roleCanAuthor('script'))
 	let deploymentInProgress = $state(false)
 	let expandedModuleLocks: Record<string, boolean> = $state({})
 	let expandedModuleCode: Record<string, boolean> = $state({})
@@ -531,7 +534,7 @@
 				description: `Start a new script from a copy of this one`,
 				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: operatingHref(`${base}/scripts/add?template=${script.path}`),
+					href: operatingHref(`/scripts/add?template=${script.path}`),
 					onClick: interceptNav(onNavigate, `/scripts/add?template=${script.path}`),
 					unifiedSize: 'md',
 					variant: 'subtle',
@@ -568,7 +571,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: operatingHref(`${base}/runs/${script.path}`),
+				href: operatingHref(`/runs/${script.path}`),
 				onClick: interceptNav(onNavigate, `/runs/${script.path}`),
 				unifiedSize: 'md',
 				variant: 'subtle',
@@ -576,7 +579,7 @@
 			}
 		})
 
-		if (!script || actingUser?.operator || !can_write) {
+		if (!script || !canEdit) {
 			return buttons
 		}
 
@@ -637,7 +640,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: operatingHref(`${base}${editUrl}`),
+						href: operatingHref(editUrl),
 						onClick: interceptNav(onNavigate, editUrl),
 						unifiedSize: 'md',
 						startIcon: Pen,
@@ -982,7 +985,7 @@
 										<Alert type="warning" title="Not HEAD">
 											This hash is not HEAD (latest non-archived version at this path) :
 											<a
-												href="{base}/scripts/get/{topHash}?workspace={workspace}"
+												href="/scripts/get/{topHash}?workspace={workspace}"
 												onclick={interceptNav(onNavigate, `/scripts/get/${topHash}`)}
 												>Go to the HEAD of this path</a
 											>
@@ -1079,7 +1082,7 @@
 								{#if Object.keys(script?.schema?.properties ?? {}).length > 0}
 									<AIFormAssistant
 										instructions={promptForAi}
-										onEditInstructions={can_write && !actingUser?.operator
+										onEditInstructions={canEdit
 											? () => onNavigate(`/scripts/edit/${script?.path}?metadata_open=true`)
 											: undefined}
 										runnableType="script"

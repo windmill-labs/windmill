@@ -15,6 +15,7 @@
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
 	import RunnableSelector from '../settingsPanel/mainInput/RunnableSelector.svelte'
 	import { defaultScripts } from '$lib/stores'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { Preview } from '$lib/gen'
 	import type { InlineScript } from '../../sharedTypes'
@@ -38,6 +39,7 @@
 	let picker: Drawer | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
+	const operatorBuilderApps = useOperatorBuilderApps()
 
 	async function inferInlineScriptSchema(
 		language: Preview['language'],
@@ -104,7 +106,9 @@
 				<Tabs bind:selected={tab}>
 					<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
 
-					<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
+					{#if !$operatorBuilderApps}
+						<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
+					{/if}
 				</Tabs>
 				<div class="my-2"></div>
 				<div class="flex flex-col gap-y-16">
@@ -123,21 +127,25 @@
 
 <div class="flex flex-col px-4 gap-2 text-sm" id="app-editor-empty-runnable">
 	<div class="mt-2 flex justify-between gap-4" id="app-editor-runnable-header">
-		<div class="font-bold items-baseline truncate">Choose a language</div>
+		<div class="font-bold items-baseline truncate">
+			{$operatorBuilderApps ? 'Choose a script or flow' : 'Choose a language'}
+		</div>
 		<div class="flex gap-2">
 			{#if showScriptPicker}
 				<RunnableSelector {unusedInlineScripts} {rawApps} on:pick hideCreateScript />
 			{/if}
-			<Button
-				on:click={() => picker?.openDrawer()}
-				size="xs"
-				variant="border"
-				color="light"
-				startIcon={{ icon: GitFork }}
-				btnClasses="truncate"
-			>
-				Fork other script
-			</Button>
+			{#if !$operatorBuilderApps}
+				<Button
+					on:click={() => picker?.openDrawer()}
+					size="xs"
+					variant="border"
+					color="light"
+					startIcon={{ icon: GitFork }}
+					btnClasses="truncate"
+				>
+					Fork other script
+				</Button>
+			{/if}
 
 			<Button
 				on:click={() => dispatch('delete')}
@@ -151,7 +159,9 @@
 		</div>
 	</div>
 
-	<div class="flex flex-row w-full gap-8">
+	<!-- Operators with builder rights compose runnables that already exist: the language pickers
+	     below all author code, which the backend refuses from them. -->
+	<div class="flex flex-row w-full gap-8" class:hidden={$operatorBuilderApps}>
 		<div id="app-editor-backend-runnables">
 			<div class="mb-1 text-sm font-semibold flex gap-4">Backend <DefaultScripts /> </div>
 

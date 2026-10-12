@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
 	import { Plug, RotateCw, Unplug } from 'lucide-svelte'
-	import { base } from '$lib/base'
 
 	interface Props {
 		isConnected: boolean | undefined
@@ -16,8 +15,8 @@
 	// Connection URLs based on mode
 	let connectUrl = $derived(
 		mode === 'instance'
-			? `${base}/api/oauth/connect_slack?instance=true`
-			: `${base}/workspace_settings?tab=slack`
+			? '/api/oauth/connect_slack?instance=true'
+			: '/workspace_settings?tab=slack'
 	)
 </script>
 
