@@ -7,7 +7,6 @@ export const SCRIPT_BASE = `# Windmill Script Writing Guide
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - When no resource type exists for a service, still take its connection as one resource-typed parameter, of a custom type holding the connection fields (base URL, account identifiers, credentials), its secret in a variable the resource references. A custom type is named \`c_<name>\`, which keeps it apart from a hub type synced later: the parameter takes \`RT.C<Name>\` in TypeScript, a \`c_<name>\` TypedDict in Python. A plain string parameter or a variable read inside the code only when the user asks for it: the resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records. If the instance is reported as not having synced the Windmill Hub's resource types, mention that a superadmin can sync them, since the hub has types for most services. Otherwise, or when the user prefers it to syncing, propose the resource type and ask before creating it
 - A Windmill Hub script takes a resource type the hub publishes, so on an instance that has not synced the hub's types that type is missing: say so, and that a superadmin can sync them, before asking for a resource of it. Hub scripts often declare the type inline (\`type Stripe = { token: string }\`), which is still the \`stripe\` resource type; in code you write, name it the way the language section shows (\`RT.Stripe\` in TypeScript) rather than copying the inline declaration
-- Where you have no way to create a resource type yourself, give the user its JSON Schema to add with **Add resource type** on the Resources page, and its name without \`c_\`: the form adds the prefix itself
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
 - Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
@@ -618,7 +617,6 @@ A connection still comes in as one resource input, not as separate string inputs
 
 - If the instance is reported as not having synced the Windmill Hub's resource types, mention that a superadmin can sync them, since the hub has types for most services.
 - Otherwise, or when the user prefers it to syncing, propose the resource type and ask before creating it.
-- Where you have no way to create a resource type yourself, give the user the schema to add with **Add resource type** on the Resources page, and the name without \`c_\`: the form adds the prefix itself.
 - A plain variable is fine when the user asks for it.
 
 ### As Step Input (Static Reference)
@@ -845,7 +843,6 @@ The Windmill Hub publishes resource types for most services, and an instance get
 
 - If the instance is reported as not having synced the hub's types, mention that a superadmin can sync them: the hub most likely has one for the service. That holds for a type a hub script takes too: it is missing here until the sync, so say so before asking for a resource of it. Create one of your own only if the user still wants it, since after a sync the workspace would hold both.
 - Otherwise, or when the user prefers it to syncing, propose a custom resource type named \`c_<name>\` holding the service's connection fields (base URL, account or region identifiers, credentials), as in "Custom Resource Types" below, and ask the user before creating it: every resource of that type and every script taking one depends on its fields.
-- Where you have no way to create a resource type yourself, give the user the schema to add with **Add resource type** on the Resources page, and the name without \`c_\`: the form adds the prefix itself.
 - A plain variable instead of a resource is fine when the user asks for it; without that, default to the resource, its secret in a variable it references.
 
 ## Custom Resource Types

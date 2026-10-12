@@ -588,7 +588,6 @@ A connection still comes in as one resource input, not as separate string inputs
 
 - If the instance is reported as not having synced the Windmill Hub's resource types, mention that a superadmin can sync them, since the hub has types for most services.
 - Otherwise, or when the user prefers it to syncing, propose the resource type and ask before creating it.
-- Where you have no way to create a resource type yourself, give the user the schema to add with **Add resource type** on the Resources page, and the name without `c_`: the form adds the prefix itself.
 - A plain variable is fine when the user asks for it.
 
 ### As Step Input (Static Reference)
