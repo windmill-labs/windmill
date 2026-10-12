@@ -332,8 +332,13 @@ export function resolveAgentModelWiring(
 	// An empty input means one thing only where every agent falls back to the same saved pair,
 	// and a saved value must not stand in for a field the agents disagree about.
 	const saved = new Set(wirings.map((w) => JSON.stringify(w.saved)))
-	const agreed = saved.size === 1 && !disagreed.has('model') && !disagreed.has('reasoning_effort')
-	return { fields, fixed, someAgentCannotRun, saved: agreed ? wirings[0].saved : undefined }
+	const agreed = saved.size === 1 && !disagreed.has('model') ? wirings[0].saved : undefined
+	return {
+		fields,
+		fixed,
+		someAgentCannotRun,
+		saved: agreed && disagreed.has('reasoning_effort') ? { model: agreed.model } : agreed
+	}
 }
 
 /**
