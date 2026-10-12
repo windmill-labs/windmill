@@ -3016,6 +3016,34 @@ async def _resolved(value):
     return value
 
 
+def _call_in_task_body(func, caller: str, args, kwargs):
+    """Run a task called from inside a task body in place, round-tripping its
+    result as a dispatched one would be.
+
+    The workflow body awaits every task, sync ones included, so an async caller
+    gets an awaitable back either way; a sync caller gets the value. The scope
+    is re-marked for the nested body, which may be of the other kind."""
+
+    async def run_async(coro):
+        token = _in_task_body.set("async")
+        try:
+            return _json_round_trip(await coro)
+        finally:
+            _in_task_body.reset(token)
+
+    if _inspect.iscoroutinefunction(func):
+        return run_async(func(*args, **kwargs))
+    token = _in_task_body.set("sync")
+    try:
+        result = func(*args, **kwargs)
+    finally:
+        _in_task_body.reset(token)
+    if _asyncio.iscoroutine(result):
+        return run_async(result)
+    result = _json_round_trip(result)
+    return _resolved(result) if caller == "async" else result
+
+
 def _assert_not_inside_task_body(what: str) -> None:
     if _in_task_body.get():
         raise RuntimeError(
@@ -3491,10 +3519,13 @@ def task(
                 merged = _merge_args(args, kwargs)
                 return ctx._next_step(task_name, script, func, _task_options=_task_opts, **merged)
 
+            caller = _in_task_body.get()
+            if caller is not None:
+                return _call_in_task_body(func, caller, args, kwargs)
+
             # WAC v1: running inside a Windmill job but not in a @workflow
             if (
-                not _in_task_body.get()
-                and os.environ.get("WM_JOB_ID") is not None
+                os.environ.get("WM_JOB_ID") is not None
                 and os.environ.get("MAIN_OVERRIDE") != func.__name__
             ):
                 global _client
@@ -3529,12 +3560,7 @@ def task(
                     return _json_round_trip(await result)
 
                 return _round_trip_awaited()
-            result = _json_round_trip(result)
-            if _in_task_body.get() == "async":
-                # The workflow body awaits every task, sync ones included, so an
-                # async task body calling one gets an awaitable as well.
-                return _resolved(result)
-            return result
+            return _json_round_trip(result)
 
         wrapper._is_task = True
         wrapper._task_path = task_path

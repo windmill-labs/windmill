@@ -771,8 +771,13 @@ class TestSdkCallsInsideTaskBody:
             return f"inner:{x}"
 
         @task
-        def sync_inner(x: str):
+        def sync_leaf(x: str):
             return f"sync:{x}"
+
+        # A sync body calls its tasks without awaiting, whatever called it.
+        @task
+        def sync_inner(x: str):
+            return sync_leaf(x).upper().lower()
 
         @task
         async def outer(x: str):
