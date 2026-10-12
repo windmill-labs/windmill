@@ -2020,6 +2020,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  * @param name - Database/datatable name (default: "main")
  * @param opts.role - Connect as this data table role instead of the data table's default one.
  *   Only meaningful on a data table under roles, and only for a role you are a tenant of.
+ * @param opts.as - `"viewer"` connects with every role of the job's viewer at once, so row-level
+ *   security policies see the user of the app rather than its publisher.
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -2032,6 +2034,9 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  * @example
  * // Read through a restricted role
  * let sql = wmill.datatable("main", { role: "analytics" })
+ * @example
+ * // In an app's backend runnable: read what the app's viewer may read
+ * let sql = wmill.datatable("main", { as: "viewer" })
  */
 datatable(name: string = "main", opts?: DatatableOptions): DatatableSqlTemplateFunction
 
@@ -2567,10 +2572,13 @@ def send_teams_message(conversation_id: str, text: str, success: bool = True, ca
 #     role: Connect as this data table role instead of the data table's default one.
 #         Only meaningful on a data table under roles, and only for a role you are a
 #         tenant of.
+#     as_viewer: Connect with every role of the job's viewer at once: the user of the
+#         app the job runs for, or whoever ran the script. The server resolves who that
+#         is. Cannot be combined with role.
 # 
 # Returns:
 #     DataTableClient instance
-def datatable(name: str = 'main', *, role: Optional[str] = None)
+def datatable(name: str = 'main', *, role: Optional[str] = None, as_viewer: bool = False)
 
 # Get a DuckLake client for DuckDB queries.
 # 

@@ -64,6 +64,8 @@ Create a SQL template function for PostgreSQL/datatable queries
 @param name - Database/datatable name (default: "main")
 @param opts.role - Connect as this data table role instead of the data table's default one.
   Only meaningful on a data table under roles, and only for a role you are a tenant of.
+@param opts.as - `"viewer"` connects with every role of the job's viewer at once, so row-level
+  security policies see the user of the app rather than its publisher.
 @returns SQL template function for building parameterized queries
 @example
 let sql = wmill.datatable()
@@ -76,6 +78,9 @@ await sql`
 @example
 // Read through a restricted role
 let sql = wmill.datatable("main", { role: "analytics" })
+@example
+// In an app's backend runnable: read what the app's viewer may read
+let sql = wmill.datatable("main", { as: "viewer" })
 ```typescript
 function datatable(name: string = "main",
   opts?: DatatableOptions): DatatableSqlTemplateFunction

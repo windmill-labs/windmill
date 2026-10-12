@@ -1456,7 +1456,9 @@ class Windmill:
             },
         )
 
-    def datatable(self, name: str = "main", *, role: Optional[str] = None):
+    def datatable(
+        self, name: str = "main", *, role: Optional[str] = None, as_viewer: bool = False
+    ):
         """Get a DataTable client for SQL queries.
 
         Args:
@@ -1464,11 +1466,14 @@ class Windmill:
             role: Connect as this data table role instead of the data table's default one.
                 Only meaningful on a data table under roles, and only for a role you are a
                 tenant of.
+            as_viewer: Connect with every role of the job's viewer at once: the user of the
+                app the job runs for, or whoever ran the script. The server resolves who that
+                is. Cannot be combined with role.
 
         Returns:
             DataTableClient instance
         """
-        return DataTableClient(self, name, role=role)
+        return DataTableClient(self, name, role=role, as_viewer=as_viewer)
 
     def ducklake(self, name: str = "main"):
         """Get a DuckLake client for DuckDB queries.
@@ -2325,17 +2330,21 @@ def username_to_email(username: str) -> str:
 
 
 @init_global_client
-def datatable(name: str = "main", *, role: Optional[str] = None) -> DataTableClient:
+def datatable(
+    name: str = "main", *, role: Optional[str] = None, as_viewer: bool = False
+) -> DataTableClient:
     """Get a DataTable client for SQL queries.
 
     Args:
         name: Database name (default: "main")
         role: Connect as this data table role instead of the data table's default one.
+        as_viewer: Connect with every role of the job's viewer at once: the user of the app
+            the job runs for, or whoever ran the script. Cannot be combined with role.
 
     Returns:
         DataTableClient instance
     """
-    return _client.datatable(name, role=role)
+    return _client.datatable(name, role=role, as_viewer=as_viewer)
 
 @init_global_client
 def ducklake(name: str = "main") -> DucklakeClient:
@@ -2418,20 +2427,30 @@ _ROLE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
 class DataTableClient:
     """Client for executing SQL queries against Windmill DataTables."""
 
-    def __init__(self, client: Windmill, name: str, role: Optional[str] = None):
+    def __init__(
+        self,
+        client: Windmill,
+        name: str,
+        role: Optional[str] = None,
+        as_viewer: bool = False,
+    ):
         """Initialize DataTableClient.
 
         Args:
             client: Windmill client instance
             name: DataTable name
             role: Data table role to connect as, or None for the data table's default
+            as_viewer: Connect with every role of the job's viewer instead of one role
         """
         if role is not None and not _ROLE_NAME_RE.match(role):
             raise ValueError(
                 f"Invalid data table role '{role}': only letters, digits, '_' and '-' are allowed"
             )
+        if as_viewer and role is not None:
+            raise ValueError("A data table is used as a role or as the viewer, not both")
         self.client = client
         self.role = role
+        self.as_viewer = as_viewer
         self.name, self.schema = parse_sql_client_name(name)
     def query(self, sql: str, *args) -> SqlQuery:
         """Execute a SQL query against the DataTable.
@@ -2460,7 +2479,13 @@ class DataTableClient:
             lambda sql: self.client.run_inline_script_preview(
                 content=sql,
                 language="postgresql",
-                args={"database": f"datatable://{self.name}", **args_dict},
+                # In the reference rather than an annotation: a worker that does not know `?as=`
+                # refuses the reference, where it would skip an annotation and connect as the
+                # default role.
+                args={
+                    "database": f"datatable://{self.name}{'?as=viewer' if self.as_viewer else ''}",
+                    **args_dict,
+                },
             )
         )
 

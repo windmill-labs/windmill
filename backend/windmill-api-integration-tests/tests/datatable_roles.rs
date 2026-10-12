@@ -1847,3 +1847,142 @@ async fn cleanup_waits_out_a_save_racing_it_for_an_instance_database(
     assert_eq!(users, vec!["test-workspace".to_string()]);
     Ok(())
 }
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn connecting_as_the_viewer_takes_the_roles_that_name_them_and_no_other(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::workspaces::{
+        get_datatable_resource_from_db, DatatableAccess, DATATABLE_VIEWER_ROLE,
+    };
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let suffix: String = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+    let names = [
+        format!("wmtest_emea_{suffix}"),
+        format!("wmtest_amer_{suffix}"),
+    ];
+    let roles_url = format!("http://localhost:{port}/api/settings/datatable_roles");
+    const MEMBER_LOGINS: &str = "SELECT m.rolname::text FROM pg_auth_members am
+         JOIN pg_roles r ON r.oid = am.roleid JOIN pg_roles m ON m.oid = am.member
+         WHERE r.rolname = $1 AND m.rolname LIKE 'wm\\_set\\_%'";
+
+    // The job is the app publisher's in every case: only the viewer the server recorded differs.
+    let as_viewer = |viewer: Option<&'static str>| {
+        get_datatable_resource_from_db(
+            &db,
+            "test-workspace",
+            "main",
+            Some(DATATABLE_VIEWER_ROLE),
+            DatatableAccess::PermissionedAs {
+                permissioned_as: "u/test-user",
+                email: "test@windmill.dev",
+                end_user_email: viewer,
+            },
+        )
+    };
+
+    let outcome = async {
+        let mut ids = vec![];
+        for name in &names {
+            let created: Value = authed(client().post(&roles_url), "SECRET_TOKEN")
+                .json(&json!({ "name": name }))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            ids.push(created["id"].as_str().unwrap().to_string());
+        }
+        // `test-user-2` is named by both roles, one of them through a group, and by `admin`;
+        // `test-user-3` by one; the workspace admin `test-user` by none.
+        sqlx::query(
+            "UPDATE workspace_settings
+             SET datatable = jsonb_set(datatable, '{datatables,main,permissions,roles}', $1)
+             WHERE workspace_id = 'test-workspace'",
+        )
+        .bind(json!({
+            "admin": {"tenants": ["u/test-user-2"]},
+            (ids[0].as_str()): {"tenants": ["u/test-user-2", "u/test-user-3"]},
+            (ids[1].as_str()): {"tenants": ["g/analysts"]},
+        }))
+        .execute(&db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO usr_to_group (workspace_id, usr, group_)
+             VALUES ('test-workspace', 'test-user-2', 'analysts')",
+        )
+        .execute(&db)
+        .await?;
+
+        let both = as_viewer(Some("test2@windmill.dev")).await?;
+        let login = both["user"].as_str().unwrap().to_string();
+        assert!(login.starts_with("wm_set_"), "{login}");
+        let mut member_of: Vec<String> = sqlx::query_scalar(
+            "SELECT r.rolname::text FROM pg_auth_members am
+             JOIN pg_roles r ON r.oid = am.roleid JOIN pg_roles m ON m.oid = am.member
+             WHERE m.rolname = $1",
+        )
+        .bind(&login)
+        .fetch_all(&db)
+        .await?;
+        member_of.sort();
+        let mut expected = names.to_vec();
+        expected.sort();
+        assert_eq!(
+            member_of, expected,
+            "the login holds exactly the viewer's roles"
+        );
+        assert_eq!(as_viewer(Some("test2@windmill.dev")).await?, both);
+
+        let one = as_viewer(Some("test3@windmill.dev")).await?;
+        assert_eq!(one["user"], names[0].as_str(), "one role is its own login");
+
+        // An admin may use every role, the one owning the tables included. As a viewer they get
+        // what names them, which here is nothing.
+        assert!(as_viewer(Some("test@windmill.dev")).await.is_err());
+        // No recorded viewer must not fall back to the job's owner.
+        assert!(as_viewer(None).await.is_err());
+
+        // A disabled role must not stay reachable through a login that is a member of it.
+        authed(
+            client().post(format!("{roles_url}/{}", ids[1])),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "enabled": false }))
+        .send()
+        .await?
+        .error_for_status()?;
+        let can_login: bool =
+            sqlx::query_scalar("SELECT rolcanlogin FROM pg_roles WHERE rolname = $1")
+                .bind(&login)
+                .fetch_one(&db)
+                .await?;
+        assert!(!can_login, "{login} still logs in with a disabled role");
+        let remaining = as_viewer(Some("test2@windmill.dev")).await?;
+        assert_eq!(remaining["user"], names[0].as_str());
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+
+    // Roles are cluster-wide, so they outlive this test's throwaway database.
+    for name in &names {
+        let logins: Vec<String> = sqlx::query_scalar(MEMBER_LOGINS)
+            .bind(name)
+            .fetch_all(&db)
+            .await
+            .unwrap_or_default();
+        for login in logins {
+            let _ = sqlx::query(&format!("DROP ROLE IF EXISTS \"{login}\""))
+                .execute(&db)
+                .await;
+        }
+        let _ = sqlx::query(&format!("DROP ROLE IF EXISTS \"{name}\""))
+            .execute(&db)
+            .await;
+    }
+    outcome
+}

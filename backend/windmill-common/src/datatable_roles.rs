@@ -121,7 +121,12 @@ fn is_reserved_role_name(name: &str) -> bool {
         || lower.starts_with("pg_")
         || lower.starts_with("windmill_")
         || lower.starts_with("custom_instance_")
+        || lower.starts_with(ROLE_SET_LOGIN_PREFIX)
 }
+
+/// Prefix of the logins Windmill creates for a connection made as several roles at once. Reserved,
+/// so no data table role can be created under, renamed to or taken over at such a name.
+pub const ROLE_SET_LOGIN_PREFIX: &str = "wm_set_";
 
 /// The charset is what makes every downstream interpolation safe: the name reaches Postgres as a
 /// quoted identifier, a `-- role <name>` annotation, and a `?role=` query parameter.
