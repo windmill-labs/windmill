@@ -2493,10 +2493,10 @@ pub async fn parse_datatable_ref_for(
 /// A query string that does not parse is an error rather than an absent role. Falling back would
 /// resolve the reference to the data table's default role, so `?Role=analytics` or a mistyped
 /// `?role=` would quietly connect as something the caller did not ask for — the same trap as a
-/// malformed `-- role` annotation, and `role` is the only parameter a reference takes.
+/// malformed `-- role` annotation.
 ///
-/// `?as=viewer` asks for every role of the job's viewer instead of one by name, and comes back as
-/// [`DATATABLE_VIEWER_ROLE`].
+/// The one other parameter is `?as=viewer`, which asks for every role of the job's viewer instead
+/// of one by name and comes back as [`DATATABLE_VIEWER_ROLE`].
 pub fn parse_datatable_ref(reference: &str) -> Result<(&str, Option<&str>)> {
     let (name, query) = reference.split_once('?').unwrap_or((reference, ""));
     let mut role = None;

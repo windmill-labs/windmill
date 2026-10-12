@@ -2489,6 +2489,51 @@ mod tests {
         }
     }
 
+    // A cache hit returns before the job runs, so the key is all that keeps a result computed
+    // for one viewer (a data table used as the viewer, `WM_END_USER_EMAIL`) from another.
+    #[tokio::test]
+    async fn a_cached_result_is_keyed_by_the_recorded_viewer() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let client = test_client();
+
+        let mut paths = vec![];
+        for viewer in [
+            Some("a@windmill.dev"),
+            Some("a@windmill.dev"),
+            Some("b@windmill.dev"),
+            None,
+        ] {
+            let job = MiniPulledJob { id: uuid::Uuid::new_v4(), ..test_job() };
+            sqlx::query(
+                "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator,
+                     workspace_id, groups, folders, end_user_email)
+                 VALUES ($1, 'publisher@windmill.dev', 'publisher', false, false, 'test', '{}',
+                     '{}', $2)",
+            )
+            .bind(job.id)
+            .bind(viewer)
+            .execute(&pool)
+            .await
+            .unwrap();
+            let path = cached_result_path(&pool, &client, &job, None).await;
+            sqlx::query("DELETE FROM job_perms WHERE job_id = $1")
+                .bind(job.id)
+                .execute(&pool)
+                .await
+                .unwrap();
+            paths.push(path.unwrap());
+        }
+        assert_eq!(
+            paths[0], paths[1],
+            "one viewer shares their own cached result"
+        );
+        assert_ne!(paths[0], paths[2], "two viewers share a cached result");
+        assert_ne!(paths[0], paths[3]);
+        assert_ne!(paths[2], paths[3]);
+    }
+
     #[tokio::test]
     async fn test_transform_array_over_1000_passthrough() {
         let db_url = std::env::var("DATABASE_URL")
