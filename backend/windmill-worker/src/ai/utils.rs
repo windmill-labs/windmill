@@ -570,7 +570,7 @@ pub async fn load_mcp_tools(
         // is not allowed to read (resources:read:{path}). Reading through the raw
         // db pool here would bypass the authorization enforced by the regular MCP
         // tools API (get_mcp_tools) and act as a confused deputy.
-        let mcp_resource = client
+        let mut mcp_resource = client
             .get_resource_value::<McpResource>(path)
             .await
             .map_err(|e| {
@@ -614,6 +614,18 @@ pub async fn load_mcp_tools(
         } else {
             None
         };
+
+        // Header secrets go through the same permissioned path as the token.
+        for (name, value) in mcp_resource.headers.iter_mut().flatten() {
+            if let Some(var_path) = value.strip_prefix("$var:") {
+                *value = client.get_variable_value(var_path).await.map_err(|e| {
+                    Error::internal_err(format!(
+                        "Failed to resolve variable {} for header {} of MCP resource {}: {}",
+                        var_path, name, resource_name, e
+                    ))
+                })?;
+            }
+        }
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);

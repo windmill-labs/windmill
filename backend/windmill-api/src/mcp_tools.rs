@@ -23,14 +23,12 @@ async fn with_deadline<T>(
     what: &str,
     fut: impl std::future::Future<Output = Result<T>>,
 ) -> Result<T> {
-    tokio::time::timeout(MCP_DEADLINE, fut)
-        .await
-        .map_err(|_| {
-            Error::ExecutionErr(format!(
-                "MCP server did not answer within {}s ({what})",
-                MCP_DEADLINE.as_secs()
-            ))
-        })?
+    tokio::time::timeout(MCP_DEADLINE, fut).await.map_err(|_| {
+        Error::ExecutionErr(format!(
+            "MCP server did not answer within {}s ({what})",
+            MCP_DEADLINE.as_secs()
+        ))
+    })?
 }
 
 /// Connect to the MCP server described by the `mcp` resource at `path`.
@@ -65,8 +63,9 @@ async fn connect_mcp_client(
     let resource_value = not_found_if_none(resource_value_o, "Resource", path)?
         .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", path)))?;
 
-    let mcp_resource = serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
-        .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
+    let mut mcp_resource =
+        serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
+            .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
 
     #[cfg(feature = "oauth2")]
     {
@@ -125,6 +124,14 @@ async fn connect_mcp_client(
     } else {
         None
     };
+
+    // Header secrets go through the same permissioned path as the token.
+    for value in mcp_resource.headers.iter_mut().flatten().map(|(_, v)| v) {
+        if let Some(var_path) = value.strip_prefix("$var:") {
+            let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+            *value = get_value_internal(&db_authed, w_id, var_path, false).await?;
+        }
+    }
 
     windmill_mcp::McpClient::from_resource(mcp_resource, token)
         .await

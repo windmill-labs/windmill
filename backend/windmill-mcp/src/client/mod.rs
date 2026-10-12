@@ -70,7 +70,8 @@ impl McpClient {
                         headers.insert(name, value);
                     }
                     _ => {
-                        tracing::warn!("Invalid header: {}={}", key, value);
+                        // The value may be a resolved secret: keep it out of the logs.
+                        tracing::warn!("Invalid header: {}", key);
                     }
                 }
             }
