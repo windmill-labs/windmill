@@ -471,6 +471,33 @@ fn print_help() {
     println!("- At startup, Windmill logs currently set configuration keys for visibility.");
 }
 
+async fn otel_environment(conn: &Connection) -> String {
+    if let Ok(environment) = std::env::var("OTEL_ENVIRONMENT") {
+        environment
+    } else {
+        load_base_url(conn)
+            .await
+            .unwrap_or_else(|_| "local".to_string())
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split(".")
+            .next()
+            .unwrap_or_else(|| "local")
+            .to_string()
+    }
+}
+
+/// What a subcommand that writes instance config needs from the instance before its first
+/// write, since it never runs the server startup that loads them: the OTel settings its
+/// audit events are exported under, and the license plan they are redacted by.
+async fn init_declarative_writer(db: &windmill_common::DB, service: &str) {
+    let conn = Connection::Sql(db.clone());
+    load_otel(db).await;
+    let environment = otel_environment(&conn).await;
+    windmill_common::tracing_init::initialize_subcommand_tracing(service, &HOSTNAME, &environment);
+    crate::monitor::load_license_key_if_set(&conn).await;
+}
+
 async fn windmill_main() -> anyhow::Result<()> {
     let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
@@ -574,7 +601,6 @@ async fn windmill_main() -> anyhow::Result<()> {
             return Ok(());
         }
         "sync-config" => {
-            tracing_subscriber::fmt::init();
             let path = std::env::args().nth(2).unwrap_or_else(|| {
                 eprintln!("Usage: windmill sync-config <file>");
                 std::process::exit(1);
@@ -588,17 +614,34 @@ async fn windmill_main() -> anyhow::Result<()> {
             windmill_common::instance_config::resolve_env_refs(&mut config.global_settings)
                 .map_err(|var| anyhow::anyhow!("environment variable '{var}' not found"))?;
 
-            tracing::info!("Connecting to database...");
+            println!("Connecting to database...");
             let db = crate::db_connect::initial_connection().await?;
-            config.sync_to_db(&db).await?;
+            init_declarative_writer(&db, "windmill-sync-config").await;
+
+            let author = windmill_audit::instance_config::declarative_sync_author();
+            let synced = config
+                .sync_to_db(
+                    &db,
+                    &windmill_audit::instance_config::InstanceConfigAuditor {
+                        db: &db,
+                        author: &author,
+                        source: Some(
+                            windmill_audit::instance_config::DeclarativeSource::SyncConfig,
+                        ),
+                    },
+                )
+                .await;
+            // Also on failure: the settings written before it are already audited, and the
+            // process exits before the exporter's next scheduled batch.
+            windmill_common::otel_oss::flush_otel_logs().await;
+            synced?;
             tracing::info!("Synced instance config from {path}");
             return Ok(());
         }
         #[cfg(feature = "operator")]
         "operator" => {
-            tracing_subscriber::fmt::init();
-            tracing::info!("Starting Windmill Kubernetes operator...");
-            tracing::info!("Connecting to database...");
+            println!("Starting Windmill Kubernetes operator...");
+            println!("Connecting to database...");
 
             #[cfg(all(feature = "enterprise", feature = "private"))]
             let (operator_killpill_tx, operator_killpill_rx) =
@@ -609,6 +652,7 @@ async fn windmill_main() -> anyhow::Result<()> {
                 operator_killpill_rx,
             )
             .await?;
+            init_declarative_writer(&db, "windmill-operator").await;
 
             #[cfg(all(feature = "enterprise", feature = "private"))]
             tokio::spawn(async move {
@@ -735,19 +779,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         (Connection::Sql(db), None, None)
     };
 
-    let environment = if let Ok(environment) = std::env::var("OTEL_ENVIRONMENT") {
-        environment
-    } else {
-        load_base_url(&conn)
-            .await
-            .unwrap_or_else(|_| "local".to_string())
-            .trim_start_matches("https://")
-            .trim_start_matches("http://")
-            .split(".")
-            .next()
-            .unwrap_or_else(|| "local")
-            .to_string()
-    };
+    let environment = otel_environment(&conn).await;
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 

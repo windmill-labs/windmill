@@ -1455,6 +1455,7 @@ async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres
         &db,
         &BTreeMap::new(),
         &desired,
+        &(),
     )
     .await
     .expect_err("an invalid webhook base url must fail the sync");
@@ -1474,6 +1475,7 @@ async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres
         &db,
         &BTreeMap::new(),
         &wrong_type,
+        &(),
     )
     .await
     .expect_err("a non-string webhook base url must fail the sync");
@@ -1511,6 +1513,7 @@ async fn declarative_sync_rejects_an_unusable_instance_banner(db: Pool<Postgres>
         &db,
         &BTreeMap::new(),
         &desired,
+        &(),
     )
     .await
     .expect_err("a javascript: banner link must fail the sync");
@@ -1545,6 +1548,7 @@ async fn declarative_sync_rejects_a_malformed_max_token_expiration(db: Pool<Post
         &db,
         &BTreeMap::new(),
         &desired,
+        &(),
     )
     .await
     .expect_err("a ceiling the token routes cannot read must fail the sync");
@@ -1578,6 +1582,7 @@ async fn declarative_sync_rejects_an_unusable_default_allowed_origins(db: Pool<P
             &db,
             &BTreeMap::new(),
             &desired,
+            &(),
         )
         .await
         .expect_err(&format!("{bad} must fail the sync"));
@@ -1604,6 +1609,7 @@ async fn declarative_sync_rejects_an_unusable_default_allowed_origins(db: Pool<P
         &db,
         &BTreeMap::new(),
         &desired,
+        &(),
     )
     .await
     .expect("a valid origin list must sync");
@@ -1635,7 +1641,10 @@ async fn declarative_sync_keeps_the_external_cluster_while_it_holds_databases(db
         let (db, current) = (db.clone(), current.clone());
         async move {
             windmill_common::instance_config::sync_global_settings_declarative(
-                &db, &current, &desired,
+                &db,
+                &current,
+                &desired,
+                &(),
             )
             .await
         }
@@ -1670,6 +1679,7 @@ async fn declarative_sync_rejects_a_non_hex_accent_color(db: Pool<Postgres>) {
         &db,
         &BTreeMap::new(),
         &desired,
+        &(),
     )
     .await
     .expect_err("a non-hex accent color must fail the sync");
@@ -1681,7 +1691,109 @@ async fn declarative_sync_rejects_a_non_hex_accent_color(db: Pool<Postgres>) {
         &db,
         &BTreeMap::new(),
         &desired,
+        &(),
     )
     .await
     .expect("a hex accent color must sync");
+}
+
+/// A declarative sync has no user request behind it, so its observer is the only thing
+/// that audits it: one entry per setting or worker config it actually writes, values
+/// recorded under the API path's rule, and none for what it leaves as is.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_declarative_sync_audits_only_what_it_writes(db: Pool<Postgres>) {
+    use windmill_audit::instance_config::{
+        declarative_sync_author, DeclarativeSource, InstanceConfigAuditor,
+    };
+
+    insert_global_setting(&db, "retention_period_secs", serde_json::json!(100)).await;
+    insert_global_setting(&db, "expose_metrics", serde_json::json!(true)).await;
+    insert_global_setting(&db, "scim_token", serde_json::json!("old-scim-secret")).await;
+    insert_global_setting(
+        &db,
+        "npm_config_registry",
+        serde_json::json!("https://u:p@npm"),
+    )
+    .await;
+    insert_config(
+        &db,
+        "worker__kept",
+        serde_json::json!({"worker_tags": ["a"]}),
+    )
+    .await;
+    insert_config(
+        &db,
+        "worker__dropped",
+        serde_json::json!({"worker_tags": ["b"]}),
+    )
+    .await;
+
+    let config: windmill_common::instance_config::InstanceConfig =
+        serde_json::from_value(serde_json::json!({
+            "global_settings": {
+                "retention_period_secs": 200,
+                "expose_metrics": true,
+                "scim_token": "new-scim-secret",
+            },
+            "worker_configs": {
+                "kept": {"worker_tags": ["a"]},
+                "added": {"init_bash": "export TOKEN=init-secret"},
+            },
+        }))
+        .unwrap();
+    let author = declarative_sync_author();
+    config
+        .sync_to_db(
+            &db,
+            &InstanceConfigAuditor {
+                db: &db,
+                author: &author,
+                source: Some(DeclarativeSource::SyncConfig),
+            },
+        )
+        .await
+        .unwrap();
+
+    let entries: Vec<(String, String, serde_json::Value)> = sqlx::query_as(
+        "SELECT operation, resource, parameters FROM audit_partitioned \
+         WHERE workspace_id = 'global' AND username = $1 AND resource = ANY($2) \
+         ORDER BY resource",
+    )
+    .bind(&author.username)
+    .bind(vec![
+        "retention_period_secs",
+        "expose_metrics",
+        "scim_token",
+        "npm_config_registry",
+        "worker__kept",
+        "worker__dropped",
+        "worker__added",
+    ])
+    .fetch_all(&db)
+    .await
+    .unwrap();
+
+    let source = serde_json::json!({"source": "sync-config"});
+    let entry = |operation: &str, resource: &str, parameters: &serde_json::Value| {
+        (
+            operation.to_string(),
+            resource.to_string(),
+            parameters.clone(),
+        )
+    };
+    assert_eq!(
+        entries,
+        vec![
+            entry("global_settings.delete", "npm_config_registry", &source),
+            entry(
+                "global_settings.update",
+                "retention_period_secs",
+                &serde_json::json!({"source": "sync-config", "value": "200"}),
+            ),
+            entry("global_settings.update", "scim_token", &source),
+            entry("worker_config.update", "worker__added", &source),
+            entry("worker_config.delete", "worker__dropped", &source),
+        ]
+    );
 }
