@@ -26,7 +26,8 @@ async fn redacted<T>(request: impl Future<Output = Result<T, Error>>) -> Result<
         // An owned message is `HTTP <status>: <body>`, and the body is the server's
         // to write: a common one echoes the request target (`Cannot POST /mcp/<key>`).
         Err(StreamableHttpError::UnexpectedServerResponse(Cow::Owned(message))) => {
-            let status = message.split(": ").next().unwrap_or_default().to_string();
+            let status = message.split_once(": ").map_or("", |(status, _)| status);
+            let status = status.to_string();
             Err(StreamableHttpError::UnexpectedServerResponse(status.into()))
         }
         r => r,
@@ -118,5 +119,33 @@ impl StreamableHttpClient for UrlRedactingClient {
             max_sse_event_size,
         ))
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn server_error_body_is_dropped() {
+        for (message, expected) in [
+            (
+                "HTTP 404 Not Found: Cannot POST /mcp/KEY",
+                "HTTP 404 Not Found",
+            ),
+            ("Cannot POST /mcp/KEY", ""),
+        ] {
+            let err = redacted(async {
+                Err::<(), Error>(StreamableHttpError::UnexpectedServerResponse(
+                    message.to_string().into(),
+                ))
+            })
+            .await
+            .unwrap_err();
+            let StreamableHttpError::UnexpectedServerResponse(got) = err else {
+                panic!("unexpected variant: {err}");
+            };
+            assert_eq!(got, expected);
+        }
     }
 }
