@@ -85,7 +85,7 @@ async fn test_flow_linear_input_transforms(db: Pool<Postgres>) -> anyhow::Result
         modules: vec![
             flow_module("a", FlowModuleValue::RawScript {
                 input_transforms: [static_input("x", 10), static_input("y", 5)].into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main(x: number, y: number) {
     return {sum: x + y, product: x * y, items: [1, 2, 3, 4, 5]};
@@ -105,7 +105,7 @@ export function main(x: number, y: number) {
                     js_input("filtered", "results.a.items.filter(x => x > 2)"),
                     js_input("from_flow_input", "flow_input.multiplier * results.a.sum"),
                 ].into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main(total: number, doubled_items: number[], filtered: number[], from_flow_input: number) {
     return {total, doubled_items, filtered, from_flow_input};
@@ -157,7 +157,7 @@ async fn test_flow_forloop_complex_expressions(db: Pool<Postgres>) -> anyhow::Re
                 "a",
                 FlowModuleValue::RawScript {
                     input_transforms: Default::default(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main() {
     return {
@@ -199,7 +199,7 @@ export function main() {
                                 js_input("index", "flow_input.iter.index"),
                             ]
                             .into(),
-                            language: ScriptLang::Deno,
+                            language: ScriptLang::Bun,
                             content: r#"
 export function main(user_name: string, user_score: number, bonus: number, index: number) {
     return {name: user_name, final_score: user_score + bonus, position: index};
@@ -261,7 +261,7 @@ async fn test_flow_branchone_conditions(db: Pool<Postgres>) -> anyhow::Result<()
                 "a",
                 FlowModuleValue::RawScript {
                     input_transforms: Default::default(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main() {
     return {status: "premium", score: 95, items: [1, 2, 3]};
@@ -293,7 +293,7 @@ export function main() {
                                         js_input("score_from_a", "results.a.score"),
                                     ]
                                     .into(),
-                                    language: ScriptLang::Deno,
+                                    language: ScriptLang::Bun,
                                     content: r#"
 export function main(discount: number, score_from_a: number) {
     return {branch: "premium_high", discount, score_from_a};
@@ -320,7 +320,7 @@ export function main(discount: number, score_from_a: number) {
                                 "premium_low",
                                 FlowModuleValue::RawScript {
                                     input_transforms: Default::default(),
-                                    language: ScriptLang::Deno,
+                                    language: ScriptLang::Bun,
                                     content: r#"
 export function main() {
     return {branch: "premium_low", discount: 10};
@@ -344,7 +344,7 @@ export function main() {
                         "default_branch",
                         FlowModuleValue::RawScript {
                             input_transforms: Default::default(),
-                            language: ScriptLang::Deno,
+                            language: ScriptLang::Bun,
                             content: r#"
 export function main() {
     return {branch: "default", discount: 0};
@@ -398,7 +398,7 @@ async fn test_flow_previous_result_aggregation(db: Pool<Postgres>) -> anyhow::Re
                 "a",
                 FlowModuleValue::RawScript {
                     input_transforms: Default::default(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main() {
     return {value: 10, items: [1, 2, 3]};
@@ -424,7 +424,7 @@ export function main() {
                         ),
                     ]
                     .into(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main(prev_value: number, prev_items_sum: number) {
     return {value: prev_value * 2, sum: prev_items_sum};
@@ -452,7 +452,7 @@ export function main(prev_value: number, prev_items_sum: number) {
                         ),
                     ]
                     .into(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main(a_value: number, b_value: number, b_sum: number, combined: number) {
     return {a_value, b_value, b_sum, combined};
@@ -504,7 +504,7 @@ async fn test_flow_nested_complexity(db: Pool<Postgres>) -> anyhow::Result<()> {
         modules: vec![
             flow_module("data", FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {
@@ -541,7 +541,7 @@ export function main() {
                             js_input("values", "results.data.base_values.map(v => v * flow_input.iter.value.multiplier)"),
                             js_input("sum", "results.data.base_values.reduce((a, b) => a + b, 0) * flow_input.iter.value.multiplier"),
                         ].into(),
-                        language: ScriptLang::Deno,
+                        language: ScriptLang::Bun,
                         content: r#"
 export function main(cat_name: string, multiplier: number, values: number[], sum: number) {
     return {category: cat_name, multiplier, computed_values: values, total: sum};
@@ -602,7 +602,7 @@ async fn test_flow_object_transformations(db: Pool<Postgres>) -> anyhow::Result<
         modules: vec![
             flow_module("source", FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {
@@ -633,7 +633,7 @@ export function main() {
                     js_input("active_bonus", "results.source.config.activeBonus"),
                     js_input("all_users", "results.source.users"),
                 ].into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main(admins: string[], active_count: number, admin_bonus: number, active_bonus: number, all_users: any[]) {
     // Compute user_summary and total_bonus in the script since complex expressions in input_transforms
@@ -702,7 +702,7 @@ async fn test_flow_skip_if_expressions(db: Pool<Postgres>) -> anyhow::Result<()>
                 "check",
                 FlowModuleValue::RawScript {
                     input_transforms: Default::default(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main() {
     return {should_skip: true, value: 100};
@@ -722,7 +722,7 @@ export function main() {
                     "maybe_skipped",
                     FlowModuleValue::RawScript {
                         input_transforms: [js_input("input_val", "results.check.value * 2")].into(),
-                        language: ScriptLang::Deno,
+                        language: ScriptLang::Bun,
                         content: r#"
 export function main(input_val: number) {
     return {processed: input_val, was_run: true};
@@ -750,7 +750,7 @@ export function main(input_val: number) {
                         js_input("prev", "previous_result"),
                     ]
                     .into(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main(check_val: number, prev: any) {
     return {check_val, previous: prev};
@@ -799,7 +799,7 @@ async fn test_flow_template_literals(db: Pool<Postgres>) -> anyhow::Result<()> {
         modules: vec![
             flow_module("data", FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {
@@ -825,7 +825,7 @@ export function main() {
                     js_input("upper_name", "results.data.firstName.toUpperCase()"),
                     js_input("items_formatted", "`Items: ${results.data.items.map(i => i.charAt(0).toUpperCase() + i.slice(1)).join(', ')}`"),
                 ].into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main(full_name: string, greeting: string, items_str: string, upper_name: string, items_formatted: string) {
     return {full_name, greeting, items_str, upper_name, items_formatted};
@@ -873,7 +873,7 @@ async fn test_flow_optional_chaining(db: Pool<Postgres>) -> anyhow::Result<()> {
         modules: vec![
             flow_module("data", FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {
@@ -905,7 +905,7 @@ export function main() {
                     js_input("default_city", "results.data.partial_user?.address?.city ?? 'Unknown'"),
                     js_input("default_country", "results.data.user?.address?.country ?? 'USA'"),
                 ].into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main(city: string, missing_city: any, null_user_name: any, default_city: string, default_country: string) {
     return {city, missing_city, null_user_name, default_city, default_country};
@@ -955,7 +955,7 @@ async fn test_flow_parallel_forloop(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "data",
                 FlowModuleValue::RawScript {
                     input_transforms: Default::default(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main() {
     return {items: [1, 2, 3, 4, 5]};
@@ -990,7 +990,7 @@ export function main() {
                                 js_input("cubed", "flow_input.iter.value.value ** 3"),
                             ]
                             .into(),
-                            language: ScriptLang::Deno,
+                            language: ScriptLang::Bun,
                             content: r#"
 export function main(original: number, squared: number, cubed: number) {
     return {original, squared, cubed};
@@ -1089,7 +1089,7 @@ async fn test_flow_env_access(db: Pool<Postgres>) -> anyhow::Result<()> {
                     js_input("retry_count", "flow_env.CONFIG.retries"),
                     js_input("has_auth", "flow_env.CONFIG.features.includes('auth')"),
                 ].into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main(env_name: string, is_debug: boolean, timeout_val: number, api_url: string, retry_count: number, has_auth: boolean) {
     return {env_name, is_debug, timeout_val, api_url, retry_count, has_auth};
@@ -1158,7 +1158,7 @@ async fn test_flow_input_and_env_combined(db: Pool<Postgres>) -> anyhow::Result<
                     // Conditional based on both
                     js_input("multiplier", "flow_env.ENV === 'production' ? flow_input.prod_mult : 1"),
                 ].into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main(effective_limit: number, env_prefix: string, is_prod: boolean, doubled_input: number, multiplier: number) {
     return {effective_limit, env_prefix, is_prod, doubled_input, final_value: doubled_input * multiplier};
@@ -1215,7 +1215,7 @@ async fn test_flow_results_optional_chaining(db: Pool<Postgres>) -> anyhow::Resu
                 "a",
                 FlowModuleValue::RawScript {
                     input_transforms: Default::default(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main() {
     return {
@@ -1287,7 +1287,7 @@ export function main() {
                         ),
                     ]
                     .into(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main(
     user_name: string,
@@ -1361,7 +1361,7 @@ async fn test_flow_large_integers(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "a",
                 FlowModuleValue::RawScript {
                     input_transforms: Default::default(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main() {
     return {
@@ -1401,7 +1401,7 @@ export function main() {
                         ),
                     ]
                     .into(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main(
     small: number, i32_max: number, over_i32: number,
@@ -1459,7 +1459,7 @@ async fn test_flow_unicode_emoji(db: Pool<Postgres>) -> anyhow::Result<()> {
         modules: vec![
             flow_module("a", FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {
@@ -1489,7 +1489,7 @@ export function main() {
                     js_input("mixed_upper", "results.a.mixed.toUpperCase()"),
                     js_input("template", "`Welcome: ${results.a.greeting}`"),
                 ].into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main(
     greeting: string, greeting_len: number, simple_str: string, has_world: boolean,
@@ -1544,7 +1544,7 @@ async fn test_flow_complex_array_operations(db: Pool<Postgres>) -> anyhow::Resul
         modules: vec![
             flow_module("a", FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {
@@ -1585,7 +1585,7 @@ export function main() {
                     js_input("first_three", "results.a.numbers.slice(0, 3)"),
                     js_input("last_two", "results.a.numbers.slice(-2)"),
                 ].into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main(
     sorted_asc: number[], sorted_desc: number[], active_names: string[],
@@ -1651,7 +1651,7 @@ async fn test_flow_multiline_expressions(db: Pool<Postgres>) -> anyhow::Result<(
         modules: vec![
             flow_module("a", FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {
@@ -1710,7 +1710,7 @@ export function main() {
                         }
                     "#),
                 ].into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main(
     subtotal: number, discounted_total: number,
@@ -1768,7 +1768,7 @@ async fn test_flow_spread_with_results(db: Pool<Postgres>) -> anyhow::Result<()>
         modules: vec![
             flow_module("a", FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {
@@ -1803,7 +1803,7 @@ export function main() {
                     // Combining multiple spreads
                     js_input("combined", "{config: {...results.a.config}, tags: [...results.a.tags], source: 'flow'}"),
                 ].into(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main(
     merged_config: any, all_tags: string[], full_user: any,
@@ -1869,7 +1869,7 @@ async fn test_flow_nested_forloop_results_access(db: Pool<Postgres>) -> anyhow::
                 "a",
                 FlowModuleValue::RawScript {
                     input_transforms: Default::default(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main() {
     return {
@@ -1908,7 +1908,7 @@ export function main() {
                                     js_input("multiplier", "results.a.multiplier"), // Access outer step from inside for-loop
                                 ]
                                 .into(),
-                                language: ScriptLang::Deno,
+                                language: ScriptLang::Bun,
                                 content: r#"
 export function main(category: string, multiplier: number) {
     return {
@@ -1939,7 +1939,7 @@ export function main(category: string, multiplier: number) {
                                     js_input("original_mult", "results.a.multiplier"), // Access outer step
                                 ]
                                 .into(),
-                                language: ScriptLang::Deno,
+                                language: ScriptLang::Bun,
                                 content: r#"
 export function main(items: any[], category: string, original_mult: number) {
     return {
@@ -2013,7 +2013,7 @@ async fn test_flow_results_non_existent_step(db: Pool<Postgres>) -> anyhow::Resu
                 "a",
                 FlowModuleValue::RawScript {
                     input_transforms: Default::default(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main() {
     return { value: 42 };
@@ -2050,7 +2050,7 @@ export function main() {
                         ),
                     ]
                     .into(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main(
     existing: number,
@@ -2126,7 +2126,7 @@ async fn test_flow_env_skip_if_inside_branchone(db: Pool<Postgres>) -> anyhow::R
             "inner",
             FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {ran: true};
@@ -2156,7 +2156,7 @@ export function main() {
         "branch_marker",
         FlowModuleValue::RawScript {
             input_transforms: Default::default(),
-            language: ScriptLang::Deno,
+            language: ScriptLang::Bun,
             content: r#"
 export function main() {
     return {marker: "branch-marker"};
@@ -2193,7 +2193,7 @@ export function main() {
                 "after",
                 FlowModuleValue::RawScript {
                     input_transforms: [js_input("prev", "previous_result")].into(),
-                    language: ScriptLang::Deno,
+                    language: ScriptLang::Bun,
                     content: r#"
 export function main(prev: any) {
     return {prev};
@@ -2258,7 +2258,7 @@ async fn test_flow_env_skip_if_nested_branchone(db: Pool<Postgres>) -> anyhow::R
             "leaf",
             FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {ran: true};
@@ -2282,7 +2282,7 @@ export function main() {
         "inner_marker",
         FlowModuleValue::RawScript {
             input_transforms: Default::default(),
-            language: ScriptLang::Deno,
+            language: ScriptLang::Bun,
             content: r#"
 export function main() {
     return {marker: "inner"};
@@ -2337,7 +2337,7 @@ export function main() {
         "after",
         FlowModuleValue::RawScript {
             input_transforms: [js_input("prev", "previous_result")].into(),
-            language: ScriptLang::Deno,
+            language: ScriptLang::Bun,
             content: r#"
 export function main(prev: any) {
     return {prev};
@@ -2414,7 +2414,7 @@ async fn test_flow_env_complex_input_transform_in_branch(db: Pool<Postgres>) -> 
                 "Math.min(flow_env.LIMIT, 10) + flow_env.OFFSET",
             )]
             .into(),
-            language: ScriptLang::Deno,
+            language: ScriptLang::Bun,
             content: r#"
 export function main(value: number) {
     return {value};
@@ -2487,7 +2487,7 @@ async fn test_flow_env_skip_if_in_parallel_forloop(db: Pool<Postgres>) -> anyhow
         "marker",
         FlowModuleValue::RawScript {
             input_transforms: [js_input("i", "flow_input.iter.value")].into(),
-            language: ScriptLang::Deno,
+            language: ScriptLang::Bun,
             content: r#"
 export function main(i: number) {
     return {marker: i};
@@ -2508,7 +2508,7 @@ export function main(i: number) {
             "leaf",
             FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {ran: true};
@@ -2594,7 +2594,7 @@ async fn test_flow_env_imported_flow_uses_own_env(db: Pool<Postgres>) -> anyhow:
             "id": "leaf",
             "value": {
                 "type": "rawscript",
-                "language": "deno",
+                "language": "bun",
                 "content": "export function main(key: string) { return {key}; }",
                 "input_transforms": {
                     "key": { "type": "javascript", "expr": "flow_env.KEY" }
@@ -2679,7 +2679,7 @@ async fn test_flow_env_imported_flow_inherits_when_unset(db: Pool<Postgres>) -> 
                 "id": "marker",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return {marker: \"from-imported\"}; }",
                     "input_transforms": {}
                 }
@@ -2688,7 +2688,7 @@ async fn test_flow_env_imported_flow_inherits_when_unset(db: Pool<Postgres>) -> 
                 "id": "leaf",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return {ran: true}; }",
                     "input_transforms": {}
                 },
@@ -2791,7 +2791,7 @@ async fn test_flow_env_imported_flow_with_nested_branch(db: Pool<Postgres>) -> a
                             "id": "marker",
                             "value": {
                                 "type": "rawscript",
-                                "language": "deno",
+                                "language": "bun",
                                 "content": "export function main() { return {marker: \"from-imported-branch\"}; }",
                                 "input_transforms": {}
                             }
@@ -2800,7 +2800,7 @@ async fn test_flow_env_imported_flow_with_nested_branch(db: Pool<Postgres>) -> a
                             "id": "leaf",
                             "value": {
                                 "type": "rawscript",
-                                "language": "deno",
+                                "language": "bun",
                                 "content": "export function main() { return {ran: true}; }",
                                 "input_transforms": {}
                             },
@@ -2932,13 +2932,13 @@ async fn test_flow_env_marks_sub_flows_only_without_ancestor_env(
             "parallel": true,
             "modules": [{ "id": "leaf", "value": {
                 "type": "rawscript",
-                "language": "deno",
+                "language": "bun",
                 "content": "export function main(key: any) { return key ?? null; }",
                 "input_transforms": { "key": { "type": "javascript", "expr": "flow_env.KEY" } }
             }}, { "id": "tail", "value": {
                 // A single simple step is inlined rather than stored as a flow node.
                 "type": "rawscript",
-                "language": "deno",
+                "language": "bun",
                 "content": "export function main(prev: any) { return prev; }",
                 "input_transforms": { "prev": { "type": "javascript", "expr": "results.leaf" } }
             }}]
@@ -3024,7 +3024,7 @@ async fn test_flow_env_in_stop_after_if(db: Pool<Postgres>) -> anyhow::Result<()
             "first",
             FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return {stage: "first"};
@@ -3052,7 +3052,7 @@ export function main() {
         "second",
         FlowModuleValue::RawScript {
             input_transforms: Default::default(),
-            language: ScriptLang::Deno,
+            language: ScriptLang::Bun,
             content: r#"
 export function main() {
     return {stage: "second"};
@@ -3110,7 +3110,7 @@ async fn test_stop_after_if_error_include_result(db: Pool<Postgres>) -> anyhow::
             "step",
             FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     return { userErrors: ["email taken"], ok: false };
@@ -3200,7 +3200,7 @@ async fn test_flow_env_in_retry_if(db: Pool<Postgres>) -> anyhow::Result<()> {
             "fails",
             FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
+                language: ScriptLang::Bun,
                 content: r#"
 export function main() {
     throw new Error("nope");
@@ -3274,7 +3274,7 @@ async fn test_flow_env_in_stop_after_all_iters_if(db: Pool<Postgres>) -> anyhow:
         "iter_step",
         FlowModuleValue::RawScript {
             input_transforms: [js_input("i", "flow_input.iter.value")].into(),
-            language: ScriptLang::Deno,
+            language: ScriptLang::Bun,
             content: r#"
 export function main(i: number) {
     return {iter: i};
@@ -3316,7 +3316,7 @@ export function main(i: number) {
         "after",
         FlowModuleValue::RawScript {
             input_transforms: Default::default(),
-            language: ScriptLang::Deno,
+            language: ScriptLang::Bun,
             content: r#"
 export function main() {
     return {stage: "after-loop"};
@@ -3375,7 +3375,7 @@ async fn test_stop_after_all_iters_if_error_includes_result(
         "iter_step",
         FlowModuleValue::RawScript {
             input_transforms: [js_input("i", "flow_input.iter.value")].into(),
-            language: ScriptLang::Deno,
+            language: ScriptLang::Bun,
             content: r#"
 export function main(i: number) {
     return { iter: i };
@@ -3453,8 +3453,8 @@ async fn test_flow_expr_step_tag(db: Pool<Postgres>) -> anyhow::Result<()> {
             id,
             FlowModuleValue::RawScript {
                 input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: "export function main() { return { lang: 'bun' } }".to_string(),
+                language: ScriptLang::Bun,
+                content: "export function main() { return { lang: 'python3' } }".to_string(),
                 path: None,
                 lock: None,
                 tag: tag.map(str::to_string),
@@ -3484,7 +3484,7 @@ async fn test_flow_expr_step_tag(db: Pool<Postgres>) -> anyhow::Result<()> {
     .bind(job.id)
     .fetch_one(&db)
     .await?;
-    assert_eq!(b_tag, "bun");
+    assert_eq!(b_tag, "python3");
 
     assert!(!job.success);
     let result = job.json_result().unwrap();

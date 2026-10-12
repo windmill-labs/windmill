@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte'
-	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import {
 		AzureTriggerService,
@@ -149,7 +148,7 @@
 	}
 
 	function openLink(href: string) {
-		if (hosted) hosted.openLink(`${base}${href}`)
+		if (hosted) hosted.openLink(href)
 		else goto(href)
 	}
 
@@ -825,7 +824,7 @@
 						{
 							displayName: 'Audit logs',
 							icon: Eye,
-							href: `${base}/audit_logs?resource=${path}`
+							href: `/audit_logs?resource=${path}`
 						},
 						{
 							displayName: 'Permissions',

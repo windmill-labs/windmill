@@ -8,7 +8,6 @@
 	 * the browser out of the session.
 	 */
 	import { setContext, untrack } from 'svelte'
-	import { base } from '$lib/base'
 	import ScriptDetail from '$lib/components/details/ScriptDetail.svelte'
 	import FlowDetail from '$lib/components/details/FlowDetail.svelte'
 	import InWorkspaceAppViewer from '$lib/components/apps/editor/InWorkspaceAppViewer.svelte'
@@ -20,7 +19,7 @@
 		parseHistoricalScriptEdit,
 		parsePreviewItemRoute,
 		previewLocationLabel,
-		stripBase
+		barePath
 	} from './previewRouter'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
 
@@ -113,7 +112,7 @@
 	// opens as its own tab, another side or version of an item re-points this tab, and
 	// any other page opens as a page tab. Nothing reaches the top-level router.
 	function onNavigate(url: string): void {
-		const clean = stripBase(url)
+		const clean = barePath(url)
 		const query = new URL(url, 'http://x').searchParams
 		const run = clean.match(/^\/run\/([^/?#]+)$/)
 		if (run) {
@@ -155,7 +154,7 @@
 		}
 		runtime.previewTabs.open({
 			type: 'page',
-			href: `${base}${clean}${query.size ? `?${query}` : ''}`,
+			href: `${clean}${query.size ? `?${query}` : ''}`,
 			label: previewLocationLabel(clean)
 		})
 	}

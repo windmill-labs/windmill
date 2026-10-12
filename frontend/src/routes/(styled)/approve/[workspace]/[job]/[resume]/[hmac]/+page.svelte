@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { type Job, JobService } from '$lib/gen'
-	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -152,7 +151,7 @@
 	// Carry the share-read-link token so a workspace-member approver can open the run
 	// details of a flow they don't otherwise have read access to.
 	let runDetailsHref = $derived.by(() => {
-		let url = `${base}/run/${job?.id}?workspace=${job?.workspace_id}`
+		let url = `/run/${job?.id}?workspace=${job?.workspace_id}`
 		if (viewToken) {
 			url += `&view_token=${encodeURIComponent(viewToken)}`
 		}

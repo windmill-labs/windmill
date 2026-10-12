@@ -51,8 +51,7 @@ export const NAV_PAGES: NavPage[] = [
  * The page a route belongs to. Longest match wins, so `/runs/f/demo/x` is still Runs, and a route
  * the table does not name falls back to its first segment (`/service_logs` → "Service logs").
  */
-export function navPageFor(pathname: string, base: string): NavPage | undefined {
-	const path = pathname.startsWith(base) ? pathname.slice(base.length) || '/' : pathname
+export function navPageFor(path: string): NavPage | undefined {
 	const match = NAV_PAGES.filter(
 		(p) => p.path === path || (p.path !== '/' && path.startsWith(p.path + '/'))
 	).sort((a, b) => b.path.length - a.path.length)[0]

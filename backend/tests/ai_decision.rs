@@ -117,7 +117,7 @@ async fn test_ai_decision_answers_route_a_following_branch(
                             "expr": "results.d.output.intent.choice === 'refund'",
                             "modules": [{"id": "r", "value": {
                                 "type": "rawscript",
-                                "language": "deno",
+                                "language": "bun",
                                 "content": "export function main(choice){ return 'handled ' + choice }",
                                 "input_transforms": {"choice": {
                                     "type": "javascript",

@@ -55,7 +55,6 @@
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { aiUserDisabled, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { HOME_SHOW_HUB } from '$lib/consts'
-	import { base } from '$lib/base'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
@@ -321,7 +320,7 @@
 									unifiedSize="sm"
 									variant="accent"
 									startIcon={{ icon: freeTierExhausted ? KeyRound : Settings }}
-									href="{base}/workspace_settings?tab=ai"
+									href="/workspace_settings?tab=ai"
 								>
 									{freeTierExhausted ? 'Add your own API key' : 'Configure AI'}
 								</Button>

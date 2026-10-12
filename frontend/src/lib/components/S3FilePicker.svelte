@@ -105,6 +105,7 @@
 	size="1200px"
 >
 	<DrawerContent
+		noPadding
 		title={s3ResourcePath ? `Exploring ${s3ResourcePath}` : 'S3 file browser'}
 		on:close={() => {
 			s3FilePickerInner?.exit?.()

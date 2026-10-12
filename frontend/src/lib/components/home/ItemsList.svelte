@@ -19,7 +19,7 @@
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { disableHubStore, userStore, workspaceStore } from '$lib/stores'
-	import { useEditRights, useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
@@ -64,7 +64,6 @@
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
 
-	const operatorBuilderFlows = useOperatorBuilderFlows()
 	const editRights = useEditRights()
 
 	interface Props {
@@ -358,7 +357,11 @@
 		const base = {
 			...it,
 			canWrite:
-				editRights.canEditItem(it.type, it.path, (it.extra_perms ?? {}) as any) &&
+				editRights.canEditItem(
+					it.type === 'app' && it.raw_app ? 'raw_app' : it.type,
+					it.path,
+					(it.extra_perms ?? {}) as any
+				) &&
 				(it.type === 'script' || it.workspace_id == $workspaceStore)
 		}
 		// combinedItems reads a script's time from `created_at`; the endpoint's
@@ -1209,8 +1212,10 @@
 	 * whose direct-deploy protection cleared `showEditButtons` — must not be shown them.
 	 * Reading archived items is not a write, so it is not gated on this.
 	 */
-	// A flow is the one kind every author can create, the builder right included.
-	let canCreateHere = $derived(editRights.roleCanAuthor('flow') && showEditButtons)
+	// Every author can create a flow or a full-code app, except a builder granted only the other.
+	let canCreateHere = $derived(
+		(editRights.roleCanAuthor('flow') || editRights.roleCanAuthor('raw_app')) && showEditButtons
+	)
 
 	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
 	// false until the first load resolves: a skeleton already means "loading", and the
@@ -2041,7 +2046,7 @@
 				     script and flow hub pickers observe. Nor for a builder: a hub project brings
 				     scripts and apps along. -->
 				<CreateActionsMenu
-					onImportHubProject={$disableHubStore || $operatorBuilderFlows
+					onImportHubProject={$disableHubStore || !editRights.roleCanAuthor('script')
 						? undefined
 						: () => (hubPickerOpen = true)}
 				/>

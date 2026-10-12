@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
@@ -52,9 +51,9 @@
 		if (await deleteAgent($workspaceStore!, path)) dispatch('change')
 	}
 
-	let editHref = $derived(`${base}/agents/edit/${agent.path}`)
+	let editHref = $derived(`/agents/edit/${agent.path}`)
 	// A draft-only agent has nothing deployed for its page to run, so it opens in the editor.
-	let rowHref = $derived(agent.draft_only ? editHref : `${base}/agents/get/${agent.path}`)
+	let rowHref = $derived(agent.draft_only ? editHref : `/agents/get/${agent.path}`)
 </script>
 
 {#snippet chatBadge()}

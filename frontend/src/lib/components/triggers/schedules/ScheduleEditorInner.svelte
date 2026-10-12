@@ -35,7 +35,6 @@
 	} from '$lib/gen'
 	import { emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
 	import { useEditRights } from '$lib/operatorWriteRights'
-	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, AlertTriangle } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
@@ -655,7 +654,7 @@
 							variant="default"
 							startIcon={{ icon: List }}
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-							href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+							href={`/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
 						>
 							View runs
 						</Button>

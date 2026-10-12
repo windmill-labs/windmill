@@ -60,7 +60,6 @@
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import { previewTargetForSessionTarget } from '$lib/components/sessions/sessionPreviewTabs.svelte'
-	import { base } from '$lib/base'
 	import {
 		artifactKey,
 		itemDisplayName,
@@ -81,7 +80,7 @@
 		tabsToReload,
 		viewerTabsToReload
 	} from '$lib/components/sessions/previewReload'
-	import { isPageItemListPath, stripBase } from '$lib/components/sessions/previewPaths'
+	import { isPageItemListPath, barePath } from '$lib/components/sessions/previewPaths'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -594,10 +593,10 @@
 
 	// Page path shown after the workspace breadcrumb — the active tab's observed
 	// location, so the breadcrumb tracks where the user browses inside the tab.
-	const displayPath = $derived(owner?.activeTab?.loc ?? owner?.activeTab?.url ?? `${base}/`)
+	const displayPath = $derived(owner?.activeTab?.loc ?? owner?.activeTab?.url ?? '/')
 	const activeArtifact = $derived(owner?.activeTab ? parseArtifactRoute(owner.activeTab.url) : null)
 	const activeWorkspaceHref = $derived(
-		owner?.activeTab ? workspacePageHref(owner.activeTab.loc || owner.activeTab.url) : `${base}/`
+		owner?.activeTab ? workspacePageHref(owner.activeTab.loc || owner.activeTab.url) : '/'
 	)
 	// The active session's artifacts, surfaced as an "Artifacts" branch in the
 	// preview pickers.
@@ -659,7 +658,7 @@
 	const tabHosts: Record<string, PreviewTabHost | undefined> = {}
 
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
-	// Per workspace a chat round touched since the last flush: base-stripped list-page paths
+	// Per workspace a chat round touched since the last flush: list-page paths
 	// (e.g. `/schedules`, see toolReloadEffect), the page items its tools named, as tab urls,
 	// and the item paths whose deployed version changed. By workspace because a path names an
 	// item only within one: a write in one fork must not remount the same path's editor in a
@@ -890,7 +889,7 @@
 			// Leaving the preview for the standalone editor — carry the session
 			// workspace so the app opens in the fork the session acts on, not the
 			// navigation workspace.
-			goto(withWorkspaceParam(`${base}/apps/edit/${item.path}`, previewWorkspace))
+			goto(withWorkspaceParam(`/apps/edit/${item.path}`, previewWorkspace))
 			return
 		}
 		owner?.navigate({ type: 'item', item })
@@ -929,7 +928,7 @@
 			// A preview frame navigating to a list page: re-point the active tab to the list
 			// mounted in process, whose rows open as tabs of their own.
 			if (d.type === 'wm.session.openList') {
-				if (typeof d.href !== 'string' || !isPageItemListPath(stripBase(d.href))) return
+				if (typeof d.href !== 'string' || !isPageItemListPath(barePath(d.href))) return
 				owner?.navigate({ type: 'page', href: d.href, label: previewLocationLabel(d.href) })
 				return
 			}
@@ -1034,7 +1033,7 @@
 					try {
 						localStorage.setItem('ai-chat-open', 'true')
 					} catch {}
-					window.location.href = `${base}/`
+					window.location.href = '/'
 				}}
 			>
 				Open Ask AI chat
@@ -1046,7 +1045,7 @@
 		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
 			<p class="text-primary font-medium">AI Sessions are deactivated</p>
 			<p>You switched back to the legacy chat. Activate AI Sessions (beta) to open this page.</p>
-			<Button unifiedSize="sm" onclick={() => clearSessionsBetaOptOut(`${base}/sessions`)}>
+			<Button unifiedSize="sm" onclick={() => clearSessionsBetaOptOut('/sessions')}>
 				Activate AI Sessions
 			</Button>
 		</div>

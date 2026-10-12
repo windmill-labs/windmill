@@ -9,7 +9,6 @@
 	 * untrusted markup/JS must not run with the member's full session — hence the
 	 * scoped embed token / opaque isolation.
 	 */
-	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
@@ -83,7 +82,7 @@
 	 * where the lite payload carries it; the flat field beside it is the apps *list* row's
 	 * spelling (ListableApp, which is what AppRow reads). */
 	let executionMode = $state<string | undefined>(undefined)
-	let editHref = $derived(`${base}/${isRawApp ? 'apps_raw' : 'apps'}/edit/${path}?nodraft=true`)
+	let editHref = $derived(`/${isRawApp ? 'apps_raw' : 'apps'}/edit/${path}?nodraft=true`)
 	let refresh: (() => void) | undefined
 
 	// The opaque iframe loads the dedicated cookieless, chrome-less viewer route.
@@ -93,7 +92,7 @@
 	// page's URL (wm_embed_hash relay), and re-deriving the iframe src from them
 	// would reload the app on its every navigation.
 	const initialSearchHash = page.url.search + page.url.hash
-	let viewerUrl = $derived(`${base}/app_embed/${workspace}/${path}${initialSearchHash}`)
+	let viewerUrl = $derived(`/app_embed/${workspace}/${path}${initialSearchHash}`)
 
 	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
 	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
@@ -199,7 +198,7 @@
 			}
 			// Built from this viewer's workspace rather than the navigation one, like everything
 			// else here: the two differ inside a session's preview panel.
-			const url = `${window.location.origin}${base}/public/${workspace}/${secret}`
+			const url = `${window.location.origin}/public/${workspace}/${secret}`
 			if (tab) tab.location.href = url
 			else sendUserToast('Allow pop-ups for this site to open the app’s public url', true)
 		} catch (e: any) {

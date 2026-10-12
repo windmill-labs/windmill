@@ -22,7 +22,6 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { goto } from '$app/navigation'
-	import { base } from '$app/paths'
 
 	export type OtherDraftUser = { username?: string | null; draft_saved_at?: string }
 
@@ -115,7 +114,7 @@
 			target === 'all' ||
 			(!hasOwnDraft && otherDraftsUsers.every((o) => ownerKey(o) === ownerKey(target)))
 		if (draftOnly && lastDraftGone) {
-			await goto(`${base}/`)
+			await goto('/')
 			return
 		}
 		try {

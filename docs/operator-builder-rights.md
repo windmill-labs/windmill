@@ -1,13 +1,25 @@
 # Operator builder rights
 
-`operator_settings.builder_flows` lets every operator of a workspace compose flows out of runnables
-that already exist. It does not make them authors: the boundary the operator role draws is
-**authoring code and running arbitrary code**, and this does not move it.
+Two workspace settings, `operator_settings.builder_flows` and `operator_settings.builder_apps`,
+that let every operator of that workspace compose flows and full-code apps out of runnables that
+already exist. Neither lets them author backend code or run arbitrary code on a worker, the
+boundary the operator role draws. The app right does let them write the app's frontend code,
+which runs in the viewer's browser and is why that right rests on sandbox isolation.
 
-It is a write right, unlike the visibility flags beside it, and unlike the withdrawable rights in
-`docs/operator-write-rights.md` it is granted on request and costs a seat. Read it with
-`windmill_common::workspaces::operator_can_build_flows` (60s cache, shared with the withdrawable
-rights) and gate a write with `check_operator_can_build_flows`.
+They are granted **independently**, because the two are not equally verifiable. A composed flow is
+checked in full server-side (`check_flow_is_composition_only` refuses everything carrying code).
+A full-code app is a browser-built bundle no server-side check can read, and rests instead on
+forced `sandbox` isolation plus the viewer consent prompt. An admin may reasonably want the first
+without the second, so **never gate on "either"**: a gate that does authorizes the kind its
+workspace never granted, which is the whole point of the split. `BuilderKind` exists to make each
+call site say which one it means.
+
+These are write rights, unlike the visibility flags beside them, and unlike the withdrawable
+rights in `docs/operator-write-rights.md` they are granted on request and cost a seat. Read them
+with `windmill_common::workspaces::operator_builder_rights` (60s cache, shared with the
+withdrawable rights), which returns an `OperatorBuilderRights { flows, apps }`, and gate a write
+with `check_operator_can_build`, naming the `BuilderKind`. `.any()` is only for surfaces that are
+genuinely not per-kind: the seat a membership costs, and listing drafts.
 
 ## What the check has to cover
 
@@ -49,25 +61,131 @@ Call it on every write **and** every preview: `run_preview_flow_job` and
 it the way to run what the write path refuses. A flow draft goes through `validate_operator_flow`
 too: a developer who loads a builder's draft in the editor runs its code as themselves.
 
+The same reasoning applies to a builder-authored app, with one extra step. `execute_component`
+resolves the runnable it runs on the root handle, so `validate_operator_composed_app` checks every
+referenced path under the caller's RLS and refuses hub ones. For a script it checks the version a
+run would pick: grants are per version, and a path reused after its versions were archived starts
+with none while the archived ones keep theirs. But it has to check **two** surfaces,
+because they are not the same list: the policy's `script/<path>` and `flow/<path>` triggerables,
+and the by-path entries of the app value's `runnables` map, which is what the editor resolves a
+`runnable_id` against and sends. Read only that map, and refuse an entry whose `type`, `path` or
+`runType` is not text.
+
+Reading a triggerable key is not a `split_once(':')`: `execute_component` looks up
+`format!("{component}:{path}")` with an unrestricted component string, so `a:b:script/x` resolves
+at run time for `component = "a:b"`. Every colon is a possible split, so the check validates every
+suffix that parses as a runnable rather than guessing which one a request will use.
+
+What makes those checks bind is that **`ExecutionMode::Viewer` is refused for a builder app**. In
+Viewer mode `execute_component` falls back to a default triggerable for any `script/`/`flow/`
+path, so the policy stops being the list of what the app may invoke, and the job runs as the
+*viewer*: an admin who merely opened the app would run anything in the workspace as themselves.
+`Publisher`, `Guest` and `Anonymous` have no such fallback; all three run as the publisher. If you ever relax the Viewer refusal, the
+deploy-time path checks above stop being an authorization boundary.
+
+## The two raw-app deploy paths are not equivalent
+
+`create_app_raw` / `update_app_raw` are multipart: the browser already built the bundle, and
+nothing server-side compiles anything. Builders use these.
+
+`create_app_raw_source` / `update_app_raw_source` push a bundler CLI over caller-supplied `files`
+as a job **on a worker**, which is arbitrary code execution and is why they already require
+`jobs:run` on top of `apps:write`. They stay closed to operators, builder rights or not. Do not
+"tidy" the exception away: it costs builders nothing, because the browser and the CLI both bundle
+locally and deploy through the multipart endpoints.
+
+A builder-authored app is forced to `policy.sandbox = true`. That is what makes it safe to let an
+operator publish a bundle nobody reviewed: without it the bundle runs same-origin with each
+viewer's Windmill session. The same check refuses a `rawscript/<sha>` key in either triggerables
+map, since that key is the deployed app's authorization to run caller-supplied `raw_code` hashing
+to it. It reads the value as stored, NUL escapes stripped: a stripped NUL can turn a key it
+ignored into `inlineScript`.
+
+`update_app` takes a builder too, but settings only: the deploy panel saves a deployed full-code
+app's access and frontend scopes through it with no value. It reaches the same check, so a builder
+can no more switch the sandbox off there than on deploy.
+
+A builder's **draft** goes through the same `check_operator_composed_app` as its deploy, with
+`BuilderAppWrite::Draft`: an admin may open it in the editor or deploy it as it stands, so any
+rule added for deploys must hold for drafts too. Where the two differ, `write` decides: a deploy
+fills in an omitted sandbox or mode, since it stores the policy it checked, while a draft skips
+`triggerables_v2` and must not name another user's run identity. Every frontend writer of a
+builder draft must conform the policy first with `conformBuilderAppPolicy`, since a policy loaded
+from someone else's app breaks these rules: the editor and the AI chat do. The AI Sessions raw-app
+editor, open to operators only behind a per-browser opt-in, does not, so its autosaves are refused.
+
+The raw-app editor previews an app isolated only when its policy has `sandbox`, and otherwise runs
+the bundle same-origin with the session of whoever opens it. A builder's draft is therefore
+held to the same rule as its deploy: `update_draft` refuses one whose `policy.sandbox` is not
+`true`, so whatever an admin opens of an operator's, deployed or drafted, previews isolated.
+Turning the sandbox off in their own editor stays that admin's explicit choice. It also refuses
+a draft naming a runnable the builder cannot read, or a hub one, like the deploy: the editor
+preview runs them as whoever opens it, and admits any path for an admin. That covers the
+policy's legacy `triggerables` too, `rawscript/` keys included: every deploy of a draft
+carries it through untouched, so an admin deploying the draft would publish it. Its
+`triggerables_v2` is not checked: every deploy of a draft rebuilds it from the runnables, the
+preview never reads it, and a copy gone stale since the last deploy would otherwise block
+autosave. `Viewer` mode is refused in a draft as on deploy: the deploy panel shows it as
+members-only, so an admin deploying the draft would publish it unawares. The builder's editor
+switches it to `Publisher` on load, since that panel offers no way out of it. A draft naming a
+run identity other than its builder is refused for the same reason: a builder's own deploy resets
+it, but an admin's one-click draft deploy preserves it without showing it. The builder's editor
+drops another user's identity on load, which an app that user deployed carries. A builder in
+`wm_deployers` is the exception: like any member, their deploy may keep another identity, which
+was judged acceptable for operators in that group (WIN-2536) and is the same for composed flows.
+
+Reading a triggerable key at every colon copies it once per colon, so the check refuses a key
+over 512 bytes before splitting: a quadratic walk otherwise lets a sub-megabyte key allocate
+gigabytes. A 255-character path plus a component name stays well under it.
+
 ## Billing
 
-An operator of a builder workspace consumes a full author seat: composing deployable artifacts
-makes them an author, and there is no half-author. `consumes_operator_seat` is the seat-role
-helper; the EE counting queries share `OPERATOR_SEAT_SQL` so the displayed, enforced and reported
-numbers agree. The one exception is `get_user_usage` in `stats_ee.rs`: it is a compile-checked
-`query!`, which cannot interpolate the constant, so it spells the predicate out. Change both
-together.
+An operator of a builder workspace consumes a full author seat. This is the one place that reads
+"either right", and deliberately so: either one makes an operator an author of deployable
+artifacts, and there is no half-author, so granting both costs no more than granting one. Do not
+introduce per-right pricing — it turns one boolean into a capability matrix that billing, the cap
+check and the displayed count would each have to agree on.
 
-On cloud, `billable_seats` applies the same rule; see its doc for the out-of-repo invoice it must
-match.
+`consumes_operator_seat` is the seat-role helper; the EE counting queries share
+`OPERATOR_SEAT_SQL` so the displayed, enforced and reported numbers agree. The one exception is
+`get_user_usage` in `stats_ee.rs`: it is a compile-checked `query!`, which cannot interpolate the
+constant, so it spells the predicate out. Change both together. On cloud, `billable_seats` applies
+the same rule; see its doc for the out-of-repo invoice it must match.
 
-Granting the right runs `check_seat_cap_for_operator_builder`, which prices the change by counting
-seats twice rather than by counting the workspace's operators: an operator who already authors
-elsewhere must not be charged again, so re-saving settings that already have the right on is a
-zero delta and never blocks.
+Granting the first right runs `check_seat_cap_for_operator_builder`, which prices the change by
+counting seats twice rather than by counting the workspace's operators: an operator who already
+authors elsewhere must not be charged again. Adding the second right later, or re-saving settings
+that already have one on, is a zero delta and never blocks.
 
 ## Accepted risks
 
+- A builder raw app may declare `frontend_sdk_scopes`, and `mint_raw_app_sdk_token` mints as the
+  *viewer*. A consenting admin therefore hands the bundle a 12h admin-identity token within the
+  curated scope list. The viewer consent prompt is the gate, shown by the editor preview as well
+  as the deployed app, before any token is minted. The lever, if this is ever revisited,
+  is dropping `variables:read` / `resources:read` / `jobs:run` from `FRONTEND_SDK_ALLOWED_SCOPES`
+  for builder apps.
+- The raw-app editor preview runs an app's runnables as whoever has the editor open, where the
+  deployed app runs them as its publisher. An admin opening a builder's app in the editor lets its
+  frontend code run, with the admin's rights, any runnable the builder can read. Running as the
+  draft's author instead would need a preview that ignores unsaved edits to the runnable list.
+- A builder may make an app public (`ExecutionMode::Anonymous`): anyone with the URL runs the
+  runnables its policy names, as the builder. Refusing it is the workspace's call, through the
+  `RestrictAnonymousAppDeployment` protection rule. A `Guest` app is the same with a login in
+  front: anyone the instance's identity provider admits, member or not, once guest access is
+  enabled. `RestrictGuestAppDeployment` refuses it.
+- A builder raw app may set `allow_user_resources` on a runnable's inputs, and the bundle picks the
+  `$res:` path it sends. `build_args` resolves that path as the *viewer*, with no prompt, into a
+  job that runs as the builder. Getting a value out takes a guessable path and a readable script
+  that returns, logs or sends its input. Developers can do the same; the lever is refusing a
+  non-empty `allow_user_resources` (and `s3_inputs[].allow_user_resources`) for builders.
+- A builder's delete or settings-only update reads the app's kind before the write, not under a
+  lock held through it. An admin converting that app to low-code in between lets the builder's
+  request land on the low-code app; the builder already has write access to its path.
+- A builder's draft carries no run identity other than the builder's own, and deploying one that
+  carries none makes the deployer its run identity, as any deploy does. An admin deploying such a
+  draft, from the editor or Compare & Deploy, therefore publishes the builder's code running as
+  that admin; the deploy is the admin's explicit act, as it is for a developer's draft.
 - All-or-nothing per workspace: there is no per-user builder role.
 - `operator_settings` is git-synced, so a pull can flip every operator's class in a workspace and
   the billed seat count with it.
