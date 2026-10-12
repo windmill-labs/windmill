@@ -6,6 +6,7 @@ import {
 	flowLocalInputs,
 	inputTransformsToAgentConfig,
 	nonStaticBrainKeys,
+	providerWithOverrides,
 	summarizeAgentBrain,
 	toolInputOverrides,
 	transformValuedBrainKeys
@@ -191,5 +192,41 @@ describe('toolInputOverrides', () => {
 		expect(toolInputOverrides({ extra: { type: 'static', value: 1 } } as any, base)).toEqual({
 			extra: { type: 'static', value: 1 }
 		})
+	})
+})
+
+describe('providerWithOverrides', () => {
+	const saved = {
+		kind: 'openai',
+		resource: '$res:u/a/openai',
+		model: 'gpt-5',
+		reasoning_effort: 'high'
+	}
+
+	it('folds static overrides into a static provider, as the worker reads them', () => {
+		expect(
+			providerWithOverrides(saved, { reasoning_effort: { type: 'static', value: 'low' } })
+		).toEqual({ type: 'static', value: { ...saved, reasoning_effort: 'low' } })
+		// The saved effort names a level of the saved model, so it does not follow to another one.
+		expect(
+			providerWithOverrides(saved, { model: { type: 'static', value: 'gpt-5-mini' } })
+		).toEqual({
+			type: 'static',
+			value: { kind: 'openai', resource: '$res:u/a/openai', model: 'gpt-5-mini' }
+		})
+		expect(providerWithOverrides(saved, { model: { type: 'static', value: '' } })).toEqual({
+			type: 'static',
+			value: saved
+		})
+	})
+
+	it('keeps an expression, falling back to the saved value when it is empty', () => {
+		const folded = providerWithOverrides(saved, {
+			reasoning_effort: { type: 'javascript', expr: 'flow_input.effort' }
+		}) as { type: 'javascript'; expr: string }
+		expect(folded.type).toBe('javascript')
+		const run = (effort: unknown) => new Function('flow_input', `return ${folded.expr}`)({ effort })
+		expect(run('low')).toEqual({ ...saved, reasoning_effort: 'low' })
+		expect(run('')).toEqual(saved)
 	})
 })

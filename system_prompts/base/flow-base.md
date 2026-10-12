@@ -149,6 +149,10 @@ needs becomes unreachable.
   references. A spread, a call or a computed key leaves the composer unable to tell which input
   feeds which field, so it offers no control at all — a bare `flow_input.x` for the whole object
   is read instead as that one input carrying every field
+- A step linked to a saved agent (`agent` set) has no `provider` of its own. It exposes the same
+  two controls through its `model` and `reasoning_effort` inputs, which replace what the agent
+  saved: `"model": { "type": "javascript", "expr": "flow_input.model" }`. An empty value keeps the
+  saved one, and the provider resource always stays the agent's
 - `memory` is what lets the agent see earlier turns; without it every message starts from nothing
 - `streaming` on makes the answer and its thinking appear token by token instead of all at once
 - `user_attachments` points at a flow input typed as an array of s3 objects

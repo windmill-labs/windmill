@@ -260,6 +260,31 @@ fn keep_authored_memory_id(
     }
 }
 
+/// A step's own `model` and `reasoning_effort` inputs replace the provider's, which is how a step
+/// linked to a saved agent picks them per run. An empty value keeps the provider's. A reasoning
+/// token is per model, so a different model without an effort of its own runs at its default.
+fn override_provider_model(
+    provider: &mut ProviderWithResource,
+    local_args: &HashMap<String, Box<RawValue>>,
+) {
+    let given = |key: &str| {
+        local_args
+            .get(key)
+            .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    if let Some(model) = given("model") {
+        if model != provider.model {
+            provider.model = model;
+            provider.reasoning_effort = None;
+        }
+    }
+    if let Some(effort) = given("reasoning_effort") {
+        provider.reasoning_effort = Some(effort);
+    }
+}
+
 /// Reconciles the step's history inputs, the agent's memory policy and the run's memory id. A step
 /// holds one of two shapes: an older `auto` or `manual` memory, read as the editor that wrote it
 /// meant it, or the current setting plus the step's own history inputs. Also returns lines for the
@@ -854,6 +879,7 @@ pub async fn handle_ai_agent_job(
     };
 
     keep_authored_memory_id(&mut args, &step_input_transforms);
+    override_provider_model(&mut args.provider, &local_args);
 
     // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
     // a linked resource's tool set may still contain AIAgent or AIDecision tools (the editor can't
@@ -2938,6 +2964,41 @@ mod tests {
     fn prompt_cache_key_truncates_on_a_char_boundary() {
         let long = format!("workspace:f/{}/agent:step", "é".repeat(80));
         assert!(bounded_prompt_cache_key(&long).len() <= 64);
+    }
+
+    #[test]
+    fn step_model_and_effort_replace_the_providers() {
+        use serde_json::json;
+        let run = |step: serde_json::Value| {
+            let mut provider: ProviderWithResource = serde_json::from_value(json!({
+                "kind": "openai",
+                "resource": {},
+                "model": "saved-model",
+                "reasoning_effort": "high"
+            }))
+            .unwrap();
+            let local_args = serde_json::from_value(step).unwrap();
+            override_provider_model(&mut provider, &local_args);
+            (provider.model, provider.reasoning_effort)
+        };
+        let saved = ("saved-model".to_string(), Some("high".to_string()));
+
+        assert_eq!(run(json!({})), saved);
+        assert_eq!(run(json!({ "model": "", "reasoning_effort": null })), saved);
+        assert_eq!(run(json!({ "model": "saved-model" })), saved);
+        assert_eq!(
+            run(json!({ "reasoning_effort": "low" })),
+            ("saved-model".to_string(), Some("low".to_string()))
+        );
+        // The saved effort names a level of the saved model, so it does not follow to another one.
+        assert_eq!(
+            run(json!({ "model": "other" })),
+            ("other".to_string(), None)
+        );
+        assert_eq!(
+            run(json!({ "model": "other", "reasoning_effort": "low" })),
+            ("other".to_string(), Some("low".to_string()))
+        );
     }
 
     #[test]

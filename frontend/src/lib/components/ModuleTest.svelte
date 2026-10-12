@@ -19,7 +19,7 @@
 		normalizeAgentRef,
 		type LinkedAgentDraft
 	} from './flows/linkedAgentDrafts'
-	import { AGENT_FLOW_LOCAL_KEYS } from './flows/agentResourceUtils'
+	import { AGENT_LINKED_STEP_KEYS } from './flows/agentResourceUtils'
 	import { agentTestInputTransforms } from './flows/agentFormFields'
 	import { sendUserToast } from '$lib/toast'
 	import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
@@ -186,7 +186,7 @@
 			const inputTransforms = agentTestInputTransforms(
 				agentVal.agent ? {} : ((agentVal.input_transforms ?? {}) as Record<string, InputTransform>),
 				args,
-				draft ? AGENT_FLOW_LOCAL_KEYS : Object.keys(args)
+				draft ? AGENT_LINKED_STEP_KEYS : Object.keys(args)
 			)
 
 			await jobLoader?.runFlowPreview(

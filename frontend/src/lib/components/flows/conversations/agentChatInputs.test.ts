@@ -6,6 +6,7 @@ import {
 	parseProviderTransform,
 	resolveAgentModelWiring,
 	showsModelButton,
+	wiredFieldValue,
 	withoutRejectedEffort
 } from './agentChatInputs'
 import type { FlowModule } from '$lib/gen'
@@ -496,6 +497,53 @@ describe('parseProviderTransform with comments', () => {
 	it('still refuses a second expression beside it', () => {
 		expect(
 			parseProviderTransform({ type: 'javascript', expr: 'flow_input.provider, 1' })
+		).toBeUndefined()
+	})
+})
+
+describe('a step linked to a saved agent', () => {
+	const saved = {
+		'u/a/agent': {
+			kind: 'anthropic',
+			resource: '$res:u/a/claude',
+			model: 'claude-sonnet-4-5',
+			reasoning_effort: 'high'
+		}
+	}
+	function linked(input_transforms: Record<string, unknown>): FlowModule {
+		return {
+			id: 'a',
+			value: { type: 'aiagent', agent: '$res:u/a/agent', tools: [], input_transforms }
+		} as unknown as FlowModule
+	}
+	const wired = linked({
+		model: { type: 'javascript', expr: 'flow_input.model' },
+		reasoning_effort: { type: 'javascript', expr: 'flow_input.effort' }
+	})
+
+	it('drives the overrides it wires, on the provider the agent saved', () => {
+		const wiring = resolveAgentModelWiring([wired], saved)
+		expect(wiring?.fields).toEqual({ model: 'model', reasoning_effort: 'effort' })
+		expect(wiring?.fixed).toEqual({ kind: 'anthropic', resource: '$res:u/a/claude' })
+		expect(agentModelWiringInputs(wiring).sort()).toEqual(['effort', 'model'])
+	})
+
+	it('shows what the agent saved for an input left empty, the effort only on its own model', () => {
+		const wiring = resolveAgentModelWiring([wired], saved)!
+		expect(wiredFieldValue(wiring, {}, 'model')).toBe('claude-sonnet-4-5')
+		expect(wiredFieldValue(wiring, {}, 'reasoning_effort')).toBe('high')
+		expect(
+			wiredFieldValue(wiring, { model: 'claude-haiku-4-5' }, 'reasoning_effort')
+		).toBeUndefined()
+	})
+
+	it('cannot be read until the agent has loaded, or with an expression it cannot place', () => {
+		expect(resolveAgentModelWiring([wired], {})).toBeUndefined()
+		expect(
+			resolveAgentModelWiring(
+				[linked({ model: { type: 'javascript', expr: 'pick(flow_input.model)' } })],
+				saved
+			)
 		).toBeUndefined()
 	})
 })

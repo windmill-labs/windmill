@@ -10,15 +10,21 @@ import type { InputTransform, MemoryConfig } from '$lib/gen'
  * the two cannot cycle.
  */
 
-export type AgentFieldGroup = 'model' | 'messages' | 'tools' | 'output'
+export type AgentFieldGroup = 'model' | 'messages' | 'tools' | 'output' | 'overrides'
 
 /** Groups in the order a run assembles the request: pick a model, build the messages, let it call
- *  tools, shape what comes back. */
-export const AGENT_FIELD_GROUPS: { id: AgentFieldGroup; label: string }[] = [
+ *  tools, shape what comes back. Overrides come last: only a step linked to a saved agent has
+ *  them, and they replace what the agent saved rather than add to the request. */
+export const AGENT_FIELD_GROUPS: { id: AgentFieldGroup; label: string; caption?: string }[] = [
 	{ id: 'model', label: 'Model' },
 	{ id: 'messages', label: 'Messages' },
 	{ id: 'tools', label: 'Tools' },
-	{ id: 'output', label: 'Output' }
+	{ id: 'output', label: 'Output' },
+	{
+		id: 'overrides',
+		label: 'Agent overrides',
+		caption: "Replace what is saved on the agent, for this step's runs only."
+	}
 ]
 
 /** The tool roster, which reads `flowModule.value.tools` rather than an `input_transforms` key.
@@ -29,6 +35,17 @@ export const AGENT_TOOLS_ROW = 'tools'
  *  step's choice, so only the author adds them. */
 export const AGENT_HISTORY_KEYS = ['memory_id', 'previous_messages'] as const
 export type AgentHistoryKey = (typeof AGENT_HISTORY_KEYS)[number]
+
+/** A linked step's overrides of its saved agent. Never seeded either: a step with no override
+ *  holds no key for one. */
+export const AGENT_OVERRIDE_KEYS = ['model', 'reasoning_effort'] as const
+export type AgentOverrideKey = (typeof AGENT_OVERRIDE_KEYS)[number]
+
+/** The inputs whose row exists exactly while the step holds the key. */
+export const AGENT_UNSEEDED_KEYS: readonly string[] = [
+	...AGENT_HISTORY_KEYS,
+	...AGENT_OVERRIDE_KEYS
+]
 
 /** The input transforms a one-off test of an agent step runs with: each form key is fed from
  *  `flow_input`, over the step's own transforms. A blank history input is unset, as on the step:
@@ -256,6 +273,24 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		implicit: true,
 		defaultHint: 'Default: on',
 		textOnly: true
+	},
+	{
+		key: 'model',
+		group: 'overrides',
+		label: 'Model',
+		tooltip:
+			"Runs this step on another model than the one saved on the agent, through the agent's own provider resource. Set it to an expression to choose the model per run: an empty value keeps the saved model.",
+		implicit: '',
+		defaultHint: 'Default: the model saved on the agent'
+	},
+	{
+		key: 'reasoning_effort',
+		group: 'overrides',
+		label: 'Reasoning effort',
+		tooltip:
+			'Runs this step at another reasoning effort than the one saved on the agent. Set it to an expression to choose the effort per run: an empty value keeps the saved effort. Overriding the model without it runs that model at its default effort.',
+		implicit: '',
+		defaultHint: 'Default: the effort saved on the agent'
 	}
 ]
 
