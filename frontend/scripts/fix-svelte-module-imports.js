@@ -16,9 +16,22 @@
 //    tarball. Copy the registry into the package and rewrite those imports
 //    to point at it (mirrors how package-system-prompts.js bundles
 //    `$system_prompts`).
+//
+// 3. Chat SDK: the `windmill-chat` alias (svelte.config.js) points at
+//    `chat-sdk/src/index.ts`, which escapes the package root the same way.
+//    Compile that entry point into the package and rewrite those imports.
+//
+// 4. `$lib/utils` from inside `utils/`: svelte-package turns it into `./`,
+//    which is the `utils/` directory (no index) rather than `utils.js`.
+//    Point a directory specifier with no index at its sibling module.
+//
+// A relative import that still escapes the package root, or an
+// `import.meta.glob` left on an alias, fails the build: either one
+// publishes fine and only breaks in the consumer's bundler.
+import { execFileSync } from 'child_process'
 import { copyFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { fileURLToPath } from 'url'
-import { dirname, join, relative, resolve } from 'path'
+import { dirname, join, relative, resolve, sep } from 'path'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -29,8 +42,35 @@ const oauthConnectDest = join(packageDir, 'oauth_connect.json')
 
 copyFileSync(oauthConnectSrc, oauthConnectDest)
 
-const IMPORT_SPECIFIER_RE = /(\bfrom\s*|\bimport\s*\(?\s*)(['"])(\.\.?\/[^'"]*\.(?:svelte|json))\2/g
+const chatSdkSrc = resolve(__dirname, '..', '..', 'chat-sdk', 'src', 'index.ts')
+const chatSdkDest = join(packageDir, 'chat-sdk')
+
+// File arguments make tsc ignore every tsconfig and emit only what the entry
+// point reaches, which leaves out the React and AI SDK adapters.
+execFileSync(
+	'npx',
+	[
+		'tsc',
+		chatSdkSrc,
+		'--outDir',
+		chatSdkDest,
+		'--declaration',
+		'--target',
+		'ES2021',
+		'--module',
+		'ESNext',
+		'--moduleResolution',
+		'bundler',
+		'--skipLibCheck'
+	],
+	{ stdio: 'inherit', cwd: resolve(__dirname, '..') }
+)
+
+const IMPORT_SPECIFIER_RE = /(\bfrom\s*|\bimport\s*\(?\s*)(['"])(\.\.?(?:\/[^'"]*)?)\2/g
 const OAUTH_CONNECT_RE = /^(\.\.\/)+backend\/oauth_connect\.json$/
+const CHAT_SDK_RE = /^(\.\.\/)+chat-sdk\/src\/index\.ts$/
+const DIRECTORY_RE = /^\.\.?$|\/$/
+const ALIASED_GLOB_RE = /import\.meta\.glob\(\s*['"]\$/
 
 function* walk(dir) {
 	for (const entry of readdirSync(dir)) {
@@ -50,9 +90,13 @@ function relativeSpecifier(fromFile, toFile) {
 
 let rewrittenFiles = 0
 let rewrittenImports = 0
+const unresolvable = []
 
 for (const file of walk(packageDir)) {
 	const content = readFileSync(file, 'utf-8')
+	if (ALIASED_GLOB_RE.test(content)) {
+		unresolvable.push(`${relative(packageDir, file)}: import.meta.glob on an alias`)
+	}
 	let changed = false
 	const updated = content.replace(IMPORT_SPECIFIER_RE, (match, prefix, quote, specifier) => {
 		if (OAUTH_CONNECT_RE.test(specifier)) {
@@ -60,10 +104,27 @@ for (const file of walk(packageDir)) {
 			rewrittenImports++
 			return `${prefix}${quote}${relativeSpecifier(file, oauthConnectDest)}${quote}`
 		}
+		if (CHAT_SDK_RE.test(specifier)) {
+			changed = true
+			rewrittenImports++
+			return `${prefix}${quote}${relativeSpecifier(file, join(chatSdkDest, 'index.js'))}${quote}`
+		}
+		const target = resolve(dirname(file), specifier)
+		if (target !== packageDir && !target.startsWith(packageDir + sep)) {
+			unresolvable.push(`${relative(packageDir, file)}: ${specifier}`)
+			return match
+		}
+		if (DIRECTORY_RE.test(specifier)) {
+			if (!existsSync(join(target, 'index.js')) && existsSync(target + '.js')) {
+				changed = true
+				rewrittenImports++
+				return `${prefix}${quote}${relativeSpecifier(file, target + '.js')}${quote}`
+			}
+			return match
+		}
 		if (!specifier.endsWith('.svelte')) {
 			return match
 		}
-		const target = resolve(dirname(file), specifier)
 		// A real `.svelte` component file: leave the import alone.
 		if (existsSync(target)) {
 			return match
@@ -80,6 +141,14 @@ for (const file of walk(packageDir)) {
 		writeFileSync(file, updated)
 		rewrittenFiles++
 	}
+}
+
+if (unresolvable.length > 0) {
+	console.error(
+		`fix-svelte-module-imports: ${unresolvable.length} import(s) a consumer cannot resolve:\n` +
+			unresolvable.join('\n')
+	)
+	process.exit(1)
 }
 
 console.log(
