@@ -35,8 +35,11 @@ A policy names its role as text, so renaming the role breaks it.
 - **The viewer is `job_perms.end_user_email`, and nothing else.** The server records it when the
   run starts: the session behind an app request, the caller of a direct run or preview, and for a
   job started with another job's token, that job's viewer. No argument reaches it. A job without
-  one (anonymous app viewer, schedule, trigger) is refused rather than resolved as its owner, which
-  in a publisher-mode app would be the publisher.
+  one (anonymous app viewer, schedule, trigger, a tool job started by an AI agent step) is refused
+  rather than resolved as its owner, which in a publisher-mode app would be the publisher.
+- **A cached result belongs to one viewer.** `cached_result_path` hashes the run's recorded viewer
+  into the key, since a cache hit returns before any connection is resolved. Runs with no viewer
+  recorded keep sharing one entry.
 - **Only a tenant list naming the viewer counts.** A workspace admin may *use* every role,
   `admin` included, and `admin` is the connection that owns the tables and bypasses row-level
   security. The viewer's roles are those whose tenants name them (user, group, folder, `*`), and
@@ -60,4 +63,9 @@ A policy names its role as text, so renaming the role breaks it.
 
 A runnable connecting as the viewer runs its author's code with the viewer's reach into the data
 table, the same trust as an app in viewer execution mode or a script someone else wrote and you
-run.
+run. Whoever can deploy a publisher-mode app, or a script that others run, can therefore read
+through the non-`admin` roles of the people who use it; nothing on the data table opts in to
+that.
+
+A set login is dropped only with one of its roles. One that no viewer resolves to any more stays
+on the cluster, holding only roles that still exist.

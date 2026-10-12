@@ -1726,6 +1726,20 @@ pub async fn cached_result_path(
         hasher.update(b"wac_step:");
         hasher.update(step_key.as_bytes());
     }
+    // What a run returns can depend on who it ran for (`WM_END_USER_EMAIL`, a data table used
+    // as the viewer), so a result cached for one viewer is never served to another. Read from
+    // `job_perms`: a flow job re-fetched between steps does not carry it.
+    let end_user: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+    )
+    .bind(job.id)
+    .bind(&job.workspace_id)
+    .fetch_optional(db)
+    .await?;
+    if let Some(end_user) = end_user.flatten() {
+        hasher.update(b"end_user:");
+        hasher.update(end_user.as_bytes());
+    }
     hash_args(
         db,
         client,
