@@ -1201,6 +1201,8 @@ pub struct PythonAnnotations {
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
+    pub py314: bool,
+    pub py315: bool,
     pub sandbox: bool,
 }
 
@@ -1805,6 +1807,7 @@ pub struct CpuStat {
     pub throttled_usec: u64,
 }
 
+#[cfg(not(windows))]
 fn cpu_stat_field(stat: &str, key: &str) -> Option<u64> {
     stat.lines().find_map(|line| {
         let (k, v) = line.split_once(' ')?;
@@ -1812,6 +1815,7 @@ fn cpu_stat_field(stat: &str, key: &str) -> Option<u64> {
     })
 }
 
+#[cfg(not(windows))]
 fn parse_cgroup_v2_cpu_stat(stat: &str) -> Option<CpuStat> {
     Some(CpuStat {
         usage_usec: cpu_stat_field(stat, "usage_usec")?,
@@ -1822,6 +1826,7 @@ fn parse_cgroup_v2_cpu_stat(stat: &str) -> Option<CpuStat> {
 }
 
 /// cgroup v1 splits the same figures over two controllers and counts time in nanoseconds.
+#[cfg(not(windows))]
 fn parse_cgroup_v1_cpu_stat(cpuacct_usage: &str, stat: &str) -> Option<CpuStat> {
     Some(CpuStat {
         usage_usec: cpuacct_usage.trim().parse::<u64>().ok()? / 1000,
@@ -2889,6 +2894,8 @@ pub enum PyVAlias {
     #[default]
     Py312,
     Py313,
+    Py314,
+    Py315,
 }
 
 impl Into<pep440_rs::Version> for PyVAlias {
@@ -2906,13 +2913,20 @@ impl Into<u32> for PyVAlias {
 impl PyVAlias {
     pub fn all<T: From<PyVAlias>>() -> Vec<T> {
         use PyVAlias::*;
-        vec![Py310.into(), Py311.into(), Py312.into(), Py313.into()]
+        vec![
+            Py310.into(),
+            Py311.into(),
+            Py312.into(),
+            Py313.into(),
+            Py314.into(),
+            Py315.into(),
+        ]
     }
     // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
     fn major(&self) -> u32 {
         use PyVAlias::*;
         match self {
-            Py310 | Py311 | Py312 | Py313 => 3,
+            Py310 | Py311 | Py312 | Py313 | Py314 | Py315 => 3,
             // Py400 | Py401 => 4
         }
     }
@@ -2927,6 +2941,8 @@ impl PyVAlias {
             "311" => Some(Py311),
             "312" => Some(Py312),
             "313" => Some(Py313),
+            "314" => Some(Py314),
+            "315" => Some(Py315),
             _ => None,
         }
     }
@@ -2986,6 +3002,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    #[cfg(not(windows))]
     #[test]
     fn cgroup_cpu_stat_is_normalized_to_microseconds() {
         let v2 = "usage_usec 2500000\nuser_usec 2000000\nsystem_usec 500000\n\

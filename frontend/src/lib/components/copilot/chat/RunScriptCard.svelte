@@ -10,7 +10,6 @@
 	import { msToReadableTime } from '$lib/utils'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import { JobService, type CompletedJob, type Job } from '$lib/gen'
-	import { base } from '$lib/base'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import RunArgsFormDisplay from './RunArgsFormDisplay.svelte'
@@ -449,7 +448,7 @@
 		if (aiChatManager.openRunInPreview) {
 			aiChatManager.openRunInPreview({ jobId: job.jobId, workspace: job.workspace, label })
 		} else {
-			window.open(`${base}/run/${job.jobId}?workspace=${job.workspace}`, '_blank', 'noreferrer')
+			window.open(`/run/${job.jobId}?workspace=${job.workspace}`, '_blank', 'noreferrer')
 		}
 	}
 </script>

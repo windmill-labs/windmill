@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
@@ -533,7 +534,7 @@ pub struct OpenAPISchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<OpenAPISchema>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<HashMap<String, Box<OpenAPISchema>>>,
+    pub properties: Option<IndexMap<String, Box<OpenAPISchema>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "oneOf")]
@@ -560,9 +561,9 @@ pub struct OpenAPISchema {
     #[serde(skip_serializing_if = "Option::is_none", rename = "$ref")]
     pub ref_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "$defs")]
-    pub defs: Option<HashMap<String, Box<OpenAPISchema>>>,
+    pub defs: Option<IndexMap<String, Box<OpenAPISchema>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub definitions: Option<HashMap<String, Box<OpenAPISchema>>>,
+    pub definitions: Option<IndexMap<String, Box<OpenAPISchema>>>,
 
     // Schema composition
     #[serde(skip_serializing_if = "Option::is_none", rename = "allOf")]
@@ -829,7 +830,7 @@ impl OpenAPISchema {
 
         // Merge properties (other's properties are added if key doesn't exist)
         if let Some(ref other_props) = other.properties {
-            let props = self.properties.get_or_insert_with(HashMap::new);
+            let props = self.properties.get_or_insert_with(IndexMap::new);
             for (key, value) in other_props {
                 props.entry(key.clone()).or_insert_with(|| value.clone());
             }
@@ -880,13 +881,13 @@ impl OpenAPISchema {
 
         // Merge $defs and definitions
         if let Some(ref other_defs) = other.defs {
-            let defs = self.defs.get_or_insert_with(HashMap::new);
+            let defs = self.defs.get_or_insert_with(IndexMap::new);
             for (key, value) in other_defs {
                 defs.entry(key.clone()).or_insert_with(|| value.clone());
             }
         }
         if let Some(ref other_definitions) = other.definitions {
-            let definitions = self.definitions.get_or_insert_with(HashMap::new);
+            let definitions = self.definitions.get_or_insert_with(IndexMap::new);
             for (key, value) in other_definitions {
                 definitions
                     .entry(key.clone())
@@ -981,7 +982,29 @@ pub struct S3ObjectWithType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+
+    /// The schema is part of the prompt prefix the provider caches on, so its keys must
+    /// serialize in the same order on every request.
+    #[test]
+    fn strict_schema_keeps_the_defined_property_order() {
+        let keys = [
+            "zeta", "alpha", "mid", "beta", "omega", "gamma", "delta", "kappa",
+        ];
+        let props = keys
+            .iter()
+            .map(|k| format!(r#""{k}":{{"type":"string"}}"#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut schema: OpenAPISchema =
+            serde_json::from_str(&format!(r#"{{"type":"object","properties":{{{props}}}}}"#))
+                .unwrap();
+        schema.make_strict();
+
+        let value = serde_json::to_value(&schema).unwrap();
+        let serialized: Vec<&String> = value["properties"].as_object().unwrap().keys().collect();
+        assert_eq!(serialized, keys);
+        assert_eq!(value["required"], serde_json::json!(keys));
+    }
 
     /// Whichever provider served the request, `input_tokens` has to end up meaning the
     /// whole prompt. Leaving the Anthropic shape as reported under-states it by the
@@ -1248,7 +1271,7 @@ mod tests {
     #[test]
     fn test_make_strict_defs() {
         let def_schema = object_schema(vec![("prop", string_schema())]);
-        let mut defs = HashMap::new();
+        let mut defs = IndexMap::new();
         defs.insert("MyType".to_string(), Box::new(def_schema));
 
         let mut schema = OpenAPISchema { defs: Some(defs), ..Default::default() };
@@ -1274,7 +1297,7 @@ mod tests {
     #[test]
     fn test_make_strict_definitions() {
         let def_schema = object_schema(vec![("prop", string_schema())]);
-        let mut definitions = HashMap::new();
+        let mut definitions = IndexMap::new();
         definitions.insert("MyType".to_string(), Box::new(def_schema));
 
         let mut schema = OpenAPISchema { definitions: Some(definitions), ..Default::default() };
@@ -1528,7 +1551,7 @@ mod tests {
     #[test]
     fn test_flatten_all_of_preserves_defs() {
         let def_schema = object_schema(vec![("field", string_schema())]);
-        let mut defs = HashMap::new();
+        let mut defs = IndexMap::new();
         defs.insert("MyType".to_string(), Box::new(def_schema));
 
         let schema_with_defs = OpenAPISchema { defs: Some(defs), ..Default::default() };
@@ -1642,7 +1665,7 @@ mod tests {
             schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
             ..Default::default()
         };
-        let mut defs = HashMap::new();
+        let mut defs = IndexMap::new();
         defs.insert("MyType".to_string(), Box::new(def_schema));
 
         let mut schema = OpenAPISchema {

@@ -103,7 +103,6 @@
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
-	import { base } from '$app/paths'
 	import { Menubar, Tooltip } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
@@ -114,7 +113,7 @@
 	import {
 		isPageItemListPath,
 		parsePreviewItemRoute,
-		stripBase
+		barePath
 	} from '$lib/components/sessions/previewPaths'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
@@ -304,7 +303,7 @@
 	// An operator without the opt-in (`gate.ts`) is refused by /sessions, so their sidebar is not
 	// handed over to a session list the page behind it declines, and they keep the docked chat.
 	const sessionsAllowed = $derived(sessionsAllowedFor($userStore?.operator))
-	let sessionMode = $derived(page.url.pathname.startsWith(base + '/sessions') && sessionsAllowed)
+	let sessionMode = $derived(page.url.pathname.startsWith('/sessions') && sessionsAllowed)
 	// Session mode points the bottom settings entry at the open session's own
 	// workspace. An unsent draft hasn't committed one yet, so it falls back to
 	// the family root.
@@ -469,7 +468,7 @@
 			}
 			// A list page mounts in process too, where its rows open as tabs of their own.
 			const listUrl = navigation.to?.url
-			if (listUrl && isPageItemListPath(stripBase(listUrl.pathname))) {
+			if (listUrl && isPageItemListPath(barePath(listUrl.pathname))) {
 				navigation.cancel()
 				const u = new URL(listUrl.href)
 				u.searchParams.delete('nomenubar')
@@ -731,7 +730,7 @@
 		// Remember the last navigation-mode route so exiting session mode returns
 		// the user where they were rather than to the home page.
 		const to = n.to?.url
-		if (to && !to.pathname.startsWith(base + '/sessions')) {
+		if (to && !to.pathname.startsWith('/sessions')) {
 			rememberNavRoute(to.pathname + to.search)
 		}
 	})
@@ -746,7 +745,7 @@
 		}
 	}
 
-	let devOnly = $derived(page.url.pathname.startsWith(base + '/scripts/dev'))
+	let devOnly = $derived(page.url.pathname.startsWith('/scripts/dev'))
 
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
@@ -1063,7 +1062,7 @@
 	<MenuLink
 		class="!text-xs"
 		label="Home"
-		href={`${base}/`}
+		href="/"
 		icon={Home}
 		isCollapsed={collapsed}
 		aiId="sidebar-menu-link-home"
@@ -1072,7 +1071,7 @@
 	<MenuLink
 		class="!text-xs"
 		label="Runs"
-		href={`${base}/runs`}
+		href="/runs"
 		icon={Play}
 		disabled={!sidebarPageAllowed(
 			$userStore?.operator,

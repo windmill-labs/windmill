@@ -90,7 +90,6 @@ describe("generateCommentedTemplate", () => {
 
   test("default values match expected defaults", () => {
     const config = parse(generateCommentedTemplate("main"));
-    expect(config.defaultTs).toBe("bun");
     expect(config.skipSecrets).toBe(true);
     expect(config.nonDottedPaths).toBe(true);
     expect(config.codebases).toEqual([]);

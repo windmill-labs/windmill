@@ -44,7 +44,6 @@ section or the flat layout.
 		PREVIEW_PAGES,
 		artifactKey,
 		isArtifactKey,
-		pageHref,
 		pageKey,
 		previewModeFor,
 		type PreviewTarget
@@ -204,7 +203,7 @@ section or the flat layout.
 			key: pageKey(p.path),
 			label: p.label,
 			icon: p.icon,
-			data: { type: 'page', href: pageHref(p.path), label: p.label }
+			data: { type: 'page', href: p.path, label: p.label }
 		}
 	}
 
@@ -263,7 +262,7 @@ section or the flat layout.
 							key: pageKey(path),
 							label: `f/${folder}`,
 							icon: NetworkIcon,
-							data: { type: 'page', href: pageHref(path), label: folder }
+							data: { type: 'page', href: path, label: folder }
 						}
 					})
 				}

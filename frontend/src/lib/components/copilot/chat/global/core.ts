@@ -75,6 +75,8 @@ import {
 	formatDataTableRef
 } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
+import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
+import { operatorBuilderAppsIn } from '$lib/operatorWriteRights'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
@@ -244,7 +246,6 @@ import {
 	parseItemsMaskParam
 } from '$lib/components/sessions/modifiedItemsMask'
 import {
-	pageHref,
 	TRIGGER_PAGES,
 	type TriggerKind as PageTriggerKind
 } from '$lib/components/sessions/previewRouter'
@@ -334,7 +335,7 @@ export type GlobalActiveEditorContext = {
 export type GlobalActivePreviewContext = {
 	/** Page name as the tab strip shows it, e.g. "Schedules". */
 	label: string
-	/** Base-stripped page path plus the request params the page declares — values kept
+	/** Page path plus the request params the page declares — values kept
 	 * only for the ones addressing a workspace object, and percent-encoded. Never a raw
 	 * location: a tab can host a legacy app whose hash is app state, and a filter value
 	 * can be free text the user typed. Build it with `previewLocationContext`. */
@@ -1305,12 +1306,7 @@ const readDomSchema = z.object({
 
 const takeScreenshotSchema = z.object({})
 
-const FRAMEWORK_KEYS = [
-	'react19',
-	'react18',
-	'svelte5',
-	'vue'
-] as const satisfies readonly FrameworkKey[]
+const FRAMEWORK_KEYS = ['react19', 'react18', 'svelte5'] as const satisfies readonly FrameworkKey[]
 
 const initAppSchema = z.object({
 	path: z
@@ -2069,6 +2065,11 @@ async function saveAppDraft(
 	path: string,
 	value: AppDraftValue
 ): Promise<DraftPersistResult> {
+	if (operatorBuilderAppsIn(workspace)) {
+		const role = await roleForWorkspace(workspace)
+		value.policy ??= {}
+		conformBuilderAppPolicy(value.policy, role.kind === 'resolved' ? role.user : undefined)
+	}
 	return saveGlobalAppDraft(workspace, path, value)
 }
 
@@ -2487,7 +2488,7 @@ function getAppInstructions(language?: ScriptLang): string {
 
 - Global mode edits raw app drafts only; it does not save or deploy unless the user explicitly asks to deploy.
 - App drafts are addressed by workspace path. Follow the path conventions in the system prompt: default to \`u/<current-user>/<name>\` for bare names; only use \`f/<folder>/<name>\` when the folder is known to exist. The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
-- To create a new app, use \`init_app\` with a path, optional summary, a framework (\`react19\` / \`react18\` / \`svelte5\` / \`vue\`) and, for an app that stores data, its \`data\` setup. "Starting a new app" below decides the framework and when the data setup is asked. Ask each of its questions with \`askUserQuestion\`, one question per call with the suggested answer first, before \`init_app\` and before any SQL. \`init_app\` only records \`data\`: a new schema is yours to create with the datatable SQL tool. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
+- To create a new app, use \`init_app\` with a path, optional summary, a framework (\`react19\` / \`react18\` / \`svelte5\`) and, for an app that stores data, its \`data\` setup. "Starting a new app" below decides the framework and when the data setup is asked. Ask each of its questions with \`askUserQuestion\`, one question per call with the suggested answer first, before \`init_app\` and before any SQL. \`init_app\` only records \`data\`: a new schema is yours to create with the datatable SQL tool. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
 - \`init_app\` seeds a starter inline runnable named \`a\` (bun, \`main(x: string) => string\`) so the React/Svelte demo button works on first render. Replace or remove it once you start building real backend runnables.
 - Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
 - Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).
@@ -3454,7 +3455,7 @@ export const openPageTool: SessionTool<{}> = {
 		// is no active session, in which case we offer a link chip instead.
 		const previewResult = openPagePreview({
 			sessionId: sessionIdFromCtx(ctx),
-			href: pageHref(url),
+			href: url,
 			label: pageLabel,
 			newTab: parsed.new_tab ?? false
 		})

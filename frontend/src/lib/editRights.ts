@@ -26,7 +26,10 @@ export type EditKind =
 	| (string & {})
 
 type OperatorRights =
-	| Pick<NonNullable<OperatorSettings>, 'builder_flows' | 'manage_schedules' | 'manage_triggers'>
+	| Pick<
+			NonNullable<OperatorSettings>,
+			'builder_flows' | 'builder_apps' | 'manage_schedules' | 'manage_triggers'
+	  >
 	| null
 	| undefined
 
@@ -35,8 +38,9 @@ type OperatorRights =
  * in a workspace with these `operator_settings`: the role half of every check against the item
  * handlers. Saving a draft is `roleCanDraft`'s rule, and which items they may write is
  * `canEditItem`'s other half. For an operator:
- * - code (scripts, apps, agents, pipelines): never;
- * - flows: where the workspace grants `builder_flows` (`check_operator_can_build_flows`);
+ * - code (scripts, low-code apps, agents, pipelines): never;
+ * - flows and full-code apps: where the workspace grants `builder_flows` / `builder_apps`
+ *   (`check_operator_can_build`);
  * - schedules and triggers: unless the workspace set `manage_*` to false — a withdrawable
  *   right, so an unset key grants it (docs/operator-write-rights.md);
  * - resources, variables and groups: always, their permissions alone decide.
@@ -49,7 +53,8 @@ export function roleCanAuthor(
 	if (!user?.operator) return true
 	switch (kind) {
 		case 'flow':
-			return operatorSettings?.builder_flows === true
+		case 'raw_app':
+			return builderGrants(kind, operatorSettings)
 		case 'schedule':
 			return operatorSettings?.manage_schedules !== false
 		case 'trigger':
@@ -66,8 +71,8 @@ export function roleCanAuthor(
 /**
  * Whether the user may save drafts of `kind` — what every session editor writes. Mirrors drafts.rs
  * `require_can_write_path`, which differs from the item handlers both ways: it admits an admin
- * before its operator branch, and it refuses every operator draft but a flow under
- * `builder_flows` — schedules, triggers, resources and variables included, though an operator may
+ * before its operator branch, and it refuses every operator draft but a flow or full-code app
+ * under its builder right — schedules, triggers, resources and variables included, though an operator may
  * write those directly.
  */
 export function roleCanDraft(
@@ -76,7 +81,14 @@ export function roleCanDraft(
 	operatorSettings: OperatorRights
 ): boolean {
 	if (user?.is_admin || user?.is_super_admin || !user?.operator) return true
-	return kind === 'flow' && operatorSettings?.builder_flows === true
+	return builderGrants(kind, operatorSettings)
+}
+
+function builderGrants(kind: EditKind, operatorSettings: OperatorRights): boolean {
+	return (
+		(kind === 'flow' && operatorSettings?.builder_flows === true) ||
+		(kind === 'raw_app' && operatorSettings?.builder_apps === true)
+	)
 }
 
 /** `roleCanDraft` for the item at `path`, with its own permissions as in `canEditItem`. */

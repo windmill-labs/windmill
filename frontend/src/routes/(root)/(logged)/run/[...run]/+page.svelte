@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import {
 		JobService,
 		type Job,
@@ -244,7 +243,7 @@
 			// key, and the logged layout only switches `$workspaceStore` when the URL
 			// carries `workspace=`. Without it a recipient whose active workspace
 			// differs would open the run (and validate the token) against the wrong one.
-			const url = `${window.location.origin}${base}/run/${id}?workspace=${encodeURIComponent(
+			const url = `${window.location.origin}/run/${id}?workspace=${encodeURIComponent(
 				workspace
 			)}&view_token=${encodeURIComponent(token)}`
 			copyToClipboard(url)
@@ -260,7 +259,7 @@
 			const token = (await JobService.getJobPublicViewToken({ workspace, id })).trim()
 			// The workspace is a path segment here: the public run page is outside the
 			// logged layout and has no workspace store to fall back on.
-			const url = `${window.location.origin}${base}/public_run/${encodeURIComponent(
+			const url = `${window.location.origin}/public_run/${encodeURIComponent(
 				workspace
 			)}/${id}?view_token=${encodeURIComponent(token)}`
 			copyToClipboard(url)
@@ -757,7 +756,7 @@
 				</div>
 			</Alert>
 			<div class="mt-4">
-				<Button href="{base}/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
+				<Button href="/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
 			</div>
 		</div>
 	</div>
@@ -805,7 +804,7 @@
 		{/if}
 
 		<div class="mt-6 flex justify-center">
-			<Button href="{base}/runs" unifiedSize="md" variant="default">Go to runs page</Button>
+			<Button href="/runs" unifiedSize="md" variant="default">Go to runs page</Button>
 		</div>
 	</div>
 {:else}

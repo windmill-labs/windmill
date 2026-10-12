@@ -1,6 +1,6 @@
 # Windmill Raw Apps
 
-Raw apps let you build custom frontends with React, Svelte, or Vue that connect to Windmill backend runnables and datatables.
+Raw apps let you build custom frontends with React or Svelte that connect to Windmill backend runnables and datatables.
 
 ## App shape
 
@@ -16,7 +16,7 @@ A new app gets the setup Windmill's own new-app dialog gives one: a framework, t
 
 ### Framework
 
-Use the framework the user named. When they named none, follow what there is to follow: the app being edited, or the apps the request points at. With nothing to follow, use **React 19**, the recommended default, **without asking**. React 18, Svelte 5 and Vue are for when they are asked for.
+Use the framework the user named. When they named none, follow what there is to follow: the app being edited, or the apps the request points at. With nothing to follow, use **React 19**, the recommended default, **without asking**. React 18 and Svelte 5 are for when they are asked for. These three are the only frameworks the raw app bundler builds. When the user asks to build or convert an app in another framework, write no code in it: say it is not available and offer these three instead.
 
 ### Data setup
 
@@ -54,7 +54,7 @@ An app the user just started from the new-app dialog is already set up: its file
 
 ### Entrypoint
 
-The entrypoint is `index.tsx` for React and `index.ts` for Svelte and Vue. It is both the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint: the preview executes the bundle against an empty `<div id="root">` and auto-renders nothing, so the entrypoint must mount a top-level `App` itself. Keep the UI in `App.tsx` / `App.svelte` / `App.vue` and keep the entrypoint as the mount shim.
+The entrypoint is `index.tsx` for React and `index.ts` for Svelte. It is both the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint: the preview executes the bundle against an empty `<div id="root">` and auto-renders nothing, so the entrypoint must mount a top-level `App` itself. Keep the UI in `App.tsx` / `App.svelte` and keep the entrypoint as the mount shim.
 
 React (`index.tsx`):
 
@@ -66,7 +66,7 @@ import App from './App'
 createRoot(document.getElementById('root')!).render(<App />)
 ```
 
-Svelte (`index.ts`): `mount(App, { target: document.getElementById('root')! })`. Vue (`index.ts`): `createApp(App).mount('#root')`.
+Svelte (`index.ts`): `mount(App, { target: document.getElementById('root')! })`.
 
 **Never replace the entrypoint with a bare component** (`export default function App() { ... }` and no mount call). A component that is defined but never mounted renders a blank screen with **no error thrown** — it never executes, so nothing reaches the console or the error overlay. If an app renders blank, check that the entrypoint still mounts `App` into `#root`.
 

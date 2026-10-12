@@ -5,7 +5,6 @@
 		aiAgentModuleDependencies,
 		collectTransformRefs
 	} from './deployDependencies'
-	import { base } from '$lib/base'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import {
 		AppService,
@@ -538,7 +537,7 @@
 	>
 {:else}
 	<Alert type="info" title="Shareable page"
-		>Share this <a href="{base}/deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
+		>Share this <a href="/deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
 		user do the deployment</Alert
 	>
 
@@ -580,7 +579,7 @@
 				connection={remoteStatus?.connection}
 				returnTo={kind === 'trigger'
 					? undefined
-					: `${base}/deploy/${kind}/${initialPath}?workspace=${encodeURIComponent($operatingWorkspace!)}`}
+					: `/deploy/${kind}/${initialPath}?workspace=${encodeURIComponent($operatingWorkspace!)}`}
 				onChange={loadDestinations}
 			/>
 		</div>

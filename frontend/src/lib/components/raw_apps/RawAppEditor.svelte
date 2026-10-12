@@ -496,7 +496,7 @@ addEventListener('message', function (e) {
 	// entrypoint defines a component without ever mounting it. Cleared on next build.
 	let emptyRender = $state(false)
 	// The repair hint above has to match the app's framework: only React apps have
-	// an `index.tsx` and `createRoot`; Svelte and Vue mount from `index.ts`. Keyed
+	// an `index.tsx` and `createRoot`; Svelte mounts from `index.ts`. Keyed
 	// off file extensions rather than exact template filenames, which users rename.
 	let mountHint = $derived.by(() => {
 		const paths = Object.keys(files ?? {}).map((p) => p.replace(/^\//, ''))
@@ -506,9 +506,6 @@ addEventListener('message', function (e) {
 				entrypoint: entrypoint ?? 'index.ts',
 				call: "mount(App, { target: document.getElementById('root')! })"
 			}
-		}
-		if (paths.some((p) => p.endsWith('.vue'))) {
-			return { entrypoint: entrypoint ?? 'index.ts', call: "createApp(App).mount('#root')" }
 		}
 		return {
 			entrypoint: entrypoint ?? 'index.tsx',

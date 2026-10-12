@@ -59,7 +59,6 @@
 		convertBackendSettingsToFrontendSettings,
 		type S3ResourceSettings
 	} from '$lib/workspace_settings'
-	import { base } from '$lib/base'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import SharedUiSettings from '$lib/components/workspaceSettings/SharedUiSettings.svelte'
@@ -827,7 +826,7 @@
 			})
 
 			// Redirect to OAuth flow
-			window.location.href = `${base}/api/oauth/connect_slack?workspace=${$workspaceStore}`
+			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}`
 		} catch (e) {
 			sendUserToast('Failed to save Slack OAuth configuration', true)
 			console.error(e)
@@ -1554,7 +1553,7 @@
 									<Button
 										variant="default"
 										startIcon={{ icon: Target }}
-										onclick={() => goto(`${base}/forks/compare?mode=fork`)}
+										onclick={() => goto('/forks/compare?mode=fork')}
 									>
 										Merge into another workspace
 									</Button>
@@ -1592,7 +1591,7 @@
 													<Button
 														endIcon={{ icon: ExternalLink }}
 														variant="accent"
-														href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal"
+														href="/api/w/{$workspaceStore}/workspaces/billing_portal"
 													>
 														Customer portal
 													</Button>
@@ -1644,9 +1643,9 @@
 											}
 										}}
 										onSelect={editSlackCommand}
-										connectHref="{base}/api/oauth/connect_slack"
-										createScriptHref="{base}/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
-										createFlowHref="{base}/flows/add?hub=28"
+										connectHref="/api/oauth/connect_slack"
+										createScriptHref="/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+										createFlowHref="/flows/add?hub=28"
 										documentationLink="https://www.windmill.dev/docs/integrations/slack"
 										onLoadSettings={loadSettings}
 										display_name={slack_team_name}
@@ -1731,7 +1730,7 @@
 																Slack API
 															</a>. Set the redirect URI to:{' '}
 															<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
-																{window.location.origin}{base}/oauth/callback_slack
+																{window.location.origin}/oauth/callback_slack
 															</code>
 														</div>
 													</CollapseLink>
@@ -1781,8 +1780,8 @@
 											}}
 											onSelect={editTeamsCommand}
 											connectHref={undefined}
-											createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
-											createFlowHref="{base}/flows/add?hub=58"
+											createScriptHref="/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
+											createFlowHref="/flows/add?hub=58"
 											documentationLink="https://www.windmill.dev/docs/integrations/teams"
 											onLoadSettings={loadSettings}
 											display_name={teams_team_name}
@@ -1835,7 +1834,7 @@
 								{:else}
 									<Button
 										size="sm"
-										href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
+										href="/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
 										target="_blank"
 									>
 										Export workspace as zip file
@@ -2057,7 +2056,7 @@
 											/>
 											<Button
 												variant="default"
-												href={`${base}/scripts/add?lang=bun#` +
+												href={'/scripts/add?lang=bun#' +
 													encodeState({
 														path: 'f/success_handler',
 														summary: 'Workspace Success Handler',

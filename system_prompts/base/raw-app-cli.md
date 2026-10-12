@@ -12,7 +12,7 @@ You need three values to run the command:
 
 1. **summary** — a short description of the app
 2. **path** — the windmill path, e.g. `f/folder/my_app` or `u/username/my_app`
-3. **framework** — one of `react19` (recommended), `react18`, `svelte5`, `vue`
+3. **framework** — one of `react19` (recommended), `react18`, `svelte5`
 
 **summary and path**: if the user's request did not supply them, ask. Do not guess values and do not invent paths.
 
@@ -84,7 +84,7 @@ my_app__raw_app/
 ├── DATATABLES.md          # Database schemas (run 'wmill app generate-agents' to refresh)
 ├── raw_app.yaml           # App configuration (summary, path, data settings)
 ├── index.tsx              # Frontend entry point
-├── App.tsx                # Main React/Svelte/Vue component
+├── App.tsx                # Main React/Svelte component
 ├── index.css              # Styles
 ├── package.json           # Frontend dependencies
 ├── wmill.ts               # Auto-generated backend type definitions (DO NOT EDIT)

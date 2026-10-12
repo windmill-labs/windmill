@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
@@ -157,8 +156,8 @@
 	aiId={`script-run-button-${script.path}`}
 	aiDescription={`Button to access the form to run the script ${script.summary ?? script.path}`}
 	href={script.draft_only || (script.auto_kind === 'lib' && script.kind !== 'preprocessor')
-		? `${base}/scripts/edit/${script.path}`
-		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
+		? `/scripts/edit/${script.path}`
+		: `/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
 	{keyboardSelected}
 	{marked}
@@ -261,7 +260,7 @@
 								wrapperClasses="w-20"
 								unifiedSize="md"
 								startIcon={{ icon: Pen }}
-								href="{base}/scripts/edit/{script.path}"
+								href="/scripts/edit/{script.path}"
 							>
 								Edit
 							</Button>
@@ -351,7 +350,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/scripts/add?template=${script.path}`,
+						href: `/scripts/add?template=${script.path}`,
 						disabled: !showEditButton,
 						hide: $userStore?.operator
 					},
@@ -391,7 +390,7 @@
 					{
 						displayName: 'View runs',
 						icon: List,
-						href: `${base}/runs/${script.path}`
+						href: `/runs/${script.path}`
 					},
 					{
 						displayName: 'Versions',
@@ -403,7 +402,7 @@
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `${base}/audit_logs?resource=${script.path}`,
+						href: `/audit_logs?resource=${script.path}`,
 						hide: $userStore?.operator
 					},
 					{

@@ -3,7 +3,6 @@ import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { copyToClipboard, type Item } from '$lib/utils'
 import { isDeployable } from '$lib/utils_deployable'
-import { base } from '$lib/base'
 import { goto } from '$lib/navigation'
 import type { WorkspaceDeployUISettings } from '$lib/gen'
 
@@ -49,7 +48,7 @@ export function agentMenuItems(agent: {
 						// are filed under `<path>.chat` (agent_runs.rs) and listed by the agent's own chat.
 						displayName: 'View runs',
 						icon: List,
-						action: () => goto(`${base}/runs/${agent.path}?job_kinds=previews`)
+						action: () => goto(`/runs/${agent.path}?job_kinds=previews`)
 					},
 					...(agent.operator
 						? []
@@ -57,7 +56,7 @@ export function agentMenuItems(agent: {
 								{
 									displayName: 'Audit logs',
 									icon: Eye,
-									action: () => goto(`${base}/audit_logs?resource=${agent.path}`)
+									action: () => goto(`/audit_logs?resource=${agent.path}`)
 								}
 							]),
 					{ displayName: 'Copy path', icon: Copy, action: () => copyToClipboard(agent.path) }

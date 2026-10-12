@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -123,7 +122,7 @@
 				'Auto-generated UI from parameters',
 				'Instant deploy & versioning'
 			],
-			onSelect: () => goto(`${base}/scripts/add`)
+			onSelect: () => goto('/scripts/add')
 		},
 		...(HOME_SHOW_CREATE_FLOW
 			? ([
@@ -140,7 +139,7 @@
 							'Branches, loops & error handling',
 							'Suspend / approval steps'
 						],
-						onSelect: () => goto(`${base}/flows/add`),
+						onSelect: () => goto('/flows/add'),
 						extras: [{ label: 'Import flow', onSelect: () => openImport('flow') }]
 					}
 				] as Option[])
@@ -156,7 +155,7 @@
 						description:
 							'Full control over the UI with React or Svelte and a powerful AI agent. Best for complex apps that need full flexibility.',
 						bullets: ['React or Svelte', 'Full flexibility & control', 'AI-assisted authoring'],
-						onSelect: () => goto(`${base}/apps_raw/add`),
+						onSelect: () => goto('/apps_raw/add'),
 						extras: [{ label: 'Import full-code app', onSelect: () => openImport('app-fullcode') }]
 					}
 				] as Option[])
@@ -174,7 +173,7 @@
 				'Reusable as a step in any flow',
 				'Tools from scripts, flows and MCP'
 			],
-			onSelect: () => goto(`${base}/agents/add`)
+			onSelect: () => goto('/agents/add')
 		},
 		...(HOME_SHOW_CREATE_FLOW
 			? ([
@@ -191,18 +190,18 @@
 							'Full control via the SDK',
 							'Versioned as a regular script'
 						],
-						onSelect: () => goto(`${base}/scripts/add?wac=typescript`),
+						onSelect: () => goto('/scripts/add?wac=typescript'),
 						badge: { label: 'Advanced', class: badgeAdvanced },
 						variants: [
 							{
 								label: 'TypeScript',
 								icon: TypeScriptIcon,
-								onSelect: () => goto(`${base}/scripts/add?wac=typescript`)
+								onSelect: () => goto('/scripts/add?wac=typescript')
 							},
 							{
 								label: 'Python',
 								icon: PythonIcon,
-								onSelect: () => goto(`${base}/scripts/add?wac=python`)
+								onSelect: () => goto('/scripts/add?wac=python')
 							}
 						],
 						extras: [{ label: 'Import Workflow-as-Code', onSelect: () => openImport('wac') }]
@@ -220,20 +219,20 @@
 							'Partitioned & incremental',
 							'Asset-aware lineage'
 						],
-						onSelect: () => goto(`${base}/pipeline`),
+						onSelect: () => goto('/pipeline'),
 						badge: { label: 'Alpha', class: badgeAlpha },
 						variants: [
 							{
 								label: 'Windmill pipelines',
 								icon: Workflow,
 								badge: { label: 'Recommended', class: badgeRecommended },
-								onSelect: () => goto(`${base}/pipeline`)
+								onSelect: () => goto('/pipeline')
 							},
 							{
 								label: 'dbt',
 								icon: DbtIcon,
 								docHref: DBT_DOCS,
-								onSelect: () => goto(`${base}/scripts/add?lang=dbt`),
+								onSelect: () => goto('/scripts/add?lang=dbt'),
 								doc: {
 									label: 'dbt',
 									icon: DbtIcon,
@@ -263,7 +262,7 @@
 						description:
 							'Assemble an internal UI from 60+ components wired to your scripts and flows. Best for simple apps or apps that need minimal customization.',
 						bullets: ['60+ ready-made components', 'No code required', 'Backed by scripts & flows'],
-						onSelect: () => goto(`${base}/apps/add`),
+						onSelect: () => goto('/apps/add'),
 						badge: { label: 'Legacy', class: badgeLegacy },
 						extras: [{ label: 'Import low-code app', onSelect: () => openImport('app-lowcode') }]
 					}
@@ -314,10 +313,12 @@
 		}
 	}
 
-	// Only the kinds this user's role authors: a builder operator gets flows alone.
+	// Only the kinds this user's role authors: a builder operator gets the kinds its rights grant.
 	// Derived, not computed once: switching workspace only sets `workspaceStore`, it does not
 	// remount this component, so a snapshot would keep the previous workspace's kinds.
-	const options: Option[] = $derived(allOptions.filter((o) => editRights.roleCanAuthor(o.key)))
+	const options: Option[] = $derived(
+		allOptions.filter((o) => editRights.roleCanAuthor(o.key === 'app-fullcode' ? 'raw_app' : o.key))
+	)
 
 	// the doc panel only shows while an option is hovered or focused, so the menu opens compact
 	let activeKey: string | undefined = $state(undefined)
@@ -490,17 +491,17 @@
 		const parsed = importType === 'yaml' ? YAML.parse(importRaw) : JSON.parse(importRaw)
 		if (importKind === 'flow') {
 			importFlowStore.set(parsed)
-			await goto(`${base}/flows/add`)
+			await goto('/flows/add')
 		} else if (importKind === 'wac') {
 			importScriptStore.set(parsed)
-			await goto(`${base}/scripts/add?import=true`)
+			await goto('/scripts/add?import=true')
 		} else if (importKind === 'app-fullcode') {
 			// The raw app editor reads the payload from sessionStorage on mount.
 			sessionStorage.setItem('rawAppImport', JSON.stringify(parsed))
-			await goto(`${base}/apps_raw/add`)
+			await goto('/apps_raw/add')
 		} else {
 			importStore.set(parsed)
-			await goto(`${base}/apps/add`)
+			await goto('/apps/add')
 		}
 		importDrawer?.closeDrawer?.()
 	}
