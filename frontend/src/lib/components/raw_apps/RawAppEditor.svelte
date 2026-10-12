@@ -21,6 +21,7 @@
 		genWmillTs,
 		normalizeRawAppRuntimeLogs,
 		createRawAppBuildTracker,
+		RAW_APP_BUILD_WAIT_MS,
 		type Runnable,
 		type RawAppRuntimeLogEntry,
 		type RawAppRuntimeLogRequester,
@@ -488,6 +489,10 @@ addEventListener('message', function (e) {
 	// Latest UI Builder error; cleared on next successful build.
 	let buildError = $state<string | undefined>(undefined)
 	const buildTracker = createRawAppBuildTracker()
+	// The preview shell can be ready before the UI Builder has the files, so a fresh
+	// editor counts as building: reads made then would see an empty page.
+	buildTracker.start()
+	const BUILD_PENDING_TEXT = `The app is still building (or its build never started, e.g. no index entrypoint file): no build result arrived within ${RAW_APP_BUILD_WAIT_MS / 1000} seconds, so the preview shows an older build or nothing yet. Call get_app_runtime_logs to check the build, then retry.`
 	const PREVIEW_SETTLE_MS = 1000
 	let editorDestroyed = false
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
@@ -1976,6 +1981,9 @@ addEventListener('message', function (e) {
 	// Live DOM inspection for the session chat. The element is re-read on every call,
 	// so the model always sees the current render.
 	const requestDomQuery: RawAppDomRequester = async (query: RawAppDomQuery) => {
+		await buildTracker.wait()
+		if (editorDestroyed) return undefined
+		if (buildTracker.pending) return { text: BUILD_PENDING_TEXT }
 		const selector = query.selector?.trim()
 		const res = await requestFromPreview('domRead', { selector })
 		if (!res) return undefined
@@ -2142,6 +2150,9 @@ addEventListener('message', function (e) {
 	// reconstructs the DOM into an SVG foreignObject, and a WebGL canvas is only
 	// captured when its context was created with preserveDrawingBuffer.
 	const captureScreenshot: RawAppScreenshotRequester = async () => {
+		await buildTracker.wait()
+		if (editorDestroyed) throw new Error('The app preview was closed')
+		if (buildTracker.pending) throw new Error(BUILD_PENDING_TEXT)
 		const body = await requestFromPreview('elementRect', { selector: 'body' })
 		if (!body?.rect) throw new Error('App preview is not ready')
 		const { width, height } = body.rect
