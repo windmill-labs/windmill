@@ -549,6 +549,26 @@ async fn refresh_token_if_expired(
     Ok(())
 }
 
+/// The MCP resource is read raw so that `token` stays a variable path, which
+/// leaves a `$var:` in its `url` or header values unresolved: resolve it through
+/// the job's permissioned variable path, like the token.
+#[cfg(feature = "mcp")]
+async fn resolve_mcp_var(
+    client: &AuthedClient,
+    value: String,
+    resource_name: &str,
+) -> Result<String, Error> {
+    let Some(var_path) = value.strip_prefix("$var:") else {
+        return Ok(value);
+    };
+    client.get_variable_value(var_path).await.map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to resolve variable {} for MCP resource {}: {}",
+            var_path, resource_name, e
+        ))
+    })
+}
+
 /// Load tools from MCP servers and return both the clients and tools
 /// Returns a map of resource name -> client, and a vector of tools
 #[cfg(feature = "mcp")]
@@ -570,7 +590,7 @@ pub async fn load_mcp_tools(
         // is not allowed to read (resources:read:{path}). Reading through the raw
         // db pool here would bypass the authorization enforced by the regular MCP
         // tools API (get_mcp_tools) and act as a confused deputy.
-        let mcp_resource = client
+        let mut mcp_resource = client
             .get_resource_value::<McpResource>(path)
             .await
             .map_err(|e| {
@@ -581,6 +601,12 @@ pub async fn load_mcp_tools(
             })?;
 
         let resource_name = mcp_resource.name.clone();
+
+        let url = std::mem::take(&mut mcp_resource.url);
+        mcp_resource.url = resolve_mcp_var(client, url, &resource_name).await?;
+        for value in mcp_resource.headers.iter_mut().flat_map(|h| h.values_mut()) {
+            *value = resolve_mcp_var(client, std::mem::take(value), &resource_name).await?;
+        }
 
         // Resolve the token through the job's permissioned (RLS + audit) path so
         // the AI agent cannot exfiltrate a secret its identity is not allowed to

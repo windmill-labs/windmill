@@ -29,6 +29,20 @@ pub struct McpClient {
     client: RunningService<RoleClient, InitializeRequestParams>,
     /// Cached list of available tools from the server
     available_tools: Vec<McpTool>,
+    server_url: ServerUrl,
+}
+
+/// reqwest names the URL it failed on in its errors, and the path or query of
+/// an MCP server URL can carry the server's key: errors keep the origin only.
+struct ServerUrl {
+    full: String,
+    origin: String,
+}
+
+impl ServerUrl {
+    fn redact(&self, e: anyhow::Error) -> anyhow::Error {
+        anyhow::anyhow!("{}", format!("{e:#}").replace(&self.full, &self.origin))
+    }
 }
 
 impl McpClient {
@@ -51,6 +65,12 @@ impl McpClient {
                     windmill_common::ssrf::mcp_ssrf_error_message(&e)
                 )
             })?;
+
+        let parsed_url = reqwest::Url::parse(&resource.url).context("Invalid MCP server URL")?;
+        let server_url = ServerUrl {
+            full: parsed_url.to_string(),
+            origin: parsed_url.origin().ascii_serialization(),
+        };
 
         // Build custom reqwest client with headers if provided
         let mut headers = HeaderMap::new();
@@ -109,16 +129,18 @@ impl McpClient {
         let client = client_info
             .serve(transport)
             .await
-            .context("Failed to connect to MCP server")?;
+            .context("Failed to connect to MCP server")
+            .map_err(|e| server_url.redact(e))?;
 
         // Immediately fetch available tools
         let available_tools = client
             .list_tools(Default::default())
             .await
-            .context("Failed to list tools from MCP server")?
+            .context("Failed to list tools from MCP server")
+            .map_err(|e| server_url.redact(e))?
             .tools;
 
-        Ok(Self { client, available_tools })
+        Ok(Self { client, available_tools, server_url })
     }
 
     /// Get the list of available tools from the MCP server
@@ -141,7 +163,8 @@ impl McpClient {
             .client
             .call_tool(params)
             .await
-            .context(format!("Failed to call MCP tool: {}", name))?;
+            .context(format!("Failed to call MCP tool: {}", name))
+            .map_err(|e| self.server_url.redact(e))?;
 
         // Convert the result to a JSON value
         // MCP tools return ToolResult which contains content array

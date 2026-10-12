@@ -33,6 +33,22 @@ async fn with_deadline<T>(
         })?
 }
 
+/// The MCP resource is read raw so that `token` stays a variable path, which
+/// leaves a `$var:` in its `url` or header values unresolved. A scoped token
+/// resolves it as the token rather than as its user, as resource interpolation does.
+async fn resolve_var(
+    authed: &ApiAuthed,
+    db_authed: &DbWithOptAuthed<'_, ApiAuthed>,
+    w_id: &str,
+    value: String,
+) -> Result<String> {
+    let Some(var_path) = value.strip_prefix("$var:") else {
+        return Ok(value);
+    };
+    check_scopes(authed, || format!("variables:read:{}", var_path))?;
+    get_value_internal(db_authed, w_id, var_path, false).await
+}
+
 /// Connect to the MCP server described by the `mcp` resource at `path`.
 ///
 /// The caller is responsible for the scope check; everything else (resource
@@ -65,8 +81,16 @@ async fn connect_mcp_client(
     let resource_value = not_found_if_none(resource_value_o, "Resource", path)?
         .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", path)))?;
 
-    let mcp_resource = serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
-        .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
+    let mut mcp_resource =
+        serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
+            .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
+
+    let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+    let url = std::mem::take(&mut mcp_resource.url);
+    mcp_resource.url = resolve_var(authed, &db_authed, w_id, url).await?;
+    for value in mcp_resource.headers.iter_mut().flat_map(|h| h.values_mut()) {
+        *value = resolve_var(authed, &db_authed, w_id, std::mem::take(value)).await?;
+    }
 
     #[cfg(feature = "oauth2")]
     {
@@ -119,7 +143,6 @@ async fn connect_mcp_client(
         if token_var_path.trim().is_empty() {
             None
         } else {
-            let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
             Some(get_value_internal(&db_authed, w_id, token_var_path, false).await?)
         }
     } else {
