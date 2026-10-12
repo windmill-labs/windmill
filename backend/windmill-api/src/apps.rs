@@ -479,6 +479,11 @@ pub struct PolicyTriggerableInputs {
     delete_after_secs: Option<i32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sensitive_inputs: Vec<String>,
+    /// Argument name -> context property (`username`, `email`, `groups`, `workspace`,
+    /// `author`). The server fills these from the viewer's session and discards whatever
+    /// the request sent under the same name, so a runnable can filter on them.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    ctx_inputs: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tag: Option<String>,
 }
@@ -2771,6 +2776,47 @@ fn validate_raw_app_path_keys(value: &RawValue) -> Result<()> {
     Ok(())
 }
 
+/// Records, on each triggerable of `policy`, the context inputs its runnable declares in
+/// the app `value` (`fields.<arg> = { type: "ctx", ctx: "<property>" }`). Derived here
+/// rather than taken from the caller: the CLI and the editor each build the policy with
+/// their own copy of the derivation, and a deploy from one that never wrote `ctx_inputs`
+/// would leave the runnable trusting whatever identity the viewer sends.
+fn stamp_ctx_inputs(policy: &mut Policy, value: &RawValue) {
+    let Some(triggerables) = policy.triggerables_v2.as_mut() else {
+        return;
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value.get()) else {
+        return;
+    };
+    let Some(runnables) = parsed.get("runnables").and_then(|r| r.as_object()) else {
+        return;
+    };
+    for (id, runnable) in runnables {
+        let ctx_inputs: HashMap<String, String> = runnable
+            .get("fields")
+            .and_then(|f| f.as_object())
+            .into_iter()
+            .flatten()
+            .filter(|(_, f)| f.get("type").and_then(|t| t.as_str()) == Some("ctx"))
+            .filter_map(|(arg, f)| Some((arg.clone(), f.get("ctx")?.as_str()?.to_string())))
+            .collect();
+        // A triggerable is keyed `<runnable id>:<kind>/<path or sha>`.
+        for (key, triggerable) in triggerables.iter_mut() {
+            let of_runnable = key
+                .strip_prefix(id.as_str())
+                .and_then(|rest| rest.strip_prefix(':'))
+                .is_some_and(|rest| {
+                    ["rawscript/", "script/", "flow/"]
+                        .iter()
+                        .any(|kind| rest.starts_with(kind))
+                });
+            if of_runnable {
+                triggerable.ctx_inputs = ctx_inputs.clone();
+            }
+        }
+    }
+}
+
 async fn create_app_internal<'a>(
     authed: ApiAuthed,
     db: sqlx::Pool<sqlx::Postgres>,
@@ -2785,6 +2831,7 @@ async fn create_app_internal<'a>(
     check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
     check_proper_path(&app.path)?;
     validate_frontend_sdk_scopes(&app.policy)?;
+    stamp_ctx_inputs(&mut app.policy, &app.value.0);
     if raw_app {
         validate_raw_app_path_keys(&app.value.0)?;
     }
@@ -4011,6 +4058,9 @@ async fn update_app_internal<'a>(
                 npolicy.triggerables = None;
                 npolicy.triggerables_v2 = Some(triggerables);
             }
+            if let Some(nvalue) = ns.value.as_ref() {
+                stamp_ctx_inputs(&mut npolicy, &nvalue.0);
+            }
             validate_frontend_sdk_scopes(&npolicy)?;
             // The policy is written wholesale, so one that states no mode would
             // otherwise re-permission the app to the create-time default: a
@@ -4549,6 +4599,7 @@ async fn execute_component(
                 allow_user_resources: force_viewer_allow_user_resources.unwrap_or_default(),
                 delete_after_secs: force_viewer_delete_after_secs,
                 sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
+                ctx_inputs: HashMap::new(),
                 tag: None,
             },
         ),
@@ -6161,6 +6212,54 @@ fn policy_granted_viewer(authed: &ApiAuthed) -> ApiAuthed {
     ApiAuthed { scopes: None, ..authed.clone() }
 }
 
+/// The value of an app context property for this run. Everything about the viewer comes
+/// from `authed`, the session the request authenticated with; an anonymous run has none
+/// and gets `null`.
+async fn ctx_value(
+    prop: &str,
+    policy: &Policy,
+    authed: Option<&ApiAuthed>,
+    w_id: &str,
+    db: &DB,
+) -> Result<Box<RawValue>> {
+    let value = match prop {
+        "username" => authed.map(|a| serde_json::to_value(a.display_username())),
+        "email" => authed.map(|a| serde_json::to_value(&a.email)),
+        "workspace" => Some(serde_json::to_value(w_id)),
+        "groups" => authed.map(|a| serde_json::to_value(&a.groups)),
+        // Same rule as `get_on_behalf_of`: the stored address, derived only when absent.
+        "author" => {
+            let author = match (
+                policy.on_behalf_of_email.as_deref(),
+                policy.on_behalf_of.as_deref(),
+            ) {
+                (Some(email), _) => Some(email.to_string()),
+                (None, Some(permissioned_as)) => Some(
+                    windmill_common::users::get_email_from_permissioned_as(
+                        permissioned_as,
+                        w_id,
+                        db,
+                    )
+                    .await?,
+                ),
+                (None, None) => None,
+            };
+            Some(serde_json::to_value(&author))
+        }
+        _ => {
+            return Err(Error::BadRequest(format!(
+                "context variable {} not allowed",
+                prop
+            )))
+        }
+    };
+    Ok(to_raw_value(
+        &value.unwrap_or(Ok(serde_json::Value::Null)).map_err(|e| {
+            Error::internal_err(format!("failed to serialize ctx variable {}: {}", prop, e))
+        })?,
+    ))
+}
+
 async fn build_args(
     policy: &Policy,
     PolicyTriggerableInputs {
@@ -6168,6 +6267,7 @@ async fn build_args(
         one_of_inputs,
         allow_user_resources,
         sensitive_inputs,
+        ctx_inputs,
         ..
     }: &PolicyTriggerableInputs,
     mut args: HashMap<String, Box<RawValue>>,
@@ -6178,6 +6278,16 @@ async fn build_args(
 ) -> Result<(PushArgsOwned, Option<Uuid>)> {
     let mut job_id: Option<Uuid> = None;
     let mut safe_args = HashMap::<String, Box<RawValue>>::new();
+
+    // Before anything reads `args`: a context input the policy declares is never taken
+    // from the request, or a viewer could name someone else as themselves.
+    for (k, prop) in ctx_inputs {
+        args.remove(k);
+        safe_args.insert(
+            k.to_string(),
+            ctx_value(prop, policy, authed, w_id, db).await?,
+        );
+    }
 
     // tracing::error!("{:?}", allow_user_resources);
     for k in allow_user_resources.iter() {
@@ -6270,47 +6380,9 @@ async fn build_args(
 
         if arg_str.starts_with("\"$ctx:") {
             let prop = arg_str.trim_start_matches("\"$ctx:").trim_end_matches("\"");
-            let value = match prop {
-                "username" => authed
-                    .as_ref()
-                    .map(|a| serde_json::to_value(a.display_username())),
-                "email" => authed.as_ref().map(|a| serde_json::to_value(&a.email)),
-                "workspace" => Some(serde_json::to_value(&w_id)),
-                "groups" => authed.as_ref().map(|a| serde_json::to_value(&a.groups)),
-                // Same rule as `get_on_behalf_of`: the stored address, derived only when absent.
-                "author" => {
-                    let author = match (
-                        policy.on_behalf_of_email.as_deref(),
-                        policy.on_behalf_of.as_deref(),
-                    ) {
-                        (Some(email), _) => Some(email.to_string()),
-                        (None, Some(permissioned_as)) => Some(
-                            windmill_common::users::get_email_from_permissioned_as(
-                                permissioned_as,
-                                w_id,
-                                db,
-                            )
-                            .await?,
-                        ),
-                        (None, None) => None,
-                    };
-                    Some(serde_json::to_value(&author))
-                }
-                _ => {
-                    return Err(Error::BadRequest(format!(
-                        "context variable {} not allowed",
-                        prop
-                    )))
-                }
-            };
             safe_args.insert(
                 k.to_string(),
-                to_raw_value(&value.unwrap_or(Ok(serde_json::Value::Null)).map_err(|e| {
-                    Error::internal_err(format!(
-                        "failed to serialize ctx variable for {}: {}",
-                        k, e
-                    ))
-                })?),
+                ctx_value(prop, policy, authed, w_id, db).await?,
             );
         } else if !arg_str.contains("\"$var:") && !arg_str.contains("\"$res:") {
             safe_args.insert(k.to_string(), v);
