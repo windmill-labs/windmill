@@ -551,6 +551,12 @@ describe('a step linked to a saved agent', () => {
 		).toBeUndefined()
 	})
 
+	it('does not show the saved effort for steps that fix different ones', () => {
+		const effort = (value: string) => linked({ reasoning_effort: { type: 'static', value } })
+		const wiring = resolveAgentModelWiring([effort('low'), effort('medium')], saved)!
+		expect(wiredFieldValue(wiring, {}, 'reasoning_effort')).toBeUndefined()
+	})
+
 	it('cannot be read until the agent has loaded, or with an expression it cannot place', () => {
 		expect(resolveAgentModelWiring([wired], {})).toBeUndefined()
 		expect(

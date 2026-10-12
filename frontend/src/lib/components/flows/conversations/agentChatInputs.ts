@@ -312,26 +312,28 @@ export function resolveAgentModelWiring(
 
 	const fields: AgentModelWiring['fields'] = {}
 	const fixed: AgentModelWiring['fixed'] = {}
+	const disagreed = new Set<ProviderField>()
 	for (const field of PROVIDER_FIELDS) {
 		// Every agent has to supply the field the same way for the composer to speak for
 		// them all. One wired name among agents that otherwise fix it is not agreement:
 		// the control would move that one agent and leave the others where they are.
 		const supplies = new Set(wirings.map((w) => JSON.stringify(fieldSupply(w, field))))
+
 		// Disagreement leaves the field neither editable nor known: a control offered here
 		// would govern one agent while the rest ran on something else.
-		if (supplies.size > 1) continue
+		if (supplies.size > 1) {
+			disagreed.add(field)
+			continue
+		}
 		const supply: FieldSupply = JSON.parse([...supplies][0])
 		if (supply.kind === 'wired') fields[field] = supply.name
 		else if (supply.kind === 'fixed') fixed[field] = supply.value
 	}
-	// An empty input means one thing only where every agent falls back to the same saved pair.
+	// An empty input means one thing only where every agent falls back to the same saved pair,
+	// and a saved value must not stand in for a field the agents disagree about.
 	const saved = new Set(wirings.map((w) => JSON.stringify(w.saved)))
-	return {
-		fields,
-		fixed,
-		someAgentCannotRun,
-		saved: saved.size === 1 ? wirings[0].saved : undefined
-	}
+	const agreed = saved.size === 1 && !disagreed.has('model') && !disagreed.has('reasoning_effort')
+	return { fields, fixed, someAgentCannotRun, saved: agreed ? wirings[0].saved : undefined }
 }
 
 /**
