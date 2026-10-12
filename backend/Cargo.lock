@@ -15536,6 +15536,7 @@ dependencies = [
  "windmill-api-scripts",
  "windmill-api-settings",
  "windmill-api-users",
+ "windmill-audit",
  "windmill-autoscaling",
  "windmill-common",
  "windmill-dep-map",
@@ -16634,6 +16635,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "windmill-audit",
  "windmill-common",
 ]
 
