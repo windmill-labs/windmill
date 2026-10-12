@@ -498,6 +498,8 @@ addEventListener('message', function (e) {
 		`The latest build failed, so the preview does not include the latest edits (it shows the last build that succeeded, or nothing if none has). Fix the build first. Build error:\n${error}`
 	const SDK_CONSENT_PENDING_TEXT =
 		'The preview is waiting for the user to approve the permissions the app declares in policy.frontend_sdk_scopes, so the app code is not running and the page is empty. This is not a bug in the app: do not change the code. Ask the user to approve the permissions in the preview, then retry.'
+	const SDK_STARTING_TEXT =
+		'The preview is still loading the permissions the app declares in policy.frontend_sdk_scopes, so the app code has not started yet. Retry in a moment.'
 	const PREVIEW_SETTLE_MS = 1000
 	let editorDestroyed = false
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
@@ -1990,6 +1992,7 @@ addEventListener('message', function (e) {
 		if (editorDestroyed) return undefined
 		if (buildTracker.pending) return { text: BUILD_PENDING_TEXT }
 		if (sdkPrompt) return { text: SDK_CONSENT_PENDING_TEXT }
+		if (previewSdkPending) return { text: SDK_STARTING_TEXT }
 		const res = await readPreviewDom(query)
 		return res && buildError !== undefined
 			? { text: `${buildFailedText(buildError)}\n\n${res.text}` }
@@ -2167,6 +2170,7 @@ addEventListener('message', function (e) {
 		if (editorDestroyed) throw new Error('The app preview was closed')
 		if (buildTracker.pending) throw new Error(BUILD_PENDING_TEXT)
 		if (sdkPrompt) throw new Error(SDK_CONSENT_PENDING_TEXT)
+		if (previewSdkPending) throw new Error(SDK_STARTING_TEXT)
 		if (buildError !== undefined) throw new Error(buildFailedText(buildError))
 		const body = await requestFromPreview('elementRect', { selector: 'body' })
 		if (!body?.rect) throw new Error('App preview is not ready')
