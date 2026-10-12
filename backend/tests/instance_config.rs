@@ -237,7 +237,7 @@ async fn test_diff_global_settings_empty_string_routes_to_delete(db: Pool<Postgr
         "empty-string value must route to deletes"
     );
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
     assert!(
         get_global_setting(&db, "npmrc").await.is_none(),
         "npmrc row must be deleted after apply"
@@ -319,7 +319,7 @@ async fn test_diff_global_settings_rejects_worker_configs_upsert(db: Pool<Postgr
         "worker_configs must never be written as a global setting"
     );
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
     assert!(
         get_global_setting(&db, "worker_configs").await.is_none(),
         "worker_configs row must not exist in global_settings after apply"
@@ -444,7 +444,7 @@ async fn test_apply_settings_diff_upserts_only(db: Pool<Postgres>) {
         ..Default::default()
     };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert_eq!(
         get_global_setting(&db, "key_a").await,
@@ -468,7 +468,7 @@ async fn test_apply_settings_diff_deletes_only(db: Pool<Postgres>) {
         ..Default::default()
     };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert!(get_global_setting(&db, "to_delete_1").await.is_none());
     assert!(get_global_setting(&db, "to_delete_2").await.is_none());
@@ -489,7 +489,7 @@ async fn test_apply_settings_diff_upserts_and_deletes(db: Pool<Postgres>) {
         ..Default::default()
     };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert!(get_global_setting(&db, "old_key").await.is_none());
     assert_eq!(
@@ -503,7 +503,7 @@ async fn test_apply_settings_diff_empty_noop(db: Pool<Postgres>) {
     insert_global_setting(&db, "preexisting", serde_json::json!("value")).await;
 
     let diff = SettingsDiff::default();
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert_eq!(
         get_global_setting(&db, "preexisting").await,
@@ -525,7 +525,7 @@ async fn test_apply_settings_diff_upsert_overwrites(db: Pool<Postgres>) {
         ..Default::default()
     };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert_eq!(
         get_global_setting(&db, "overwrite_me").await,
@@ -553,7 +553,7 @@ async fn test_apply_settings_diff_complex_json(db: Pool<Postgres>) {
         ..Default::default()
     };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     let stored = get_global_setting(&db, "complex_setting").await.unwrap();
     assert_eq!(stored, complex_value);
@@ -568,7 +568,7 @@ async fn test_apply_settings_diff_delete_nonexistent_is_noop(db: Pool<Postgres>)
     };
 
     // Should not error
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 }
 
 // ========================================================================
@@ -589,7 +589,7 @@ async fn test_apply_configs_diff_upserts_with_prefix(db: Pool<Postgres>) {
         deletes: vec![],
     };
 
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     let stored = get_config(&db, "worker__mygroup").await.unwrap();
     assert_eq!(stored["init_bash"], "echo hi");
@@ -601,7 +601,7 @@ async fn test_apply_configs_diff_deletes_with_prefix(db: Pool<Postgres>) {
 
     let diff = ConfigsDiff { upserts: BTreeMap::new(), deletes: vec!["to_remove".to_string()] };
 
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     assert!(get_config(&db, "worker__to_remove").await.is_none());
 }
@@ -619,7 +619,7 @@ async fn test_apply_configs_diff_upsert_overwrites(db: Pool<Postgres>) {
         deletes: vec![],
     };
 
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     let stored = get_config(&db, "worker__grp").await.unwrap();
     assert_eq!(stored, serde_json::json!({"new": true}));
@@ -630,7 +630,7 @@ async fn test_apply_configs_diff_empty_noop(db: Pool<Postgres>) {
     insert_config(&db, "worker__keep", serde_json::json!({"keep": true})).await;
 
     let diff = ConfigsDiff::default();
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     assert!(get_config(&db, "worker__keep").await.is_some());
 }
@@ -641,7 +641,7 @@ async fn test_apply_configs_diff_does_not_touch_non_worker_configs(db: Pool<Post
 
     let diff = ConfigsDiff { upserts: BTreeMap::new(), deletes: vec!["server_config".to_string()] };
 
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     // The delete targets "worker__server_config", not "server_config"
     assert!(
@@ -692,7 +692,7 @@ async fn test_roundtrip_write_read_modify_apply(db: Pool<Postgres>) {
     assert!(diff.upserts.contains_key("expose_metrics"));
     assert!(diff.deletes.is_empty());
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Step 5: Read back and verify
     let config2 = InstanceConfig::from_db(&db).await.unwrap();
@@ -729,7 +729,7 @@ async fn test_roundtrip_replace_mode_deletes(db: Pool<Postgres>) {
     assert!(diff.deletes.contains(&"retention_period_secs".to_string()));
     assert!(diff.deletes.contains(&"expose_metrics".to_string()));
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert!(get_global_setting(&db, "retention_period_secs")
         .await
@@ -782,7 +782,7 @@ async fn test_roundtrip_worker_configs(db: Pool<Postgres>) {
     assert!(diff.upserts.contains_key("gpu")); // new
     assert_eq!(diff.deletes, vec!["legacy".to_string()]);
 
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     // Verify
     let config2 = InstanceConfig::from_db(&db).await.unwrap();
@@ -820,7 +820,7 @@ async fn test_roundtrip_to_settings_map_from_db_consistency(db: Pool<Postgres>) 
     let diff =
         SettingsDiff { upserts: map.into_iter().collect(), deletes: vec![], ..Default::default() };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     let config = InstanceConfig::from_db(&db).await.unwrap();
     assert_eq!(config.global_settings.base_url, original.base_url);
@@ -868,8 +868,8 @@ async fn test_idempotent_apply(db: Pool<Postgres>) {
     };
 
     // Apply twice
-    apply_settings_diff(&db, &diff).await.unwrap();
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert_eq!(
         get_global_setting(&db, "idem_key").await,
@@ -1069,7 +1069,7 @@ async fn test_diff_apply_only_touches_changed_rows(db: Pool<Postgres>) {
     assert!(!diff.upserts.contains_key("unchanged_1"));
     assert!(!diff.upserts.contains_key("unchanged_2"));
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Verify all 4 settings present
     assert_eq!(count_global_settings(&db).await, 4);
@@ -1148,7 +1148,7 @@ async fn test_replace_mode_protects_settings_in_integration(db: Pool<Postgres>) 
     // But normal_setting should be deleted
     assert!(diff.deletes.contains(&"normal_setting".to_string()));
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Verify protected settings survived
     assert!(get_global_setting(&db, "ducklake_settings").await.is_some());
@@ -1196,7 +1196,7 @@ async fn test_jwt_secret_roundtrip_as_string_or_secret_ref(db: Pool<Postgres>) {
 
     let diff =
         SettingsDiff { upserts: map.into_iter().collect(), deletes: vec![], ..Default::default() };
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Read back from DB — jwt_secret should survive the roundtrip
     let config = InstanceConfig::from_db(&db).await.unwrap();
@@ -1239,7 +1239,7 @@ async fn test_rsa_keys_roundtrip_via_extra(db: Pool<Postgres>) {
     let map = settings.to_settings_map();
     let diff =
         SettingsDiff { upserts: map.into_iter().collect(), deletes: vec![], ..Default::default() };
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Read back from DB
     let config = InstanceConfig::from_db(&db).await.unwrap();
@@ -1296,7 +1296,7 @@ async fn test_replace_mode_protects_jwt_secret_and_rsa_keys(db: Pool<Postgres>) 
         "normal_setting should be deleted"
     );
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Both protected settings survive
     assert_eq!(
@@ -1371,7 +1371,7 @@ async fn test_alert_config_in_global_settings_roundtrip(db: Pool<Postgres>) {
         "alert_config change should be detected in diff"
     );
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Re-read and verify the update
     let config2 = InstanceConfig::from_db(&db).await.unwrap();

@@ -1508,25 +1508,17 @@ pub async fn sync_global_settings_declarative(
     let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
     crate::external_instance_pg::write_external_instance_pg_from_diff(db, &mut diff, observer)
         .await?;
-    apply_settings_diff_observed(db, &diff, observer).await?;
+    apply_settings_diff(db, &diff, observer).await?;
 
     Ok(())
 }
 
-/// Apply a settings diff to the global_settings table.
-pub async fn apply_settings_diff(
-    db: &sqlx::Pool<sqlx::Postgres>,
-    diff: &SettingsDiff,
-) -> anyhow::Result<()> {
-    apply_settings_diff_observed(db, diff, &()).await
-}
-
-/// [`apply_settings_diff`], reporting each write to `observer`.
+/// Apply a settings diff to the global_settings table, reporting each write to `observer`.
 ///
 /// AUTHORIZATION: writes instance-wide settings, credentials included, and checks
 /// nothing; `observer` records and authorizes nothing. Callers MUST have established
 /// superadmin or equivalent system authority.
-pub async fn apply_settings_diff_observed(
+pub async fn apply_settings_diff(
     db: &sqlx::Pool<sqlx::Postgres>,
     diff: &SettingsDiff,
     observer: &impl ConfigWriteObserver,
@@ -1575,20 +1567,13 @@ pub async fn apply_settings_diff_observed(
     Ok(())
 }
 
-/// Apply a configs diff to the config table (worker__ prefix).
-pub async fn apply_configs_diff(
-    db: &sqlx::Pool<sqlx::Postgres>,
-    diff: &ConfigsDiff,
-) -> anyhow::Result<()> {
-    apply_configs_diff_observed(db, diff, &()).await
-}
-
-/// [`apply_configs_diff`], reporting each write to `observer`.
+/// Apply a configs diff to the config table (worker__ prefix), reporting each write to
+/// `observer`.
 ///
 /// AUTHORIZATION: writes worker group configs, whose init scripts run on the workers, and
 /// checks nothing; `observer` records and authorizes nothing. Callers MUST have
 /// established superadmin or equivalent system authority.
-pub async fn apply_configs_diff_observed(
+pub async fn apply_configs_diff(
     db: &sqlx::Pool<sqlx::Postgres>,
     diff: &ConfigsDiff,
     observer: &impl ConfigWriteObserver,
@@ -1778,7 +1763,7 @@ impl InstanceConfig {
 
         let configs_diff =
             diff_worker_configs(&current_configs, &desired_configs, ApplyMode::Replace);
-        apply_configs_diff_observed(db, &configs_diff, observer).await?;
+        apply_configs_diff(db, &configs_diff, observer).await?;
 
         Ok(())
     }

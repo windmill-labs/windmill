@@ -487,32 +487,20 @@ async fn otel_environment(conn: &Connection) -> String {
     }
 }
 
-/// What a subcommand that writes instance config needs from the instance before its first
-/// write, since it never runs the server startup that loads them: the OTel settings its
-/// audit events are exported under, and the license plan they are redacted by.
+/// Tracing for a subcommand that writes instance config. It never runs the server startup
+/// that loads the OTel settings, and its audit events are exported under them.
 ///
-/// The subscriber it installs depends on those OTel settings, so `early_logs` is what
-/// prints the events of connecting and loading them; it gives way once the real one is in.
-///
-/// Returns the license key it loaded, for [`crate::monitor::load_license_key_if_changed`].
-async fn init_declarative_writer(
+/// The subscriber it installs depends on those settings, so `early_logs` is what prints
+/// the events of connecting and loading them; it gives way once the real one is in.
+async fn init_declarative_writer_tracing(
     db: &windmill_common::DB,
     service: &str,
     early_logs: tracing::subscriber::DefaultGuard,
-) -> String {
-    let conn = Connection::Sql(db.clone());
+) {
     load_otel(db).await;
-    let environment = otel_environment(&conn).await;
+    let environment = otel_environment(&Connection::Sql(db.clone())).await;
     drop(early_logs);
     windmill_common::tracing_init::initialize_subcommand_tracing(service, &HOSTNAME, &environment);
-    // An offline license is validated against the instance's base URL, which
-    // `otel_environment` only loads when `OTEL_ENVIRONMENT` does not name the environment.
-    if let Err(e) = load_base_url(&conn).await {
-        tracing::error!("Could not load the base url: {e:#}");
-    }
-    let mut license_key = String::new();
-    crate::monitor::load_license_key_if_changed(&conn, &mut license_key).await;
-    license_key
 }
 
 async fn windmill_main() -> anyhow::Result<()> {
@@ -634,7 +622,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             let early_logs = tracing::subscriber::set_default(tracing_subscriber::fmt().finish());
             tracing::info!("Connecting to database...");
             let db = crate::db_connect::initial_connection().await?;
-            let _ = init_declarative_writer(&db, "windmill-sync-config", early_logs).await;
+            init_declarative_writer_tracing(&db, "windmill-sync-config", early_logs).await;
 
             let author = windmill_audit::instance_config::declarative_sync_author();
             let synced = config
@@ -671,20 +659,7 @@ async fn windmill_main() -> anyhow::Result<()> {
                 operator_killpill_rx,
             )
             .await?;
-            let mut license_key =
-                init_declarative_writer(&db, "windmill-operator", early_logs).await;
-            // The operator outlives the license it started under, and is often what
-            // installs or replaces it, so the plan its audit entries are redacted by
-            // has to follow the stored key.
-            let license_conn = Connection::Sql(db.clone());
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(30));
-                loop {
-                    interval.tick().await;
-                    crate::monitor::load_license_key_if_changed(&license_conn, &mut license_key)
-                        .await;
-                }
-            });
+            init_declarative_writer_tracing(&db, "windmill-operator", early_logs).await;
 
             #[cfg(all(feature = "enterprise", feature = "private"))]
             tokio::spawn(async move {

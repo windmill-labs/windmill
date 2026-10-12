@@ -1336,7 +1336,7 @@ async fn set_instance_config(
             &auditor,
         )
         .await?;
-        instance_config::apply_settings_diff_observed(&db, &settings_diff, &auditor)
+        instance_config::apply_settings_diff(&db, &settings_diff, &auditor)
             .await
             .map_err(|e| error::Error::internal_err(e.to_string()))?;
 
@@ -1368,7 +1368,7 @@ async fn set_instance_config(
             .collect();
         let configs_diff =
             instance_config::diff_worker_configs(&current_wc, &desired_wc, ApplyMode::Merge);
-        instance_config::apply_configs_diff_observed(
+        instance_config::apply_configs_diff(
             &db,
             &configs_diff,
             &InstanceConfigAuditor { db: &db, author: &authed, source: None },
