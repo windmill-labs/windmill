@@ -5,6 +5,7 @@ import { instanceBannerFormError } from './instanceBanner'
 import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
 import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
+import { OidcService } from '$lib/gen'
 
 /**
  * Bumped after instance settings are successfully saved. Settings whose display
@@ -1517,6 +1518,30 @@ export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
 	sso: 'sso',
 	oauth: 'oauth',
 	scim_saml: 'scim'
+}
+
+/**
+ * "OIDC signing" is listed only on instances that sign with an external signer: its page
+ * says nothing actionable elsewhere.
+ */
+export function listedNavigationGroups<G extends { items: { id: string }[] }>(
+	groups: G[],
+	externalOidcSigner: boolean
+): G[] {
+	if (externalOidcSigner) return groups
+	return groups.map((group) => ({
+		...group,
+		items: group.items.filter((item) => item.id !== 'oidc_signing')
+	}))
+}
+
+/** The status endpoint is EE only: call it once the license is known. */
+export async function usesExternalOidcSigner(): Promise<boolean> {
+	try {
+		return (await OidcService.getOidcSigningStatus()).mode === 'external'
+	} catch {
+		return false
+	}
 }
 
 // Navigation groups for the initial setup flow (no Users tab)
