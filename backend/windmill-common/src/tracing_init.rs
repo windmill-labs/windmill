@@ -224,16 +224,21 @@ pub fn initialize_tracing(
 /// (`sync-config`, the operator): stdout, plus the OTel logs bridge when OTel logs are
 /// enabled, which is how the audit events of its writes reach a collector. It writes no
 /// service log files, as nothing lists such a process to read them back.
+///
+/// Only audit events are exported. These processes log each setting they write with its
+/// value, masked by a list of known secret fields rather than by shape, and that is fit
+/// for the operator's own stdout but not for a collector.
 pub fn initialize_subcommand_tracing(service: &str, hostname: &str, environment: &str) {
-    let env_filter = || {
-        EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .from_env_lossy()
-    };
     let logs_bridge = crate::otel_oss::init_logs_bridge_for_service(service, hostname, environment);
     tracing_subscriber::registry()
-        .with(logs_bridge.with_filter(env_filter()))
-        .with(tracing_subscriber::fmt::layer().with_filter(env_filter()))
+        .with(logs_bridge.with_filter(Targets::new().with_target(AUDIT_TARGET, LevelFilter::INFO)))
+        .with(
+            tracing_subscriber::fmt::layer().with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy(),
+            ),
+        )
         .init();
 }
 
