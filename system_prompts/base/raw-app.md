@@ -139,16 +139,16 @@ Apply it to customer data, internal notes and anything else a viewer of the demo
 
 ### Chat UIs over a flow in chat mode
 
-A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add `windmill-chat` to `package.json` and use it directly, it detects the app's Windmill and credential.
+A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add `@windmill-labs/chat-sdk` to `package.json` and use it directly, it detects the app's Windmill and credential.
 
 ```tsx
-import { useWindmillChat } from 'windmill-chat/react'
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
 
 const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 // chat.messages ({ role, content, pending, success, tool? }), chat.status, chat.sendMessage(text), chat.stop()
 ```
 
-`windmill-chat/ai-sdk` gives a `ChatTransport` for the Vercel AI SDK's `useChat`, `windmill-chat/assistant-ui` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs `jobs:run` in its frontend SDK scopes, plus `flow_conversations:write` for the conversation sidebar; without them the chat keeps history in the browser.
+`@windmill-labs/chat-sdk/ai-sdk` gives a `ChatTransport` for the Vercel AI SDK's `useChat`, `@windmill-labs/chat-sdk/assistant-ui` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs `jobs:run` in its frontend SDK scopes, plus `flow_conversations:write` for the conversation sidebar; without them the chat keeps history in the browser.
 
 ## Backend runnables
 
@@ -305,4 +305,4 @@ def main(user_id: str):
 7. **Mark sensitive UI with `data-wm-no-record`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
 8. **Reach for `backendAsync` + `waitJob`** for long work — never a hand-written job-polling runnable.
 9. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
-10. **Use `windmill-chat` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
+10. **Use `@windmill-labs/chat-sdk` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
