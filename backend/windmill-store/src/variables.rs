@@ -57,7 +57,6 @@ use lazy_static::lazy_static;
 use serde::Deserialize;
 use sqlx::{Acquire, Postgres, Transaction};
 use windmill_common::variables::encrypt;
-use windmill_common::workspace_crypt::V2_MAGIC;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 lazy_static! {
@@ -587,41 +586,6 @@ fn validate_already_encrypted_secret(path: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-async fn secret_value_to_store(
-    db: &DB,
-    w_id: &str,
-    path: &str,
-    value: String,
-    already_encrypted: bool,
-) -> Result<String> {
-    let stored = if !already_encrypted {
-        // A restored draft sends the `$encrypted:` marker as-is; decrypt it back
-        // (validating against the workspace key) before the secret backend re-stores it.
-        let plain = if value.starts_with(ENCRYPTED_DRAFT_PREFIX) {
-            decrypt_draft_secret_value(db, w_id, &value).await?
-        } else {
-            value
-        };
-        // Use secret backend for encryption (supports both DB and Vault)
-        store_secret_value(db, w_id, path, &plain).await?
-    } else {
-        // Stored verbatim, so it must be ciphertext and not plaintext mislabeled as encrypted.
-        validate_already_encrypted_secret(path, &value)?;
-        value
-    };
-    // Only v2 may use the column's 15040: a longer CBC value could never be re-encrypted to fit.
-    if stored.len() > 15000
-        && !STANDARD
-            .decode(&stored)
-            .is_ok_and(|bytes| bytes.starts_with(&V2_MAGIC))
-    {
-        return Err(Error::BadRequest(
-            "A field exceeds its maximum length".to_string(),
-        ));
-    }
-    Ok(stored)
-}
-
 async fn create_variable(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -662,16 +626,22 @@ async fn create_variable(
     let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
-    let value = if variable.is_secret {
-        secret_value_to_store(
-            &db,
-            &w_id,
-            &variable.path,
-            variable.value,
-            already_encrypted.unwrap_or(false),
-        )
-        .await?
+    let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
+        // A restored draft sends the `$encrypted:` marker as-is; decrypt it back
+        // (validating against the workspace key) before the secret backend re-stores it.
+        let plain = if variable.value.starts_with(ENCRYPTED_DRAFT_PREFIX) {
+            decrypt_draft_secret_value(&db, &w_id, &variable.value).await?
+        } else {
+            variable.value.clone()
+        };
+        // Use secret backend for encryption (supports both DB and Vault)
+        store_secret_value(&db, &w_id, &variable.path, &plain).await?
     } else {
+        if variable.is_secret {
+            // already_encrypted == true: value is stored verbatim, so it must be
+            // ciphertext and not plaintext mislabeled as encrypted.
+            validate_already_encrypted_secret(&variable.path, &variable.value)?;
+        }
         variable.value
     };
 
@@ -1160,17 +1130,22 @@ async fn update_variable(
             .unwrap_or(false)
         };
 
-        let value = if is_secret {
+        let value = if is_secret && !already_encrypted.unwrap_or(false) {
+            // Decrypt a restored draft's `$encrypted:` marker before re-storing; see create_variable.
+            let plain = if nvalue.starts_with(ENCRYPTED_DRAFT_PREFIX) {
+                decrypt_draft_secret_value(&db, &w_id, &nvalue).await?
+            } else {
+                nvalue
+            };
+            // Use secret backend for encryption (supports both DB and Vault)
             // Store at target_path (new path if renaming, otherwise current path)
-            secret_value_to_store(
-                &db,
-                &w_id,
-                target_path,
-                nvalue,
-                already_encrypted.unwrap_or(false),
-            )
-            .await?
+            store_secret_value(&db, &w_id, target_path, &plain).await?
         } else {
+            if is_secret {
+                // already_encrypted == true: value is stored verbatim, so it must
+                // be ciphertext and not plaintext mislabeled as encrypted.
+                validate_already_encrypted_secret(target_path, &nvalue)?;
+            }
             nvalue
         };
         sqlb.set_str("value", &value);

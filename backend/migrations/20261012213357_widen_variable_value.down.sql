@@ -8,4 +8,5 @@ BEGIN
     END IF;
 END $$;
 
+ALTER TABLE variable DROP CONSTRAINT IF EXISTS variable_value_length;
 ALTER TABLE variable ALTER COLUMN value TYPE VARCHAR(15000);
