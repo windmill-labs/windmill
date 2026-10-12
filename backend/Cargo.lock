@@ -16517,6 +16517,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "sse-stream",
  "tokio",
  "tokio-util",
  "tracing",
