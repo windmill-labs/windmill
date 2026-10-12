@@ -771,17 +771,22 @@ class TestSdkCallsInsideTaskBody:
             return f"inner:{x}"
 
         @task
+        def sync_inner(x: str):
+            return f"sync:{x}"
+
+        @task
         async def outer(x: str):
             via_task = await inner(x)
+            via_sync = await sync_inner(x)
             via_step = await step("s", lambda: "stepped")
-            return f"{via_task}+{via_step}"
+            return f"{via_task}+{via_sync}+{via_step}"
 
         @workflow
         async def wf():
             return await outer("a")
 
         result = self._run_child(wf, "outer")
-        assert result == {"type": "complete", "result": "inner:a+stepped"}
+        assert result == {"type": "complete", "result": "inner:a+sync:a+stepped"}
 
     def test_sibling_task_of_the_workflow_body_is_not_run(self):
         # The workflow body keeps replaying beside the task body, and its own

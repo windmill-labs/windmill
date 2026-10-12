@@ -2766,6 +2766,7 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
 
 import asyncio as _asyncio
 import contextvars as _contextvars
+import inspect as _inspect
 import sys as _sys
 import traceback as _traceback
 
@@ -2993,12 +2994,12 @@ _workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
     "_workflow_ctx"
 )
 
-# Set while a task body runs in its child job. A flag on the ctx cannot stand
-# in: under ``asyncio.gather`` the workflow body keeps replaying beside the task
-# body, and its calls must still park rather than run a sibling task's body in
-# this job.
-_in_task_body: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
-    "_in_task_body", default=False
+# Set while a task body runs in its child job: ``"async"`` or ``"sync"`` after
+# the kind of function the body is. A flag on the ctx cannot stand in: under
+# ``asyncio.gather`` the workflow body keeps replaying beside the task body, and
+# its calls must still park rather than run a sibling task's body in this job.
+_in_task_body: _contextvars.ContextVar[Optional[str]] = _contextvars.ContextVar(
+    "_in_task_body", default=None
 )
 
 
@@ -3009,6 +3010,10 @@ def _dispatch_ctx() -> "WorkflowCtx | None":
     if _in_task_body.get():
         return None
     return _workflow_ctx.get(None)
+
+
+async def _resolved(value):
+    return value
 
 
 def _assert_not_inside_task_body(what: str) -> None:
@@ -3143,10 +3148,12 @@ class WorkflowCtx:
         raise _StepSuspend({"mode": "sleep", "key": key, "seconds": seconds, "steps": []})
 
     async def _resolved(self, value):
-        return value
+        return await _resolved(value)
 
     async def _execute_directly(self, func, **kwargs):
-        token = _in_task_body.set(True)
+        token = _in_task_body.set(
+            "async" if _inspect.iscoroutinefunction(func) else "sync"
+        )
         try:
             result = func(**kwargs)
             if _asyncio.iscoroutine(result):
@@ -3522,7 +3529,12 @@ def task(
                     return _json_round_trip(await result)
 
                 return _round_trip_awaited()
-            return _json_round_trip(result)
+            result = _json_round_trip(result)
+            if _in_task_body.get() == "async":
+                # The workflow body awaits every task, sync ones included, so an
+                # async task body calling one gets an awaitable as well.
+                return _resolved(result)
+            return result
 
         wrapper._is_task = True
         wrapper._task_path = task_path
