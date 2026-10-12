@@ -363,3 +363,77 @@ async def main(x: str):
     ));
     assert!(matches!(dag.nodes[5].node_type, DagNodeType::Return));
 }
+
+#[test]
+fn test_elif_chain_nests_branches() {
+    let code = r#"
+from wmill import workflow, task
+
+@task
+async def a(): ...
+@task
+async def b(): ...
+@task
+async def c(): ...
+
+@workflow
+async def main(x: int):
+    if x > 2:
+        await a()
+    elif x == 2:
+        await b()
+    else:
+        await c()
+"#;
+
+    let dag = parse_python_workflow(code).expect("should parse");
+    let branches: Vec<(&str, usize)> = dag
+        .nodes
+        .iter()
+        .filter_map(|n| match &n.node_type {
+            DagNodeType::Branch { condition_source } => Some((condition_source.as_str(), n.line)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(branches, vec![("x > 2", 13), ("x == 2", 15)]);
+
+    // The `elif` branch hangs off the `false` edge of the `if` before it
+    let (outer, inner) = (&dag.nodes[0].id, &dag.nodes[2].id);
+    assert!(dag
+        .edges
+        .iter()
+        .any(|e| &e.from == outer && &e.to == inner && e.label.as_deref() == Some("false")));
+    assert_eq!(
+        dag.nodes
+            .iter()
+            .filter(|n| matches!(n.node_type, DagNodeType::Merge))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn test_workflow_with_recent_syntax() {
+    let code = r#"
+from wmill import workflow, task
+lazy import polars
+
+type Rows = list[dict]
+
+@task
+async def load[T](rows: T): ...
+
+@workflow
+async def main(name: str):
+    try:
+        await load(t"hello {name}")
+    except ValueError, TypeError:
+        pass
+"#;
+
+    let dag = parse_python_workflow(code).expect("should parse");
+    assert!(dag
+        .nodes
+        .iter()
+        .any(|n| matches!(&n.node_type, DagNodeType::Step { name, .. } if name == "load")));
+}

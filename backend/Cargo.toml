@@ -488,9 +488,11 @@ arc-swap = "1"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 magic-crypt = "^3"
 git-version = "^0"
-malachite = "=0.4.18"
-malachite-bigint = "=0.2.0"
-rustpython-parser = "^0"
+# Ruff's parser crates are internal to ruff and carry no semver guarantee: pin them exactly,
+# and to the same release.
+ruff_python_parser = "=0.0.17"
+ruff_python_ast = "=0.0.17"
+ruff_text_size = "=0.0.17"
 pep440_rs = "0.7.3"
 php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb411dec09450946ef57920b7ffced7f6495d" }
 cron = "^0"
