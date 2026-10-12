@@ -4390,8 +4390,7 @@ lazy_static! {
     /// - the caller's `version` still matches `cached_version` (a redeploy bumps the
     ///   version -> instant refetch, for free since it's in the request);
     /// - the `notify_app_policy_change` event has not evicted the key (policy-only
-    ///   change or deletion, which don't bump the version, and a deploy, since a
-    ///   caller can still name the version it replaced — see
+    ///   change or deletion, which don't bump the version — see
     ///   `invalidate_app_policy_cache` and `process_notify_event`);
     /// - the entry is within its TTL (backstop for a missed event or a restart).
     static ref APP_POLICY_CACHE: cache::Cache<(String, String), (Option<i64>, Arc<DeployedPolicy>, std::time::Instant)> =
@@ -4404,7 +4403,9 @@ struct DeployedPolicy {
     /// Runnable id -> argument -> context property (`username`, `email`, `groups`,
     /// `workspace`, `author`), for every `ctx` field the app's runnables declare. Read
     /// from the deployed app rather than taken from the request, which only says what
-    /// the browser chose to send: a runnable filters rows on these.
+    /// the browser chose to send: a runnable filters rows on these. A deploy that
+    /// changes them under an unchanged policy evicts nothing, so a caller still naming
+    /// the replaced version keeps the previous declarations until the entry's TTL.
     ctx_inputs: HashMap<String, HashMap<String, String>>,
 }
 
