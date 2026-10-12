@@ -2993,6 +2993,32 @@ _workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
     "_workflow_ctx"
 )
 
+# Set while a task body runs in its child job. A flag on the ctx cannot stand
+# in: under ``asyncio.gather`` the workflow body keeps replaying beside the task
+# body, and its calls must still park rather than run a sibling task's body in
+# this job.
+_in_task_body: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
+    "_in_task_body", default=False
+)
+
+
+def _dispatch_ctx() -> "WorkflowCtx | None":
+    """The ctx SDK calls dispatch through, or None where they run in place:
+    outside a workflow, and inside a task body, which is one job and has no
+    rounds of its own to dispatch or checkpoint a step in."""
+    if _in_task_body.get():
+        return None
+    return _workflow_ctx.get(None)
+
+
+def _assert_not_inside_task_body(what: str) -> None:
+    if _in_task_body.get():
+        raise RuntimeError(
+            f"{what} cannot be called from inside a task: a task runs as a single "
+            "job and cannot suspend or dispatch steps. Call it from the @workflow "
+            "body instead."
+        )
+
 
 class WorkflowCtx:
     """Internal context for workflow replay/suspension.
@@ -3120,12 +3146,15 @@ class WorkflowCtx:
         return value
 
     async def _execute_directly(self, func, **kwargs):
+        token = _in_task_body.set(True)
         try:
             result = func(**kwargs)
             if _asyncio.iscoroutine(result):
                 result = await result
         except Exception as exc:
             raise _StepFailure(exc) from exc
+        finally:
+            _in_task_body.reset(token)
         raise _StepSuspend({"mode": "step_complete", "steps": [], "result": result})
 
     async def _never_resolve(self):
@@ -3367,7 +3396,9 @@ def task(
 
     - **v2 (inside @workflow)**: dispatches as a checkpoint step.
     - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-    - **Standalone**: executes the function body directly.
+    - **Standalone, or called from inside another v2 task**: executes the
+      function body directly. A task runs as a single job, so the tasks it
+      calls run in that same job, without their own options.
 
     A task runs as its own job, so its result is always encoded as JSON and
     decoded back before the caller sees it: a ``datetime`` comes back as a
@@ -3447,7 +3478,7 @@ def task(
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             # WAC v2: inside a @workflow context
-            ctx = _workflow_ctx.get(None)
+            ctx = _dispatch_ctx()
             if ctx is not None:
                 script = task_path if task_path else task_name
                 merged = _merge_args(args, kwargs)
@@ -3455,7 +3486,8 @@ def task(
 
             # WAC v1: running inside a Windmill job but not in a @workflow
             if (
-                os.environ.get("WM_JOB_ID") is not None
+                not _in_task_body.get()
+                and os.environ.get("WM_JOB_ID") is not None
                 and os.environ.get("MAIN_OVERRIDE") != func.__name__
             ):
                 global _client
@@ -3531,6 +3563,7 @@ def task_script(
     _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": _checked_retry(retry)}.items() if v is not None} or None
 
     def wrapper(**kwargs):
+        _assert_not_inside_task_body(f'task_script("{path}")')
         ctx = _workflow_ctx.get(None)
         if ctx is not None:
             return ctx._next_step(name, path, dispatch_type="script", _task_options=_opts, **kwargs)
@@ -3570,6 +3603,7 @@ def task_flow(
     _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": _checked_retry(retry)}.items() if v is not None} or None
 
     def wrapper(**kwargs):
+        _assert_not_inside_task_body(f'task_flow("{path}")')
         ctx = _workflow_ctx.get(None)
         if ctx is not None:
             return ctx._next_step(name, path, dispatch_type="flow", _task_options=_opts, **kwargs)
@@ -3605,7 +3639,7 @@ async def step(name: str, fn):
     so the round that runs the body sees the same types every replay sees:
     a ``datetime`` comes back as a string, a tuple as a list.
     """
-    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    ctx = _dispatch_ctx()
     if ctx is not None:
         return await ctx._run_inline_step(name, fn)
     result = fn()
@@ -3622,7 +3656,7 @@ async def sleep(seconds: int):
     Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
     Outside a workflow, falls back to ``asyncio.sleep``.
     """
-    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    ctx = _dispatch_ctx()
     if ctx is not None:
         return await ctx._sleep(seconds)
     await _asyncio.sleep(seconds)
@@ -3660,6 +3694,7 @@ async def wait_for_approval(
         await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
         result = await wait_for_approval(key="manager", timeout=3600)
     """
+    _assert_not_inside_task_body("wait_for_approval()")
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
         return await ctx._wait_for_approval(
