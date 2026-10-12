@@ -239,6 +239,20 @@ Either one lets those people run the app's backend runnables, so never open an a
 When a deploy widens who may open the app, tell the user in plain words.
 <!-- /chat-only -->
 
+## Sandbox isolation and frontend API access
+
+By default a deployed app's frontend runs with the viewer's own Windmill session. A sandboxed app is isolated from it: the frontend reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. The scopes are `jobs:run`, `jobs:read`, `users:read`, `resources:read`, `variables:read`, `flow_conversations:read` and `flow_conversations:write`; grant only the ones the frontend calls.
+<!-- cli-only -->
+In `raw_app.yaml`:
+
+```yaml
+sandbox: true
+frontend_api: [jobs:run, users:read]
+```
+
+A file with a `sandbox` key states both settings: `sandbox: false` turns isolation off, and a missing `frontend_api` means no scopes. A file without the key leaves the deployed app's isolation and scopes as they are, so removing `sandbox: true` does not unsandbox it. `frontend_api` needs `sandbox: true`; the push fails otherwise.
+<!-- /cli-only -->
+
 ## Data Tables
 
 Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the `wmill` client; the frontend never queries them directly. **When the app needs to store or persist data** (user data, settings, application state, records, logs), use a data table.
