@@ -23,30 +23,12 @@ async fn with_deadline<T>(
     what: &str,
     fut: impl std::future::Future<Output = Result<T>>,
 ) -> Result<T> {
-    tokio::time::timeout(MCP_DEADLINE, fut)
-        .await
-        .map_err(|_| {
-            Error::ExecutionErr(format!(
-                "MCP server did not answer within {}s ({what})",
-                MCP_DEADLINE.as_secs()
-            ))
-        })?
-}
-
-/// The MCP resource is read raw so that `token` stays a variable path, which
-/// leaves a `$var:` in its `url` or header values unresolved. A scoped token
-/// resolves it as the token rather than as its user, as resource interpolation does.
-async fn resolve_var(
-    authed: &ApiAuthed,
-    db_authed: &DbWithOptAuthed<'_, ApiAuthed>,
-    w_id: &str,
-    value: String,
-) -> Result<String> {
-    let Some(var_path) = value.strip_prefix("$var:") else {
-        return Ok(value);
-    };
-    check_scopes(authed, || format!("variables:read:{}", var_path))?;
-    get_value_internal(db_authed, w_id, var_path, false).await
+    tokio::time::timeout(MCP_DEADLINE, fut).await.map_err(|_| {
+        Error::ExecutionErr(format!(
+            "MCP server did not answer within {}s ({what})",
+            MCP_DEADLINE.as_secs()
+        ))
+    })?
 }
 
 /// Connect to the MCP server described by the `mcp` resource at `path`.
@@ -84,13 +66,6 @@ async fn connect_mcp_client(
     let mut mcp_resource =
         serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
             .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
-
-    let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
-    let url = std::mem::take(&mut mcp_resource.url);
-    mcp_resource.url = resolve_var(authed, &db_authed, w_id, url).await?;
-    for value in mcp_resource.headers.iter_mut().flat_map(|h| h.values_mut()) {
-        *value = resolve_var(authed, &db_authed, w_id, std::mem::take(value)).await?;
-    }
 
     #[cfg(feature = "oauth2")]
     {
@@ -143,11 +118,23 @@ async fn connect_mcp_client(
         if token_var_path.trim().is_empty() {
             None
         } else {
+            let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
             Some(get_value_internal(&db_authed, w_id, token_var_path, false).await?)
         }
     } else {
         None
     };
+
+    // The URL and header secrets go through the same permissioned path as the token.
+    for value in std::iter::once(&mut mcp_resource.url)
+        .chain(mcp_resource.headers.iter_mut().flatten().map(|(_, v)| v))
+    {
+        if let Some(var_path) = value.strip_prefix("$var:") {
+            check_scopes(authed, || format!("variables:read:{}", var_path))?;
+            let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+            *value = get_value_internal(&db_authed, w_id, var_path, false).await?;
+        }
+    }
 
     windmill_mcp::McpClient::from_resource(mcp_resource, token)
         .await

@@ -72,7 +72,7 @@ impl McpClient {
                         headers.insert(name, value);
                     }
                     _ => {
-                        // The value may be a resolved secret: name the header only.
+                        // The value may be a resolved secret: keep it out of the logs.
                         tracing::warn!("Invalid header: {}", key);
                     }
                 }

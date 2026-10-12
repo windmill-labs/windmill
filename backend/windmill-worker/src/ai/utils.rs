@@ -103,9 +103,9 @@ pub fn filter_schema_by_input_transforms(
             .get_mut("properties")
             .and_then(|p| p.as_object_mut())
         {
-            for key in &keys_to_remove {
-                properties.remove(key);
-            }
+            // `remove` swaps the last entry into the freed slot, so removing in set order
+            // would leave the survivors in a different order on every run.
+            properties.retain(|key, _| !keys_to_remove.contains(key));
         }
 
         // Also remove from required array
@@ -549,26 +549,6 @@ async fn refresh_token_if_expired(
     Ok(())
 }
 
-/// The MCP resource is read raw so that `token` stays a variable path, which
-/// leaves a `$var:` in its `url` or header values unresolved: resolve it through
-/// the job's permissioned variable path, like the token.
-#[cfg(feature = "mcp")]
-async fn resolve_mcp_var(
-    client: &AuthedClient,
-    value: String,
-    resource_name: &str,
-) -> Result<String, Error> {
-    let Some(var_path) = value.strip_prefix("$var:") else {
-        return Ok(value);
-    };
-    client.get_variable_value(var_path).await.map_err(|e| {
-        Error::internal_err(format!(
-            "Failed to resolve variable {} for MCP resource {}: {}",
-            var_path, resource_name, e
-        ))
-    })
-}
-
 /// Load tools from MCP servers and return both the clients and tools
 /// Returns a map of resource name -> client, and a vector of tools
 #[cfg(feature = "mcp")]
@@ -602,12 +582,6 @@ pub async fn load_mcp_tools(
 
         let resource_name = mcp_resource.name.clone();
 
-        let url = std::mem::take(&mut mcp_resource.url);
-        mcp_resource.url = resolve_mcp_var(client, url, &resource_name).await?;
-        for value in mcp_resource.headers.iter_mut().flat_map(|h| h.values_mut()) {
-            *value = resolve_mcp_var(client, std::mem::take(value), &resource_name).await?;
-        }
-
         // Resolve the token through the job's permissioned (RLS + audit) path so
         // the AI agent cannot exfiltrate a secret its identity is not allowed to
         // read by pointing an MCP resource's token at it.
@@ -640,6 +614,29 @@ pub async fn load_mcp_tools(
         } else {
             None
         };
+
+        // A URL can carry the server's key, so it goes through the same
+        // permissioned path as the token.
+        if let Some(var_path) = mcp_resource.url.strip_prefix("$var:") {
+            mcp_resource.url = client.get_variable_value(var_path).await.map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to resolve variable {} for the url of MCP resource {}: {}",
+                    var_path, resource_name, e
+                ))
+            })?;
+        }
+
+        // Header secrets go through the same permissioned path as the token.
+        for (name, value) in mcp_resource.headers.iter_mut().flatten() {
+            if let Some(var_path) = value.strip_prefix("$var:") {
+                *value = client.get_variable_value(var_path).await.map_err(|e| {
+                    Error::internal_err(format!(
+                        "Failed to resolve variable {} for header {} of MCP resource {}: {}",
+                        var_path, name, resource_name, e
+                    ))
+                })?;
+            }
+        }
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);
@@ -761,4 +758,33 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
         }
         false
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tool's schema sits in the prompt prefix the provider caches on, so the
+    /// parameters left for the model must keep their order on every run.
+    #[test]
+    fn filtering_preset_inputs_keeps_the_remaining_property_order() {
+        let keys = ["a", "b", "c", "d", "e", "f", "g", "h"];
+        let props = keys
+            .iter()
+            .map(|k| format!(r#""{k}":{{"type":"string"}}"#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let schema =
+            RawValue::from_string(format!(r#"{{"type":"object","properties":{{{props}}}}}"#))
+                .unwrap();
+        let preset = ["a", "c", "f"]
+            .iter()
+            .map(|k| (k.to_string(), InputTransform::Static { value: to_raw_value(&1) }))
+            .collect();
+
+        let filtered = filter_schema_by_input_transforms(schema, &preset).unwrap();
+        let value: serde_json::Value = serde_json::from_str(filtered.get()).unwrap();
+        let remaining: Vec<&String> = value["properties"].as_object().unwrap().keys().collect();
+        assert_eq!(remaining, ["b", "d", "e", "g", "h"]);
+    }
 }
