@@ -254,6 +254,12 @@ fn parsed_default(parsed_typ: &Typ, default: String) -> Option<serde_json::Value
         Typ::Str(_) if default.len() >= 2 && default.starts_with("'") && default.ends_with("'") => {
             Some(json!(&default[1..default.len() - 1]))
         }
+        Typ::List(_) => Some(
+            serde_json::from_str::<serde_json::Value>(&default)
+                .ok()
+                .filter(|v| v.is_array())
+                .unwrap_or_else(|| json!(default)),
+        ),
         _ => Some(json!(default)),
     }
 }
@@ -1599,11 +1605,12 @@ SELECT ?;
     fn test_parse_snowflake_array_types() -> anyhow::Result<()> {
         let code = r#"
 -- ? groups (varchar[])
--- ? ids (int[])
+-- ? ids (int[]) = [1, 2]
 -- ? anything (ARRAY)
 SELECT 1;
 "#;
         let args = parse_snowflake_sig(code)?.args;
+        assert_eq!(args[1].default, Some(json!([1, 2])));
         let got = args
             .iter()
             .map(|a| (a.name.as_str(), a.otyp.as_deref(), &a.typ))
