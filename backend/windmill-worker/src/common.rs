@@ -1736,8 +1736,11 @@ pub async fn cached_result_path(
     .bind(&job.workspace_id)
     .fetch_optional(db)
     .await?;
+    // Length-prefixed: the arguments follow undelimited, and the end of one viewer's address
+    // must not read as the start of another run's first argument name.
     if let Some(end_user) = end_user.flatten() {
         hasher.update(b"end_user:");
+        hasher.update((end_user.len() as u64).to_le_bytes());
         hasher.update(end_user.as_bytes());
     }
     hash_args(
@@ -2498,14 +2501,23 @@ mod tests {
         let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
         let client = test_client();
 
+        // The last two differ only in where the viewer's address ends and the first argument
+        // name starts.
         let mut paths = vec![];
-        for viewer in [
-            Some("a@windmill.dev"),
-            Some("a@windmill.dev"),
-            Some("b@windmill.dev"),
-            None,
+        for (viewer, arg) in [
+            (Some("a@windmill.dev"), "mode"),
+            (Some("a@windmill.dev"), "mode"),
+            (Some("b@windmill.dev"), "mode"),
+            (None, "mode"),
+            (Some("a@windmill.co"), "mode"),
+            (Some("a@windmill.com"), "ode"),
         ] {
-            let job = MiniPulledJob { id: uuid::Uuid::new_v4(), ..test_job() };
+            let args = HashMap::from([(arg.to_string(), to_raw_value(&"all"))]);
+            let job = MiniPulledJob {
+                id: uuid::Uuid::new_v4(),
+                args: Some(sqlx::types::Json(args)),
+                ..test_job()
+            };
             sqlx::query(
                 "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator,
                      workspace_id, groups, folders, end_user_email)
@@ -2532,6 +2544,7 @@ mod tests {
         assert_ne!(paths[0], paths[2], "two viewers share a cached result");
         assert_ne!(paths[0], paths[3]);
         assert_ne!(paths[2], paths[3]);
+        assert_ne!(paths[4], paths[5], "an address runs into the argument names");
     }
 
     #[tokio::test]
