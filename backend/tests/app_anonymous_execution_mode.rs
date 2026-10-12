@@ -369,6 +369,8 @@ async fn test_policy_change_invalidates_cache(db: Pool<Postgres>) -> anyhow::Res
     const PATH: &str = "u/test-user/pub_app";
     seed_script(&db, "u/test-user/noop", "export function main() {}").await?;
     let version = create_anon_app(&ws, &db, PATH, "u/test-user/noop").await?;
+    // Deploying a version emits its own invalidation; count the revocation's apart.
+    let from_create = drain_policy_invalidations(&db).await?;
 
     // Prime the cache with the anonymous policy.
     let resp = execute_anon_versioned(&ws, PATH, version).await?;
@@ -399,7 +401,7 @@ async fn test_policy_change_invalidates_cache(db: Pool<Postgres>) -> anyhow::Res
 
     // The policy change must emit an invalidation event; dispatch it as the poller would.
     assert_eq!(
-        drain_policy_invalidations(&db).await?,
+        drain_policy_invalidations(&db).await? - from_create,
         1,
         "policy update must emit one invalidation"
     );
