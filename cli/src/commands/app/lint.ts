@@ -9,6 +9,7 @@ import { GlobalOptions } from "../../types.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
 import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
+import { inferSchema } from "../../utils/metadata.ts";
 import { statedIsolation } from "./app.ts";
 import {
   getFolderSuffix,
@@ -55,6 +56,50 @@ function validateRawAppYaml(appData: any): {
   return { errors, warnings };
 }
 
+const SQL_LANGUAGES = new Set([
+  "postgresql",
+  "mysql",
+  "bigquery",
+  "snowflake",
+  "mssql",
+  "oracledb",
+  "duckdb",
+]);
+
+// The viewer properties a `ctx` field can supply. The Inputs tab of the app
+// editor hints on the same names (RawAppInlineScriptRunnable.svelte).
+const VIEWER_IDENTITY_ARGS = ["username", "email", "groups"];
+
+/**
+ * A SQL runnable argument named after a viewer property is most often a
+ * per-viewer filter. Left as a plain input it takes whatever the browser
+ * sends, so it has to be a `ctx` field for the server to fill it.
+ */
+export async function viewerIdentityInputWarnings(
+  runnables: Record<string, any>,
+): Promise<string[]> {
+  const warnings: string[] = [];
+  for (const [id, runnable] of Object.entries(runnables)) {
+    const { language, content } = runnable?.inlineScript ?? {};
+    if (!SQL_LANGUAGES.has(language) || typeof content !== "string") {
+      continue;
+    }
+    const { schema } = await inferSchema(language, content, {}, id);
+    for (const arg of VIEWER_IDENTITY_ARGS) {
+      const field = runnable.fields?.[arg];
+      const serverFilled = field?.ctx !== undefined ||
+        field?.value !== undefined;
+      if (arg in (schema?.properties ?? {}) && !serverFilled) {
+        warnings.push(
+          `Runnable '${id}': argument '${arg}' is a frontend input, so a viewer can send any value. ` +
+            `If it identifies the viewer, set 'fields: { ${arg}: { ctx: ${arg} } }' in backend/${id}.yaml (next to 'type: inline') so the server fills it.`,
+        );
+      }
+    }
+  }
+  return warnings;
+}
+
 /**
  * Validates that runnables exist either in backend/*.yaml files or in raw_app.yaml
  */
@@ -84,6 +129,7 @@ async function validateRunnables(
         "  - Or a 'runnables' field in raw_app.yaml (legacy format)",
     );
   } else if (hasBackendRunnables) {
+    warnings.push(...await viewerIdentityInputWarnings(runnablesFromBackend));
     log.info(
       colors.gray(
         `  Found ${
