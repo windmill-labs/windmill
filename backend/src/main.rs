@@ -437,6 +437,8 @@ fn print_help() {
     println!("  cache-rt             Pre-cache hub resource types");
     println!("  sync-config <file>   Sync instance config from a YAML file to the database");
     println!("  operator             Run the Kubernetes operator (watches a ConfigMap)");
+    #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+    println!("  oidc-signer <conformance|test-signer>  (ee) Check an external OIDC signer, or run a file-backed one for tests");
     println!();
     println!("Environment variables (name = default):");
     println!("  DATABASE_URL = <required>              The Postgres database url.");
@@ -642,6 +644,12 @@ async fn windmill_main() -> anyhow::Result<()> {
             windmill_common::otel_oss::flush_otel_logs().await;
             synced?;
             tracing::info!("Synced instance config from {path}");
+            return Ok(());
+        }
+        #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+        "oidc-signer" => {
+            tracing_subscriber::fmt::init();
+            windmill_api::oidc_signer_tools_ee::run_cli(std::env::args().skip(2).collect()).await?;
             return Ok(());
         }
         #[cfg(feature = "operator")]
@@ -1041,6 +1049,15 @@ Windmill Community Edition {GIT_VERSION}
         // was down when a version was deleted would keep its code on disk: start from an
         // empty script cache, refilled from the database.
         windmill_common::cache::script::clear();
+
+        // Before the first load: it can sign a token for instance object storage.
+        #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+        windmill_common::oidc_ee::init_oidc_signing(
+            &conn,
+            server_mode,
+            killpill_rx.resubscribe(),
+        )
+        .await?;
 
         initial_load(
             &conn,
@@ -2133,6 +2150,9 @@ async fn process_notify_event(
                 }
                 SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING => {
                     // Read by the daily resource type sync each time it runs
+                }
+                "oidc_external_signer" => {
+                    // Written by servers that sign with an external signer, read when signing
                 }
                 "plain_emails_telemetry" => {
                     let enabled = sqlx::query_scalar!(
