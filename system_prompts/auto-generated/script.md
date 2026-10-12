@@ -1906,6 +1906,9 @@ async sleep(seconds: number): Promise<void>
  * `fn`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a `Date`
  * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, `fn` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -2748,7 +2751,9 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 # - **v2 (inside @workflow)**: dispatches as a checkpoint step.
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-# - **Standalone**: executes the function body directly.
+# - **Standalone, or called from inside another v2 task**: executes the
+#   function body directly. A task runs as a single job, so the tasks it
+#   calls run in that same job, without their own options.
 # 
 # A task runs as its own job, so its result is always encoded as JSON and
 # decoded back before the caller sees it: a ``datetime`` comes back as a
@@ -2834,12 +2839,15 @@ def workflow(func)
 # ``fn``'s result is encoded as JSON and decoded back before it is returned,
 # so the round that runs the body sees the same types every replay sees:
 # a ``datetime`` comes back as a string, a tuple as a list.
+# 
+# Called from inside a task body, ``fn`` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 # 
 # Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
-# Outside a workflow, falls back to ``asyncio.sleep``.
+# Outside a workflow, or inside a task body, falls back to ``asyncio.sleep``.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.

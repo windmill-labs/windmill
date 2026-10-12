@@ -1106,6 +1106,9 @@ async sleep(seconds: number): Promise<void>
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
  * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, \`fn\` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -1949,6 +1952,9 @@ async sleep(seconds: number): Promise<void>
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
  * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, \`fn\` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -2898,6 +2904,9 @@ async sleep(seconds: number): Promise<void>
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
  * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, \`fn\` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -5073,7 +5082,9 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 # - **v2 (inside @workflow)**: dispatches as a checkpoint step.
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-# - **Standalone**: executes the function body directly.
+# - **Standalone, or called from inside another v2 task**: executes the
+#   function body directly. A task runs as a single job, so the tasks it
+#   calls run in that same job, without their own options.
 # 
 # A task runs as its own job, so its result is always encoded as JSON and
 # decoded back before the caller sees it: a \`\`datetime\`\` comes back as a
@@ -5159,12 +5170,15 @@ def workflow(func)
 # \`\`fn\`\`'s result is encoded as JSON and decoded back before it is returned,
 # so the round that runs the body sees the same types every replay sees:
 # a \`\`datetime\`\` comes back as a string, a tuple as a list.
+# 
+# Called from inside a task body, \`\`fn\`\` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 # 
 # Inside a @workflow, the parent job suspends and auto-resumes after \`\`seconds\`\`.
-# Outside a workflow, falls back to \`\`asyncio.sleep\`\`.
+# Outside a workflow, or inside a task body, falls back to \`\`asyncio.sleep\`\`.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
@@ -7436,6 +7450,8 @@ async def enrich(customer_id: str):
 
 In TypeScript, prefer assigning each task to a named top-level const. In Python, prefer top-level async functions decorated with \`@task()\` or \`@task\`.
 
+Only the workflow body dispatches steps. A task runs as a single job, so a task or \`step()\` called from inside a task body runs in place in that job, as a plain function call: no child job, no checkpoint, and its task options (retry, timeout, tag) do not apply. \`sleep()\` there waits in the job, and \`taskScript()\` / \`taskFlow()\` / \`waitForApproval()\` (\`task_script()\` / \`task_flow()\` / \`wait_for_approval()\`) throw. To get separate jobs, call the tasks one after another from the workflow body and pass results between them.
+
 For existing scripts:
 
 \`\`\`typescript
@@ -7601,8 +7617,9 @@ export async function getResumeUrls(approver?: string, flowLevel?: boolean): Pro
  * const call_api = task(fetchOrders, { retry: { attempts: 3, delay: 30, multiplier: 2 } });
  *
  * Inside a \`workflow()\`, calling a task dispatches it as a step.
- * Outside a workflow, the function body executes directly and
- * {@link TaskOptions} — retry included — does not apply.
+ * Outside a workflow, or called from inside another task, the function body
+ * executes directly and {@link TaskOptions} — retry included — does not apply:
+ * a task runs as a single job, so the tasks it calls run in that same job.
  *
  * A task runs as its own job, so its result is always encoded as JSON and
  * decoded back before the caller sees it: a \`Date\` comes back as a string, a
@@ -7646,6 +7663,9 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>)
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
  * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ *
+ * Called from inside a task body, \`fn\` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 export async function step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -7744,7 +7764,9 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 #
 # - **v2 (inside @workflow)**: dispatches as a checkpoint step.
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-# - **Standalone**: executes the function body directly.
+# - **Standalone, or called from inside another v2 task**: executes the
+#   function body directly. A task runs as a single job, so the tasks it
+#   calls run in that same job, without their own options.
 #
 # A task runs as its own job, so its result is always encoded as JSON and
 # decoded back before the caller sees it: a \`\`datetime\`\` comes back as a
@@ -7830,12 +7852,15 @@ def workflow(func)
 # \`\`fn\`\`'s result is encoded as JSON and decoded back before it is returned,
 # so the round that runs the body sees the same types every replay sees:
 # a \`\`datetime\`\` comes back as a string, a tuple as a list.
+#
+# Called from inside a task body, \`\`fn\`\` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 #
 # Inside a @workflow, the parent job suspends and auto-resumes after \`\`seconds\`\`.
-# Outside a workflow, falls back to \`\`asyncio.sleep\`\`.
+# Outside a workflow, or inside a task body, falls back to \`\`asyncio.sleep\`\`.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
