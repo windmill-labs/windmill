@@ -51,6 +51,7 @@
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SLACK_AGENT_SCOPES } from '$lib/components/common/slack/slackAppManifest'
+	import SlackChannelAgents from '$lib/components/workspaceSettings/SlackChannelAgents.svelte'
 
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
@@ -1700,8 +1701,8 @@
 														asking and to list channels. The Slack app must declare them, subscribe
 														to the <code>app_mention</code> and
 														<code>message.im</code> bot events at
-														<code>{window.location.origin}/api/oauth/slack_events</code>, and
-														its signing secret must be set in the instance settings. Without these
+														<code>{window.location.origin}/api/oauth/slack_events</code>, and its
+														signing secret must be set in the instance settings. Without these
 														scopes Slack refuses the connection.
 													</div>
 												</div>
@@ -1784,6 +1785,9 @@
 											{/if}
 										{/snippet}
 									</ConnectionSection>
+									{#if slack_team_name && $workspaceStore}
+										<SlackChannelAgents workspace={$workspaceStore} />
+									{/if}
 								{:else if slack_tabs === 'teams_commands'}
 									{#if !$enterpriseLicense}
 										<div class="pt-4"></div>
