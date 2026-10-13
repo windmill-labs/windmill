@@ -2162,7 +2162,7 @@ async fn check_if_early_return_or_last_in_early_return_parent(
         }
 
         if step == early_return_id && flow_scope == Some(root_job) {
-            return Ok(true);
+            return only_branch_one_up_to_root(db, parent_job, root_job).await;
         }
         if parent_job == root_job {
             return Ok(false);
@@ -2182,6 +2182,26 @@ async fn check_if_early_return_or_last_in_early_return_parent(
         }
         return Ok(false);
     }
+}
+
+// A step in a branch to all or in a loop shares the root flow's scope but does not hold the flow's
+// early-return result, so every container between it and the root must be a branch to one.
+async fn only_branch_one_up_to_root(db: &DB, mut job: Uuid, root_job: Uuid) -> error::Result<bool> {
+    let mut visited = HashSet::new();
+    while job != root_job {
+        if !visited.insert(job) {
+            return Ok(false);
+        }
+        let info = get_job_info(db, job).await?;
+        if !info.is_branch_one.unwrap_or(false) {
+            return Ok(false);
+        }
+        let Some(parent) = info.next_parent else {
+            return Ok(false);
+        };
+        job = parent;
+    }
+    Ok(true)
 }
 
 impl StreamNotifier {
