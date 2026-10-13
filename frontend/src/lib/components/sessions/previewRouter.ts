@@ -88,16 +88,15 @@ export type PreviewTarget =
 	// `pendingRunId` hands this tab a chat tool call parked on a run form: the deployed page
 	// shows that form, and Run there answers the call instead of starting a job of its own.
 	// In the query for the same reason as `version` — the tab stays the item's, and the call
-	// is a property of this tab rather than of the item.
+	// is a property of this tab rather than of the item. The id alone: what the call proposed
+	// is read off the chat, since a tab's url is persisted with the session and those
+	// arguments can hold file bytes and secrets typed into the form.
 	| {
 			type: 'item'
 			item: WorkspaceItem
 			mode?: PreviewItemMode
 			version?: string
 			pendingRunId?: string
-			/** Prefilled run arguments, written into the url's hash — the form the deployed
-			 * page already builds from "Run again" fills itself from it. */
-			runArgs?: Record<string, any>
 	  }
 	| { type: 'artifact'; id: string; name: string; version?: ArtifactVersionTarget }
 	| { type: 'runform'; toolCallId: string; label: string }

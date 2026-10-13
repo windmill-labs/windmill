@@ -101,11 +101,6 @@
 	// reason. Re-pointing the tab rebuilds its url without it, so a tab sent anywhere else —
 	// another item, another version — stops carrying the call rather than answering it from a
 	// page it was never confirmed against.
-	// The arguments a run was proposed with, in the hash the deployed pages already read for
-	// "Run again" — so the form fills itself as it is built.
-	const locationHash = $derived(
-		slot.kind === 'viewer' ? new URL(tab.url, 'http://x').hash : ''
-	)
 	const pendingRunId = $derived(
 		slot.kind === 'viewer'
 			? (new URL(tab.url, 'http://x').searchParams.get('pending_run') ?? undefined)
@@ -408,7 +403,6 @@
 						path={itemPath}
 						version={pinnedVersion}
 						{pendingRunId}
-						{locationHash}
 						{workspaceId}
 						tabId={tab.id}
 						container={overlayHostEl}

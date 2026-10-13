@@ -6473,6 +6473,12 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// Naming them costs a copy of arguments already in the call above, and cleared/reset/
 	// stripped name every way the form's own differ from the proposed ones — so only what
 	// the user changed is news.
+	// An adopted job is the page's own: its arguments and version are whatever that page held,
+	// which is not readable from here. Saying so beats naming arguments that may not be the
+	// ones that ran — and the notes below all describe the proposal this run did not use.
+	if (adopted) {
+		return `The user ran "${spec.path}" themselves on its own page, with the arguments and version that page held — not necessarily the ones proposed here. Read the job if you need them.\n${outcome}`
+	}
 	const ran = deepEqual(redacted, proposed)
 		? 'Ran with the arguments the form opened with, unedited.'
 		: `Ran with arguments: ${shown}`

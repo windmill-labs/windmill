@@ -11,7 +11,12 @@ export type PendingRun = {
 	 * too: a `password` mints as it is typed and the dynamic-select helper runs on mount,
 	 * both before Run is ever pressed. */
 	planModeActive: boolean
-	/** The job the reader started here answers the call. */
-	adopt: (jobId: string) => void
+	/** What the chat proposed, for the form to open on. Read when the form is built, so this
+	 * is the live draft of the card's own form rather than a copy to keep in step. */
+	readonly proposedArgs: Record<string, any>
+	/** The job the reader started here answers the call. True when it did: the chat then shows
+	 * that run in place of this page, so the page must not navigate to it as well. False when
+	 * the call settled while the job was starting, and the run is the reader's alone. */
+	adopt: (jobId: string) => boolean
 	decline: () => void
 }

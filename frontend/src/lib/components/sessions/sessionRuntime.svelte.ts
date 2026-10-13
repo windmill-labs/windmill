@@ -607,6 +607,11 @@ function createRuntime(session: Session): SessionRuntime {
 			toolCallId,
 			// Read here, so the page's `$derived` rebuilds when the posture changes under it.
 			planModeActive: manager.planModeActive,
+			// A getter, not a value: the page reads it once, when it builds the form, and this
+			// object is rebuilt on every keystroke of the card's draft otherwise.
+			get proposedArgs() {
+				return manager.pendingRunFormArgs(toolCallId) ?? {}
+			},
 			adopt: (jobId) => manager.handleRunFormJob(toolCallId, jobId),
 			decline: () => manager.handleRunFormCancel(toolCallId)
 		}
@@ -630,8 +635,8 @@ function createRuntime(session: Session): SessionRuntime {
 		previewTabs.open({ type: 'runform', toolCallId, label })
 	}
 	// Show a deployed run on the item's own page. With `carries`, that page answers the call:
-	// its Run hands the arguments back, so the tool still owns the run.
-	manager.openRunOnDeployedPage = ({ toolCallId, kind, path, summary, args, carries }) => {
+	// the job its Run starts is the one the tool follows.
+	manager.openRunOnDeployedPage = ({ toolCallId, kind, path, summary, carries }) => {
 		// Through the shared adapter: a session target spells a code-based app `raw_app` and a
 		// workspace item spells it `app` with a flag, and one place should know that.
 		const target = previewTargetForSessionTarget(kind, path)
@@ -640,8 +645,7 @@ function createRuntime(session: Session): SessionRuntime {
 			...target,
 			item: { ...target.item, summary },
 			mode: 'view' as const,
-			pendingRunId: carries ? toolCallId : undefined,
-			runArgs: args
+			pendingRunId: carries ? toolCallId : undefined
 		}
 		// Re-pointed rather than focused: the url is what hands the tab the call, and
 		// rebuilding it also drops whatever version the reader had pinned.

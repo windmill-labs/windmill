@@ -296,9 +296,13 @@
 		invisibleToOwner: boolean | undefined,
 		overrideTag: string | undefined
 	) {
+		// Taken before the round trip below: the call this press answers is the one it was
+		// pressed under, and a call settled meanwhile — declined, then another proposed for
+		// this same flow — must not be answered with a job it never asked for.
+		const call = pendingRun
 		// The page runs its own job, so nothing downstream gates this: the chat asked for the
 		// run and then promised not to make one.
-		if (pendingRun?.planModeActive) {
+		if (call?.planModeActive) {
 			sendUserToast(PLAN_MODE_MESSAGES.runFormRefused, true)
 			return
 		}
@@ -314,9 +318,10 @@
 				tag: overrideTag,
 				skipPreprocessor: true
 			})
-			// The call asked for this run; it follows the job rather than starting one.
-			pendingRun?.adopt(run)
-			await onNavigate('/run/' + run + '?workspace=' + workspace)
+			// The call asked for this run; it follows the job rather than starting one, and
+			// shows it in place of this page — so navigating here as well would leave two
+			// surfaces open on the same job.
+			if (!call?.adopt(run)) await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} catch (e) {
 			throw e
 		} finally {
@@ -368,6 +373,10 @@
 			console.error('Was not able to transform hash as args', e)
 		}
 	}
+	// A chat call confirmed here opens its form on what the chat proposed. Read at init like
+	// the hash above, and for the same reason; the host remounts this page when the call
+	// changes, so a tab already open on this flow still builds its form from the new one.
+	if (pendingRun) args = { ...untrack(() => pendingRun.proposedArgs) }
 
 	let canAuthorFlow = $derived(editRights.roleCanAuthor('flow'))
 
@@ -899,31 +908,26 @@
 									/>
 								{/if}
 
-								<!-- Keyed on the call, so a request arriving on a tab that is already open
-								     builds a new form already holding what it proposed. Re-seeding one
-								     that is already on screen would have to wait for it to exist. -->
-								{#key pendingRun?.toolCallId}
-									<RunForm
-										bind:scheduledForStr
-										bind:invisible_to_owner
-										bind:overrideTag
-										{overrideTagNote}
-										syncArgsToUrl={!embedded}
-										viewKeybinding
-										{loading}
-										autofocus
-										detailed={false}
-										bind:isValid
-										runnable={flow}
-										runAction={runFlow}
-										argsReadonly={pendingRun?.planModeActive}
-										bind:args
-										schedulable={!pendingRun}
-										bind:this={runForm}
-										{jsonView}
-										actions={promptForAi ? undefined : aiAssistant}
-									/>
-								{/key}
+								<RunForm
+									bind:scheduledForStr
+									bind:invisible_to_owner
+									bind:overrideTag
+									{overrideTagNote}
+									syncArgsToUrl={!embedded}
+									viewKeybinding
+									{loading}
+									autofocus
+									detailed={false}
+									bind:isValid
+									runnable={flow}
+									runAction={runFlow}
+									argsReadonly={pendingRun?.planModeActive}
+									bind:args
+									schedulable={!pendingRun}
+									bind:this={runForm}
+									{jsonView}
+									actions={promptForAi ? undefined : aiAssistant}
+								/>
 							</div>
 
 							<div class="pt-4 flex flex-col gap-1 w-full items-end">
