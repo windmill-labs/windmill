@@ -1971,6 +1971,24 @@ paths:
             application/json:
               schema: {}
 
+  /settings/smtp_configured:
+    get:
+      summary: whether instance SMTP is configured
+      description: |
+        Readable by any authenticated user. True when this build can send email
+        and SMTP is set, either in the smtp_settings instance setting or through
+        the SMTP_* environment variables.
+      operationId: getSmtpConfigured
+      tags:
+        - setting
+      responses:
+        "200":
+          description: whether email notifications can be sent
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /settings/test_smtp:
     post:
       summary: test smtp

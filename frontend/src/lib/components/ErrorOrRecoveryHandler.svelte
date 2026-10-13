@@ -73,7 +73,6 @@
 	import { syncSlackBotArg } from './handlerSlackArg'
 	import SmtpConfigurationStatus from './common/smtp/SmtpConfigurationStatus.svelte'
 	import { SettingService } from '$lib/gen'
-	import { isSmtpSettingsValid } from './instanceSettings/SmtpSettings.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -171,11 +170,7 @@
 
 	async function loadSmtpConfiguration() {
 		try {
-			const smtpSettings = (await SettingService.getGlobal({ key: 'smtp_settings' })) as Record<
-				string,
-				any
-			> | null
-			hasSmtpConfig = smtpSettings ? isSmtpSettingsValid(smtpSettings) : false
+			hasSmtpConfig = await SettingService.getSmtpConfigured()
 		} catch (error) {
 			hasSmtpConfig = false
 		}
