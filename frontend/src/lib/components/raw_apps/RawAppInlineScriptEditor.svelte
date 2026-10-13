@@ -5,7 +5,8 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview, ScriptLang } from '$lib/gen'
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
-	import { Trash2, Bug, Terminal } from 'lucide-svelte'
+	import { Trash2, Bug, Terminal, Paintbrush } from 'lucide-svelte'
+	import { getModifierKey } from '$lib/utils'
 	import { inferArgs, inferAssets } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
@@ -640,14 +641,16 @@
 				<DeleteAfterUsePopup bind:delete_after_secs />
 
 				<Button
-					variant="default"
+					title={`Format (${getModifierKey()}S)`}
+					aria-label="Format"
+					variant="subtle"
 					unifiedSize="sm"
 					on:click={async () => {
 						editor?.format()
 					}}
-				>
-					Format
-				</Button>
+					endIcon={{ icon: Paintbrush }}
+					iconOnly
+				/>
 			</div>
 		</div>
 
