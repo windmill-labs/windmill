@@ -1,6 +1,4 @@
 <script lang="ts" module>
-	import type { ErrorHandler } from '$lib/gen/types.gen'
-
 	export const errorHandlerArgs = [
 		'path',
 		'workspace_id',
@@ -19,17 +17,6 @@
 	]
 
 	export const slackErrorHandlerHubPathEnding = '/workspace-or-schedule-error-handler-slack'
-
-	/** The stored `<script|flow>/<path>` form of a handler. `kind` is the Custom tab's Script/Flow
-	 * choice and survives switching to a built-in tab, whose handlers are all scripts: stored as
-	 * `flow/...` they never run. */
-	export function handlerFullPath(
-		selected: ErrorHandler,
-		kind: 'flow' | 'script',
-		path: string
-	): string {
-		return `${selected === 'custom' ? kind : 'script'}/${path}`
-	}
 </script>
 
 <script lang="ts">
@@ -67,34 +54,23 @@
 		RotateCw,
 		XCircle
 	} from 'lucide-svelte'
-	import { hubPaths } from '$lib/hub'
 	import { isCloudHosted } from '$lib/cloud'
-	import { untrack } from 'svelte'
-	import { syncSlackBotArg } from './handlerSlackArg'
 	import SmtpConfigurationStatus from './common/smtp/SmtpConfigurationStatus.svelte'
 	import { SettingService } from '$lib/gen'
 	import { isSmtpSettingsValid } from './instanceSettings/SmtpSettings.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { builtinHubPath, type HandlerDraft, type HandlerMode } from './handlerDraft.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
-	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
-	const slackHandlerScriptPath = hubPaths.slackErrorHandler
-	const slackSuccessHandler = hubPaths.slackSuccessHandler
-	const teamsRecoveryHandler = hubPaths.teamsRecoveryHandler
-	const teamsHandlerScriptPath = hubPaths.teamsErrorHandler
-	const teamsSuccessHandler = hubPaths.teamsSuccessHandler
-
 	interface Props {
-		errorOrRecovery: 'error' | 'recovery' | 'success'
+		errorOrRecovery: HandlerMode
 		isEditable: boolean
 		toggleText?: string
 		showScriptHelpText?: boolean
-		handlerSelected: ErrorHandler
-		handlerPath: string | undefined
-		handlerExtraArgs: Record<string, any>
+		/** Owned by the caller, which restores it on Discard; every tab edits its own slot. */
+		draft: HandlerDraft
 		customScriptTemplate: string
-		customHandlerKind?: 'flow' | 'script'
 		customTabTooltip?: import('svelte').Snippet
 		noMargin?: boolean
 		/** Workspace for handler lookup / settings / test jobs. Defaults to the operating
@@ -110,11 +86,8 @@
 		isEditable,
 		toggleText = 'Enable',
 		showScriptHelpText = false,
-		handlerSelected = $bindable('custom'),
-		handlerPath = $bindable(),
-		handlerExtraArgs = $bindable(),
+		draft = $bindable(),
 		customScriptTemplate,
-		customHandlerKind = $bindable('script'),
 		customTabTooltip,
 		noMargin = false,
 		workspace = undefined,
@@ -142,8 +115,6 @@
 
 	let connectionTestJob: { uuid: string; is_success: boolean; in_progress: boolean } | undefined =
 		$state()
-	const EMAIL_RECIPIENTS_KEY = 'email_recipients'
-	const CHANNEL_KEY = 'channel'
 
 	async function loadSlackResources() {
 		const settings = await WorkspaceService.getPublicSettings({ workspace: effectiveWorkspace! })
@@ -190,7 +161,7 @@
 		let submitted_job = await testJobFunction({
 			workspace: effectiveWorkspace!,
 			requestBody: {
-				hub_script_path: handlerPath,
+				hub_script_path: draft[platform].path,
 				channel: channel,
 				test_msg: `This is a notification to test the connection between ${platform} and Windmill workspace '${effectiveWorkspace!}'`
 			}
@@ -236,7 +207,11 @@
 		await sendMessage(channel, 'teams')
 	}
 
-	async function loadHandlerScriptArgs(p: string, defaultArgs: string[] = []) {
+	async function loadHandlerScriptArgs(
+		p: string,
+		kind: 'script' | 'flow',
+		defaultArgs: string[] = []
+	) {
 		try {
 			let schema: Schema | undefined = emptySchema()
 			if (p.startsWith('hub/')) {
@@ -251,7 +226,7 @@
 				}
 			} else {
 				let scriptOrFlow: Script | Flow =
-					customHandlerKind === 'script'
+					kind === 'script'
 						? await ScriptService.getScriptByPath({ workspace: effectiveWorkspace!, path: p })
 						: await FlowService.getFlowByPath({ workspace: effectiveWorkspace!, path: p })
 				schema = scriptOrFlow.schema as Schema
@@ -269,47 +244,6 @@
 		}
 	}
 
-	function isSlackHandler(scriptPath: string | undefined) {
-		if (!scriptPath) {
-			return false
-		}
-		if (errorOrRecovery == 'error') {
-			return scriptPath.startsWith('hub/') && scriptPath.endsWith(slackErrorHandlerHubPathEnding)
-		} else if (errorOrRecovery == 'recovery') {
-			return (
-				scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-recovery-handler-slack')
-			)
-		} else {
-			return scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-success-handler-slack')
-		}
-	}
-
-	function isTeamsHandler(scriptPath: string | undefined) {
-		if (!scriptPath) {
-			return false
-		}
-		if (errorOrRecovery == 'error') {
-			return (
-				scriptPath.startsWith('hub/') &&
-				scriptPath.endsWith('/workspace-or-schedule-error-handler-teams')
-			)
-		} else if (errorOrRecovery == 'recovery') {
-			return (
-				scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-recovery-handler-teams')
-			)
-		} else {
-			return scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-success-handler-teams')
-		}
-	}
-
-	function isEmailHandler(scriptPath: string | undefined) {
-		if (!scriptPath) {
-			return false
-		}
-
-		return scriptPath.startsWith('hub/') && scriptPath.endsWith('/workspace-or-error-handler-email')
-	}
-
 	$effect(() => {
 		if (effectiveWorkspace) {
 			loadSlackResources()
@@ -318,82 +252,25 @@
 		loadSmtpConfiguration()
 	})
 
-	let builtinArgs: Record<string, any> | undefined
 	$effect(() => {
-		const isSlackBuiltin = handlerSelected === 'slack' && isSlackHandler(handlerPath)
-		const args = handlerExtraArgs
-		// A replaced args object (Discard, reload) holds the stored config, not what the built-in set.
-		untrack(() => syncSlackBotArg(args, isSlackBuiltin, args === builtinArgs))
-		builtinArgs = isSlackBuiltin ? args : undefined
-	})
-
-	let lastHandlerSelected: ErrorHandler | undefined = $state(undefined)
-	let handlerCache = $state({
-		slack: undefined as string | undefined,
-		teams: undefined as string | undefined,
-		email: undefined as string[] | undefined
-	})
-	let handlerPathCache: Partial<Record<ErrorHandler, string | undefined>> = $state({})
-	$effect(() => {
-		if (lastHandlerSelected !== handlerSelected && lastHandlerSelected !== undefined) {
-			if (lastHandlerSelected != 'custom') {
-				const key = lastHandlerSelected === 'email' ? EMAIL_RECIPIENTS_KEY : CHANNEL_KEY
-				handlerCache[lastHandlerSelected] = handlerExtraArgs[key]
-			}
-			handlerPathCache[lastHandlerSelected] = handlerPath
-
-			if (handlerSelected === 'custom') {
-				delete handlerExtraArgs[CHANNEL_KEY]
-				delete handlerExtraArgs[EMAIL_RECIPIENTS_KEY]
-				handlerPath = handlerPathCache['custom']
-			} else if (handlerSelected === 'email') {
-				handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = handlerCache[handlerSelected] ?? []
-				delete handlerExtraArgs[CHANNEL_KEY]
-			} else {
-				handlerExtraArgs[CHANNEL_KEY] = handlerCache[handlerSelected] ?? ''
-				delete handlerExtraArgs[EMAIL_RECIPIENTS_KEY]
-				handlerPath = handlerPathCache[handlerSelected]
-			}
-		}
-
-		lastHandlerSelected = handlerSelected
-	})
-
-	$effect(() => {
-		handlerPath &&
-			!isSlackHandler(handlerPath) &&
-			!isTeamsHandler(handlerPath) &&
-			!isEmailHandler(handlerPath) &&
-			loadHandlerScriptArgs(handlerPath, errorHandlerArgs).then(
+		const { path, kind } = draft.custom
+		path &&
+			loadHandlerScriptArgs(path, kind, errorHandlerArgs).then(
 				(schema) => (customHandlerSchema = schema)
 			)
 	})
 
 	$effect(() => {
-		handlerPath &&
-			isSlackHandler(handlerPath) &&
-			loadHandlerScriptArgs(handlerPath, [...errorHandlerArgs, 'slack']).then(
+		const path = draft.slack.path
+		path &&
+			loadHandlerScriptArgs(path, 'script', [...errorHandlerArgs, 'slack']).then(
 				(schema) => (slackHandlerSchema = schema)
 			)
-	})
-
-	$effect(() => {
-		if (handlerSelected === 'email') {
-			handlerPath = hubPaths.emailErrorHandler
-		}
-	})
-
-	// The instance channels are reached by having no workspace handler at all, so the tab
-	// owns an empty path rather than a handler script.
-	$effect(() => {
-		if (handlerSelected === 'instance_alerts') {
-			handlerPath = undefined
-		}
 	})
 </script>
 
 <div class={classNames('space-y-2', noMargin ? '' : 'mt-2')}>
-	<ToggleButtonGroup bind:selected={handlerSelected} disabled={!isEditable}>
+	<ToggleButtonGroup bind:selected={draft.selected} disabled={!isEditable}>
 		{#snippet children({ item })}
 			<ToggleButton label="Slack" value="slack" {item} disabled={!isEditable} />
 			<ToggleButton label="Teams" value="teams" {item} disabled={!isEditable} />
@@ -418,21 +295,21 @@
 	</ToggleButtonGroup>
 
 	<div class="flex flex-col gap-6 p-4 rounded-md shadow-sm bg-surface-tertiary">
-		{#if handlerSelected === 'custom'}
+		{#if draft.selected === 'custom'}
 			<div class="flex flex-col gap-1">
 				<div class="flex flex-row">
 					<ScriptPicker
 						disabled={!isEditable || !$enterpriseLicense}
 						kinds={['script', 'failure']}
 						allowFlow={true}
-						bind:scriptPath={handlerPath}
-						bind:itemKind={customHandlerKind}
+						bind:scriptPath={draft.custom.path}
+						bind:itemKind={draft.custom.kind}
 						allowRefresh={isEditable}
 						workspace={effectiveWorkspace}
 						clearable
 					/>
 
-					{#if !handlerPath}
+					{#if !draft.custom.path}
 						<Button
 							btnClasses="ml-4 whitespace-nowrap"
 							variant="default"
@@ -456,7 +333,7 @@
 					</div>
 				{/if}
 			</div>
-			{#if handlerPath}
+			{#if draft.custom.path}
 				<div>
 					<p class="font-semibold text-xs mb-1">Extra arguments</p>
 					{#await import('$lib/components/SchemaForm.svelte')}
@@ -465,7 +342,7 @@
 						<Module.default
 							disabled={!isEditable}
 							schema={customHandlerSchema}
-							bind:args={handlerExtraArgs}
+							bind:args={draft.custom.args}
 							shouldHideNoInputs
 							className="text-xs"
 						/>
@@ -475,7 +352,7 @@
 					{/if}
 				</div>
 			{/if}
-		{:else if handlerSelected === 'slack'}
+		{:else if draft.selected === 'slack'}
 			<!-- Slack Connection Status -->
 			<SlackConnectionStatus
 				isConnected={workspaceConnectedToSlack}
@@ -487,23 +364,15 @@
 			{#if workspaceConnectedToSlack}
 				<Toggle
 					disabled={!$enterpriseLicense || !isEditable}
-					checked={isSlackHandler(handlerPath)}
+					checked={!!draft.slack.path}
 					options={{ right: toggleText }}
-					on:change={async (e) => {
-						if (e.detail && errorOrRecovery === 'error') {
-							handlerPath = slackHandlerScriptPath
-						} else if (e.detail && errorOrRecovery === 'recovery') {
-							handlerPath = slackRecoveryHandler
-						} else if (e.detail && errorOrRecovery === 'success') {
-							handlerPath = slackSuccessHandler
-						} else {
-							handlerPath = undefined
-						}
+					on:change={(e) => {
+						draft.slack.path = e.detail ? builtinHubPath(errorOrRecovery, 'slack') : undefined
 					}}
 				/>
 			{/if}
 
-			{#if workspaceConnectedToSlack && isSlackHandler(handlerPath)}
+			{#if workspaceConnectedToSlack && draft.slack.path}
 				<div class="flex flex-col gap-2">
 					{#await import('$lib/components/SchemaForm.svelte')}
 						<Loader2 class="animate-spin" />
@@ -515,18 +384,18 @@
 							schemaFieldTooltip={{
 								channel: 'Slack channel name without the "#" - example: "windmill-alerts"'
 							}}
-							bind:args={handlerExtraArgs}
+							bind:args={draft.slack.args}
 							shouldHideNoInputs
 							className="text-xs"
 						/>
 					{/await}
 
-					{#if $enterpriseLicense && isSlackHandler(handlerPath)}
+					{#if $enterpriseLicense}
 						<Button
-							disabled={emptyString(handlerExtraArgs['channel'])}
+							disabled={emptyString(draft.slack.args['channel'])}
 							wrapperClasses="w-fit"
 							variant="default"
-							on:click={() => sendSlackMessage(handlerExtraArgs['channel'])}
+							on:click={() => sendSlackMessage(draft.slack.args['channel'])}
 							unifiedSize="md">Send test message</Button
 						>
 						{#if connectionTestJob !== undefined}
@@ -559,7 +428,7 @@
 			{:else if workspaceConnectedToSlack == undefined}
 				<Loader2 class="animate-spin" size={10} />
 			{/if}
-		{:else if handlerSelected === 'teams'}
+		{:else if draft.selected === 'teams'}
 			<!-- Teams Connection Status -->
 			<TeamsConnectionStatus
 				isConnected={workspaceConnectedToTeams}
@@ -571,18 +440,10 @@
 			{#if workspaceConnectedToTeams}
 				<Toggle
 					disabled={!$enterpriseLicense || !isEditable}
-					checked={isTeamsHandler(handlerPath)}
+					checked={!!draft.teams.path}
 					options={{ right: toggleText }}
-					on:change={async (e) => {
-						if (e.detail && errorOrRecovery === 'error') {
-							handlerPath = teamsHandlerScriptPath
-						} else if (e.detail && errorOrRecovery === 'recovery') {
-							handlerPath = teamsRecoveryHandler
-						} else if (e.detail && errorOrRecovery === 'success') {
-							handlerPath = teamsSuccessHandler
-						} else {
-							handlerPath = undefined
-						}
+					on:change={(e) => {
+						draft.teams.path = e.detail ? builtinHubPath(errorOrRecovery, 'teams') : undefined
 					}}
 				/>
 			{/if}
@@ -604,26 +465,26 @@
 								placeholder="Search Teams channels"
 								workspace={effectiveWorkspace}
 								teamId={teams_team_guid}
-								selectedChannel={handlerExtraArgs['channel']
+								selectedChannel={draft.teams.args['channel']
 									? {
-											channel_id: handlerExtraArgs['channel'],
-											channel_name: handlerExtraArgs['channel_name']
+											channel_id: draft.teams.args['channel'],
+											channel_name: draft.teams.args['channel_name']
 										}
 									: undefined}
 								onSelectedChannelChange={(channel) => {
-									handlerExtraArgs['channel'] = channel?.channel_id
-									handlerExtraArgs['channel_name'] = channel?.channel_name
+									draft.teams.args['channel'] = channel?.channel_id
+									draft.teams.args['channel_name'] = channel?.channel_name
 								}}
 								onError={(e) => sendUserToast('Failed to load channels: ' + e.message, true)}
 							/>
 						</div>
 					</div>
-					{#if $enterpriseLicense && isTeamsHandler(handlerPath) && workspaceConnectedToTeams}
+					{#if $enterpriseLicense && draft.teams.path && workspaceConnectedToTeams}
 						<Button
-							disabled={emptyString(handlerExtraArgs['channel'])}
+							disabled={emptyString(draft.teams.args['channel'])}
 							btnClasses="w-32 text-center whitespace-nowrap"
 							variant="default"
-							on:click={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
+							on:click={() => sendTeamsMessage(draft.teams.args['channel'] ?? '')}
 							size="xs">Send test message</Button
 						>
 						{#if connectionTestJob !== undefined}
@@ -649,7 +510,7 @@
 			{:else if workspaceConnectedToTeams == undefined}
 				<Loader2 class="animate-spin" size={10} />
 			{/if}
-		{:else if handlerSelected === 'email'}
+		{:else if draft.selected === 'email'}
 			{#if isCloudHosted()}
 				<Alert type="info" title="Email notifications are not available in Cloud">
 					Email notifications for trigger failures are only available in self-hosted Windmill
@@ -662,8 +523,8 @@
 					<MultiSelect
 						items={[] as { label: string; value: string }[]}
 						bind:value={
-							() => handlerExtraArgs[EMAIL_RECIPIENTS_KEY] ?? [],
-							(recipients) => (handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = recipients)
+							() => draft.email.args.email_recipients ?? [],
+							(recipients) => (draft.email.args.email_recipients = recipients)
 						}
 						placeholder="Enter email addresses..."
 						onCreateItem={(email) => {
@@ -672,23 +533,24 @@
 								sendUserToast('Invalid email format', true)
 								return
 							}
-							const currentArray = handlerExtraArgs[EMAIL_RECIPIENTS_KEY] ?? []
-							handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = [...currentArray, email]
+							draft.email.args.email_recipients = [
+								...(draft.email.args.email_recipients ?? []),
+								email
+							]
 						}}
 						class="w-full"
 					/>
-					{#if handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length > 0}
+					{#if draft.email.args.email_recipients?.length > 0}
 						<span class="text-xs text-secondary">
-							{handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length} email{handlerExtraArgs[
-								EMAIL_RECIPIENTS_KEY
-							]?.length === 1
+							{draft.email.args.email_recipients.length} email{draft.email.args.email_recipients
+								.length === 1
 								? ''
 								: 's'} configured
 						</span>
 					{/if}
 				</div>
 			{/if}
-		{:else if handlerSelected === 'instance_alerts'}
+		{:else if draft.selected === 'instance_alerts'}
 			<div class="flex flex-col gap-2">
 				<span class="text-xs text-secondary">
 					Failed jobs are reported to the Slack, Teams and email channels configured at the instance
