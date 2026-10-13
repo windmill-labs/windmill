@@ -247,10 +247,11 @@
 	)
 
 	// The model the effort is placed on: the step's own where it names one, else the agent's. An
-	// expression is only known once the run is under way, so it leaves the effort free text.
+	// expression is only known once the run is under way, so the agent's model stands in for it:
+	// its levels are suggestions, and any other value stays typeable.
+	let modelIsExpression = $derived(args?.model?.type === 'javascript')
 	let effortModel = $derived.by(() => {
 		const transform = args?.model
-		if (transform?.type === 'javascript') return undefined
 		const own = transform?.type === 'static' ? transform.value : undefined
 		return (typeof own === 'string' && own.trim()) || savedProvider?.model
 	})
@@ -266,18 +267,16 @@
 	})
 
 	// The override rows offer what the agent's provider has, where that is known. Custom values stay
-	// typeable: a resource may serve a model its listing omits. Held in state of their own, since the
-	// field binds into the property it renders.
+	// typeable: a resource may serve a model its listing omits. Always an enum, even an empty one, so
+	// the row keeps one shape whatever is known. Held in state of their own, since the field binds
+	// into the property it renders.
 	let overrideProperties: Record<string, any> = $state({ model: {}, reasoning_effort: {} })
 	$effect(() => {
 		const model = {
 			...schemaProperties.model,
-			...(savedProviderModels.current?.length ? { enum: savedProviderModels.current } : {})
+			enum: savedProviderModels.current ?? []
 		}
-		const effort = {
-			...schemaProperties.reasoning_effort,
-			...(effortChoices ? { enum: effortChoices } : {})
-		}
+		const effort = { ...schemaProperties.reasoning_effort, enum: effortChoices ?? [] }
 		untrack(() => {
 			if (!deepEqual($state.snapshot(overrideProperties.model), model)) {
 				overrideProperties.model = model
@@ -296,7 +295,7 @@
 		if (spec.group !== 'overrides' || !savedProvider) return undefined
 		if (spec.key !== 'reasoning_effort')
 			return `Saved on the agent: ${savedProvider.model || 'none'}`
-		if (effortCapability?.known && !effortCapability.supported) {
+		if (!modelIsExpression && effortCapability?.known && !effortCapability.supported) {
 			return `${effortModel} does not take a reasoning effort.`
 		}
 		return `Saved on the agent: ${savedProvider.reasoning_effort || 'none'}. Left empty, the model runs at its default.`
