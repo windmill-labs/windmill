@@ -25,7 +25,7 @@
 	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
 	import { createEventDispatcher, onDestroy, tick } from 'svelte'
 	import Path from './Path.svelte'
-	import { ListRow, RadioCard, Skeleton } from './common'
+	import { Badge, ListRow, RadioCard, Skeleton } from './common'
 	import { useListHighlight } from './common/listRow/listHighlight.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
@@ -1545,7 +1545,11 @@
 									selected={!useClientCredentials}
 									onSelect={selectAuthCodeGrant}
 									disabled={signInNeedsInstanceClient}
+									badge={signInNeedsInstanceClient ? setupNeededBadge : undefined}
 								/>
+								{#snippet setupNeededBadge()}
+									<Badge verySmall class="px-2">Instance setup needed</Badge>
+								{/snippet}
 								<RadioCard
 									label={useSharedInstanceCreds
 										? 'Use the configured instance credentials'
