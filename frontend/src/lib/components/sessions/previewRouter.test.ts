@@ -332,6 +332,12 @@ describe('resolvePreviewTab', () => {
 		expect(resolvePreviewTab('/runsheet')).toEqual({ kind: 'iframe' })
 	})
 
+	it('tells two runs lists apart by their filters, trailing slash or not', () => {
+		expect(showsView('/runs/?schedule_path=a', '/runs/?schedule_path=b')).toBe(false)
+		expect(showsView('/runs?schedule_path=a', '/runs/?schedule_path=a')).toBe(true)
+		expect(showsView('/runs/f/a/b?status=failure', '/runs/f/a/b')).toBe(false)
+	})
+
 	it('mounts the list page of a page item kind in process, whatever its filters', () => {
 		expect(resolvePreviewTab('/variables?path_start=f%2Fa%2F')).toEqual({
 			kind: 'pagelist',

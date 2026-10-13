@@ -162,11 +162,15 @@
 				<Module.default triggerKind={listed.triggerKind} />
 			{/await}
 		{:else if runsOf !== undefined}
-			{#await import('$lib/components/RunsPage.svelte')}
-				{@render loading()}
-			{:then Module}
-				<Module.default initialPath={runsOf} />
-			{/await}
+			<!-- Keyed on the commanded URL, which the page's own filter writes never touch: a
+			     re-point remounts it, so it seeds the filters the user keeps stored again. -->
+			{#key tab.url}
+				{#await import('$lib/components/RunsPage.svelte')}
+					{@render loading()}
+				{:then Module}
+					<Module.default initialPath={runsOf} />
+				{/await}
+			{/key}
 		{/if}
 	{/key}
 </div>

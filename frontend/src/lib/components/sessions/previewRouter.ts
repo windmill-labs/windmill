@@ -4,6 +4,7 @@ import {
 	FOLDERS_PATH,
 	GROUPS_PATH,
 	isPreviewListPath,
+	isRunsListPath,
 	pageItemForListPath,
 	pageItemListPath,
 	pageItemPageHref,
@@ -202,7 +203,9 @@ export function canonicalizeObservedLoc(loc: string): string {
 	try {
 		const u = new URL(loc, 'http://_')
 		for (const p of INJECTED_PARAMS) u.searchParams.delete(p)
-		return u.pathname + u.search + u.hash
+		// The router serves `/runs/` as `/runs`, and links are written both ways.
+		const pathname = u.pathname.length > 1 ? u.pathname.replace(/\/+$/, '') : u.pathname
+		return pathname + u.search + u.hash
 	} catch {
 		return loc
 	}
@@ -247,9 +250,14 @@ function pageRequestParamTable(): Record<string, readonly string[]> {
 	})
 }
 
+// The page whose filters a path takes: one item's runs filter as every run does.
+function filterPageOf(path: string): string {
+	return isRunsListPath(path) ? RUNS_PATH : path
+}
+
 /** The query params a request can set on `path` — empty for a page that takes none. */
 export function pageRequestParams(path: string): readonly string[] {
-	return pageRequestParamTable()[barePath(path)] ?? []
+	return pageRequestParamTable()[filterPageOf(barePath(path))] ?? []
 }
 
 /** What a preview location means, read against the page it points at. */
@@ -286,7 +294,7 @@ export function describeLocation(loc: string): PreviewLocation {
 	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
 	return {
 		identity: path,
-		view: requestedParams(query, pageRequestParamTable()[path]),
+		view: requestedParams(query, pageRequestParamTable()[filterPageOf(path)]),
 		anchor: drawerAnchorFor(canonical) ?? ''
 	}
 }
@@ -319,7 +327,7 @@ export function showsView(observed: string, commanded: string): boolean {
 	const y = describeLocation(commanded)
 	if (x.identity !== y.identity || x.anchor !== y.anchor) return false
 	if (x.view === y.view) return true
-	const seeded = PAGE_SEEDED_PARAMS[x.identity]
+	const seeded = PAGE_SEEDED_PARAMS[filterPageOf(x.identity)]
 	if (!seeded?.length) return false
 	// Both views come out of `requestedParams` already sorted and encoded, so they compare
 	// as strings once the seeded params are dropped. One direction only: the page may add
