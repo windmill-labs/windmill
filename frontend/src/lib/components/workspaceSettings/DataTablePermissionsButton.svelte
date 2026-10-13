@@ -23,7 +23,7 @@
 	import { superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
-	import { ADMIN_DATATABLE_ROLE, isDatatableRoleName } from '../dbTypes'
+	import { ADMIN_DATATABLE_ROLE, NO_DEFAULT_DATATABLE_ROLE, isDatatableRoleName } from '../dbTypes'
 	import PgAclEditor from '../datatableAcl/PgAclEditor.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
@@ -87,6 +87,8 @@
 	const pgInstanceName = $derived(pgInstanceNameOf(info?.cluster))
 	const unusedRoles = $derived(availableRoles.filter((r) => !roles.some((row) => row.id === r.id)))
 	const confirmationModal = createAsyncConfirmationModal()
+	// Every member of the governing workspace, as the tenant lists spell it.
+	const EVERYONE_TENANT = '*'
 	let aclEditor = $state<PgAclEditor | undefined>(undefined)
 
 	const hasUnsavedChanges = $derived(
@@ -111,9 +113,13 @@
 					(a, b) => Number(b.id === ADMIN_DATATABLE_ROLE) - Number(a.id === ADMIN_DATATABLE_ROLE)
 				)
 			// A data table never put under roles comes back with none; admin is what turning the toggle
-			// on starts from.
+			// on starts from, open to everyone so that turning it on changes nothing by itself.
 			if (!loaded.some((r) => r.id === ADMIN_DATATABLE_ROLE)) {
-				loaded.unshift({ id: ADMIN_DATATABLE_ROLE, name: ADMIN_DATATABLE_ROLE, tenants: [] })
+				loaded.unshift({
+					id: ADMIN_DATATABLE_ROLE,
+					name: ADMIN_DATATABLE_ROLE,
+					tenants: [EVERYONE_TENANT]
+				})
 			}
 			info = res
 			catalog = undefined
@@ -137,7 +143,7 @@
 				FolderService.listFolderNames({ workspace: ws })
 			])
 			tenantItems = [
-				{ value: '*', label: 'Everyone', group: 'Anyone in the workspace' },
+				{ value: EVERYONE_TENANT, label: 'Everyone', group: 'Anyone in the workspace' },
 				...users.map((u) => ({ value: `u/${u}`, label: u, group: 'Users' })),
 				...groups.map((g) => ({ value: `g/${g}`, label: g, group: 'Groups' })),
 				...folders.map((f) => ({ value: `f/${f}`, label: f, group: 'Folders' }))
@@ -218,10 +224,27 @@
 		}
 	}
 
-	function removeRole(role: EditedRole) {
+	async function removeRole(role: EditedRole) {
+		if (defaultRoleId === role.id) {
+			const confirmed = await confirmationModal.ask({
+				title: 'Remove the default role?',
+				children: `Jobs that name no role connect as ${role.name ?? role.id}. Without it the data table has no default role: they connect with the roles of the person running them, and are refused when that person has none.`,
+				confirmationText: 'Remove',
+				type: 'danger'
+			})
+			if (!confirmed) return
+			defaultRoleId = NO_DEFAULT_DATATABLE_ROLE
+		}
 		roles = roles.filter((r) => r.id !== role.id)
-		if (defaultRoleId === role.id) defaultRoleId = ADMIN_DATATABLE_ROLE
 	}
+
+	const defaultRoleName = $derived(roles.find((r) => r.id === defaultRoleId)?.name ?? defaultRoleId)
+	const defaultsToAdmin = $derived(defaultRoleId === ADMIN_DATATABLE_ROLE)
+	const hasNoDefault = $derived(defaultRoleId === NO_DEFAULT_DATATABLE_ROLE)
+	const hasOtherRoles = $derived(roles.some((r) => r.id !== ADMIN_DATATABLE_ROLE))
+	const adminOpenToEveryone = $derived(
+		!!roles.find((r) => r.id === ADMIN_DATATABLE_ROLE)?.tenants.includes(EVERYONE_TENANT)
+	)
 
 	async function save() {
 		saving = true
@@ -320,7 +343,7 @@
 					options={{
 						right: 'Put this data table under roles',
 						rightTooltip:
-							'Off, every job connects as admin — the connection that owns every table. On, every job resolves to a role, and a caller no tenant covers is refused.'
+							'Off, every job connects as admin — the connection that owns every table. On, every job resolves to a role, and a caller no tenant covers is refused. It starts with admin open to everyone, so turning it on changes nothing until the roles are edited.'
 					}}
 				/>
 
@@ -391,8 +414,10 @@
 								<Cell head>
 									Default
 									<Tooltip>
-										The role a job gets when it names none — no `-- role` annotation, no `?role=` in
-										the reference. Callers still have to be one of its tenants.
+										The role a job gets when it names none: no `-- role` annotation, no `?role=` in
+										the reference. There is always one choice: admin until changed, another role, or
+										none. Unless it is admin, the roles the person running the job is a tenant of
+										are added to it.
 									</Tooltip>
 								</Cell>
 								<Cell head last />
@@ -440,6 +465,29 @@
 									</Cell>
 								</Row>
 							{/each}
+							<Row>
+								<Cell first class="w-56 align-top">
+									<span class="text-xs text-secondary italic">No default role</span>
+								</Cell>
+								<Cell class="align-top">
+									<span class="text-xs text-secondary">
+										Jobs that name no role get only the roles of the person running them.
+									</span>
+								</Cell>
+								<Cell class="w-20 align-top">
+									<div class="flex justify-center">
+										<Checkbox
+											checked={hasNoDefault}
+											disabled={!editable}
+											title="Use no role when a job names none"
+											onChange={() => {
+												defaultRoleId = NO_DEFAULT_DATATABLE_ROLE
+											}}
+										/>
+									</div>
+								</Cell>
+								<Cell last class="w-10 align-top" />
+							</Row>
 							{#if editable}
 								<Row>
 									<Cell colspan={4} class="pt-2 pb-2">
@@ -466,6 +514,47 @@
 							{/if}
 						</tbody>
 					</DataTable>
+
+					{#if adminOpenToEveryone}
+						<Alert type="warning" title="Everyone can connect as admin" size="xs">
+							Every member of the workspace may use admin{defaultsToAdmin
+								? ', and a job that names no role connects as it, exactly as with roles off'
+								: ' by naming it'}. admin owns every table: it reads every row and ignores grants
+							and row-level security. Once the other roles are set up, remove Everyone from admin's
+							tenants{defaultsToAdmin ? ' and choose another default, or none' : ''}.
+						</Alert>
+					{/if}
+					{#if defaultsToAdmin && hasOtherRoles && !adminOpenToEveryone}
+						<Alert type="warning" title="The default role is admin" size="xs">
+							A job that names no role connects as admin when it runs as a workspace admin or as one
+							of admin's tenants, which covers every viewer of an app an admin published. admin owns
+							every table: it reads every row and ignores grants and row-level security. Everyone
+							else's jobs that name no role are refused. Choose another default, or none, to have
+							the roles above apply to them.
+						</Alert>
+					{:else if !defaultsToAdmin}
+						<div class="flex flex-col gap-1 text-xs text-secondary">
+							{#if hasNoDefault}
+								<span>
+									A job that names no role connects with the roles here that the person running it
+									is a tenant of. It is refused when they have none, and so is a job with nobody
+									behind it: a schedule, a trigger, an anonymous app viewer.
+								</span>
+							{:else}
+								<span>
+									A job that names no role connects as
+									<span class="font-mono">{defaultRoleName}</span> when it may use it, plus every other
+									role here that the person running it is a tenant of. With neither, it is refused.
+								</span>
+							{/if}
+							<span>A job that names a role connects as that role alone.</span>
+							<span>
+								A table created over a connection that holds several roles belongs to that
+								combination of roles alone. Run <span class="font-mono">SET ROLE</span> to one role before
+								creating it, or name a role.
+							</span>
+						</div>
+					{/if}
 				{/if}
 			</div>
 

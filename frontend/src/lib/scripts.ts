@@ -1,5 +1,4 @@
 import { get } from 'svelte/store'
-import { base } from '$lib/base'
 import type { Schema, SupportedLanguage } from './common'
 import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
 import { hubBaseUrlStore, workspaceStore } from './stores'
@@ -136,7 +135,7 @@ export function scriptPathToHref(path: string, hubBaseUrl: string): string {
 	if (path.startsWith('hub/')) {
 		return hubBaseUrl + '/from_version/' + path.substring(4)
 	} else {
-		return `${base}/scripts/get/${path}?workspace=${get(workspaceStore)}`
+		return `/scripts/get/${path}?workspace=${get(workspaceStore)}`
 	}
 }
 
@@ -146,7 +145,7 @@ export function flowPathToHref(path: string, hubBaseUrl: string = get(hubBaseUrl
 		return hubFlowId ? `${hubBaseUrl}/flows/${hubFlowId}` : hubBaseUrl
 	}
 
-	return `${base}/flows/get/${path}?workspace=${get(workspaceStore)}`
+	return `/flows/get/${path}?workspace=${get(workspaceStore)}`
 }
 
 const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string][] = [

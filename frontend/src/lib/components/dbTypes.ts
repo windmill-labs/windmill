@@ -32,6 +32,9 @@ export const isDbType = (str?: string): str is DbType => !!str && dbTypes.includ
 
 /** The role every data table has: the one it connects as when it is not under roles. */
 export const ADMIN_DATATABLE_ROLE = 'admin'
+/** What `default_role` holds for a data table with no default role. Mirrors the backend's
+ * `NO_DEFAULT_DATATABLE_ROLE`. */
+export const NO_DEFAULT_DATATABLE_ROLE = '$none'
 
 /** What the server accepts in `-- role <name>` and `?role=<name>`. */
 export function isDatatableRoleName(name: string): boolean {
@@ -52,7 +55,13 @@ export function defaultMigrationRole(
 	permissioned: boolean | undefined,
 	defaultRole: string | undefined
 ): string | undefined {
-	return permissioned && !datatableNameTakesRole(name) ? defaultRole : undefined
+	return permissioned && !datatableNameTakesRole(name) ? namedDefaultRole(defaultRole) : undefined
+}
+
+/** A data table's default role, or `undefined` when it has none: the server reports that as
+ * `NO_DEFAULT_DATATABLE_ROLE`, which is not a role anything can connect as. */
+export function namedDefaultRole(defaultRole: string | undefined): string | undefined {
+	return defaultRole === NO_DEFAULT_DATATABLE_ROLE ? undefined : defaultRole
 }
 
 /** `datatable://<name>`, with `?role=<role>` when a role is named. Throws rather than build a

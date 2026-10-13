@@ -790,7 +790,26 @@ pub async fn exchange_code<T: DeserializeOwned>(
         .with_client(http_client)
         .execute::<T>()
         .await
-        .map_err(|e| error::Error::InternalErr(format!("{:?}", e)))
+        .map_err(|e| error::Error::InternalErr(token_error_message(&e)))
+}
+
+/// Message for a failed token request. Some providers (Zoho) answer an OAuth error with
+/// HTTP 200, which the client reports as an unparseable token response, not an error one.
+pub fn token_error_message(e: &ExecuteError) -> String {
+    match e {
+        ExecuteError::ErrorResponse { error, .. } => error.to_string(),
+        ExecuteError::BadResponse { status, body, .. } => {
+            serde_json::from_slice::<oauth2::ErrorResponse>(body)
+                .map(|r| r.to_string())
+                .unwrap_or_else(|_| {
+                    format!(
+                        "unexpected response ({status}): {}",
+                        String::from_utf8_lossy(body)
+                    )
+                })
+        }
+        e => format!("{e:?}"),
+    }
 }
 
 /// Internal token exchange implementation
@@ -1210,6 +1229,17 @@ mod tests {
     fn test_slack_verifier() {
         let verifier = SlackVerifier::new("test_secret").unwrap();
         assert!(verifier.verify("123", "body", "wrong_sig").is_err());
+    }
+
+    #[test]
+    fn token_error_message_reads_an_error_sent_with_http_200() {
+        let body: &[u8] = br#"{"error":"invalid_client"}"#;
+        let e = ExecuteError::BadResponse {
+            status: reqwest::StatusCode::OK,
+            body: body.into(),
+            error: serde_json::from_slice::<TokenResponse>(body).unwrap_err(),
+        };
+        assert_eq!(token_error_message(&e), "invalid_client");
     }
 
     // Sage Intacct's token endpoint rejects HTTP Basic client authentication on the

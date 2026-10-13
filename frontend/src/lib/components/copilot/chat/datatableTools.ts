@@ -286,6 +286,7 @@ export function getDatatableTools(): SessionTool<{}>[] {
 							datatable_name: d.datatable_name,
 							schemas: d.schemas,
 							...(d.error && { error: d.error }),
+							...(d.migrations_enabled && { migrations_enabled: true }),
 							...(d.permissioned && { usable_roles: d.usable_roles, default_role: d.default_role })
 						})),
 						null,

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte'
-	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -24,6 +23,7 @@
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import { operatorBuilderAppsIn } from '$lib/operatorWriteRights'
 	import type {
 		RawAppRuntimeLogRequester,
 		RawAppRunsProvider,
@@ -98,7 +98,10 @@
 		const setUp = {
 			...val,
 			files: { ...result.files },
-			runnables: { ...result.runnables, ...structuredClone(STARTER_RUNNABLES) },
+			runnables: {
+				...result.runnables,
+				...(operatorBuilderAppsIn(workspaceId) ? {} : structuredClone(STARTER_RUNNABLES))
+			},
 			data: result.data,
 			policy: result.policy
 		}
@@ -117,7 +120,7 @@
 		if (mode === 'code') {
 			// The session was opened for this app alone; with nothing said in it, it goes.
 			const unused = runtime.manager.displayMessages.length === 0
-			await goto(withWorkspaceParam(`${base}/apps_raw/edit/${path}`, workspaceId))
+			await goto(withWorkspaceParam(`/apps_raw/edit/${path}`, workspaceId))
 			if (unused) removeSession(runtime.sessionId)
 			return
 		}

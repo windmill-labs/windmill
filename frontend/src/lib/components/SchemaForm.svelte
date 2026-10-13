@@ -300,7 +300,14 @@
 <!-- {JSON.stringify(schema)} -->
 <div
 	class="w-full {className} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} {nestedClasses}"
-	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}
+	use:dragHandleZone={dndConfig ?? {
+		items: [],
+		dragDisabled: true,
+		// A drag-disabled zone otherwise sets aria-disabled="true" on itself, which screen readers
+		// and Playwright apply to every field inside it.
+		autoAriaDisabled: true,
+		zoneTabIndex: -1
+	}}
 	onfinalize={bubble('finalize')}
 	onconsider={bubble('consider')}
 >

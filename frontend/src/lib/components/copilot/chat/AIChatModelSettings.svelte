@@ -22,7 +22,6 @@
 	} from '$lib/aiStore'
 	import { WorkspaceService, type AIProvider, type AIProviderModel } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$lib/base'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import {
@@ -47,7 +46,7 @@
 	}: { promptSettings?: boolean } = $props()
 
 	const aiChatManager = getAiChatManager()
-	const AI_SETTINGS_HREF = `${base}/workspace_settings?tab=ai`
+	const AI_SETTINGS_HREF = '/workspace_settings?tab=ai'
 
 	let providerModel = $derived(
 		($copilotSessionModel ??

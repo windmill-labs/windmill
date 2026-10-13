@@ -445,5 +445,90 @@
       "mailboxes.read"
     ],
     "req_body_auth": true
+  },
+  "outlook": {
+    "req_body_auth": true,
+    "scopes": ["offline_access", "User.Read", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Contacts.ReadWrite"],
+    "scope_options": [
+      { "value": "offline_access", "label": "Stay connected (refresh token)" },
+      { "value": "User.Read", "label": "Read your profile" },
+      { "value": "Mail.Send", "label": "Send mail" },
+      { "value": "Mail.Read", "label": "Read and search mail" },
+      { "value": "Mail.ReadWrite", "label": "Read, draft, move and modify mail" },
+      { "value": "MailboxSettings.Read", "label": "Read mailbox settings and categories" },
+      { "value": "Contacts.Read", "label": "Read contacts" },
+      { "value": "Contacts.ReadWrite", "label": "Read, create and edit contacts" },
+      { "value": "People.Read", "label": "Search relevant people" },
+      { "value": "Calendars.Read", "label": "Read calendars and events" },
+      { "value": "Calendars.ReadWrite", "label": "Read, create, edit and delete events" },
+      { "value": "Calendars.Read.Shared", "label": "Read shared calendars and find meeting times" },
+      { "value": "Mail.Send.Shared", "label": "Send mail from shared mailboxes" },
+      { "value": "Mail.Read.Shared", "label": "Read mail in shared mailboxes" },
+      { "value": "Mail.ReadWrite.Shared", "label": "Read and modify mail in shared mailboxes" }
+    ],
+    "connect_config_template": {
+      "display_name": "Outlook",
+      "label": "Microsoft Entra tenant",
+      "placeholder": "common, organizations, or your tenant id",
+      "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
+      "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
+      "req_body_auth": true,
+      "scopes": ["offline_access", "User.Read", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Contacts.ReadWrite"]
+    }
+  },
+  "hubspot": {
+    "auth_url": "https://app.hubspot.com/oauth/authorize",
+    "token_url": "https://api.hubapi.com/oauth/v1/token",
+    "scopes": [
+      "oauth",
+      "crm.objects.contacts.read",
+      "crm.objects.contacts.write",
+      "crm.objects.companies.read",
+      "crm.objects.companies.write",
+      "crm.objects.deals.read",
+      "crm.objects.deals.write",
+      "crm.objects.owners.read"
+    ],
+    "scope_options": [
+      { "value": "oauth", "label": "Basic OAuth access (always required by HubSpot)" },
+      { "value": "crm.objects.contacts.read", "label": "Read contacts, and notes, tasks, meetings and calls" },
+      { "value": "crm.objects.contacts.write", "label": "Create and edit contacts, and notes, tasks, meetings and calls" },
+      { "value": "crm.objects.companies.read", "label": "Read companies" },
+      { "value": "crm.objects.companies.write", "label": "Create and edit companies" },
+      { "value": "crm.objects.deals.read", "label": "Read deals and deal pipelines" },
+      { "value": "crm.objects.deals.write", "label": "Create and edit deals" },
+      { "value": "crm.objects.owners.read", "label": "Read owners (users assignable to records)" },
+      { "value": "tickets", "label": "Read and edit tickets and ticket pipelines" },
+      { "value": "crm.objects.line_items.read", "label": "Read line items" },
+      { "value": "crm.objects.line_items.write", "label": "Create and edit line items" },
+      { "value": "e-commerce", "label": "Read and edit products and line items" },
+      { "value": "crm.objects.quotes.read", "label": "Read quotes" },
+      { "value": "crm.objects.quotes.write", "label": "Create and edit quotes" },
+      { "value": "crm.objects.leads.read", "label": "Read leads" },
+      { "value": "crm.objects.leads.write", "label": "Create and edit leads" },
+      { "value": "crm.objects.custom.read", "label": "Read custom object records" },
+      { "value": "crm.objects.custom.write", "label": "Create and edit custom object records" },
+      { "value": "crm.schemas.custom.read", "label": "Read custom object schemas" },
+      { "value": "crm.lists.read", "label": "Read lists (segments)" },
+      { "value": "crm.lists.write", "label": "Edit lists and their members" },
+      { "value": "sales-email-read", "label": "Read the content of logged one-to-one emails" },
+      { "value": "forms", "label": "Read and edit forms and their submissions" },
+      { "value": "files", "label": "Read and upload files in the file manager" },
+      { "value": "content", "label": "Read and edit marketing emails, blog posts, pages and templates" },
+      { "value": "crm.objects.marketing_events.read", "label": "Read marketing events" },
+      { "value": "marketing.campaigns.read", "label": "Read marketing campaigns (Marketing Hub Professional)" },
+      { "value": "communication_preferences.read_write", "label": "Read and change email subscription preferences" },
+      { "value": "automation", "label": "Read, create and enroll into workflows (Professional)" },
+      { "value": "automation.sequences.read", "label": "Read sequences and sequence enrollments (Sales Hub Professional)" },
+      { "value": "automation.sequences.enrollments.write", "label": "Enroll contacts in sequences (Sales Hub Professional)" },
+      { "value": "conversations.read", "label": "Read inboxes, threads and messages" },
+      { "value": "conversations.write", "label": "Send messages and update threads" },
+      { "value": "scheduler.meetings.meeting-link.read", "label": "Read meeting links and their availability" }
+    ],
+    "extra_params": {
+      "optional_scope": "tickets crm.objects.line_items.read crm.objects.line_items.write e-commerce crm.objects.quotes.read crm.objects.quotes.write crm.objects.leads.read crm.objects.leads.write crm.objects.custom.read crm.objects.custom.write crm.schemas.custom.read crm.lists.read crm.lists.write sales-email-read forms files content crm.objects.marketing_events.read marketing.campaigns.read communication_preferences.read_write automation automation.sequences.read automation.sequences.enrollments.write conversations.read conversations.write scheduler.meetings.meeting-link.read"
+    },
+    "req_body_auth": true
   }
 }

@@ -1,6 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { get } from 'svelte/store'
-import { base } from '$lib/base'
 import { invalidate as invalidateWorkspaceItems } from '$lib/components/workspacePicker'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -31,7 +30,12 @@ type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
+import {
+	BUILDER_FRAMEWORK_TEMPLATES,
+	react19Template,
+	STARTER_RUNNABLES
+} from '$lib/components/raw_apps/templates'
+import { operatorBuilderAppsIn, workspaceListLoaded } from '$lib/operatorWriteRights'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
@@ -73,6 +77,7 @@ import {
 	promptSafe,
 	parseRunFormRoute,
 	resolvePreviewTab,
+	slotShowsPage,
 	type PreviewSlot
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -104,6 +109,7 @@ import {
 	type RawAppRunsProvider,
 	type RawAppScreenshotRequester
 } from '$lib/components/raw_apps/utils'
+import { resolveGlobalDraftStoragePathByKind } from '$lib/components/copilot/chat/global/userDraftAdapter'
 import type {
 	RawAppDomQuery,
 	RawAppDomRequester,
@@ -466,14 +472,7 @@ function createRuntime(session: Session): SessionRuntime {
 		// point those at a page the user cannot see.
 		const tab = owner?.displayedTab
 		if (!tab) return undefined
-		const slotKind = resolvePreviewTab(tab.url).kind
-		if (
-			slotKind !== 'iframe' &&
-			slotKind !== 'pageitem' &&
-			slotKind !== 'pagelist' &&
-			slotKind !== 'viewer'
-		)
-			return undefined
+		if (!slotShowsPage(resolvePreviewTab(tab.url).kind)) return undefined
 		return previewLocationContext(whereIs(tab))
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
@@ -593,13 +592,13 @@ function createRuntime(session: Session): SessionRuntime {
 		onTabOpened: logTabUsage
 	})
 
-	// Let the jobs tray open a run in this session's preview panel (as an iframe
-	// tab over the run page). The global side-panel chat leaves this unset and
+	// Let the jobs tray open a run in this session's preview panel (as a tab on
+	// the run's page). The global side-panel chat leaves this unset and
 	// falls back to a new browser tab.
 	manager.openRunInPreview = ({ jobId, workspace, label }) => {
 		previewTabs.open({
 			type: 'page',
-			href: `${base}/run/${jobId}?workspace=${workspace}`,
+			href: `/run/${jobId}?workspace=${workspace}`,
 			label
 		})
 	}
@@ -612,7 +611,7 @@ function createRuntime(session: Session): SessionRuntime {
 	}
 	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
 	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
-		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
+		previewTabs.retargetRunForm(toolCallId, `/run/${jobId}?workspace=${workspace}`)
 	}
 	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
 	// away from is unmounted but still open, and the card must keep its form hidden until it
@@ -1052,10 +1051,13 @@ function createRuntime(session: Session): SessionRuntime {
 			} catch (err) {
 				if (seedIfMissing && !deployedOnly && err instanceof ApiError && err.status === 404) {
 					const user = get(userStore)
+					// A builder can save no inline runnable, so the regular starter could never be saved.
+					await workspaceListLoaded()
+					const builder = operatorBuilderAppsIn(workspace)
 					saved.val = undefined
 					store.val = {
-						files: { ...react19Template },
-						runnables: structuredClone(STARTER_RUNNABLES),
+						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
+						runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
 						data: { ...DEFAULT_DATA },
 						policy: {
 							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
@@ -1121,7 +1123,7 @@ function createRuntime(session: Session): SessionRuntime {
 		},
 		async requestRuntimeLogs(limit, appPath) {
 			const path =
-				appPath ??
+				(appPath && draftStoragePath(session, 'raw_app', appPath)) ??
 				activeDomAppPath ??
 				(runtimeLogRequesters.size === 1 ? [...runtimeLogRequesters.keys()][0] : undefined)
 			if (path === undefined) {
@@ -1157,7 +1159,7 @@ function createRuntime(session: Session): SessionRuntime {
 			// its element's app even when another tab is now visible), else the
 			// active preview, else the only one open.
 			const path =
-				query.appPath ??
+				(query.appPath && draftStoragePath(session, 'raw_app', query.appPath)) ??
 				activeDomAppPath ??
 				(domRequesters.size === 1 ? [...domRequesters.keys()][0] : undefined)
 			if (path === undefined) return undefined
@@ -1373,6 +1375,18 @@ export function removeSession(sessionId: string): void {
 	deleteSessionState(sessionId)
 }
 
+// The chat calls a new item by its chosen name while its draft is stored at
+// `draft_<uuid>`; resolve the name the way the chat's write tools do.
+function draftStoragePath(
+	session: Session,
+	kind: 'script' | 'flow' | 'raw_app',
+	path: string
+): string {
+	return session.workspace_id
+		? resolveGlobalDraftStoragePathByKind(session.workspace_id, kind, path)
+		: path
+}
+
 // Register the global open_preview tool handler once at module load. It
 // dispatches to the *calling* session (sessionId threaded from the tool ctx),
 // falling back to the UI-active session only when none was passed — so a
@@ -1388,7 +1402,10 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) =
 	if (!session) {
 		return 'Error: no active session to open the preview in.'
 	}
-	const target = previewTargetForSessionTarget(kind, path)
+	const target = previewTargetForSessionTarget(
+		kind,
+		mode === 'view' || kind === 'pipeline' ? path : draftStoragePath(session, kind, path)
+	)
 	if (!target) {
 		return `Error: ${kind} targets cannot be shown in the preview panel.`
 	}

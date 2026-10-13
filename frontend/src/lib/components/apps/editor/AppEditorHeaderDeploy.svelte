@@ -16,7 +16,6 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
-	import { base } from '$lib/base'
 	import { isCloudHosted } from '$lib/cloud'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -187,7 +186,7 @@
 	let secretUrl: string | undefined = $state(undefined)
 	let secretUrlHref = $derived(secretUrl ? computeSecretUrl(secretUrl) : undefined)
 	let fullCustomUrl = $derived(
-		`${window.location.origin}${base}/a/${
+		`${window.location.origin}/a/${
 			isCloudHosted() || globalWorkspacedRoute ? opWs + '/' : ''
 		}${customPath}`
 	)

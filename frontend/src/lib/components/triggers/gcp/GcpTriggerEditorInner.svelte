@@ -37,7 +37,6 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
-	import { base } from '$lib/base'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
@@ -381,7 +380,7 @@
 			delivery_config,
 			// The capture URL shown to the user stays on the browsing origin, so the
 			// endpoint registered for it must too.
-			base_endpoint: `${window.location.origin}${base}`,
+			base_endpoint: window.location.origin,
 			auto_acknowledge_msg,
 			ack_deadline,
 			topic_id,

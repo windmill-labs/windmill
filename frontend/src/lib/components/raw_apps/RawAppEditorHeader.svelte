@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Drawer, DrawerContent } from '$lib/components/common'
-	import { base } from '$lib/base'
 	import RawAppRecordSession from '$lib/components/workspaceSettings/RawAppRecordSession.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isMac, userPathPrefix, emptyString } from '$lib/utils'
@@ -910,12 +909,12 @@
 				</span>
 				<span>
 					Stop recording, then <b>Download</b> the JSON. It is self-contained: open it on
-					<a href="{base}/replay" target="_blank" rel="noreferrer" class="text-blue-500 underline">
-						{base}/replay
+					<a href="/replay" target="_blank" rel="noreferrer" class="text-blue-500 underline">
+						/replay
 					</a>
 					— a public page that needs no login and can be embedded in an iframe. Host the JSON anywhere
 					it can be fetched (S3, GitHub raw, your docs site) and link
-					<span class="font-mono">{base}/replay?src=&lt;url&gt;</span> to have it load itself. Windmill
+					<span class="font-mono">/replay?src=&lt;url&gt;</span> to have it load itself. Windmill
 					keeps no copy.
 				</span>
 			</div>
