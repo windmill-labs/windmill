@@ -14,7 +14,7 @@ read or change it.
 - A partial document changes only the keys it states; every key it omits is left as it is.
 - Each key is replaced whole, so read its current value and send it back edited: a nested object
   given with one field replaces the stored object with that one field.
-- A key set to `null` clears that setting.
+- A key set to `null` clears that setting; an on/off switch cleared this way reads as `false`.
 - Each setting is written through the same path the settings page uses, with the same validation
   and audit log. The writes are not one transaction: when one fails the apply stops, and the
   error says what was already written.
@@ -56,6 +56,13 @@ write a secret you were not given: keep the placeholder.
 | `guest_access_enabled`, `guest_jwt_public_key`, `guest_jwt_jwks_url` | Guest access to public apps and the key that signs guest JWTs. |
 | `add_admins_and_developers_to_forks` | Add the workspace's admins and developers to each fork. |
 | `color` | Workspace color, `#rrggbb`. |
+
+## From the command line
+
+`wmill workspace get-settings` prints the document (`--encrypted` for secrets encrypted with the
+workspace key, `--json` for JSON). `wmill workspace apply-settings <file>` applies a partial
+document from a YAML or JSON file: it shows the changes and asks before writing (`--dry-run` to
+only show them, `-y` to skip the question, `--replace` to clear what the file omits).
 
 ## In a synced repository
 

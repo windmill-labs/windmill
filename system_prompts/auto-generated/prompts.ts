@@ -1422,7 +1422,7 @@ read or change it.
 - A partial document changes only the keys it states; every key it omits is left as it is.
 - Each key is replaced whole, so read its current value and send it back edited: a nested object
   given with one field replaces the stored object with that one field.
-- A key set to \`null\` clears that setting.
+- A key set to \`null\` clears that setting; an on/off switch cleared this way reads as \`false\`.
 - Each setting is written through the same path the settings page uses, with the same validation
   and audit log. The writes are not one transaction: when one fails the apply stops, and the
   error says what was already written.
