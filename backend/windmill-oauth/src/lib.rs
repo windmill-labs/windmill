@@ -254,6 +254,9 @@ pub struct OAuthClient {
     pub tenant: Option<String>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
+    /// Slack only: the app's signing secret, verifying the requests Slack sends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signing_secret: Option<String>,
 }
 
 impl std::fmt::Debug for OAuthClient {
@@ -267,6 +270,10 @@ impl std::fmt::Debug for OAuthClient {
             .field("login_config", &self.login_config)
             .field("tenant", &self.tenant)
             .field("grant_types", &self.grant_types)
+            .field(
+                "signing_secret",
+                &self.signing_secret.as_ref().map(|_| "***"),
+            )
             .finish()
     }
 }
@@ -517,6 +524,7 @@ pub async fn build_client_credentials_oauth_client(
             .map(|e| e.grant_types.clone())
             .unwrap_or_else(default_grant_types),
         tenant: instance_entry.as_ref().and_then(|e| e.tenant.clone()),
+        signing_secret: None,
     };
 
     let base_url = (**BASE_URL.load()).clone();

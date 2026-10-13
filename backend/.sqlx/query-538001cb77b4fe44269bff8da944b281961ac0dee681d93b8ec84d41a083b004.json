@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM slack_channel_agent WHERE workspace_id = $1 AND channel_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "538001cb77b4fe44269bff8da944b281961ac0dee681d93b8ec84d41a083b004"
+}

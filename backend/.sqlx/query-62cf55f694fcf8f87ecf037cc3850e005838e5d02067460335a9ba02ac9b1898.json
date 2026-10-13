@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path FROM resource WHERE workspace_id = $1 AND resource_type = 'ai_agent'\n         ORDER BY path LIMIT 11",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "62cf55f694fcf8f87ecf037cc3850e005838e5d02067460335a9ba02ac9b1898"
+}

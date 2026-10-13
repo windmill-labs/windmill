@@ -163,6 +163,9 @@ mod scim_oss;
 mod scripts;
 mod secret_backend_ext;
 mod service_logs;
+// Answering in Slack is only reached from the EE Slack event handlers.
+#[cfg_attr(not(all(feature = "oauth2", feature = "private")), allow(dead_code))]
+mod slack_agents;
 mod slack_approvals;
 #[cfg(all(feature = "smtp", feature = "private"))]
 pub mod smtp_server_ee;
@@ -245,15 +248,42 @@ pub use windmill_oauth::OAUTH_CLIENTS;
 
 #[cfg(feature = "oauth2")]
 lazy_static::lazy_static! {
-    pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
+    static ref SLACK_SIGNING_SECRET_ENV: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
+
+    /// The `signing_secret` of the instance settings' Slack OAuth entry.
+    static ref SLACK_SIGNING_SECRET_SETTING: std::sync::RwLock<Option<SlackVerifier>> =
+        std::sync::RwLock::new(None);
 
     // Comma-separated Slack v2 OAuth bot scopes requested when connecting a workspace.
     // Must be a subset of the bot scopes declared in the Slack app manifest. Default matches
     // Windmill's recommended manifest at docs.windmill.dev/docs/misc/setup_oauth.
     pub static ref SLACK_OAUTH_SCOPES: String = std::env::var("SLACK_OAUTH_SCOPES")
         .unwrap_or_else(|_| "commands,chat:write,chat:write.public,channels:join,files:write,app_mentions:read,im:history,im:read".to_string());
+}
+
+/// Added to `SLACK_OAUTH_SCOPES` when a workspace connects with AI agents enabled: who sent a
+/// message (by email) and the channel picker. Opt-in, as a Slack app must declare every scope
+/// it is asked for.
+pub const SLACK_AGENT_SCOPES: &[&str] = &["users:read", "users:read.email", "channels:read"];
+
+/// The env var wins over the instance setting.
+#[cfg(feature = "oauth2")]
+pub fn slack_signing_secret() -> Option<SlackVerifier> {
+    SLACK_SIGNING_SECRET_ENV
+        .clone()
+        .or_else(|| SLACK_SIGNING_SECRET_SETTING.read().ok()?.clone())
+}
+
+#[cfg(feature = "oauth2")]
+pub fn set_slack_signing_secret_setting(secret: Option<&str>) {
+    let verifier = secret
+        .filter(|s| !s.is_empty())
+        .and_then(|s| SlackVerifier::new(s).ok());
+    if let Ok(mut current) = SLACK_SIGNING_SECRET_SETTING.write() {
+        *current = verifier;
+    }
 }
 
 // Compliance with cloud events spec.
@@ -680,6 +710,7 @@ pub async fn run_server(
                         .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest("/slack_agents", slack_agents::workspaced_service())
                         .nest("/runnables", runnables::workspaced_service())
                         .nest(
                             "/workspace_dependencies",
