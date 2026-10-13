@@ -446,7 +446,7 @@
     ],
     "req_body_auth": true
   },
-  "outlook": {
+  "msoutlook": {
     "req_body_auth": true,
     "scopes": ["offline_access", "User.Read", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Contacts.ReadWrite"],
     "scope_options": [

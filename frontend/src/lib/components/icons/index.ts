@@ -446,7 +446,7 @@ export const APP_TO_ICON_COMPONENT = {
 	quickbooks: QuickbooksIcon,
 	ms_teams_webhook: MsTeamsIcon,
 	teams: MsTeamsIcon,
-	outlook: OutlookIcon,
+	msoutlook: OutlookIcon,
 	mailgun: MailgunIcon,
 	ipinfo: IpinfoIcon,
 	gworkspace: GoogleIcon,
