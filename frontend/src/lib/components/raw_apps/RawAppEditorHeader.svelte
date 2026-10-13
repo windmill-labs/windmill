@@ -951,6 +951,7 @@
 			// rename popover is open so the trail holds still as the user types.
 			kind: 'app',
 			path: pathSnapshot ?? (newEditedPath || appPath || newPath || undefined),
+			summary,
 			summaryContent: appSummary,
 			pathTrigger: rawAppPathTrigger
 		}}

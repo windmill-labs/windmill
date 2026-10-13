@@ -63,5 +63,15 @@ describe('fitBar', () => {
 		const fit = fitBar({ ...base, barWidth: 520, natural, actions: [0], folds: 0 })
 		expect(fit.stage).toBe(2)
 		expect(fit.caps.name).toBeUndefined()
+		// A placeholder offering to add a summary names nothing: the path stays a part the bar sizes.
+		const placeholder = fitBar({
+			...base,
+			barWidth: 520,
+			natural,
+			actions: [0],
+			folds: 0,
+			summaryNamesItem: false
+		})
+		expect(placeholder.caps.name).toBeDefined()
 	})
 })

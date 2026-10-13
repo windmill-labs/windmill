@@ -1583,6 +1583,7 @@
 						// Frozen while the rename popover is open so the trail holds still as the user types.
 						kind: 'flow',
 						path: pathSnapshot ?? $pathStore,
+						summary: flowStore.val.summary,
 						summaryContent: flowSummary,
 						// Gated like the summary's own editor: a host that allows neither field keeps the
 						// band's segment, which copies the path.

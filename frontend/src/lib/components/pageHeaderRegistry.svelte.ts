@@ -60,6 +60,10 @@ export type PageHeaderContent = {
 	/** How many of the `actionFolds` levels come before the breadcrumb drops anything: buttons
 	 *  that are there only while the bar has room for everything. */
 	earlyActionFolds?: number
+	/** Changes whenever the actions may have changed width at a level that is not on screen — a
+	 *  run's Cancel, folded into a menu, going once the job completes. The bar keeps what it
+	 *  measured per version, so a new one is measured afresh rather than judged by stale widths. */
+	actionsVersion?: string
 	/** A second row of the band, under the breadcrumb and the actions: where a control too wide
 	 *  for one row goes at a fold that has no room for it beside them, rather than being squeezed
 	 *  until it is useless. The band is taller while it is there. */
@@ -171,6 +175,7 @@ export const pageHeader = {
 			if (c.actionsFill !== undefined) merged.actionsFill = c.actionsFill
 			if (c.actionFolds !== undefined) merged.actionFolds = c.actionFolds
 			if (c.earlyActionFolds !== undefined) merged.earlyActionFolds = c.earlyActionFolds
+			if (c.actionsVersion !== undefined) merged.actionsVersion = c.actionsVersion
 			if (c.belowBar !== undefined) merged.belowBar = c.belowBar
 			if (c.belowBarFold !== undefined) merged.belowBarFold = c.belowBarFold
 			if (c.separator !== undefined) merged.separator = c.separator

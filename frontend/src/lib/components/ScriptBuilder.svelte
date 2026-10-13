@@ -2311,6 +2311,7 @@
 					// route binds here and drops the `{#if}` around this editor in one flush, which
 					// invalidates the band before this component is torn down.
 					path: pathSnapshot ?? script?.path,
+					summary: script?.summary,
 					summaryContent: scriptSummary,
 					// Gated like the summary's own editor: a host that allows neither field keeps the
 					// band's segment, which copies the path.

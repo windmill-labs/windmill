@@ -37,6 +37,8 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	const item = $derived(content?.item)
 	const section = $derived(content?.section)
 	const hasSummary = $derived(!!item && !!(item.summaryContent || item.summary))
+	/** A summary control can be a placeholder offering to add one; the text is what names the item. */
+	const summaryNamesItem = $derived(!!item?.summary?.trim())
 	const pickerAfterSummary = $derived(hasSummary && !navHidden && !!item?.path)
 
 	/** A phone's bar: a tighter gutter around the same row. */
@@ -58,8 +60,10 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	let summaryContentWidth = $state(0)
 	let handleWidth = $state(0)
 	/** The actions box at each fold level it has been seen at, for this page. */
-	let actionWidths = $state<(number | undefined)[]>([])
+	let actionWidthsByVersion = $state<Record<string, (number | undefined)[]>>({})
 	let actionsEpoch = $state(0)
+	const actionsVersion = $derived(content?.actionsVersion ?? '')
+	const actionWidths = $derived(actionWidthsByVersion[actionsVersion] ?? [])
 
 	const handleShown = $derived((navDetached.val || panelled) && !navHidden)
 	// The bar's own padding, in px, as the classes on the row below set it.
@@ -81,6 +85,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 				actions.length === 0 ? [0] : actionsRigid ? actionWidths : [GAP + FLEXIBLE_ACTIONS_RESERVE],
 			folds: actions.length > 0 && actionsRigid ? (content?.actionFolds ?? 0) : 0,
 			earlyFolds: content?.earlyActionFolds,
+			summaryNamesItem,
 			natural: {
 				family: trailMeasures.family,
 				fork: trailMeasures.fork,
@@ -90,13 +95,34 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		})
 	})
 	const stage = $derived(BAR_STAGES[fit.stage])
-	onDestroy(pageHeader.provideActionFold(() => fit.fold))
+	/** The level alone: `fit` is a new object on every recompute, and the attachment re-measuring
+	 *  on each one would feed itself. */
+	const fold = $derived(fit.fold)
+	onDestroy(pageHeader.provideActionFold(() => fold))
 
-	// Re-attached whenever the fold level changes, so the first reading at a level is taken even
-	// when the row comes out exactly as wide as it was at the last one.
-	function measureActions(fold: number, _epoch: number): Attachment<HTMLElement> {
+	// Re-attached whenever the fold level, the page or the actions' version changes, so the first
+	// reading there is taken even when the row comes out exactly as wide as it was before.
+	// The page's actions can change on screen — a run's Cancel goes once the job completes — and
+	// the other levels most likely changed with them, so a change here drops their widths: kept, a
+	// stale wider one would hold the row folded for good. The bar measures them again by trying.
+	function recordActions(fold: number, width: number) {
+		const version = actionsVersion
+		const widths = actionWidthsByVersion[version] ?? []
+		const seen = widths[fold]
+		// Unchanged, nothing is written: a write recomputes `fit`, and a reading that always wrote
+		// kept the bar measuring every frame.
+		if (seen === width) return
+		const next = seen !== undefined ? [] : [...widths]
+		next[fold] = width
+		actionWidthsByVersion[version] = next
+	}
+	function measureActions(
+		fold: number,
+		_epoch: number,
+		_version: string
+	): Attachment<HTMLElement> {
 		return (node) => {
-			const ro = new ResizeObserver(() => (actionWidths[fold] = GAP + node.offsetWidth))
+			const ro = new ResizeObserver(() => recordActions(fold, GAP + node.offsetWidth))
 			ro.observe(node)
 			return () => ro.disconnect()
 		}
@@ -136,7 +162,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	afterNavigate(({ from, to }) => {
 		scrolledUnder = false
 		if (from?.url.pathname !== to?.url.pathname) {
-			actionWidths = []
+			actionWidthsByVersion = {}
 			actionsEpoch++
 		}
 	})
@@ -250,7 +276,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			     another level of it. With the path dropped it follows the workspace, and the slash is
 			     the trail's own separator. Fixed width, so either fits the width measured below. -->
 				<span class="shrink-0 w-2 text-center text-hint/40 text-xs" aria-hidden="true"
-					>{stage.path ? '·' : '/'}</span
+					>{stage.path || !summaryNamesItem ? '·' : '/'}</span
 				>
 				{#if item.summaryContent}
 					<!-- Read only while uncapped: capped, the box says how wide the bar let it be, not how
@@ -297,7 +323,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		     bar and run to its right edge, and they stretch its full height because that surface
 		     sits on the bottom edge. -->
 			<div
-				{@attach measureActions(fit.fold, actionsEpoch)}
+				{@attach measureActions(fold, actionsEpoch, actionsVersion)}
 				class={twMerge(
 					'flex',
 					// pl-4: the gap between the breadcrumb and the filling surface is bare bar, so it
