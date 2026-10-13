@@ -614,7 +614,11 @@ function createRuntime(session: Session): SessionRuntime {
 				return manager.pendingRunFormArgs(toolCallId) ?? {}
 			},
 			adopt: (jobId, args, schema) => manager.handleRunFormJob(toolCallId, jobId, args, schema),
-			decline: () => manager.handleRunFormCancel(toolCallId)
+			decline: () => manager.handleRunFormCancel(toolCallId),
+			// The same claim the card's own form takes, so the two surfaces of one call cannot
+			// both be mid-submit.
+			beginSubmit: () => manager.beginRunFormSubmit(toolCallId),
+			endSubmit: () => manager.endRunFormSubmit(toolCallId)
 		}
 	}
 
@@ -662,12 +666,22 @@ function createRuntime(session: Session): SessionRuntime {
 			return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
 		})
 		if (open) {
+			// A tab pinned to a version is one the reader put somewhere deliberately, and
+			// `navigate` below rebuilds its url without the pin. Worth it when the reader asked
+			// for this page; not worth silently moving them off a version they chose, so an
+			// unasked-for hand-off declines and leaves the call on the card.
+			if (onlyIfAlreadyOpen && new URL(open.url, 'http://x').searchParams.get('version')) {
+				return false
+			}
 			previewTabs.navigate(viewTarget, open.id)
 			// `navigate` re-points a tab in place and nothing more, while the call is about to
 			// tell the reader the page is open. `open` would have brought it forward and shown
-			// the panel; this path has to do both itself.
-			previewTabs.select(open.id)
-			previewTabs.setCollapsed(false)
+			// the panel; this path has to do both itself — except when nobody asked, where
+			// taking the panel off the tab the reader is on is the thing to avoid.
+			if (!onlyIfAlreadyOpen || previewTabs.activeId === open.id) {
+				previewTabs.select(open.id)
+				previewTabs.setCollapsed(false)
+			}
 		} else {
 			// Only the item's own page carries a form for this call, so a caller routing a call
 			// that was not asked to open anything gets a no rather than a new tab.
