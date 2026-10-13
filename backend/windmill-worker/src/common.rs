@@ -2068,12 +2068,14 @@ pub struct StreamNotifier {
     parent_job: uuid::Uuid,
     root_job: uuid::Uuid,
     flow_step_id: Option<String>,
+    flow_scope: Option<uuid::Uuid>,
 }
 
 // Helper struct to hold parent job information
 #[derive(Debug)]
 struct JobInfo {
     flow_step_id: Option<String>,
+    flow_scope: Option<Uuid>,
     step: Option<i32>,
     len: Option<i32>,
     is_branch_one: Option<bool>,
@@ -2086,6 +2088,7 @@ async fn get_job_info(db: &DB, job_id: Uuid) -> error::Result<JobInfo> {
         JobInfo,
         r#"SELECT
             flow_step_id,
+            flow_innermost_root_job as flow_scope,
             (flow_status->'step')::integer as step,
             jsonb_array_length(flow_status->'modules') as len,
             runnable_path ~ '/branchone-\d+$' as is_branch_one,
@@ -2136,11 +2139,14 @@ async fn check_if_last_step(
 }
 
 // Iterative implementation to avoid stack overflow from async_recursion
-// True when the job is the early-return node, or the last step of branches to one that end in it
+// True when the job is the early-return step, or the last step of branches to one that end in it.
+// Step ids are only unique within one flow, so an id match counts when the job's innermost root
+// is the root flow: a step of a subflow reusing the id has the subflow as its innermost root.
 async fn check_if_early_return_or_last_in_early_return_parent(
     db: &DB,
     mut next_parent: Option<Uuid>,
     mut step_id: Option<String>,
+    mut flow_scope: Option<Uuid>,
     early_return_id: &str,
     root_job: Uuid,
 ) -> error::Result<bool> {
@@ -2155,8 +2161,8 @@ async fn check_if_early_return_or_last_in_early_return_parent(
             return Ok(false);
         }
 
-        if step == early_return_id {
-            return only_branch_one_up_to_root(db, parent_job, root_job).await;
+        if step == early_return_id && flow_scope == Some(root_job) {
+            return Ok(true);
         }
         if parent_job == root_job {
             return Ok(false);
@@ -2170,32 +2176,12 @@ async fn check_if_early_return_or_last_in_early_return_parent(
             if parent_step.is_last_step() && parent_info.is_branch_one.unwrap_or(false) {
                 next_parent = parent_info.next_parent;
                 step_id = parent_info.flow_step_id;
+                flow_scope = parent_info.flow_scope;
                 continue;
             }
         }
         return Ok(false);
     }
-}
-
-// The early-return id is looked up on the root run, so a match deeper down only counts when the
-// node is reached through branches to one. A loop iteration or a subflow reusing the same id must
-// not take the stream.
-async fn only_branch_one_up_to_root(db: &DB, mut job: Uuid, root_job: Uuid) -> error::Result<bool> {
-    let mut visited = HashSet::new();
-    while job != root_job {
-        if !visited.insert(job) {
-            return Ok(false);
-        }
-        let info = get_job_info(db, job).await?;
-        if !info.is_branch_one.unwrap_or(false) {
-            return Ok(false);
-        }
-        let Some(parent) = info.next_parent else {
-            return Ok(false);
-        };
-        job = parent;
-    }
-    Ok(true)
 }
 
 impl StreamNotifier {
@@ -2209,6 +2195,7 @@ impl StreamNotifier {
                     job_id: job.id,
                     root_job,
                     flow_step_id: job.flow_step_id.clone(),
+                    flow_scope: job.flow_innermost_root_job,
                 }),
                 Connection::Http(_) => {
                     tracing::warn!(
@@ -2228,6 +2215,7 @@ impl StreamNotifier {
         job_id: Uuid,
         root_job: Uuid,
         flow_step_id: Option<String>,
+        flow_scope: Option<Uuid>,
     ) -> Result<(), Error> {
         // Check if early_return is set at the flow level
         let early_return_node_id = sqlx::query_scalar!(
@@ -2248,6 +2236,7 @@ impl StreamNotifier {
                 &db,
                 Some(parent_job),
                 flow_step_id,
+                flow_scope,
                 early_return_id,
                 root_job,
             )
@@ -2283,6 +2272,7 @@ impl StreamNotifier {
         let job_id = self.job_id;
         let root_job = self.root_job;
         let flow_step_id = self.flow_step_id.clone();
+        let flow_scope = self.flow_scope;
         tokio::spawn(async move {
             if let Err(err) = Self::update_flow_status_with_stream_job_inner(
                 db,
@@ -2290,6 +2280,7 @@ impl StreamNotifier {
                 job_id,
                 root_job,
                 flow_step_id,
+                flow_scope,
             )
             .await
             {
