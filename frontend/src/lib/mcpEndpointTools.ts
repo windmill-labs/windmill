@@ -66,6 +66,46 @@ export const mcpEndpointTools: EndpointTool[] = [
         bodyFieldRenames: undefined
     },
     {
+        name: "getWorkspaceSettingsDocument",
+        description: "get the workspace settings document: The workspace's settings in the layout of the settings.yaml that `wmill sync` writes. Admin only",
+        instructions: "",
+        path: "/w/{workspace}/workspaces/settings_document",
+        method: "GET",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "applyWorkspaceSettingsDocument",
+        description: "apply a workspace settings document: Applies a settings document, each setting through the endpoint that owns it. Admin only",
+        instructions: "Send only the top-level keys to change, each whole as getWorkspaceSettingsDocument returns it: a key the document omits is left as it is, and a key set to null clears it. Keep `__SENSITIVE_AND_UNCHANGED__` for a secret you were not given. Call with dry_run true first, show the user the changes and apply only once they agree.",
+        path: "/w/{workspace}/workspaces/settings_document",
+        method: "POST",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "document": {
+                        "type": "object",
+                        "description": "The settings to apply, in the layout of the document. A secret given as `__SENSITIVE_AND_UNCHANGED__` keeps its stored value; one prefixed with `$encrypted:` is decrypted with the workspace key."
+                },
+                "dry_run": {
+                        "description": "Only compute the changes, without applying them.",
+                        "type": "boolean"
+                }
+        },
+        "required": [
+                "document"
+        ],
+        "minProperties": 1
+},
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
         name: "listDataMetrics",
         description: "list declared measures and dimensions on DuckLake tables: Call this before writing any aggregate query over a DuckLake table. A declared measure is the canonical definition of that number, and reproducing it yourself will silently disagree with it (a `revenue` measure typically excludes refunds or test rows). Filter by `table` for one table's declarations, or by `path_prefix` (e.g. `f/analytics`) for everything declared under a folder; omit both to browse the whole catalog. Results are keyset-paged: a full page may mean more remain, so continue with the `cursor_*` params rather than assuming a measure does not exist. Use each returned `expr` verbatim, and when a measure has a `filter` write it as `expr FILTER (WHERE filter)` so measures with different predicates can share one GROUP BY. If a number you need has no declared measure, write your own aggregate as usual. Results are limited to declarations whose producing script the caller can read",
         instructions: "",
