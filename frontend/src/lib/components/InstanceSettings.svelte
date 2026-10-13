@@ -307,6 +307,8 @@
 	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
 		Object.entries(oauthConnectRegistry)
 			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
+			// ms_teams takes its tenant from the pinned Teams tile; the backend fills the URLs.
+			.filter(([name]) => name !== 'ms_teams')
 			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
 	)
 
@@ -326,6 +328,11 @@
 	// instance name + its registry template (substituting {instance} into the
 	// URLs). Replaces the old per-provider setup functions.
 	function setupTemplatedOauthUrls() {
+		// The backend falls back to the pre-rename `teams` key when `ms_teams` is absent, so
+		// turning Teams off has to drop both. TODO: remove with the backend fallback.
+		if (oauths && !oauths['ms_teams'] && oauths['teams']) {
+			delete oauths['teams']
+		}
 		for (const [name, tmpl] of Object.entries(connectConfigTemplates)) {
 			if (!oauths?.[name]) continue
 			const key = tmpl.extra_params_key ?? 'instance'
