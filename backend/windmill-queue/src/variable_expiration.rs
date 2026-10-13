@@ -59,32 +59,18 @@ struct HandlerFailureState {
 }
 
 lazy_static::lazy_static! {
-    /// `workspace_id` -> back-off/visibility state. Keyed by workspace rather than by
-    /// variable because the handler is a workspace setting: when it is unresolvable every
-    /// variable in that workspace fails identically, and one alert names the cause where a
-    /// hundred per-row errors would only repeat it.
-    ///
-    /// Per-replica, like `SCHEDULE_REARM_FAILURES`: the advisory lock serializes concurrent
-    /// sweeps but does not pin successive ones to one process, so a broken handler is retried
-    /// and alerted once per replica before all have backed off. Pacing only — no double
-    /// dispatch rides on it, as the claim is persisted in `expiration_dispatched_for`.
+    /// `workspace_id` -> back-off state, keyed by workspace because the handler is a workspace
+    /// setting: an unresolvable one fails every variable there alike. Per-replica, like
+    /// `SCHEDULE_REARM_FAILURES`, so it paces retries only; no double dispatch rides on it, as
+    /// the claim is persisted in `expiration_dispatched_for`.
     static ref VARIABLE_EXPIRATION_FAILURES: Mutex<HashMap<String, HandlerFailureState>> =
         Mutex::new(HashMap::new());
 }
 
-/// Enqueue the workspace variable expiration handler for every variable coming due.
-///
-/// Not an authorization boundary: it dispatches handlers across every workspace, so this is
-/// a system caller (the monitor loop) only.
-///
-/// Detection rather than pre-enqueue: pushing a future-dated job would pin the handler's
-/// script version months ahead and turn this into a reconciliation problem (see
-/// `reconcile_unarmed_schedules`) instead of a detection one.
-///
-/// Dispatch-once, not run-to-success: the claim is committed with the push, so a handler job
-/// that then fails is not re-dispatched for that date. Retrying is the handler's own job (a
-/// retry policy, or the workspace error handler) — re-running it here would re-run whatever
-/// side effects the failed attempt already had against the third party it rotates.
+/// Enqueue the workspace variable expiration handler for every variable coming due. A system
+/// caller only (the monitor loop): it dispatches across every workspace. Dispatch-once: a
+/// handler job that then fails is not re-dispatched for that date, as re-running it would
+/// repeat its side effects against the third party it rotates; retrying is the handler's job.
 pub async fn dispatch_expiring_variables(db: &DB) {
     // Transaction-scoped advisory lock, not session-scoped: a session lock taken on a pooled
     // connection would ride that connection back into the pool still held if this future is
