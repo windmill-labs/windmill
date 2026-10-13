@@ -7,7 +7,8 @@ let opener: (() => void) | undefined
 // the card is its markup.
 let hoverClose: { schedule: () => void; cancel: () => void } | undefined
 let card: { isOpen: () => boolean; close: () => void } | undefined
-let peeked = false
+let peekedAt: number | undefined
+const PEEK_CLICK_GRACE_MS = 1000
 
 // Where the card's top edge goes: the header's bottom edge, so the two meet in a line rather than
 // the card starting at whatever height the control that opened it happens to have. Measured at open
@@ -35,18 +36,18 @@ export const navHandleSlot = {
 	},
 	/** The pointer entered the handle. */
 	peek() {
-		peeked = !card?.isOpen()
+		peekedAt = card?.isOpen() ? undefined : Date.now()
 		this.open()
 	},
 	/**
-	 * A click on the handle: closes an open card, opens a closed one. The first click after the
-	 * pointer opened the card leaves it open — that click was aimed at a closed card, and a touch
-	 * tap sends the mouseenter that opens it just before its click.
+	 * A click on the handle: closes an open card, opens a closed one. A click that closely follows
+	 * the pointer opening the card leaves it open — it was aimed at a closed card, and a touch tap
+	 * sends the mouseenter that opens it just before its click.
 	 */
 	toggle(anchor?: Element | null) {
-		const wasPeek = peeked
-		peeked = false
-		if (wasPeek && card?.isOpen()) return
+		const justPeeked = peekedAt != null && Date.now() - peekedAt < PEEK_CLICK_GRACE_MS
+		peekedAt = undefined
+		if (justPeeked && card?.isOpen()) return
 		if (card?.isOpen()) {
 			hoverClose?.cancel()
 			card.close()

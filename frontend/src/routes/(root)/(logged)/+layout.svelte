@@ -86,6 +86,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
 	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
 	import { BAR_HEIGHT_PX, pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { sidebarPageAllowed } from '$lib/components/sidebar/operatorRoutes'
@@ -554,18 +555,21 @@
 		})
 	}
 
+	const viewportOverlays = overlayStack()
 	function onWindowKeydown(e: KeyboardEvent) {
 		onSearchShortcutBeforeLoad(e)
-		// A menu open inside the card takes Esc for itself.
-		if (
-			e.key === 'Escape' &&
-			menuOpen &&
-			useDrawer &&
-			!e.defaultPrevented &&
-			!document.querySelector('[role="menu"]')
-		) {
+		if (e.key !== 'Escape' || !menuOpen || !useDrawer) return
+		// Read now: the overlay this Esc closes is off the stack by the time the timeout runs.
+		if (viewportOverlays.val.length > 0) return
+		// This listener is attached before any drawer's or menu's, which mount later: wait for
+		// them, so an Esc that closes one of those leaves the card open.
+		setTimeout(() => {
+			if (e.defaultPrevented || document.querySelector('[role="menu"]:not([hidden])')) return
+			const focusInCard = !!document.activeElement?.closest('[data-nav-card]')
 			menuOpen = false
-		}
+			// The closed card is inert and would drop focus to `body`.
+			if (focusInCard) document.querySelector<HTMLElement>('[data-nav-handle] button')?.focus()
+		})
 	}
 
 	// Set once the user docks or detaches, so the rail that mounts from then on skips its
