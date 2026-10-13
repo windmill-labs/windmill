@@ -161,9 +161,19 @@ impl Ctx<'_> {
             path,
             self.auth.read_only,
         )?;
-        // Unscoped: this server only admits `mcp:all`, several routes (hub, embeddings) map
-        // to no route scope at all, and `guarded_url` is what keeps a call on its route.
-        let response = send_as_caller(method, &url, self.w_id, self.auth, body, None)
+        // No route scope: this server only admits `mcp:all`, several routes (hub, embeddings)
+        // map to none, and `guarded_url` is what keeps a call on its route. The tag fence
+        // is not a route scope and stays: it limits which jobs the caller runs and reads.
+        let tag_scopes: Vec<String> = self
+            .auth
+            .scopes
+            .iter()
+            .flatten()
+            .filter(|s| s.starts_with("if_jobs:filter_tags:"))
+            .cloned()
+            .collect();
+        let scopes = (!tag_scopes.is_empty()).then_some(tag_scopes);
+        let response = send_as_caller(method, &url, self.w_id, self.auth, body, scopes)
             .await
             .map_err(|e| e.message.to_string())?;
         let status = response.status();

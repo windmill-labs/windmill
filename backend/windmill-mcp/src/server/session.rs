@@ -20,9 +20,9 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::sync::Arc;
 
-/// `mcp:all` and nothing that narrows it: the tools call the API with the caller's full
-/// rights, so a token also confined to some paths (`variables:read:f/x/*`) would lose
-/// that confinement here.
+/// `mcp:all`, and no scope from outside `mcp:` that confines the token to some routes
+/// or paths (`variables:read:f/x/*`): the tools call the API without a route scope, so
+/// that confinement would be lost here. The job tag fence is carried through instead.
 fn admits(scopes: &[String], all: bool) -> bool {
     all && scopes
         .iter()
