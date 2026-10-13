@@ -77,7 +77,8 @@ pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
                         }
                     }
                     let (otyp, typ, name) = parse_csharp_typ(p_list_node, code)?;
-                    args.push(Arg { name, otyp, typ, default, has_default: false, oidx: None, otyp_inferred: false });
+                    let has_default = default.is_some();
+                    args.push(Arg { name, otyp, typ, default, has_default, oidx: None, otyp_inferred: false });
                 }
             }
         }
@@ -279,14 +280,20 @@ class LilProgram
         assert_eq!(ret.args[0].name, "myString");
         assert_eq!(ret.args[0].otyp, Some("string".to_string()));
         assert_eq!(ret.args[0].typ, Typ::Str(None));
+        assert_eq!(ret.args[0].default, Some(serde_json::json!("World")));
+        assert_eq!(ret.args[0].has_default, true);
 
         assert_eq!(ret.args[1].name, "myInt");
         assert_eq!(ret.args[1].otyp, Some("int".to_string()));
         assert_eq!(ret.args[1].typ, Typ::Int);
+        assert_eq!(ret.args[1].default, None);
+        assert_eq!(ret.args[1].has_default, false);
 
         assert_eq!(ret.args[2].name, "jj");
         assert_eq!(ret.args[2].otyp, Some("string[]".to_string()));
         assert_eq!(ret.args[2].typ, Typ::List(Box::new(Typ::Str(None))));
+        assert_eq!(ret.args[2].default, None);
+        assert_eq!(ret.args[2].has_default, false);
     }
 
     #[test]
