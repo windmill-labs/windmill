@@ -51,8 +51,10 @@
 		// (FileExplorer, TriggersTable, RunnableRow, ArtifactVersionPicker).
 		selected
 			? 'border-border-selected bg-surface-accent-selected'
-			: 'border-border-light hover:bg-surface-hover',
-		disabled && 'opacity-50 cursor-not-allowed',
+			: 'border-border-light enabled:hover:bg-surface-hover',
+		// `disabled:` variants, not plain utilities: the global `button:disabled`
+		// rule sets opacity and cursor and outranks a single class.
+		'disabled:opacity-50 disabled:cursor-not-allowed',
 		className
 	)}
 >
