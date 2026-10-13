@@ -325,12 +325,33 @@ async fn test_operators_draft_resources_and_variables(db: Pool<Postgres>) -> any
     let (status, body) = save(
         "variable",
         "u/operator/secret_draft",
-        json!({ "variable": { "path": "u/operator/secret_draft", "value": "hunter2", "is_secret": true } }),
+        json!({ "path": "u/operator/secret_draft", "variable": { "value": "hunter2", "is_secret": true } }),
     )
     .await?;
     assert_eq!(status, 200, "{body}");
     let (status, body) = save("script", "u/operator/script_draft", json!({})).await?;
     assert_eq!(status, 403, "{body}");
+
+    // The Resources and Variables pages list a draft that has never been deployed.
+    for (route, path) in [
+        ("resources", "u/operator/res_draft"),
+        ("variables", "u/operator/secret_draft"),
+    ] {
+        let listed: serde_json::Value = c
+            .get(format!("{api}/{route}/list?include_draft_only=true"))
+            .send()
+            .await?
+            .json()
+            .await?;
+        assert!(
+            listed
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["path"] == path && r["draft_only"] == json!(true)),
+            "{route}: {listed}"
+        );
+    }
 
     // Deploying a draft sends its stored value, the `$encrypted:` marker, to the create route.
     let stored: String = sqlx::query_scalar(
