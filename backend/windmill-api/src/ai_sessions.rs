@@ -214,7 +214,7 @@ impl Backend {
     }
 
     fn seal(&self, plaintext: &[u8]) -> Vec<u8> {
-        // Servers before 1.832 read only CBC here: rolled back, they skip GCM objects as foreign.
+        // Servers before 1.833 read only CBC here: rolled back, they skip GCM objects as foreign.
         self.mc.encrypt_bytes(plaintext)
     }
 
