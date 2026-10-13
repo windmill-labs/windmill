@@ -446,6 +446,37 @@
     ],
     "req_body_auth": true
   },
+  "outlook": {
+    "req_body_auth": true,
+    "scopes": ["offline_access", "User.Read", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Contacts.ReadWrite"],
+    "scope_options": [
+      { "value": "offline_access", "label": "Stay connected (refresh token)" },
+      { "value": "User.Read", "label": "Read your profile" },
+      { "value": "Mail.Send", "label": "Send mail" },
+      { "value": "Mail.Read", "label": "Read and search mail" },
+      { "value": "Mail.ReadWrite", "label": "Read, draft, move and modify mail" },
+      { "value": "MailboxSettings.Read", "label": "Read mailbox settings and categories" },
+      { "value": "Contacts.Read", "label": "Read contacts" },
+      { "value": "Contacts.ReadWrite", "label": "Read, create and edit contacts" },
+      { "value": "People.Read", "label": "Search relevant people" },
+      { "value": "Calendars.Read", "label": "Read calendars and events" },
+      { "value": "Calendars.ReadWrite", "label": "Read, create, edit and delete events" },
+      { "value": "Calendars.Read.Shared", "label": "Read shared calendars and find meeting times" },
+      { "value": "Mail.Send.Shared", "label": "Send mail from shared mailboxes" },
+      { "value": "Mail.Read.Shared", "label": "Read mail in shared mailboxes" },
+      { "value": "Mail.ReadWrite.Shared", "label": "Read and modify mail in shared mailboxes" }
+    ],
+    "connect_config_template": {
+      "display_name": "Outlook",
+      "label": "Microsoft Entra tenant",
+      "placeholder": "common, organizations, or your tenant id",
+      "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
+      "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
+      "req_body_auth": true,
+      "scopes": ["offline_access", "User.Read", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Contacts.ReadWrite"]
+    }
+  },
   "hubspot": {
     "auth_url": "https://app.hubspot.com/oauth/authorize",
     "token_url": "https://api.hubapi.com/oauth/v1/token",
