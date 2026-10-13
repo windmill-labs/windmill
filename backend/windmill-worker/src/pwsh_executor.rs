@@ -18,6 +18,8 @@ use crate::SYSTEM_ROOT;
 
 const NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT: &str =
     include_str!("../nsjail/run.powershell.config.proto");
+const NSJAIL_CONFIG_INSTALL_POWERSHELL_CONTENT: &str =
+    include_str!("../nsjail/install.powershell.config.proto");
 
 lazy_static::lazy_static! {
     static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^\s*Import-Module\s+(?:-Name\s+)?"?([^\s"]+)"?(?:\s+-RequiredVersion\s+"?([^\s"]+)"?)?"#).unwrap();
@@ -567,12 +569,51 @@ pub async fn handle_powershell_job(
                 &powershell_repo_pat.unwrap_or_default().replace("'", "''"),
             )
             .replace("{modules}", &modules_list);
-        let mut cmd = Command::new(POWERSHELL_PATH.as_str());
-        cmd.args(&["-Command", &install_string])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        // Sandbox the install step under nsjail when sandboxing is enabled, matching
+        // the run step. The install step previously always ran with full worker
+        // privileges; the install nsjail config mounts the module cache rw so
+        // Save-PSResource can still write to it.
+        let install_jailed = is_sandboxing_enabled();
+        let mut cmd = if install_jailed {
+            let nsjail_timeout =
+                resolve_nsjail_timeout(db, &job.workspace_id, job.id, job.timeout).await;
+            let nsjail_proto = format!("{}.pwsh_install.config.proto", job.id);
+            let config_content = NSJAIL_CONFIG_INSTALL_POWERSHELL_CONTENT
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{CACHE_DIR}", &*POWERSHELL_CACHE_DIR)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .replace("{TIMEOUT}", &nsjail_timeout);
+            write_file(job_dir, &nsjail_proto, &config_content)?;
+            let mut cmd = Command::new(NSJAIL_PATH.as_str());
+            cmd.current_dir(job_dir).args(&[
+                "--config",
+                &nsjail_proto,
+                "--",
+                POWERSHELL_PATH.as_str(),
+                "-Command",
+                &install_string,
+            ]);
+            cmd
+        } else {
+            let mut cmd = Command::new(POWERSHELL_PATH.as_str());
+            cmd.args(&["-Command", &install_string]);
+            cmd
+        };
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        let child = start_child_process(cmd, POWERSHELL_PATH.as_str(), false).await?;
+        let child = start_child_process(
+            cmd,
+            if install_jailed {
+                NSJAIL_PATH.as_str()
+            } else {
+                POWERSHELL_PATH.as_str()
+            },
+            false,
+        )
+        .await?;
 
         handle_child(
             &job.id,
