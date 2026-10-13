@@ -11,14 +11,12 @@
 
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate } from '$lib/utils'
+	import { userWorkspaces, superadmin, devopsRole, enterpriseLicense } from '$lib/stores'
+	import { useHostedPage } from '$lib/components/hostedPage'
 	import {
-		userStore,
-		workspaceStore,
-		userWorkspaces,
-		superadmin,
-		devopsRole,
-		enterpriseLicense
-	} from '$lib/stores'
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 	import { Button, Drawer, DrawerContent, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
@@ -81,6 +79,13 @@
 
 	let { initialPath }: Props = $props()
 
+	// Under a host — an AI session's preview tab — the document URL, the page header band and
+	// the navigation workspace all belong to the host: the filters live where it keeps them,
+	// the filter row renders in the page, and requests go to the workspace it names.
+	const hosted = useHostedPage()
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
 	let folders: string[] = $state([])
@@ -91,7 +96,7 @@
 			folders,
 			jobTriggerKinds,
 			isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
-			isAdminsWorkspace: $workspaceStore === 'admins'
+			isAdminsWorkspace: $operatingWorkspace === 'admins'
 		})
 	)
 	let perPage = useLocalStorageValue('runs_per_page', 1000, 'number')
@@ -115,6 +120,8 @@
 	// what was seeded at mount is gone. Re-apply it. Editing a filter writes with `replaceState`,
 	// which never reaches `page.url`, so a filter the user clears stays cleared.
 	$effect(() => {
+		// A host remounts the page when it re-points it, and its document URL is not this page's.
+		if (hosted) return
 		page.url.href
 		untrack(() => filters.seed(filterSeeds()))
 	})
@@ -171,7 +178,9 @@
 	let manualTimeframe = $derived(timeframe.type === 'manual' ? timeframe : undefined)
 
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
-		typeOfChart(page.url.searchParams.get('graph'))
+		typeOfChart(
+			(hosted ? new URLSearchParams(hosted.search) : page.url.searchParams).get('graph')
+		)
 	)
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
@@ -183,7 +192,7 @@
 		resultError,
 		perPage: perPage.val,
 		lookback: graph === 'RunChart' ? 0 : lookback,
-		currentWorkspace: $workspaceStore ?? ''
+		currentWorkspace: $operatingWorkspace ?? ''
 	}))
 	let batchProgress = $derived(jobsLoader.batchProgress)
 	let currentBatchSize = $derived(jobsLoader.currentBatchSize)
@@ -211,18 +220,18 @@
 	}
 
 	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+		usernames = await UserService.listUsernames({ workspace: $operatingWorkspace! })
 	}
 
 	async function loadFolders(): Promise<void> {
 		folders = await FolderService.listFolders({
-			workspace: $workspaceStore!
+			workspace: $operatingWorkspace!
 		}).then((x) => x.map((y) => y.name))
 	}
 
 	async function loadPaths() {
-		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $workspaceStore ?? '' })
-		const npaths_flows = await FlowService.listFlowPaths({ workspace: $workspaceStore ?? '' })
+		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $operatingWorkspace ?? '' })
+		const npaths_flows = await FlowService.listFlowPaths({ workspace: $operatingWorkspace ?? '' })
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
 
@@ -265,7 +274,7 @@
 		const resultFilter = filters.val.result && JSON.parse(filters.val.result)
 		const { minTs, maxTs } = timeframe.computeMinMax()
 		return {
-			workspace: $workspaceStore ?? '',
+			workspace: $operatingWorkspace ?? '',
 			startedBefore: maxTs ?? undefined,
 			startedAfter: minTs ?? undefined,
 			schedulePath: filters.val.schedule_path ?? undefined,
@@ -323,7 +332,7 @@
 	}
 	async function cancelJobs(uuidsToCancel: string[], forceCancel: boolean = false) {
 		const uuids = await JobService.cancelSelection({
-			workspace: $workspaceStore ?? '',
+			workspace: $operatingWorkspace ?? '',
 			requestBody: uuidsToCancel,
 			forceCancel: forceCancel,
 			allWorkspaces: filters.val.all_workspaces || undefined
@@ -350,7 +359,7 @@
 		for (const j of jobs ?? []) if (j.workspace_id) workspaceById.set(j.id, j.workspace_id)
 		const byWorkspace = new Map<string, string[]>()
 		for (const id of jobIds) {
-			const ws = workspaceById.get(id) ?? $workspaceStore ?? ''
+			const ws = workspaceById.get(id) ?? $operatingWorkspace ?? ''
 			const bucket = byWorkspace.get(ws)
 			if (bucket) bucket.push(id)
 			else byWorkspace.set(ws, [id])
@@ -428,7 +437,7 @@
 	}
 
 	async function reRunJobs(jobIdsToReRun: string[], batchReRunOptions: BatchReRunOptions) {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		if (askingForConfirmation) {
 			askingForConfirmation.loading = true
@@ -442,7 +451,7 @@
 
 		// workaround because EventSource does not support POST requests
 		// https://medium.com/@david.richards.tech/sse-server-sent-events-using-a-post-request-without-eventsource-1c0bd6f14425
-		const response = await fetch(`${OpenAPI.BASE}/w/${$workspaceStore}/jobs/run/batch_rerun_jobs`, {
+		const response = await fetch(`${OpenAPI.BASE}/w/${$operatingWorkspace}/jobs/run/batch_rerun_jobs`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(body)
@@ -555,7 +564,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			untrack(() => {
 				loadUsernames()
 				loadFolders()
@@ -603,7 +612,7 @@
 		openedRunId = undefined
 	}
 	let resolutionNote = $state('')
-	const phone = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
+	const phone = $derived(!hosted && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
 </script>
 
 {#snippet runsHint()}
@@ -620,7 +629,7 @@
 	     two or three buttons, so they take a wider gap than the band's own. `flex-1 min-w-0` passes
 	     the band's flexibility down to the search field, the one control here that gives width
 	     back; the rest keep theirs or drop out of the row entirely at a width. -->
-	<div class="flex items-center gap-3 flex-1 min-w-0">
+	<div class="flex items-center gap-3 flex-1 min-w-0 {hosted ? 'flex-wrap justify-end' : ''}">
 		<!-- Always the icon form: the bar has room for two counters, never for the two labelled
 		     blocks. pr-2 on top of the row's own gap because the counts hang outside their icons,
 		     so without it the badge butts against the first filter.
@@ -816,12 +825,12 @@
 			schema={runsFilterSearchbarSchema}
 			presets={buildRunsFilterPresets({
 				isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
-				isAdminsWorkspace: $workspaceStore === 'admins'
+				isAdminsWorkspace: $operatingWorkspace === 'admins'
 			})}
 			bind:value={filters.val}
 			placeholder="Filter runs..."
 			size="sm"
-			autofocus
+			autofocus={!hosted}
 		/>
 		<TimeframeSelect
 			unifiedSize="sm"
@@ -833,11 +842,11 @@
 		<!-- The filters are shallow-routed, so the search has to come off `window.location` at click
 		     time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
 		     preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway. -->
-		<div class={phone ? 'hidden' : 'contents'}>
+		<div class={phone || hosted ? 'hidden' : 'contents'}>
 			<OpenInSessionButton
 				source={{
 					page: () => RUNS_PATH + window.location.search,
-					workspaceId: $workspaceStore ?? undefined
+					workspaceId: $operatingWorkspace ?? undefined
 				}}
 				btnProps={{ unifiedSize: 'sm' }}
 			/>
@@ -900,13 +909,14 @@
 	</DrawerContent>
 </Drawer>
 
+<!-- The document's history is the host's: its Back is not a move on this page. -->
 <svelte:window
 	onpopstate={() => {
-		reset()
+		if (!hosted) reset()
 	}}
 />
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.runs}
+{#if operatingUser.current?.operator && $operatingWorkspace && !$userWorkspaces.find((_) => _.id === $operatingWorkspace)?.operator_settings?.runs}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
 		<p>Page not available for operators</p>
@@ -915,7 +925,13 @@
 	<div class="w-full h-full flex flex-col" bind:clientWidth={innerWidth}>
 		<!-- `actionsFlexible`: the filter row holds a search field that can give width back, so the
 		     bar lets this box shrink on a phone instead of holding its content width. -->
-		<PageHeaderContent afterName={runsHint} actions={headerActions} actionsFlexible />
+		{#if hosted}
+			<div class="flex px-4 pt-3 pb-2">
+				{@render headerActions()}
+			</div>
+		{:else}
+			<PageHeaderContent afterName={runsHint} actions={headerActions} actionsFlexible />
+		{/if}
 
 		<!-- Graph -->
 		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 border rounded-md">
@@ -1106,7 +1122,7 @@
 									batchRerunOptionsIsOpen = true
 								}
 							},
-							...(!$userStore?.operator
+							...(!operatingUser.current?.operator
 								? [
 										{
 											// Operators are rejected by the endpoint, so offering it would only 403.

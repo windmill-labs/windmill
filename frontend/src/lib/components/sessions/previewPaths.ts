@@ -84,6 +84,17 @@ export function isPageItemListPath(path: string): boolean {
 	return pageItemForListPath(path, '') !== undefined
 }
 
+/** Whether a path is the runs list: every run, or `/runs/<item path>` for one item's. */
+export function isRunsListPath(path: string): boolean {
+	const clean = barePath(path)
+	return clean === RUNS_PATH || clean.startsWith(`${RUNS_PATH}/`)
+}
+
+/** Whether a path is a list page a session preview mounts in process rather than frames. */
+export function isPreviewListPath(path: string): boolean {
+	return isPageItemListPath(path) || isRunsListPath(path)
+}
+
 /** The page item a list page's row names, or undefined for a page that lists none. */
 export function pageItemForListPath(pagePath: string, path: string): PageItemRef | undefined {
 	const clean = barePath(pagePath)

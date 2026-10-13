@@ -3,7 +3,7 @@ import {
 	AUDIT_LOGS_PATH,
 	FOLDERS_PATH,
 	GROUPS_PATH,
-	isPageItemListPath,
+	isPreviewListPath,
 	pageItemForListPath,
 	pageItemListPath,
 	pageItemPageHref,
@@ -594,7 +594,8 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // flow, raw app) mounts its per-(kind,path) cell editor on `/edit/` and its viewer
 // on `/get/`; a `/pipeline/<folder>` route mounts the data-pipeline graph editor of
 // that folder (`path` is the folder); the list page of a page item kind mounts that
-// list; a `/run/<id>` route without a share token mounts that run's page; everything
+// list, and so does the runs list; a `/run/<id>` route without a share token mounts that
+// run's page; everything
 // else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
@@ -614,7 +615,7 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	const pageItem = parsePageItemRoute(url)
 	if (pageItem) return { kind: 'pageitem', ref: pageItem }
 	const route = barePath(url)
-	if (isPageItemListPath(route)) return { kind: 'pagelist', path: route }
+	if (isPreviewListPath(route)) return { kind: 'pagelist', path: route }
 	const run = parseRunRoute(url)
 	// A share link's token authorizes every request of the window that installs it, so a run
 	// opened through one keeps a frame of its own rather than lending the token to the session.
