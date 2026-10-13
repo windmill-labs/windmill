@@ -32,7 +32,8 @@
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { modulesWithRetryOrSleep, SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
-	import EarlyReturnPicker from './EarlyReturnPicker.svelte'
+	import { earlyReturnCandidates } from '../earlyReturnCandidates'
+	import Select from '$lib/components/select/Select.svelte'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
@@ -389,11 +390,26 @@
 							}}
 						/>
 						{#if flowStore.val.value.early_return}
-							<div class="mt-2" transition:slide={{ duration: 120 }}>
-								<EarlyReturnPicker
-									modules={flowStore.val.value.modules ?? []}
+							{@const candidates = earlyReturnCandidates(flowStore.val.value.modules ?? [])}
+							{@const selected = candidates.find((c) => c.id === flowStore.val.value.early_return)}
+							<div class="mt-2 flex flex-col gap-1 max-w-sm" transition:slide={{ duration: 120 }}>
+								<Select
+									items={candidates.map((c) => ({ value: c.id, label: c.id }))}
 									bind:value={flowStore.val.value.early_return}
+									placeholder="Node's id"
+									size="sm"
 								/>
+								{#if !selected}
+									<span class="text-2xs text-red-600 dark:text-red-400">
+										Step {flowStore.val.value.early_return} is not one of the steps above. Pick another
+										step.
+									</span>
+								{:else if !selected.deterministic}
+									<span class="text-2xs text-secondary">
+										This step only runs if its branch is taken. Otherwise, sync calls return the
+										flow's final result.
+									</span>
+								{/if}
 							</div>
 						{/if}
 					</div>
