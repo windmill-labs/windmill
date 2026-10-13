@@ -188,7 +188,7 @@ data:
 - `<datatable>/<table>` — Specific table in public schema
 - `<datatable>/<schema>:<table>` — Table in specific schema
 
-**Roles:** when a datatable is under roles, its queries run as a role, which only reaches what it was granted. `roles` records the role the app uses each datatable through; the app's code must pass the same role: `wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python. A datatable without an entry is used as its default role.
+**Roles:** when a datatable is under roles, its queries run as a role, which only reaches what it was granted. `roles` records the role the app uses each datatable through; the app's code must pass the same role: `wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python. A datatable without an entry is used as its default role, if it has one, plus the roles of whoever is using the app unless that default is `admin`.
 
 ## SQL Migrations (sql_to_apply/)
 
@@ -494,6 +494,7 @@ Data tables are PostgreSQL databases managed by Windmill. Backend runnables quer
 3. **No DDL inside runnables**: runnables only read and write rows (SELECT, INSERT, UPDATE, DELETE) on existing tables. Never CREATE, ALTER or DROP a table from a runnable.
 4. **Qualify table names**: an unqualified name means the `public` schema, so write every other table as `schema.table`, in table creation and queries alike. The app's `data` config sets the default datatable and schema its tables go in; use them consistently across runnables.
 5. **Pass the role**: when the app's `data.roles` gives a data table a role, every `wmill.datatable` call on it passes that role (`wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python). The role only reaches what it was granted, so a query outside it fails with `permission denied`.
+6. **Per-viewer rows**: a data table with no entry in `data.roles` is called with no role. Unless its default role is `admin`, the connection then holds the default role, if it has one, plus every role the person using the app is a tenant of, and is refused when that is none. Row-level security policies written as `pg_has_role(current_user, '<role>', 'member')` return that viewer's rows with nothing added to the runnable. A role pins the connection to that one role for every viewer, so where rows should differ per viewer give the data table no `data.roles` entry.
 
 `wmill datatable list` lists the workspace's data tables. Create or change tables with a migration in `sql_to_apply/` (see "SQL Migrations" above), then add them to `data.tables` in `raw_app.yaml`.
 

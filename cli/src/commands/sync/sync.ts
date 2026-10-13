@@ -149,7 +149,11 @@ import {
   extractCurrentMapping,
 } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
-import { markAccessFromPolicy, markIsolationFromPolicy } from "../app/app.ts";
+import {
+  markAccessFromPolicy,
+  markIsolationFromPolicy,
+  stripEditorState,
+} from "../app/app.ts";
 import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
@@ -1329,6 +1333,7 @@ export function ZipFSElement(
               log.error(`Failed to parse app.yaml at path: ${p}`);
               throw error;
             }
+            stripEditorState(app);
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForApps(
@@ -2749,12 +2754,18 @@ export async function compareDynFSElement(
       }
       return o;
     } else {
+      let o: any;
       try {
-        return yamlParseContent(k, v);
+        o = yamlParseContent(k, v);
       } catch (error) {
         log.error(`Failed to parse YAML content at path: ${k}`);
         throw error;
       }
+      // A file tracked before the field was dropped still carries it.
+      if (path.basename(k) == "app.yaml") {
+        stripEditorState(o);
+      }
+      return o;
     }
   }
 

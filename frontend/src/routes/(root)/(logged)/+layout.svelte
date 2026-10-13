@@ -110,7 +110,7 @@
 	import { isGlobalAiEnabled, sessionsAllowedFor } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
 	import {
-		isPageItemListPath,
+		isPreviewListPath,
 		parsePreviewItemRoute,
 		barePath
 	} from '$lib/components/sessions/previewPaths'
@@ -467,7 +467,7 @@
 			}
 			// A list page mounts in process too, where its rows open as tabs of their own.
 			const listUrl = navigation.to?.url
-			if (listUrl && isPageItemListPath(barePath(listUrl.pathname))) {
+			if (listUrl && isPreviewListPath(barePath(listUrl.pathname))) {
 				navigation.cancel()
 				const u = new URL(listUrl.href)
 				u.searchParams.delete('nomenubar')

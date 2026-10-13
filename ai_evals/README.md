@@ -196,7 +196,10 @@ not have read is itself the failure — e.g. `write_variable.value` on a secret 
 Global (and flow) initial fixtures can seed `workspace.datatables` so the
 `list_datatables`, `get_datatable_table_schema`, and `exec_datatable_sql` tools
 return seeded data during evals. Each entry is
-`{ datatable_name, schemas: { <schema>: { <table>: { columns, rows? } } } }`.
+`{ datatable_name, schemas: { <schema>: { <table>: { columns, rows? } } } }`,
+plus `migrations_enabled: true` and `migrations: [{ timestamp, name, code_up, code_down?, applied? }]`
+for a datatable that keeps its schema as migrations, which the migration tools then
+read and write in memory.
 SQL runs through a small in-memory engine (`datatableSqlEngine.ts`), not a real
 database. Writes are **stateful within a case**: `CREATE`/`DROP`/`INSERT`/`UPDATE`/
 `DELETE` mutate the seeded datatable in place, so a later `list_datatables`,
