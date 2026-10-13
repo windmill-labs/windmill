@@ -1728,21 +1728,27 @@ pub async fn cached_result_path(
     }
     // What a run returns depends on whose roles its data table connections hold, its own
     // identity's or its viewer's, and `WM_END_USER_EMAIL` names the viewer: a result cached for
-    // one of either is never served to another. Length-prefixed, like the viewer below.
+    // one of either, or in one of the two modes, is never served to another. Length-prefixed,
+    // like the viewer below.
     hasher.update(b"permissioned_as:");
     hasher.update((job.permissioned_as.len() as u64).to_le_bytes());
     hasher.update(job.permissioned_as.as_bytes());
-    // Read from `job_perms`: a flow job re-fetched between steps does not carry it.
-    let end_user: Option<Option<String>> = sqlx::query_scalar(
-        "SELECT end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+    // Read from `job_perms`: a flow job re-fetched between steps does not carry them.
+    let perms: Option<(Option<String>, bool)> = sqlx::query_as(
+        "SELECT end_user_email, datatable_as_viewer FROM job_perms
+         WHERE job_id = $1 AND workspace_id = $2",
     )
     .bind(job.id)
     .bind(&job.workspace_id)
     .fetch_optional(db)
     .await?;
+    let (end_user, as_viewer) = perms.unwrap_or_default();
+    if as_viewer {
+        hasher.update(b"datatable_as_viewer;");
+    }
     // Length-prefixed: the arguments follow undelimited, and the end of one viewer's address
     // must not read as the start of another run's first argument name.
-    if let Some(end_user) = end_user.flatten() {
+    if let Some(end_user) = end_user {
         hasher.update(b"end_user:");
         hasher.update((end_user.len() as u64).to_le_bytes());
         hasher.update(end_user.as_bytes());
@@ -2507,14 +2513,15 @@ mod tests {
         // The last two differ only in where the viewer's address ends and the first argument
         // name starts.
         let mut paths = vec![];
-        for (owner, viewer, arg) in [
-            ("u/publisher", Some("a@windmill.dev"), "mode"),
-            ("u/publisher", Some("a@windmill.dev"), "mode"),
-            ("u/publisher", Some("b@windmill.dev"), "mode"),
-            ("u/publisher", None, "mode"),
-            ("u/publisher", Some("a@windmill.co"), "mode"),
-            ("u/publisher", Some("a@windmill.com"), "ode"),
-            ("u/other", None, "mode"),
+        for (owner, viewer, as_viewer, arg) in [
+            ("u/publisher", Some("a@windmill.dev"), false, "mode"),
+            ("u/publisher", Some("a@windmill.dev"), false, "mode"),
+            ("u/publisher", Some("b@windmill.dev"), false, "mode"),
+            ("u/publisher", None, false, "mode"),
+            ("u/publisher", Some("a@windmill.co"), false, "mode"),
+            ("u/publisher", Some("a@windmill.com"), false, "ode"),
+            ("u/other", None, false, "mode"),
+            ("u/publisher", Some("a@windmill.dev"), true, "mode"),
         ] {
             let args = HashMap::from([(arg.to_string(), to_raw_value(&"all"))]);
             let job = MiniPulledJob {
@@ -2525,12 +2532,13 @@ mod tests {
             };
             sqlx::query(
                 "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator,
-                     workspace_id, groups, folders, end_user_email)
+                     workspace_id, groups, folders, end_user_email, datatable_as_viewer)
                  VALUES ($1, 'publisher@windmill.dev', 'publisher', false, false, 'test', '{}',
-                     '{}', $2)",
+                     '{}', $2, $3)",
             )
             .bind(job.id)
             .bind(viewer)
+            .bind(as_viewer)
             .execute(&pool)
             .await
             .unwrap();
@@ -2552,6 +2560,10 @@ mod tests {
             "an address runs into the argument names"
         );
         assert_ne!(paths[3], paths[6], "two owners share a cached result");
+        assert_ne!(
+            paths[0], paths[7],
+            "a result read with the app's roles is served once the runnable connects as its viewer"
+        );
     }
 
     #[tokio::test]

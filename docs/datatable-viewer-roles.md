@@ -65,9 +65,10 @@ A policy names its role as text, so renaming the role breaks it.
 - **The viewer is `job_perms.end_user_email`, and nothing else.** The server records it when the
   run starts: the session behind an app request, the caller of a direct run or preview, and for a
   job started with another job's token, that job's viewer. No argument reaches it.
-- **A cached result belongs to one identity and one viewer.** `cached_result_path` hashes the
-  job's `permissioned_as` and its recorded viewer into the key, since a cache hit returns before
-  any connection is resolved.
+- **A cached result belongs to one identity, one viewer and one mode.** `cached_result_path`
+  hashes the job's `permissioned_as`, its recorded viewer and `datatable_as_viewer` into the key,
+  since a cache hit returns before any connection is resolved. Turning the setting on changes no
+  code, so without the mode a result read with the app's roles would be served to the viewer.
 - **Only a tenant list naming the identity counts.** A workspace admin may *use* every role,
   `admin` included. The roles added are those whose tenants name the identity (user, group,
   folder, `*`), and never `admin`.

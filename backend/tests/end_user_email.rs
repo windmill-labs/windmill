@@ -509,3 +509,89 @@ async fn test_raw_app_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()
 
     Ok(())
 }
+
+/// Connecting to data tables as the viewer is honored on inline runnables only: a path runnable
+/// is someone else's script, which must not read with the viewer's roles because the app's
+/// policy entry for it says so.
+#[sqlx::test(fixtures("base", "end_user_email"))]
+async fn test_app_datatable_as_viewer_is_stamped_on_inline_runnables_only(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let app_path = "f/test/datatable_as_viewer_app";
+    let script_path = "script/f/test/get_end_user_email";
+
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/apps/create"
+        )),
+        SAME_WS_TOKEN,
+    )
+    .json(&json!({
+        "path": app_path,
+        "summary": "",
+        "value": { "type": "app", "grid": [], "subgrids": {}, "hiddenInlineScripts": [] },
+        "policy": {
+            "execution_mode": "anonymous",
+            "on_behalf_of": null,
+            "on_behalf_of_email": null,
+            "triggerables_v2": {
+                "rawscript/894d2f85ea2411e777e7d5787366c9fec4c1a7a5f83482748f1d129196c9f54f": {
+                    "static_inputs": {}, "one_of_inputs": {}, "datatable_as_viewer": true
+                },
+                (script_path): {
+                    "static_inputs": {}, "one_of_inputs": {}, "datatable_as_viewer": true
+                }
+            }
+        }
+    }))
+    .send()
+    .await?;
+    anyhow::ensure!(resp.status().is_success(), "create app: {}", resp.text().await?);
+
+    let execute = |payload: serde_json::Value| async move {
+        let resp = authed(
+            client().post(format!(
+                "http://localhost:{port}/api/w/test-workspace/apps_u/execute_component/{app_path}"
+            )),
+            SAME_WS_TOKEN,
+        )
+        .json(&payload)
+        .send()
+        .await?;
+        anyhow::ensure!(resp.status().is_success(), "execute: {}", resp.text().await?);
+        Ok::<_, anyhow::Error>(resp.text().await?.trim_matches('"').parse::<uuid::Uuid>()?)
+    };
+    let as_viewer = |job_id: uuid::Uuid| {
+        let db = db.clone();
+        async move {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT datatable_as_viewer FROM job_perms WHERE job_id = $1",
+            )
+            .bind(job_id)
+            .fetch_one(&db)
+            .await
+        }
+    };
+
+    let inline = execute(json!({
+        "args": {},
+        "component": "get_email",
+        "raw_code": {
+            "language": "bun",
+            "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }"
+        }
+    }))
+    .await?;
+    assert!(as_viewer(inline).await?);
+
+    let path = execute(json!({ "args": {}, "component": "run_script", "path": script_path })).await?;
+    assert!(
+        !as_viewer(path).await?,
+        "a path runnable connected as the viewer because its policy entry said so"
+    );
+    Ok(())
+}

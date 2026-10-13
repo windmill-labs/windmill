@@ -334,7 +334,7 @@ const getSetBackendRunnableSchema = memo(() =>
 			.boolean()
 			.optional()
 			.describe(
-				"Inline only. When true, data table connections that name no role hold the roles of the person viewing the app instead of the app identity's, so row-level security answers per viewer. Anonymous viewers are refused."
+				"Inline only. When true, data table connections that name no role hold the roles of the person viewing the app instead of the app identity's, so row-level security answers per viewer. Anonymous viewers are refused. Omit to keep the current setting."
 			)
 	})
 )
@@ -733,7 +733,9 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				...(parsedArgs.staticInputs && { staticInputs: parsedArgs.staticInputs }),
 				...(parsedArgs.inlineScript && { inlineScript: parsedArgs.inlineScript }),
 				...(parsedArgs.path && { path: parsedArgs.path }),
-				...(parsedArgs.datatableAsViewer && { datatableAsViewer: true })
+				...(parsedArgs.datatableAsViewer !== undefined && {
+					datatableAsViewer: parsedArgs.datatableAsViewer
+				})
 			}
 
 			toolCallbacks.setToolStatus(toolId, {

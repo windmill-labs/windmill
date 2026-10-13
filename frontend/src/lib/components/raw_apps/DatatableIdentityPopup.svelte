@@ -58,6 +58,8 @@
 			}}
 			options={{
 				right: 'Connect to data tables as the viewer',
+				rightTooltip:
+					'Data table roles (Enterprise Edition, self-hosted) map who may use a data table to Postgres roles, so grants and row-level security policies decide what each connection sees.',
 				rightDocumentationLink:
 					'https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables'
 			}}
@@ -74,6 +76,11 @@
 				Turn this on to hold the roles of the person viewing the app instead, so row-level security
 				answers per viewer. Anonymous viewers are refused. A connection that names a role is that
 				role alone either way.
+			</p>
+			<p>
+				Neither applies while the data table's default role is admin: such a connection is admin,
+				which bypasses row-level security. Change or remove the default role in the data table's
+				roles first.
 			</p>
 		</div>
 	{/snippet}

@@ -1201,7 +1201,9 @@ addEventListener('message', function (e) {
 							content: runnable.inlineScript.content,
 							language: runnable.inlineScript.language
 						},
-						...(runnable.datatableAsViewer && { datatable_as_viewer: true }),
+						...((runnable.datatableAsViewer ?? runnables[key]?.datatable_as_viewer) && {
+							datatable_as_viewer: true
+						}),
 						fields: runnable.staticInputs
 							? Object.fromEntries(
 									Object.entries(runnable.staticInputs).map(([k, v]) => [
