@@ -30,6 +30,7 @@ pub const V2_MAGIC: [u8; 4] = *b"wmA2";
 const NONCE_LEN: usize = 12;
 const TAG_LEN: usize = 16;
 const BLOCK: usize = 16;
+const NARROW_VARIABLE_VALUE_WIDTH: usize = 15000;
 
 const AEAD_KEY_INFO: &[u8] = b"windmill workspace secret aes-256-gcm v1";
 
@@ -102,7 +103,23 @@ impl WorkspaceCrypt {
     }
 
     pub fn encrypt_str(&self, plaintext: &str) -> String {
-        self.encrypt_str_in(plaintext, CipherFormat::current())
+        self.encrypt_str_fitting(
+            plaintext,
+            CipherFormat::current(),
+            crate::variables::variable_value_widened(),
+        )
+    }
+
+    /// A v2 value is up to 44 chars longer than CBC: until `variable.value` is known widened
+    /// for it, one past the narrow width is written in CBC, which fits.
+    fn encrypt_str_fitting(&self, plaintext: &str, format: CipherFormat, widened: bool) -> String {
+        if format == CipherFormat::V2 {
+            let v2 = self.encrypt_str_in(plaintext, CipherFormat::V2);
+            if widened || v2.len() <= NARROW_VARIABLE_VALUE_WIDTH {
+                return v2;
+            }
+        }
+        self.encrypt_str_in(plaintext, CipherFormat::LegacyCbc)
     }
 
     pub fn encrypt_str_in(&self, plaintext: &str, format: CipherFormat) -> String {
@@ -240,6 +257,18 @@ mod tests {
             WorkspaceCrypt::new(KEY).decrypt_bytes(&ciphertext).unwrap(),
             plaintext
         );
+    }
+
+    #[test]
+    fn v2_too_long_for_a_narrow_column_is_written_in_cbc() {
+        let wc = WorkspaceCrypt::new(KEY);
+        // The longest plaintext whose CBC value fits 15000 chars.
+        let long = "x".repeat(11231);
+        let narrow = wc.encrypt_str_fitting(&long, CipherFormat::V2, false);
+        assert!(!wc.is_v2(&narrow) && narrow.len() <= NARROW_VARIABLE_VALUE_WIDTH);
+        assert_eq!(wc.decrypt_str(&narrow).unwrap(), long);
+        assert!(wc.is_v2(&wc.encrypt_str_fitting(&long, CipherFormat::V2, true)));
+        assert!(wc.is_v2(&wc.encrypt_str_fitting("short", CipherFormat::V2, false)));
     }
 
     #[test]

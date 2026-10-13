@@ -405,6 +405,12 @@ pub fn legacy_secret_upgrade_pending() -> bool {
 const VARIABLE_VALUE_WIDTH: i32 = 15040;
 static VARIABLE_VALUE_WIDENED: AtomicBool = AtomicBool::new(false);
 
+/// Whether this process has seen `variable.value` wide enough for every v2 value. Only servers
+/// look, so it stays false in a worker.
+pub fn variable_value_widened() -> bool {
+    VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed)
+}
+
 /// Whether `variable.value` may still have to be widened to fit v2 values.
 pub fn variable_value_widen_pending() -> bool {
     CipherFormat::current() == CipherFormat::V2 && !VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed)
