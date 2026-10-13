@@ -318,6 +318,7 @@
 			<PageHeaderContent
 				item={{
 					path: pathSnapshot ?? shownPath,
+					summary: draft?.state?.description,
 					summaryContent: agentSummary,
 					// Only where the rename behind it can be saved: a reader who cannot write this agent
 					// keeps the segment that copies the path, rather than an editor with nothing to edit.
