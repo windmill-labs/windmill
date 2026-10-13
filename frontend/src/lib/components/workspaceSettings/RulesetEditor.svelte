@@ -378,7 +378,8 @@
 				/>
 				<div class="text-xs text-secondary ml-6">
 					Operators cannot fork a workspace unless a ruleset turns this on. It applies to every
-					operator, whatever the bypass list says, and the operator stays an operator in the fork.
+					operator, whatever the bypass list says. An operator who forks is a developer in the fork,
+					and counts as a developer seat, but still cannot deploy changes back to this workspace.
 				</div>
 			</div>
 

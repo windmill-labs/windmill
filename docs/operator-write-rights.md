@@ -103,6 +103,9 @@ Operators cannot fork unless some protection ruleset of the workspace carries
 rather than restricts, so it never goes through `check_user_against_rule` and its ruleset's bypass
 lists play no part. `canCreateFork` in `frontend/src/lib/utils/editInFork.ts` mirrors it.
 
-The fork copies the creator's `operator` flag and `role`, so an operator who forks is an operator in
-the fork. Without that, the bare creator row defaults to developer and forking becomes a way to gain
-write access.
+An operator who forks is a developer in the fork: the creator row copies only `is_admin`, and
+`operator` keeps its false default. That is the point of the rule, a copy to build in. It gives no
+write access to the parent: deploying a fork's changes back runs with the user's role in the
+parent, where the operator write checks refuse it, so an admin or a `wm_deployers` member deploys
+them instead. The developer row does cost a seat: the self-hosted seat count takes a user who is a
+developer in any workspace, forks included, as a full seat.

@@ -128,7 +128,7 @@
 
 	// Base candidates are the current workspace's family: its root first, then every fork/dev under it.
 	// Bases the user is an operator in stay listed: the server refuses one whose rulesets lack
-	// `AllowOperatorForking`, and the fork keeps the operator role.
+	// `AllowOperatorForking`, and deploying back from the fork runs with their role in the parent.
 	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, forkableWorkspaces))
 	let baseCandidates = $derived(
 		familyRoot ? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)] : []

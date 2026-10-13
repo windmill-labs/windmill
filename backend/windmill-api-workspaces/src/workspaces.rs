@@ -9798,11 +9798,13 @@ async fn write_workspace_fork(
     }
 
     // Ensure the creator is a member of the fork even without copy_members (or if they aren't a parent
-    // member). No-op when copy_members already brought their full row.
+    // member). No-op when copy_members already brought their full row. `operator` is left at its
+    // false default on purpose: an operator allowed by `AllowOperatorForking` develops in the fork,
+    // while deploying back still runs with their parent role, where operator write checks refuse it.
     sqlx::query!(
         "INSERT INTO usr
-           (workspace_id, email, username, is_admin, operator, role)
-           SELECT $1, email, username, is_admin, operator, role FROM usr
+           (workspace_id, email, username, is_admin)
+           SELECT $1, email, username, is_admin FROM usr
          WHERE workspace_id = $3 AND email = $2
          ON CONFLICT DO NOTHING
         ",

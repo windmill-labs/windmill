@@ -5,10 +5,10 @@ use sqlx::{Pool, Postgres};
 
 use windmill_test_utils::*;
 
-/// Operators cannot fork until a ruleset carries `AllowOperatorForking`, and the fork keeps them an
-/// operator rather than handing them the developer role the bare creator row would default to.
+/// Operators cannot fork until a ruleset carries `AllowOperatorForking`, and the fork they then
+/// create makes them a developer, not an operator.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_operator_fork_needs_ruleset_and_stays_operator(
+async fn test_operator_fork_needs_ruleset_and_develops_in_fork(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -57,7 +57,7 @@ async fn test_operator_fork_needs_ruleset_and_stays_operator(
     )
     .fetch_one(&db)
     .await?;
-    assert!(operator && !is_admin);
+    assert!(!operator && !is_admin);
 
     Ok(())
 }

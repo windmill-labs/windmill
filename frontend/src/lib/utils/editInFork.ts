@@ -19,16 +19,18 @@ export type ItemType = 'script' | 'flow' | 'app' | 'raw_app'
  * Whether to show the "edit in fork / dev workspace" affordance. Allowed when the user may create a
  * fork, OR when the current workspace has a canonical dev to route to — routing into an existing dev
  * workspace creates no fork, so it survives a locked prod that has `DisableWorkspaceForking` set.
- * Never for an operator, who has nothing to edit at the other end either way. User identity is read
- * non-reactively (it's stable within a session); reactivity comes from the workspace args.
+ * An operator gets it only when they may fork and there is no canonical dev: a new fork makes them a
+ * developer, but in an existing dev workspace they keep whatever role they have there. User identity
+ * is read non-reactively (it's stable within a session); reactivity comes from the workspace args.
  */
 export function editInForkAllowed(
 	currentWorkspaceId: string | undefined,
 	allWorkspaces: UserWorkspace[]
 ): boolean {
 	const user = get(userStore)
-	if (user?.operator) return false
-	return canCreateFork(user) || !!findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
+	const dev = findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
+	if (user?.operator) return canCreateFork(user) && !dev
+	return canCreateFork(user) || !!dev
 }
 
 /** Label for the affordance: "Edit in <dev name>" when routed to a canonical dev, else "Edit in fork". */

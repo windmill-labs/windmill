@@ -267,9 +267,9 @@
 						</div>
 					{/if}
 				{/if}
-				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !script.canWrite)}
-					<EditInForkButton itemType="script" path={script.path} />
-				{/if}
+			{/if}
+			{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !script.canWrite)}
+				<EditInForkButton itemType="script" path={script.path} />
 			{/if}
 		</span>
 		<Dropdown
@@ -360,10 +360,7 @@
 						// No `href`: the handler resolves the destination asynchronously, and a melt
 						// menu item's anchor navigates before a delegated onclick can preventDefault it.
 						action: (e) => onEditInForkClick(e, 'script', script.path),
-						hide:
-							$userStore?.operator ||
-							isCloudHosted() ||
-							!editInForkAllowed($workspaceStore, $userWorkspaces)
+						hide: isCloudHosted() || !editInForkAllowed($workspaceStore, $userWorkspaces)
 					},
 					{
 						displayName: 'Move/Rename',

@@ -1148,21 +1148,17 @@
 						/>
 					{/if}
 				{/if}
-				{#if !showEditButton && !isCloudHosted() && editInForkAllowed(workspaceId, $userWorkspaces)}
-					<Button
-						href={buildForkEditUrl(
-							isScript ? 'script' : 'flow',
-							job?.script_path ?? '',
-							workspaceId
-						)}
-						onClick={(e) => editInFork(e, isScript ? 'script' : 'flow', job?.script_path ?? '')}
-						unifiedSize="sm"
-						variant="default"
-						iconOnly={compactBar}
-						title={editInForkLabel(workspaceId, $userWorkspaces)}
-						startIcon={{ icon: Pen }}>{editInForkLabel(workspaceId, $userWorkspaces)}</Button
-					>
-				{/if}
+			{/if}
+			{#if !showEditButton && !isCloudHosted() && editInForkAllowed(workspaceId, $userWorkspaces)}
+				<Button
+					href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '', workspaceId)}
+					onClick={(e) => editInFork(e, isScript ? 'script' : 'flow', job?.script_path ?? '')}
+					unifiedSize="sm"
+					variant="default"
+					iconOnly={compactBar}
+					title={editInForkLabel(workspaceId, $userWorkspaces)}
+					startIcon={{ icon: Pen }}>{editInForkLabel(workspaceId, $userWorkspaces)}</Button
+				>
 			{/if}
 		{/if}
 		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
