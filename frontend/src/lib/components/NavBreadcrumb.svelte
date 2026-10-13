@@ -372,12 +372,17 @@ not this component) — so the lead can run the whole line.
 		</div>
 	{/if}
 
-	{#if !nameOnly && (item || section || routePage)}
+	<!-- The summary that follows is the item's name for a person, so on a short bar it is the path
+	     that goes (see `TrailStage.path`). What the page hangs after the name stays. -->
+	{@const pathShown = f.path || itemIsLast}
+	{#if !nameOnly && (item ? pathShown : section || routePage)}
 		{@render slash()}
 	{/if}
 
 	{#if item}
-		{#if item.path}
+		{#if !pathShown}
+			{@render afterNameSlot(measure)}
+		{:else if item.path}
 			{@const shown = shownPathLevels(pathLevels, f)}
 			<!-- The path whole, as one label rather than a row of pickers: it is what a person reads
 			     to know which item this is, and what they reach for to paste somewhere else. -->
@@ -484,14 +489,19 @@ not this component) — so the lead can run the whole line.
 					SEGMENT,
 					LAST,
 					'hover:bg-transparent hover:text-emphasis',
-					section.content ? '' : 'truncate'
+					section.content ? '' : 'shrink-0'
 				)}
 				aria-current={measure ? undefined : 'page'}
 				bind:clientWidth={
 					() => sectionContentWidth, (w) => !measure && section.content && (sectionContentWidth = w)
 				}
 			>
-				{#if section.content}{@render section.content()}{:else}{section.label}{/if}
+				<!-- A plain label is the page's name, so it truncates the way an item's name does, in
+				     its turn: a run's id, left to flex, is squeezed to nothing under the buttons. -->
+				{#if section.content}{@render section.content()}{:else}<span
+						class="truncate"
+						style={capStyle('name', measure)}>{section.label}</span
+					>{/if}
 			</span>
 		{/if}
 		{@render afterNameSlot(measure)}
@@ -553,9 +563,13 @@ not this component) — so the lead can run the whole line.
 			bind:clientWidth={measures.fork}>{!nameOnly && showFork ? scopeName : ''}</span
 		>
 		<span
-			class={twMerge('inline-block whitespace-nowrap text-xs', itemIsLast ? LAST : LEAD)}
+			class={twMerge('inline-block whitespace-nowrap text-xs', itemIsLast || !item ? LAST : LEAD)}
 			bind:clientWidth={measures.name}
-			>{item?.path ? (pathLevels[pathLevels.length - 1] ?? '') : ''}</span
+			>{item?.path
+				? (pathLevels[pathLevels.length - 1] ?? '')
+				: !item && section && !section.kind && !section.content
+					? section.label
+					: ''}</span
 		>
 	</div>
 {/if}
