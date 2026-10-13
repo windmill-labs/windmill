@@ -3,12 +3,14 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { ChevronDown } from 'lucide-svelte'
 
+	let { hint = undefined }: { hint?: string } = $props()
+
 	let opened = $state(false)
 </script>
 
 <!-- Pulled up against the input above: it reads as a footnote on that field rather than
      as the next thing in the form. -->
-<div class="text-2xs flex flex-row-reverse -mt-2">
+<div class="text-2xs flex flex-row-reverse items-center justify-between gap-2 -mt-2">
 	<Button
 		on:click={() => {
 			opened = !opened
@@ -21,6 +23,9 @@
 	>
 		Help
 	</Button>
+	{#if hint}
+		<span class="text-hint">{hint}</span>
+	{/if}
 </div>
 
 {#if opened}

@@ -292,6 +292,16 @@
 		properties: { ...schemaProperties, ...overrideProperties }
 	})
 
+	function overrideHint(spec: AgentFieldSpec): string | undefined {
+		if (spec.group !== 'overrides' || !savedProvider) return undefined
+		if (spec.key !== 'reasoning_effort')
+			return `Saved on the agent: ${savedProvider.model || 'none'}`
+		if (effortCapability?.known && !effortCapability.supported) {
+			return `${effortModel} does not take a reasoning effort.`
+		}
+		return `Saved on the agent: ${savedProvider.reasoning_effort || 'none'}. Left empty, the model runs at its default.`
+	}
+
 	function fieldSchema(key: string) {
 		if (key === 'memory') return memoryFieldSchema
 		return key === 'model' || key === 'reasoning_effort' ? overrideFieldSchema : schema
@@ -536,7 +546,8 @@
 	tooltip: string | undefined,
 	removable: AgentFieldSpec | undefined,
 	header: Snippet | undefined = undefined,
-	collapsed: boolean = false
+	collapsed: boolean = false,
+	hint: string | undefined = undefined
 )}
 	<InputTransformForm
 		{previousModuleId}
@@ -550,6 +561,7 @@
 		argName={key}
 		{label}
 		headerTooltip={tooltip}
+		{hint}
 		hideDescription
 		subtleControls
 		{header}
@@ -694,24 +706,20 @@
 												</p>
 											{/if}
 										{:else}
-											{@render transformField(spec.key, spec.label, spec.tooltip, spec)}
+											{@render transformField(
+												spec.key,
+												spec.label,
+												spec.tooltip,
+												spec,
+												undefined,
+												false,
+												overrideHint(spec)
+											)}
 											{#if isHistoryKey(spec.key) && !historyInputApplies(spec.key, memoryMode)}
 												<p class="mt-1 text-2xs text-hint">
 													{memoryMode === 'legacy'
 														? legacyMemoryNote
 														: `Ignored while managed memory is ${memoryMode === 'managed' ? 'on' : 'off'}.`}
-												</p>
-											{/if}
-											{#if spec.group === 'overrides' && savedProvider}
-												<p class="mt-1 text-2xs text-hint">
-													{#if spec.key === 'reasoning_effort' && effortCapability?.known && !effortCapability.supported}
-														{effortModel} does not take a reasoning effort.
-													{:else if spec.key === 'reasoning_effort'}
-														Saved on the agent: {savedProvider.reasoning_effort || 'none'}. Left empty, the
-														model runs at its default.
-													{:else}
-														Saved on the agent: {savedProvider.model || 'none'}
-													{/if}
 												</p>
 											{/if}
 											{#if spec.key === 'enabled_tools' && noToolsEnabled}
