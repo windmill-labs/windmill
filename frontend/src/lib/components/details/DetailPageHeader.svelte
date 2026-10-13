@@ -20,10 +20,13 @@
 		/** Shown under the label once the button is a row of a menu. */
 		description?: string
 		buttonProps: ButtonProps
-		/** A secondary action, kept out of the bar at every width: in the ellipsis menu, or in the
-		 * dropdown of the enabled bar button labelled `dropdownOf` (the menu when there is none).
-		 * Unset makes it a bar button, which folds into the menu only when the bar is short. */
+		/** A secondary action: a bar button while the bar has room for every one, then, from the
+		 * first fold, in the ellipsis menu or in the dropdown of the enabled bar button labelled
+		 * `dropdownOf` (the menu when there is none). Unset makes it a main button, which goes to
+		 * the menu only on the folds after that. */
 		placement?: 'menu' | { dropdownOf: string }
+		/** In its `placement` at every width, never a bar button of its own. */
+		alwaysPlaced?: boolean
 	}
 
 	type ButtonProps = any
@@ -101,18 +104,27 @@
 	// no error handler and says so itself.
 	const renameKind = $derived(itemKind ?? errorHandlerKind)
 
-	// The band folds the bar buttons once its breadcrumb has given all it can (`actionFolds` below):
-	// first every one but the last, which is what the page is for (Edit), then that one too. The
-	// host knows when its own box is narrow while the window is not — a session's preview panel —
-	// and says so through `wide`, which only sends the error handler's toggle to the menu.
+	// The band folds the buttons once its breadcrumb has given all it can (`actionFolds` below):
+	// first the secondary ones go to their `placement`, then every bar button but the last, which
+	// is what the page is for (Edit), then that one too. The host knows when its own box is narrow
+	// while the window is not — a session's preview panel — and says so through `wide`, which only
+	// sends the error handler's toggle to the menu.
 	const fold = $derived(ownsPageHeader ? pageHeader.actionFold : 0)
-	const wideRow = $derived(wide && fold === 0)
+	const wideRow = $derived(wide && fold <= 1)
 
 	const rowButtons = $derived(mainButtons.filter((b) => !b.placement))
-	const barButtons = $derived(fold >= 2 ? [] : fold === 1 ? rowButtons.slice(-1) : rowButtons)
+	const barButtons = $derived(
+		fold === 0
+			? mainButtons.filter((b) => !b.alwaysPlaced)
+			: fold === 1
+				? rowButtons
+				: fold === 2
+					? rowButtons.slice(-1)
+					: []
+	)
 
 	function dropdownHost(btn: MainButton): MainButton | undefined {
-		if (typeof btn.placement !== 'object') return undefined
+		if (typeof btn.placement !== 'object' || barButtons.includes(btn)) return undefined
 		const label = btn.placement.dropdownOf
 		return barButtons.find((b) => b.label === label && !b.buttonProps.disabled)
 	}
@@ -121,7 +133,9 @@
 	 *  dropdown would have held, then the secondary actions with no bar button to hang from. */
 	const menuButtons = $derived.by(() => {
 		const folded = rowButtons.filter((b) => !barButtons.includes(b))
-		const homeless = mainButtons.filter((b) => b.placement && !dropdownHost(b))
+		const homeless = mainButtons.filter(
+			(b) => b.placement && !barButtons.includes(b) && !dropdownHost(b)
+		)
 		const childOf = (host: MainButton) =>
 			homeless.filter(
 				(b) => typeof b.placement === 'object' && b.placement.dropdownOf === host.label
@@ -295,7 +309,8 @@
 			pathTrigger: onSaved ? pathTrigger : undefined
 		}}
 		{actions}
-		actionFolds={2}
+		actionFolds={3}
+		earlyActionFolds={1}
 		contexts={headerContexts}
 		separator="always"
 	/>

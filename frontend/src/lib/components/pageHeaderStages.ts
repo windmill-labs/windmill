@@ -122,6 +122,9 @@ export type BarMeasure = {
 	actions: (number | undefined)[]
 	/** How many levels past the full row the page's actions can fold through. */
 	folds: number
+	/** How many of those levels fold before the breadcrumb drops anything: buttons that are there
+	 *  only while there is room for everything. */
+	earlyFolds?: number
 	natural: Record<Part, number>
 }
 
@@ -151,19 +154,27 @@ export function fitBar(m: BarMeasure): BarFit {
 	const floorWidth = (s: number, f: number) =>
 		m.chrome + (m.trail[s] ?? 0) + (m.summary[s] ?? 0) + actionsAt(f)
 
+	const early = Math.min(m.earlyFolds ?? 0, m.folds)
 	let stage = last
 	let fold = m.folds
 	choose: {
-		for (let s = 0; s <= last; s++) {
-			if (floorWidth(s, 0) <= m.barWidth) {
-				stage = s
-				fold = 0
+		for (let f = 0; f < early; f++) {
+			if (floorWidth(0, f) <= m.barWidth) {
+				stage = 0
+				fold = f
 				break choose
 			}
 		}
-		// The actions fold only once the breadcrumb has given all it can, so a narrowing bar only
-		// ever loses things: the parts it dropped do not come back when the buttons fold.
-		for (let f = 1; f <= m.folds; f++) {
+		for (let s = 0; s <= last; s++) {
+			if (floorWidth(s, early) <= m.barWidth) {
+				stage = s
+				fold = early
+				break choose
+			}
+		}
+		// The other levels fold only once the breadcrumb has given all it can, so a narrowing bar
+		// only ever loses things: the parts it dropped do not come back when the buttons fold.
+		for (let f = early + 1; f <= m.folds; f++) {
 			if (floorWidth(last, f) <= m.barWidth) {
 				fold = f
 				break choose

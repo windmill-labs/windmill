@@ -78,6 +78,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			actions:
 				actions.length === 0 ? [0] : actionsRigid ? actionWidths : [GAP + FLEXIBLE_ACTIONS_RESERVE],
 			folds: actions.length > 0 && actionsRigid ? (content?.actionFolds ?? 0) : 0,
+			earlyFolds: content?.earlyActionFolds,
 			natural: {
 				family: trailMeasures.family,
 				fork: trailMeasures.fork,

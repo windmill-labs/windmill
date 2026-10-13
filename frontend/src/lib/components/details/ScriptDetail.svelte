@@ -603,6 +603,7 @@
 			buttons.push({
 				label: 'Build app',
 				placement: 'menu',
+				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromScript(script.path, script.summary, script.schema)

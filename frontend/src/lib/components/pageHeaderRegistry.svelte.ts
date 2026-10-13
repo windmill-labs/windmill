@@ -57,6 +57,9 @@ export type PageHeaderContent = {
 	 *  all it can, and the page reads it back as `pageHeader.actionFold`. Without it the actions
 	 *  never fold and the breadcrumb gives up width around them. */
 	actionFolds?: number
+	/** How many of the `actionFolds` levels come before the breadcrumb drops anything: buttons
+	 *  that are there only while the bar has room for everything. */
+	earlyActionFolds?: number
 	/** A second row of the band, under the breadcrumb and the actions: where a control too wide
 	 *  for one row goes at a fold that has no room for it beside them, rather than being squeezed
 	 *  until it is useless. The band is taller while it is there. */
@@ -167,6 +170,7 @@ export const pageHeader = {
 			if (c.actionsFlexible !== undefined) merged.actionsFlexible = c.actionsFlexible
 			if (c.actionsFill !== undefined) merged.actionsFill = c.actionsFill
 			if (c.actionFolds !== undefined) merged.actionFolds = c.actionFolds
+			if (c.earlyActionFolds !== undefined) merged.earlyActionFolds = c.earlyActionFolds
 			if (c.belowBar !== undefined) merged.belowBar = c.belowBar
 			if (c.belowBarFold !== undefined) merged.belowBarFold = c.belowBarFold
 			if (c.separator !== undefined) merged.separator = c.separator

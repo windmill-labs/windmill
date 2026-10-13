@@ -26,6 +26,14 @@ describe('fitBar', () => {
 		expect(fitBar({ ...base, barWidth: 400 })).toMatchObject({ stage: 5, fold: 2 })
 	})
 
+	it('spends early folds before the breadcrumb drops anything', () => {
+		// 600 + 200 fits an 800px bar at the first fold; without early folds stage 2 would have
+		// dropped parts beside the full row instead.
+		expect(fitBar({ ...base, barWidth: 800, earlyFolds: 1 })).toMatchObject({ stage: 0, fold: 1 })
+		// Past that, the breadcrumb gives way at the early fold before the later folds start.
+		expect(fitBar({ ...base, barWidth: 700, earlyFolds: 1 })).toMatchObject({ stage: 2, fold: 1 })
+	})
+
 	it('tries a level it has not seen at the width of the next one folded further', () => {
 		// Only the second fold has been measured: the levels before it are assumed no wider, so the
 		// bar tries the full row first and goes on to the first fold once it has seen it overflow.

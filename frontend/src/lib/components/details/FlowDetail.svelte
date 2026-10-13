@@ -436,6 +436,7 @@
 			buttons.push({
 				label: 'Build app',
 				placement: 'menu',
+				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
