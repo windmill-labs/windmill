@@ -103,7 +103,7 @@ async function ask(message${t.chat ? ', conversation' : ''}, onText) {
 }
 
 export function sdkExample(t: AgentApiTarget): string {
-	return `import { useWindmillChat } from 'windmill-chat/react'
+	return `import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
 
 const API = '${t.api}'
 const TOKEN = '${t.token}'
@@ -151,9 +151,9 @@ Reading them back needs a token with the \`flow_conversations:read\` scope (\`:w
 - \`GET ${t.api}/flow_conversations/{id}/messages\`: its latest messages, oldest first.
 - \`DELETE ${t.api}/flow_conversations/delete/{id}\`.
 
-For a chat UI in React, the \`windmill-chat\` library (https://github.com/windmill-labs/windmill/tree/main/chat-sdk)
-does all of this: \`useWindmillChat\` from \`windmill-chat/react\`, or the Vercel AI SDK transport
-(\`windmill-chat/ai-sdk\`) and assistant-ui runtime (\`windmill-chat/assistant-ui\`). Point it at the
+For a chat UI in React, the \`@windmill-labs/chat-sdk\` package (npm, source at https://github.com/windmill-labs/windmill/tree/main/chat-sdk)
+does all of this: \`useWindmillChat\` from \`@windmill-labs/chat-sdk/react\`, or the Vercel AI SDK transport
+(\`@windmill-labs/chat-sdk/ai-sdk\`) and assistant-ui runtime (\`@windmill-labs/chat-sdk/assistant-ui\`). Point it at the
 agent with \`flowPath: '${t.agentPath}.chat'\` and a \`run(args, { conversationId, signal })\` option
 that POSTs \`args\` to the run endpoint with \`memory_id=conversationId\` and returns the job id.
 `
