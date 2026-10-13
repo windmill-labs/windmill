@@ -1728,8 +1728,9 @@ pub async fn cached_result_path(
     }
     // What a run returns depends on whose roles its data table connections hold, its own
     // identity's or its viewer's, and `WM_END_USER_EMAIL` names the viewer: a result cached for
-    // one of either, or in one of the two modes, is never served to another. Length-prefixed,
-    // like the viewer below.
+    // one of either, or in one of the two modes, is never served to another. The arguments follow
+    // undelimited, so every field here is fixed-width or length-prefixed and always present: an
+    // optional marker would read the same as an argument whose name starts with it.
     hasher.update(b"permissioned_as:");
     hasher.update((job.permissioned_as.len() as u64).to_le_bytes());
     hasher.update(job.permissioned_as.as_bytes());
@@ -1743,13 +1744,8 @@ pub async fn cached_result_path(
     .fetch_optional(db)
     .await?;
     let (end_user, as_viewer) = perms.unwrap_or_default();
-    if as_viewer {
-        hasher.update(b"datatable_as_viewer;");
-    }
-    // Length-prefixed: the arguments follow undelimited, and the end of one viewer's address
-    // must not read as the start of another run's first argument name.
+    hasher.update([as_viewer as u8, end_user.is_some() as u8]);
     if let Some(end_user) = end_user {
-        hasher.update(b"end_user:");
         hasher.update((end_user.len() as u64).to_le_bytes());
         hasher.update(end_user.as_bytes());
     }
@@ -2522,6 +2518,8 @@ mod tests {
             ("u/publisher", Some("a@windmill.com"), false, "ode"),
             ("u/other", None, false, "mode"),
             ("u/publisher", Some("a@windmill.dev"), true, "mode"),
+            ("u/publisher", None, false, "datatable_as_viewer;mode"),
+            ("u/publisher", None, true, "mode"),
         ] {
             let args = HashMap::from([(arg.to_string(), to_raw_value(&"all"))]);
             let job = MiniPulledJob {
@@ -2563,6 +2561,10 @@ mod tests {
         assert_ne!(
             paths[0], paths[7],
             "a result read with the app's roles is served once the runnable connects as its viewer"
+        );
+        assert_ne!(
+            paths[8], paths[9],
+            "an argument name reads as the mode of another run"
         );
     }
 
