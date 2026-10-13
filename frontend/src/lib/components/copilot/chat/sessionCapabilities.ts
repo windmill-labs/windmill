@@ -9,8 +9,9 @@ import type { Tool } from './shared'
  * what the model is offered and guarantees nothing.
  */
 export type SessionCapability =
-	/** Passes drafts.rs `require_can_write_path` — for a draft of any kind, schedules and
-	 * triggers included, though an operator may create those directly. */
+	/** Passes drafts.rs `require_can_write_path` for a draft of any kind. A tool writing only
+	 * schedule or trigger drafts requires the narrower capability below instead, which an
+	 * operator can hold. */
 	| 'write_draft'
 	/** Passes `require_can_write_path` for a flow draft, which an operator also passes where the
 	 * workspace grants `builder_flows`. The server then refuses a draft carrying inline code. */
