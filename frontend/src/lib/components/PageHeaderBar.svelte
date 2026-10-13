@@ -36,6 +36,8 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	const item = $derived(content?.item)
 	const section = $derived(content?.section)
 	const hasSummary = $derived(!!item && !!(item.summaryContent || item.summary))
+	/** A summary control can be a placeholder offering to add one; the text is what names the item. */
+	const summaryNamesItem = $derived(!!item?.summary?.trim())
 
 	/** A phone's bar: a tighter gutter around the same row. */
 	const phone = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
@@ -79,6 +81,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 				actions.length === 0 ? [0] : actionsRigid ? actionWidths : [GAP + FLEXIBLE_ACTIONS_RESERVE],
 			folds: actions.length > 0 && actionsRigid ? (content?.actionFolds ?? 0) : 0,
 			earlyFolds: content?.earlyActionFolds,
+			summaryNamesItem,
 			natural: {
 				family: trailMeasures.family,
 				fork: trailMeasures.fork,
@@ -92,9 +95,17 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	// Re-attached whenever the fold level changes, so the first reading at a level is taken even
 	// when the row comes out exactly as wide as it was at the last one.
+	// The page's actions can change on screen — a run's Cancel goes once the job completes — and
+	// the other levels most likely changed with them, so a change here drops their widths: kept, a
+	// stale wider one would hold the row folded for good. The bar measures them again by trying.
+	function recordActions(fold: number, width: number) {
+		const seen = actionWidths[fold]
+		if (seen !== undefined && seen !== width) actionWidths = []
+		actionWidths[fold] = width
+	}
 	function measureActions(fold: number, _epoch: number): Attachment<HTMLElement> {
 		return (node) => {
-			const ro = new ResizeObserver(() => (actionWidths[fold] = GAP + node.offsetWidth))
+			const ro = new ResizeObserver(() => recordActions(fold, GAP + node.offsetWidth))
 			ro.observe(node)
 			return () => ro.disconnect()
 		}
@@ -248,7 +259,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			     another level of it. With the path dropped it follows the workspace, and the slash is
 			     the trail's own separator. Fixed width, so either fits the width measured below. -->
 				<span class="shrink-0 w-2 text-center text-hint/40 text-xs" aria-hidden="true"
-					>{stage.path ? '·' : '/'}</span
+					>{stage.path || !summaryNamesItem ? '·' : '/'}</span
 				>
 				{#if item.summaryContent}
 					<!-- Read only while uncapped: capped, the box says how wide the bar let it be, not how

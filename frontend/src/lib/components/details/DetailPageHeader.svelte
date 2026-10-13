@@ -106,10 +106,11 @@
 
 	// The band folds the buttons once its breadcrumb has given all it can (`actionFolds` below):
 	// first the secondary ones go to their `placement`, then every bar button but the last, which
-	// is what the page is for (Edit), then that one too. The host knows when its own box is narrow
-	// while the window is not — a session's preview panel — and says so through `wide`, which only
-	// sends the error handler's toggle to the menu.
-	const fold = $derived(ownsPageHeader ? pageHeader.actionFold : 0)
+	// is what the page is for (Edit), then that one too. Outside the band — a session's preview
+	// panel — no bar measures the row, but the host knows when its own box is narrow while the
+	// window is not and says so through `wide`: the secondary buttons fold there, as at the first
+	// fold, and the error handler's toggle goes to the menu.
+	const fold = $derived(ownsPageHeader ? pageHeader.actionFold : wide ? 0 : 1)
 	const wideRow = $derived(wide && fold <= 1)
 
 	const rowButtons = $derived(mainButtons.filter((b) => !b.placement))
@@ -303,6 +304,7 @@
 		item={{
 			kind: errorHandlerKind,
 			path,
+			summary,
 			summaryContent,
 			// Only where this page can save one: without `onSaved` the editor behind it has nothing
 			// to write, and the band keeps its own segment, which copies the path.

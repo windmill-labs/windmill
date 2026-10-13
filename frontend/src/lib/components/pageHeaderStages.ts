@@ -95,7 +95,12 @@ export function shownPathLevels(levels: string[], stage: TrailStage): string[] {
 }
 
 /** Whether a part is on screen at a stage. A natural width of 0 means the page has no such part. */
-export function partVisible(part: Part, stage: BarStage, natural: Record<Part, number>): boolean {
+export function partVisible(
+	part: Part,
+	stage: BarStage,
+	natural: Record<Part, number>,
+	summaryNamesItem = true
+): boolean {
 	if (natural[part] <= 0) return false
 	switch (part) {
 		case 'summary':
@@ -106,7 +111,7 @@ export function partVisible(part: Part, stage: BarStage, natural: Record<Part, n
 		case 'fork':
 			return !stage.wsButton && stage.forkName
 		case 'name':
-			return stage.path || natural.summary <= 0
+			return stage.path || natural.summary <= 0 || !summaryNamesItem
 	}
 }
 
@@ -126,6 +131,9 @@ export type BarMeasure = {
 	 *  only while there is room for everything. */
 	earlyFolds?: number
 	natural: Record<Part, number>
+	/** The summary is the item's own text, not a placeholder offering to add one: only then does it
+	 *  name the item well enough for the path to go. */
+	summaryNamesItem?: boolean
 }
 
 export type BarFit = {
@@ -185,7 +193,7 @@ export function fitBar(m: BarMeasure): BarFit {
 	const at = BAR_STAGES[stage]
 	// The summary gives last: it is what a person calls the item, so the path's name goes first.
 	const parts = (['family', 'fork', 'name', 'summary'] as Part[]).filter((p) =>
-		partVisible(p, at, m.natural)
+		partVisible(p, at, m.natural, m.summaryNamesItem ?? true)
 	)
 	const slack = (p: Part) => Math.max(0, m.natural[p] - Math.min(m.natural[p], FLOOR[p]))
 	// The stage was measured with its parts at their floors; this is its width with them whole.

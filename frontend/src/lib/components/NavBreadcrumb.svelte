@@ -160,6 +160,9 @@ not this component) — so the lead can run the whole line.
 	// The summary is the band's, not the breadcrumb's (see PageHeaderBar), so the path reads as the
 	// last segment only for an item that has no summary to follow it.
 	const itemIsLast = $derived(!!item && !item.summaryContent && !item.summary)
+	/** Only the summary's text names the item: a control offering to add one does not, and the path
+	 *  then stays at every stage. */
+	const summaryNamesItem = $derived(!!item?.summary?.trim())
 
 	// No hover fill: the chevron beside it is what reacts to the pointer. The accent stays on the
 	// fork's own name inside, so the family's name is not painted as if it were the fork.
@@ -374,7 +377,7 @@ not this component) — so the lead can run the whole line.
 
 	<!-- The summary that follows is the item's name for a person, so on a short bar it is the path
 	     that goes (see `TrailStage.path`). What the page hangs after the name stays. -->
-	{@const pathShown = f.path || itemIsLast}
+	{@const pathShown = f.path || !summaryNamesItem}
 	{#if !nameOnly && (item ? pathShown : section || routePage)}
 		{@render slash()}
 	{/if}
