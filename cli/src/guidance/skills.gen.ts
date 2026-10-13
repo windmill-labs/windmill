@@ -9019,6 +9019,13 @@ Arguments (omit both to be prompted interactively):
   - \`--team-id <team_id:string>\` - Slack team id
   - \`--team-name <team_name:string>\` - Slack team name
 - \`workspace disconnect-slack\` - Clear slack_team_id / slack_name on the active workspace (marks the workspace as disconnected). Does NOT remove the bot token variable/resource/folder/group — delete those from the local sync folder and run 'wmill sync push' to tear them down. Does NOT remove the workspace-level OAuth override — set slack_oauth_client_id/_secret to '' in settings.yaml and push.
+- \`workspace get-settings\` - Print the active workspace's settings in the layout of the settings.yaml that 'wmill sync' writes. Secrets show as __SENSITIVE_AND_UNCHANGED__ unless --encrypted. Admin only.
+  - \`--encrypted\` - Write secrets encrypted with the workspace key, as 'wmill sync pull' does
+  - \`--json\` - Output as JSON
+- \`workspace apply-settings <file:string>\` - Apply a settings document (YAML or JSON, in the layout of settings.yaml) to the active workspace. Only the settings the file states are changed, unless --replace; a setting set to null is cleared. A secret left as __SENSITIVE_AND_UNCHANGED__ keeps its value. Shows the changes and asks before applying. Admin only.
+  - \`--dry-run\` - Only show the changes
+  - \`--replace\` - Also clear the settings the file omits, as 'wmill sync push' does
+  - \`-y --yes\` - Apply without asking
 
 
 

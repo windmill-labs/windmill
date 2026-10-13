@@ -268,18 +268,47 @@ enum Target {
 struct Write {
     target: Target,
     body: Value,
+    /// The document keys this write applies, for error messages.
+    keys: Vec<String>,
 }
 
 fn is_null(v: Option<&Value>) -> bool {
     v.is_none_or(Value::is_null)
 }
 
+/// The endpoints drop a null member rather than store it, so a document stating one would
+/// otherwise differ from the stored value on every apply.
+fn without_null_members(v: &Value) -> Value {
+    match v {
+        Value::Object(m) => Value::Object(
+            m.iter()
+                .filter(|(_, v)| !v.is_null())
+                .map(|(k, v)| (k.clone(), without_null_members(v)))
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.iter().map(without_null_members).collect()),
+        v => v.clone(),
+    }
+}
+
 fn same(a: Option<&Value>, b: Option<&Value>) -> bool {
     match (a, b) {
         (a, b) if is_null(a) && is_null(b) => true,
-        (Some(a), Some(b)) => a == b,
+        (Some(a), Some(b)) => without_null_members(a) == without_null_members(b),
         _ => false,
     }
+}
+
+/// Switches the endpoint stores as `false` when cleared, compared as `false` when unset.
+const FALSE_WHEN_UNSET: &[&str] = &[
+    "mute_critical_alerts",
+    "guest_access_enabled",
+    "add_admins_and_developers_to_forks",
+    "error_handler_fallback_to_instance_alerts",
+];
+
+fn null_as_false(v: Option<Value>) -> Option<Value> {
+    v.map(|v| if v.is_null() { Value::Bool(false) } else { v })
 }
 
 fn redact(key: &str, v: Value) -> Value {
@@ -323,7 +352,13 @@ impl Plan {
     }
 
     fn differs(&self, key: &str, desired: &Value) -> bool {
-        !same(self.current.get(key), Some(desired))
+        let current = self.current.get(key).cloned();
+        let current = if FALSE_WHEN_UNSET.contains(&key) {
+            null_as_false(Some(current.unwrap_or(Value::Null)))
+        } else {
+            current
+        };
+        !same(current.as_ref(), Some(desired))
     }
 
     fn record(&mut self, key: &str, after: Value) {
@@ -335,8 +370,11 @@ impl Plan {
         });
     }
 
+    /// A write applying the keys recorded since the previous one.
     fn write(&mut self, target: Target, body: Value) {
-        self.writes.push(Write { target, body });
+        let from = self.writes.iter().map(|w| w.keys.len()).sum::<usize>();
+        let keys = self.changes[from..].iter().map(|c| c.key.clone()).collect();
+        self.writes.push(Write { target, body, keys });
     }
 
     /// The common case: one key, one endpoint, a body built from the desired value.
@@ -413,7 +451,7 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
                     ));
                 }
             }
-            let mut after = desired_domain.clone();
+            let mut after = if auto_invite.is_null() { Value::Null } else { desired_domain.clone() };
             if let (Some(after), Some(cur)) = (
                 after.as_object_mut(),
                 p.current.get("auto_invite").and_then(Value::as_object),
@@ -474,7 +512,7 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
         }
     });
 
-    let fallback = p.managed("error_handler_fallback_to_instance_alerts");
+    let fallback = null_as_false(p.managed("error_handler_fallback_to_instance_alerts"));
     let fallback_changes = fallback
         .as_ref()
         .is_some_and(|f| p.differs("error_handler_fallback_to_instance_alerts", f));
@@ -555,7 +593,7 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
     // The display name is never applied: settings.yaml is shared across a repo's branches, so
     // applying it would let one workspace's name overwrite another's.
 
-    let mute = p.legacy("mute_critical_alerts");
+    let mute = null_as_false(p.legacy("mute_critical_alerts"));
     p.simple(
         "mute_critical_alerts",
         mute,
@@ -698,7 +736,7 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
         |v| json!({ "public_app_execution_limit_per_minute": v }),
     );
 
-    let guest_access = p.managed("guest_access_enabled");
+    let guest_access = null_as_false(p.managed("guest_access_enabled"));
     p.simple(
         "guest_access_enabled",
         guest_access,
@@ -739,7 +777,7 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
         }
     }
 
-    let forks = p.managed("add_admins_and_developers_to_forks");
+    let forks = null_as_false(p.managed("add_admins_and_developers_to_forks"));
     p.simple(
         "add_admins_and_developers_to_forks",
         forks,
@@ -834,15 +872,18 @@ pub async fn apply_settings_document(
     }
     let mut written: Vec<String> = vec![];
     for write in p.writes {
-        let target = format!("{:?}", write.target);
+        let keys = write.keys.clone();
         let response = execute(&authed, &db, &w_id, write).await.map_err(|e| {
             if written.is_empty() {
-                e
-            } else {
-                Error::BadRequest(format!(
-                    "{e} (settings already applied before this error: {})",
-                    written.join(", ")
-                ))
+                return e;
+            }
+            let applied = format!(
+                " (settings already applied before this error: {})",
+                written.join(", ")
+            );
+            match e {
+                Error::BadRequest(m) => Error::BadRequest(format!("{m}{applied}")),
+                e => Error::BadRequest(format!("{e}{applied}")),
             }
         })?;
         if let Some(stranded) = response
@@ -865,7 +906,7 @@ pub async fn apply_settings_document(
                 "Removed data tables governed data tables in other workspaces, which no longer resolve: {refs}. A superadmin can point them somewhere else."
             ));
         }
-        written.push(target);
+        written.extend(keys);
     }
     result.applied = true;
     Ok(Json(result))

@@ -2580,6 +2580,11 @@ function stripUnappliedSettingsFields(local: any, remote: any) {
   for (const key of ["operator_settings", ...SETTINGS_MANAGED_ONLY_WHEN_PRESENT]) {
     if (local?.[key] === undefined) delete remote?.[key];
   }
+  // push clears an omitted mute_critical_alerts to false
+  if (local?.mute_critical_alerts == null && remote?.mute_critical_alerts === false) {
+    delete local?.mute_critical_alerts;
+    delete remote.mute_critical_alerts;
+  }
   if (local?.color == null) {
     delete local?.color;
     delete remote?.color;
