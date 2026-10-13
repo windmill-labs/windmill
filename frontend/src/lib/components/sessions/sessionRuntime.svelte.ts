@@ -1,6 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { get } from 'svelte/store'
-import { base } from '$lib/base'
 import { invalidate as invalidateWorkspaceItems } from '$lib/components/workspacePicker'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -104,6 +103,7 @@ import {
 	type RawAppRunsProvider,
 	type RawAppScreenshotRequester
 } from '$lib/components/raw_apps/utils'
+import { resolveGlobalDraftStoragePathByKind } from '$lib/components/copilot/chat/global/userDraftAdapter'
 import type {
 	RawAppDomQuery,
 	RawAppDomRequester,
@@ -599,7 +599,7 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.openRunInPreview = ({ jobId, workspace, label }) => {
 		previewTabs.open({
 			type: 'page',
-			href: `${base}/run/${jobId}?workspace=${workspace}`,
+			href: `/run/${jobId}?workspace=${workspace}`,
 			label
 		})
 	}
@@ -612,7 +612,7 @@ function createRuntime(session: Session): SessionRuntime {
 	}
 	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
 	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
-		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
+		previewTabs.retargetRunForm(toolCallId, `/run/${jobId}?workspace=${workspace}`)
 	}
 	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
 	// away from is unmounted but still open, and the card must keep its form hidden until it
@@ -1121,7 +1121,7 @@ function createRuntime(session: Session): SessionRuntime {
 		},
 		async requestRuntimeLogs(limit, appPath) {
 			const path =
-				appPath ??
+				(appPath && draftStoragePath(session, 'raw_app', appPath)) ??
 				activeDomAppPath ??
 				(runtimeLogRequesters.size === 1 ? [...runtimeLogRequesters.keys()][0] : undefined)
 			if (path === undefined) {
@@ -1157,7 +1157,7 @@ function createRuntime(session: Session): SessionRuntime {
 			// its element's app even when another tab is now visible), else the
 			// active preview, else the only one open.
 			const path =
-				query.appPath ??
+				(query.appPath && draftStoragePath(session, 'raw_app', query.appPath)) ??
 				activeDomAppPath ??
 				(domRequesters.size === 1 ? [...domRequesters.keys()][0] : undefined)
 			if (path === undefined) return undefined
@@ -1373,6 +1373,18 @@ export function removeSession(sessionId: string): void {
 	deleteSessionState(sessionId)
 }
 
+// The chat calls a new item by its chosen name while its draft is stored at
+// `draft_<uuid>`; resolve the name the way the chat's write tools do.
+function draftStoragePath(
+	session: Session,
+	kind: 'script' | 'flow' | 'raw_app',
+	path: string
+): string {
+	return session.workspace_id
+		? resolveGlobalDraftStoragePathByKind(session.workspace_id, kind, path)
+		: path
+}
+
 // Register the global open_preview tool handler once at module load. It
 // dispatches to the *calling* session (sessionId threaded from the tool ctx),
 // falling back to the UI-active session only when none was passed — so a
@@ -1388,7 +1400,10 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) =
 	if (!session) {
 		return 'Error: no active session to open the preview in.'
 	}
-	const target = previewTargetForSessionTarget(kind, path)
+	const target = previewTargetForSessionTarget(
+		kind,
+		mode === 'view' || kind === 'pipeline' ? path : draftStoragePath(session, kind, path)
+	)
 	if (!target) {
 		return `Error: ${kind} targets cannot be shown in the preview panel.`
 	}

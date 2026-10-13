@@ -1,23 +1,14 @@
-import { goto as svelteGoto } from '$app/navigation'
-import { base as svelteBase } from '$app/paths'
+import { goto } from '$app/navigation'
 import { serializeParam } from '$lib/utils/serializeParam'
 
-export function goto(path: string, options = {}) {
-	if (svelteBase == '' || path.startsWith('?')) {
-		return svelteGoto(path, options)
-	} else {
-		const fullPath = path.startsWith(svelteBase) ? path : `${svelteBase}${path}`
-		return svelteGoto(fullPath, options)
-	}
-}
+export { goto }
 
 /**
  * Build an in-app deep-link to `pathname` with query-param filters, encoded exactly
  * as the pages write them (via `serializeParam`) so `useUrlSyncedFilterInstance`
  * round-trips them back into filter state. Nullish/empty values are dropped; when
  * `validKeys` is provided, unknown keys are dropped too (structured output guarantees
- * shape, not truth). Returns an un-prefixed app path — pass it to `goto`, which adds
- * the SvelteKit base.
+ * shape, not truth). Returns an app path to pass to `goto`.
  */
 export function buildFilterUrl(
 	pathname: string,

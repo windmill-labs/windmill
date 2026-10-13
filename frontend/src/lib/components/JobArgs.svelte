@@ -15,6 +15,7 @@
 	import { isWindmillTooBigObject } from './job_args'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 
 	interface Props {
 		id?: string | undefined
@@ -246,7 +247,7 @@ ${Object.entries(displayArgs)
 		If using the wmill client in your code, set the following env variables:
 		<pre
 			><code
-				>BASE_URL="{window.location.origin}"
+				>BASE_URL="{apiBaseUrl()}"
 WM_TOKEN="{'<TOKEN>'}"</code
 			></pre
 		>

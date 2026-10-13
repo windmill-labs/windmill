@@ -182,6 +182,15 @@ pub struct CanceledBy {
     pub reason: Option<String>,
 }
 
+/// What only the worker that ran a job knows about it, for the per-runnable rollup: an
+/// agent worker's completion is processed by the server, whose own worker group is not
+/// the one the job ran in.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobResourceUsage {
+    pub worker_group: String,
+    pub cpu_time_ms: Option<i64>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JobCompleted {
     pub job: MiniCompletedJob,
@@ -196,6 +205,8 @@ pub struct JobCompleted {
     pub duration: Option<i64>,
     pub has_stream: Option<bool>,
     pub from_cache: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_usage: Option<JobResourceUsage>,
     #[serde(skip)]
     pub flow_runners: Option<Arc<FlowRunners>>,
     #[serde(skip)]
@@ -4320,6 +4331,7 @@ impl PulledJobResult {
                     ))),
                     result_columns: None,
                     mem_peak: 0,
+                    resource_usage: None,
                     cached_res_path: None,
                     token: "".to_string(),
                     canceled_by: None,
@@ -4341,6 +4353,7 @@ impl PulledJobResult {
                     }))),
                     result_columns: None,
                     mem_peak: 0,
+                    resource_usage: None,
                     cached_res_path: None,
                     token: "".to_string(),
                     canceled_by: None,

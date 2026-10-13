@@ -40,9 +40,9 @@ VALUES (encode(sha256('NO_WS_TOKEN'::bytea), 'hex'), 'NO_WS_TOKE', 'NO_WS_TOKEN'
 INSERT INTO script (workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, kind, extra_perms)
 VALUES (
     'test-workspace', 'test-user',
-    'export function main() { return Deno.env.get("WM_END_USER_EMAIL") || ""; }',
+    'export function main() { return process.env.WM_END_USER_EMAIL || ""; }',
     '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
-    'Returns WM_END_USER_EMAIL', '', 'f/test/get_end_user_email', 900001, 'deno', '', 'script',
+    'Returns WM_END_USER_EMAIL', '', 'f/test/get_end_user_email', 900001, 'bun', E'{}\n//bun.lock\n<empty>', 'script',
     '{"g/all": true}'
 );
 
@@ -51,7 +51,7 @@ INSERT INTO flow (workspace_id, summary, description, path, versions, schema, va
 VALUES (
     'test-workspace', 'Returns WM_END_USER_EMAIL', '', 'f/test/get_end_user_email_flow', '{900002}',
     '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
-    '{"modules": [{"id": "a", "value": {"type": "rawscript", "language": "deno", "content": "export function main() { return Deno.env.get(\"WM_END_USER_EMAIL\") || \"\"; }", "input_transforms": {}}}, {"id": "b", "value": {"type": "rawscript", "language": "deno", "content": "export function main() { return Deno.env.get(\"WM_END_USER_EMAIL\") || \"\"; }", "input_transforms": {}}}]}',
+    '{"modules": [{"id": "a", "value": {"type": "rawscript", "language": "bun", "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }", "input_transforms": {}}}, {"id": "b", "value": {"type": "rawscript", "language": "bun", "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }", "input_transforms": {}}}]}',
     'test-user',
     '{"g/all": true}'
 );
@@ -60,6 +60,6 @@ INSERT INTO flow_version (id, workspace_id, path, schema, value, created_by)
 VALUES (
     900002, 'test-workspace', 'f/test/get_end_user_email_flow',
     '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
-    '{"modules": [{"id": "a", "value": {"type": "rawscript", "language": "deno", "content": "export function main() { return Deno.env.get(\"WM_END_USER_EMAIL\") || \"\"; }", "input_transforms": {}}}, {"id": "b", "value": {"type": "rawscript", "language": "deno", "content": "export function main() { return Deno.env.get(\"WM_END_USER_EMAIL\") || \"\"; }", "input_transforms": {}}}]}',
+    '{"modules": [{"id": "a", "value": {"type": "rawscript", "language": "bun", "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }", "input_transforms": {}}}, {"id": "b", "value": {"type": "rawscript", "language": "bun", "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }", "input_transforms": {}}}]}',
     'test-user'
 );

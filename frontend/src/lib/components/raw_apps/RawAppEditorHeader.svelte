@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Drawer, DrawerContent } from '$lib/components/common'
-	import { base } from '$lib/base'
 	import RawAppRecordSession from '$lib/components/workspaceSettings/RawAppRecordSession.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isMac, userPathPrefix, emptyString } from '$lib/utils'
@@ -207,7 +206,7 @@
 
 	let {
 		summary = $bindable(),
-		policy = $bindable(),
+		policy,
 		diffDrawer = undefined,
 		savedApp = $bindable(undefined),
 		version = $bindable(undefined),
@@ -352,8 +351,12 @@
 		saveDrawerOpen = false
 	}
 
-	async function computeTriggerables() {
-		policy = await updateRawAppPolicy(runnables, policy)
+	// Returns a copy: `policy` is the editor's own object, which the Deploy panel's
+	// instant toggles mutate in place. Reassigning it would detach the panel from the
+	// editor, so later toggles would never reach the preview. After a successful save,
+	// copy only `triggerables_v2` back so the editor's value matches what was deployed.
+	function policyWithTriggerables() {
+		return updateRawAppPolicy(runnables, policy)
 	}
 
 	async function createApp(path: string) {
@@ -364,9 +367,9 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
-		await computeTriggerables()
 		try {
 			const { js, css } = await getBundle()
+			const deployedPolicy = await policyWithTriggerables()
 			await AppService.createAppRaw({
 				workspace: opWorkspace!,
 				formData: {
@@ -374,7 +377,7 @@
 						value: app,
 						path,
 						summary: summary,
-						policy,
+						policy: deployedPolicy,
 						deployment_message: deploymentMsg,
 						custom_path: customPath,
 						preserve_on_behalf_of: preserveOnBehalfOf || undefined,
@@ -384,6 +387,7 @@
 					css
 				}
 			})
+			policy.triggerables_v2 = deployedPolicy.triggerables_v2
 			// New path now exists server-side — drop the autocomplete cache so
 			// it shows up immediately instead of after the 60s TTL.
 			invalidateWorkspacePaths(opWorkspace!)
@@ -391,7 +395,7 @@
 				summary: summary,
 				value: structuredClone(stateSnapshot(app)),
 				path: path,
-				policy: policy,
+				policy: deployedPolicy,
 				custom_path: customPath,
 				labels: $state.snapshot(labels)
 			}
@@ -589,10 +593,10 @@
 			return
 		}
 		const { js, css } = await getBundle()
-		await computeTriggerables()
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
+		const deployedPolicy = await policyWithTriggerables()
 		const deployed = await AppService.updateAppRaw({
 			workspace: opWorkspace!,
 			path: appPath!,
@@ -600,7 +604,7 @@
 				app: {
 					value: app!,
 					summary: summary,
-					policy,
+					policy: deployedPolicy,
 					path: npath,
 					deployment_message: deploymentMsg,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
@@ -614,12 +618,13 @@
 				css
 			}
 		})
+		policy.triggerables_v2 = deployedPolicy.triggerables_v2
 		invalidateWorkspacePaths(opWorkspace!)
 		savedApp = {
 			summary: summary,
 			value: structuredClone(stateSnapshot(app)),
 			path: npath,
-			policy,
+			policy: deployedPolicy,
 			custom_path: customPath,
 			labels: $state.snapshot(labels)
 		}
@@ -655,12 +660,13 @@
 	}
 
 	async function setPublishState(message?: string) {
-		await computeTriggerables()
+		const nextPolicy = await policyWithTriggerables()
 		await AppService.updateApp({
 			workspace: opWorkspace!,
 			path: appPath,
-			requestBody: { policy }
+			requestBody: { policy: nextPolicy }
 		})
+		policy.triggerables_v2 = nextPolicy.triggerables_v2
 		if (message) {
 			sendUserToast(message)
 		} else if (policy.execution_mode == 'anonymous') {
@@ -903,12 +909,12 @@
 				</span>
 				<span>
 					Stop recording, then <b>Download</b> the JSON. It is self-contained: open it on
-					<a href="{base}/replay" target="_blank" rel="noreferrer" class="text-blue-500 underline">
-						{base}/replay
+					<a href="/replay" target="_blank" rel="noreferrer" class="text-blue-500 underline">
+						/replay
 					</a>
 					— a public page that needs no login and can be embedded in an iframe. Host the JSON anywhere
 					it can be fetched (S3, GitHub raw, your docs site) and link
-					<span class="font-mono">{base}/replay?src=&lt;url&gt;</span> to have it load itself. Windmill
+					<span class="font-mono">/replay?src=&lt;url&gt;</span> to have it load itself. Windmill
 					keeps no copy.
 				</span>
 			</div>

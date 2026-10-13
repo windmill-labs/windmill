@@ -11,7 +11,6 @@ import {
 } from './sessionPreviewTabs.svelte'
 import { artifactUrl, type PreviewTarget } from './previewRouter'
 import type { SessionPreviewTab } from './sessionState.svelte'
-import { base } from '$lib/base'
 
 // In-memory adapter spy: records persisted snapshots, no IDB.
 function makeAdapter() {
@@ -48,10 +47,10 @@ const dndAppTarget: PreviewTarget = {
 	item: { kind: 'app', path: 'u/me/legacy', summary: '' }
 }
 const pageTarget: PreviewTarget = { type: 'page', href: '/runs', label: 'Runs' }
-const pipelineTarget: PreviewTarget = { type: 'page', href: `${base}/pipeline/crm`, label: 'crm' }
+const pipelineTarget: PreviewTarget = { type: 'page', href: '/pipeline/crm', label: 'crm' }
 const pipelineTarget2: PreviewTarget = {
 	type: 'page',
-	href: `${base}/pipeline/sales`,
+	href: '/pipeline/sales',
 	label: 'sales'
 }
 const artifactTarget: PreviewTarget = { type: 'artifact', id: 'art1', name: 'Plan' }
@@ -149,7 +148,7 @@ describe('previewTargetForSessionTarget', () => {
 	it('maps pipeline to its folder route page target', () => {
 		expect(previewTargetForSessionTarget('pipeline', 'my_folder')).toEqual({
 			type: 'page',
-			href: `${base}/pipeline/my_folder`,
+			href: '/pipeline/my_folder',
 			label: 'my_folder'
 		})
 	})
@@ -159,7 +158,7 @@ describe('previewTargetForSessionTarget', () => {
 		// path `f/f/<folder>/…`.
 		expect(previewTargetForSessionTarget('pipeline', 'f/my_folder')).toEqual({
 			type: 'page',
-			href: `${base}/pipeline/my_folder`,
+			href: '/pipeline/my_folder',
 			label: 'my_folder'
 		})
 	})
@@ -252,7 +251,7 @@ describe('page item tabs', () => {
 			{ kind: 'raw_app', path: 'u/me/draft_1' },
 			{ kind: 'raw_app', path: 'u/me/app' }
 		)
-		const url = `${base}/apps_raw/edit/u/me/app`
+		const url = '/apps_raw/edit/u/me/app'
 		expect(o.tabs).toEqual([{ id, url, loc: url }])
 	})
 
@@ -454,7 +453,7 @@ describe('SessionPreviewTabs.open', () => {
 
 	it('dedupes a run form by tool call, and hands that tab to the run in place', () => {
 		const o = owner()
-		o.open({ type: 'page', href: `${base}/runs`, label: 'Runs' })
+		o.open({ type: 'page', href: '/runs', label: 'Runs' })
 		o.open({ type: 'runform', toolCallId: 'call_1', label: 'Run refund' })
 		const id = o.tabs[1].id
 		// The label carries the script's summary, which is not what identifies the call.
@@ -462,10 +461,10 @@ describe('SessionPreviewTabs.open', () => {
 			'focused'
 		)
 		expect(o.tabs).toHaveLength(2)
-		o.retargetRunForm('call_1', `${base}/run/01a0?workspace=w`)
+		o.retargetRunForm('call_1', '/run/01a0?workspace=w')
 		// Still second: a tab that followed its call to the run has not moved in the strip.
 		expect(o.tabs[1].id).toBe(id)
-		expect(o.tabs[1].url).toBe(`${base}/run/01a0?workspace=w`)
+		expect(o.tabs[1].url).toBe('/run/01a0?workspace=w')
 	})
 
 	it('re-points the same tab (no duplicate) when the artifact was renamed', () => {
@@ -593,7 +592,7 @@ describe('SessionPreviewTabs.navigate', () => {
 		o.navigate(pipelineTarget2)
 		expect(o.activeId).toBe(salesTabId)
 		expect(o.tabs).toHaveLength(3)
-		expect(o.tabs.find((t) => t.id === crmTabId)?.url).toBe(`${base}/pipeline/crm`)
+		expect(o.tabs.find((t) => t.id === crmTabId)?.url).toBe('/pipeline/crm')
 	})
 
 	it('retargets the active pipeline tab in place to a new folder', () => {
@@ -603,7 +602,7 @@ describe('SessionPreviewTabs.navigate', () => {
 		o.navigate(pipelineTarget2)
 		expect(o.tabs).toHaveLength(1)
 		expect(o.activeId).toBe(tabId)
-		expect(o.tabs[0].url).toBe(`${base}/pipeline/sales`)
+		expect(o.tabs[0].url).toBe('/pipeline/sales')
 	})
 
 	it('focuses the tab already viewing the artifact instead of duplicating the viewer', () => {
@@ -1118,12 +1117,12 @@ describe('SessionPreviewTabs.pulseFocus', () => {
 		const o = owner()
 		const run: PreviewTarget = {
 			type: 'page',
-			href: `${base}/run/job-1?workspace=fork`,
+			href: '/run/job-1?workspace=fork',
 			label: 'Run'
 		}
 		o.open(run)
 		// What the frame reports back has the injected params stripped.
-		o.observeLocation(o.activeId, `${base}/run/job-1?workspace=fork&nomenubar=true`)
+		o.observeLocation(o.activeId, '/run/job-1?workspace=fork&nomenubar=true')
 		expect(o.tabs.length).toBe(1)
 		expect(o.open(run).status).toBe('focused')
 		expect(o.tabs.length).toBe(1)

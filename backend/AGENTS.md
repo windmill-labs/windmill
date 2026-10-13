@@ -214,7 +214,7 @@ Whole classes of defect compile and unit-test clean:
 - **Stack overflow from a large buffer in an async block.** An array declared across an
   `.await` is baked into the future's state; once that future is boxed a few layers deep
   by the job poller, two 16 KB arrays abort the worker *process* (`thread
-  'tokio-runtime-worker' has overflowed its stack`). Heap-allocate read buffers
+  'tokio-rt-worker' has overflowed its stack`). Heap-allocate read buffers
   (`vec![0u8; N]`, not `[0u8; N]`).
 - Deadlocks from draining only one of a child's pipes, missed cancellation or timeout
   propagation, and anything depending on the real engine's output format.

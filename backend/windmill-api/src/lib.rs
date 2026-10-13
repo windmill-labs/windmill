@@ -149,6 +149,8 @@ pub mod oauth2_oss;
 #[cfg(feature = "private")]
 pub mod oidc_ee;
 mod oidc_oss;
+#[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+pub mod oidc_signer_tools_ee;
 mod path_autocomplete;
 mod raw_apps;
 mod resources;

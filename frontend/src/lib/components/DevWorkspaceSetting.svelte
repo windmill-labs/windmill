@@ -8,7 +8,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { goto } from '$app/navigation'
-	import { base } from '$lib/base'
 	import {
 		findCanonicalDevWorkspace,
 		findWorkspaceAncestors,
@@ -239,7 +238,7 @@
 	// scratch rather than from the current query so no stale `?workspace=<dev>` survives a switch.
 	function rulesetsHref(name?: string): string {
 		const rule = name ? `&rule=${encodeURIComponent(name)}` : ''
-		return `${base}/workspace_settings?tab=rulesets${rule}`
+		return `/workspace_settings?tab=rulesets${rule}`
 	}
 
 	function openRulesets(name?: string) {
@@ -531,7 +530,7 @@
 				<Button
 					variant="default"
 					startIcon={{ icon: GitFork }}
-					onclick={() => goto(`${base}/user/fork_workspace?dev=true`)}
+					onclick={() => goto('/user/fork_workspace?dev=true')}
 				>
 					Create a new dev workspace
 				</Button>

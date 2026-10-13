@@ -59,6 +59,56 @@ use windmill_common::tracing_init::{OTEL_JOB_LOGS, OTEL_PREFIX, QUIET_MODE, VERB
 
 lazy_static::lazy_static! {
     pub static ref SLOW_LOGS: bool = std::env::var("SLOW_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
+    // A job runs several children in turn (install, build, run): their CPU time adds up
+    // here until the job completes.
+    static ref JOB_CPU_TIME_MS: std::sync::Mutex<std::collections::HashMap<Uuid, i64>> = Default::default();
+}
+
+/// CPU time of the children run so far for the job, which stops being tracked.
+pub(crate) fn take_job_cpu_time_ms(job_id: &Uuid) -> Option<i64> {
+    JOB_CPU_TIME_MS.lock().unwrap().remove(job_id)
+}
+
+/// CPU time in ms from the content of `/proc/<pid>/stat`: the process's own user and
+/// system time plus that of the children it waited for, which is where the time of a
+/// job run under a wrapper (nsjail, unshare) ends up.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn parse_proc_stat_cpu_ms(stat: &str) -> Option<i64> {
+    // The values are in USER_HZ ticks, which Linux fixes at 100 per second.
+    const MS_PER_TICK: i64 = 10;
+    // `comm` is free text in parentheses: the numbered fields resume after its last `)`,
+    // with the state as field 3 and utime, stime, cutime, cstime as fields 14 to 17.
+    let fields: Vec<&str> = stat.rsplit_once(')')?.1.split_ascii_whitespace().collect();
+    let ticks = fields
+        .get(11..15)?
+        .iter()
+        .map(|f| f.parse::<i64>().ok())
+        .sum::<Option<i64>>()?;
+    Some(ticks * MS_PER_TICK)
+}
+
+/// Resolves once the child has exited, to its CPU time. The child is left un-reaped:
+/// `/proc/<pid>/stat` is only readable until then, so the caller reaps afterwards.
+#[cfg(target_os = "linux")]
+async fn wait_for_exit_cpu_time_ms(pid: u32) -> Option<i64> {
+    use nix::sys::wait::{waitid, Id, WaitPidFlag};
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    // A plain thread rather than `spawn_blocking`: the wait cannot be cancelled, and a
+    // blocking task still parked on a live child would hold up the runtime's shutdown.
+    std::thread::Builder::new()
+        .name("job-cpu-time".to_string())
+        .spawn(move || {
+            let cpu = waitid(
+                Id::Pid(Pid::from_raw(pid as i32)),
+                WaitPidFlag::WEXITED | WaitPidFlag::WNOWAIT,
+            )
+            .ok()
+            .and_then(|_| std::fs::read_to_string(format!("/proc/{pid}/stat")).ok())
+            .and_then(|stat| parse_proc_stat_cpu_ms(&stat));
+            let _ = tx.send(cpu);
+        })
+        .ok()?;
+    rx.await.ok().flatten()
 }
 
 //  - kill windows process along with all child processes
@@ -267,7 +317,15 @@ pub async fn handle_child(
     let wait_on_child = async {
         let kill_reason = tokio::select! {
             biased;
-            result = Box::into_pin(child.wait()) => return result.map(Ok),
+            result = async {
+                #[cfg(target_os = "linux")]
+                if let Some(pid) = pid.filter(|_| job_id != Uuid::nil()) {
+                    if let Some(cpu) = wait_for_exit_cpu_time_ms(pid).await {
+                        *JOB_CPU_TIME_MS.lock().unwrap().entry(job_id).or_insert(0) += cpu;
+                    }
+                }
+                Box::into_pin(child.wait()).await
+            } => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
             _ = sleep(timeout_duration) => KillReason::Timeout {
                 phase: child_name.to_string(),
@@ -1049,6 +1107,7 @@ where
                     let wm_memory_usage = get_windmill_memory_usage();
                     tracing::info!("job {job_id} on {worker_name} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
                     let occupancy = occupancy_metrics.as_mut().map(|x| x.update_occupancy_metrics());
+                    crate::resource_metrics::record_worker_resources(worker_name, memory_usage, wm_memory_usage, occupancy.as_ref());
                     if job_id != Uuid::nil() {
                         if let Err(err) = update_worker_ping_from_job(&conn, &job_id, w_id, worker_name, memory_usage, wm_memory_usage, occupancy).await {
                             tracing::error!("Unable to update worker ping for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
@@ -1212,6 +1271,21 @@ pub fn process_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proc_stat_cpu_time_survives_a_hostile_process_name() {
+        // utime 150, stime 50, cutime 700, cstime 100 ticks: 1000 ticks, 10 s.
+        let tail = "Z 1 42 42 0 -1 4194560 100 200 0 0 150 50 700 100 20 0 1 0 12345 0 0";
+        assert_eq!(
+            parse_proc_stat_cpu_ms(&format!("42 (bun) {tail}")),
+            Some(10_000)
+        );
+        assert_eq!(
+            parse_proc_stat_cpu_ms(&format!("42 (a) R 9 (9 9 9 9 9 9 9 9 9) {tail}")),
+            Some(10_000)
+        );
+        assert_eq!(parse_proc_stat_cpu_ms("42 (bun) Z 1 42"), None);
+    }
 
     // A non-positive timeout means "unset" to `resolve_job_timeout`, so an
     // exhausted budget that reported 0 would hand the next phase no deadline at

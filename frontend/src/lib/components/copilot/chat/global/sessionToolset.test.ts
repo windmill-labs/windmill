@@ -75,10 +75,22 @@ const REACHABLE_PROFILES = [
 		[false, true].flatMap((isAdmin) =>
 			[false, true].flatMap((operator) =>
 				// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
-				(isAdmin ? [true] : [false, true]).map((deployRulesPass) => {
-					const access = capabilitiesForRole({ isAdmin, operator, deployRulesPass })
-					return [[...access].sort().join(',') || 'none', access] as const
-				})
+				(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
+					// The operator rights a workspace can set: none, the builder right, both locks.
+					[
+						undefined,
+						{ builder_flows: true },
+						{ manage_schedules: false, manage_triggers: false }
+					].map((operatorSettings) => {
+						const access = capabilitiesForRole({
+							isAdmin,
+							operator,
+							deployRulesPass,
+							operatorSettings
+						})
+						return [[...access].sort().join(',') || 'none', access] as const
+					})
+				)
 			)
 		)
 	).entries()
@@ -122,13 +134,24 @@ describe('session tool policies', () => {
 		const kindsOf = (name: string, access: SessionAccess) =>
 			(shipped(name, access).def.function.parameters as any).properties.type.enum
 
+		const developerCaps: SessionCapability[] = [
+			'write_draft',
+			'write_flow_draft',
+			'run_preview',
+			'run_flow_preview',
+			'manage_code',
+			'manage_flows',
+			'manage_schedules',
+			'manage_triggers'
+		]
+
 		// A developer a protection rule refuses keeps the two kinds no rule reaches.
-		const refused = accessWith(['write_draft', 'run_preview', 'manage_code'])
+		const refused = accessWith(developerCaps)
 		expect(kindsOf('deploy_workspace_item', refused)).toEqual(['schedule', 'trigger'])
 		expect(kindsOf('delete_workspace_item', refused)).toEqual(['schedule', 'trigger'])
 
 		// An operator where no rule applies: only the code handlers refuse them.
-		const operator = accessWith(['deploy'])
+		const operator = accessWith(['deploy', 'manage_schedules', 'manage_triggers'])
 		expect(kindsOf('deploy_workspace_item', operator)).toEqual([
 			'schedule',
 			'trigger',
@@ -136,8 +159,17 @@ describe('session tool policies', () => {
 			'variable'
 		])
 
+		// A workspace that withdrew schedule writes from operators: `gate_operator_writes`.
+		const locked = accessWith(['deploy', 'manage_triggers'])
+		expect(kindsOf('delete_workspace_item', locked)).toEqual(['trigger', 'resource', 'variable'])
+
+		// A builder operator deploys flows too, and still no script or app.
+		const builder = accessWith(['deploy', 'manage_flows', 'manage_schedules', 'manage_triggers'])
+		expect(kindsOf('deploy_workspace_item', builder)).toContain('flow')
+		expect(kindsOf('deploy_workspace_item', builder)).not.toContain('script')
+
 		// Deleting a script is admin-only, where deploying one is not.
-		const developer = accessWith(['write_draft', 'run_preview', 'manage_code', 'deploy'])
+		const developer = accessWith([...developerCaps, 'deploy'])
 		expect(kindsOf('deploy_workspace_item', developer)).toContain('script')
 		expect(kindsOf('delete_workspace_item', developer)).not.toContain('script')
 

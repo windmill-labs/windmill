@@ -11,6 +11,6 @@ path = "./src/lib.rs"
 [dependencies]
 windmill-parser.workspace = true
 windmill-parser-sql-asset.workspace = true
-rustpython-parser.workspace = true
-rustpython-ast = { version = "0.4.0", features = ["visitor"] }
+ruff_python_parser.workspace = true
+ruff_python_ast.workspace = true
 anyhow.workspace = true

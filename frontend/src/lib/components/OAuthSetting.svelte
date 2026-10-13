@@ -12,7 +12,6 @@
 	import CopyableCodeBlock from './details/CopyableCodeBlock.svelte'
 	import { slackAppManifest } from './common/slack/slackAppManifest'
 	import { yaml } from 'svelte-highlight/languages'
-	import { base } from '$lib/base'
 
 	interface Props {
 		name: string
@@ -235,7 +234,7 @@
 							>.
 						</span>
 						<CopyableCodeBlock
-							code={slackAppManifest(`${window.location.origin}${base}`)}
+							code={slackAppManifest(`${window.location.origin}`)}
 							language={yaml}
 						/>
 					</div>

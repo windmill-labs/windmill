@@ -27,7 +27,7 @@ jobs:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl
@@ -111,7 +111,7 @@ jobs:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl
@@ -125,7 +125,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -136,7 +136,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -147,7 +147,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -188,7 +188,7 @@ jobs:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl
@@ -202,7 +202,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -213,7 +213,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -224,7 +224,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -235,7 +235,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -246,7 +246,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -257,7 +257,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -268,7 +268,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
     steps:
@@ -309,7 +309,7 @@ jobs:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl

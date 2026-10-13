@@ -24,7 +24,6 @@ vi.mock('$app/navigation', () => ({
 	afterNavigate: vi.fn(),
 	beforeNavigate: vi.fn()
 }))
-vi.mock('$app/paths', () => ({ base: '', assets: '' }))
 
 const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),

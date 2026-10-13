@@ -1,0 +1,570 @@
+use serde_json::json;
+use serial_test::serial;
+use sqlx::{Pool, Postgres};
+use windmill_common::workspaces::invalidate_operator_rights_cache;
+use windmill_test_utils::*;
+
+/// Every test here must be `#[serial]`: the rights cache is process-global and keyed by workspace id
+/// alone, so parallel tests under this same id read each other's rights.
+const WS: &str = "test-workspace";
+
+fn client(token: &str) -> reqwest::Client {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::AUTHORIZATION,
+        reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+    );
+    reqwest::ClientBuilder::new()
+        .default_headers(headers)
+        .build()
+        .unwrap()
+}
+
+async fn set_builder(db: &Pool<Postgres>, flows: bool, apps: bool) -> anyhow::Result<()> {
+    sqlx::query(
+        "UPDATE workspace_settings SET operator_settings = $1::text::jsonb WHERE workspace_id = $2",
+    )
+    .bind(format!(
+        r#"{{"builder_flows": {flows}, "builder_apps": {apps}}}"#
+    ))
+    .bind(WS)
+    .execute(db)
+    .await?;
+    // The rights are read through a process-global 60s cache keyed by workspace id.
+    invalidate_operator_rights_cache(WS);
+    Ok(())
+}
+
+async fn add_script(db: &Pool<Postgres>, hash: i64, path: &str, owner: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema,
+             summary, description, lock, extra_perms)
+         VALUES ($1, $2, $3, 'x', 'bun', 'script', $4, '{}', '', '', '', '{}')",
+    )
+    .bind(WS)
+    .bind(hash)
+    .bind(path)
+    .bind(owner)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// A full-code app is deployed multipart, the way the editor and the CLI use it.
+fn raw_app_form(app: serde_json::Value) -> reqwest::multipart::Form {
+    reqwest::multipart::Form::new()
+        .part(
+            "app",
+            reqwest::multipart::Part::text(app.to_string())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "js",
+            reqwest::multipart::Part::text("console.log(1)").file_name("app.js"),
+        )
+}
+
+fn raw_app(path: &str, mode: &str, runnable_path: &str) -> reqwest::multipart::Form {
+    raw_app_form(json!({
+        "path": path,
+        "summary": "",
+        "value": {"files": {}, "runnables": {"r": {
+            "name": "r", "type": "runnableByPath", "runType": "script",
+            "path": runnable_path
+        }}},
+        "policy": {"execution_mode": mode, "triggerables_v2": {}}
+    }))
+}
+
+fn composition_flow(path: &str) -> serde_json::Value {
+    json!({
+        "path": path, "summary": "", "description": "", "schema": {},
+        "value": {"modules": [{
+            "id": "a",
+            "value": {"type": "script", "path": "u/operator/some_script", "input_transforms": {}}
+        }]}
+    })
+}
+
+/// The app half of the builder boundary, plus the proof that the two rights are independent: a
+/// gate reading "either" would authorize the kind its workspace never granted, which is the whole
+/// point of splitting them.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
+async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/{WS}");
+    let c = client("OPERATOR_TOKEN_1");
+
+    add_script(&db, 4241, "u/operator/some_script", "operator").await?;
+    // `permissions_test` gives the operator fixture no rights on `u/alice/**`.
+    add_script(&db, 4243, "u/alice/private", "alice").await?;
+    // A version shared with the operator, then archived, and a newer one at the same path that is
+    // not: the newer one is what runs.
+    add_script(&db, 4244, "u/alice/reused", "alice").await?;
+    sqlx::query(
+        "UPDATE script SET archived = true, extra_perms = '{\"u/operator\": false}',
+             created_at = now() - interval '1 day' WHERE hash = 4244",
+    )
+    .execute(&db)
+    .await?;
+    add_script(&db, 4245, "u/alice/reused", "alice").await?;
+
+    set_builder(&db, false, false).await?;
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app(
+            "u/operator/a0",
+            "publisher",
+            "u/operator/some_script",
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "an operator without the builder right must not create a full-code app"
+    );
+
+    set_builder(&db, true, true).await?;
+
+    // `*_raw_source` compiles caller-supplied sources with a bundler job on a worker. It sits
+    // beside `create_app_raw`, which builders MAY use, so it is the gate most likely to be opened
+    // by mistake later.
+    let resp = c
+        .post(format!("{api}/apps/create_raw_source"))
+        .json(&json!({
+            "path": "u/operator/a1", "summary": "",
+            "value": {"files": {"index.ts": "console.log(1)"}, "runnables": {}},
+            "policy": {"execution_mode": "publisher"}
+        }))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "a builder must not compile app sources on a worker"
+    );
+
+    // Low-code apps carry inline scripts, so they stay shut too.
+    let resp = c
+        .post(format!("{api}/apps/create"))
+        .json(&json!({
+            "path": "u/operator/a2", "summary": "",
+            "value": {"grid": []}, "policy": {"execution_mode": "publisher"}
+        }))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "a builder must not create a low-code app"
+    );
+
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app("u/operator/a3", "publisher", "u/alice/private"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "a builder must not deploy an app referencing a runnable it cannot read"
+    );
+
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app("u/operator/a4", "viewer", "u/operator/some_script"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "a builder must not deploy a viewer-mode app: the policy stops bounding what it can invoke"
+    );
+
+    // Storage strips a NUL, turning this key into `inlineScript`.
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app_form(json!({
+            "path": "u/operator/a_nul", "summary": "",
+            "value": {"files": {}, "runnables": {"r": {
+                "type": "inline",
+                "inline\u{0}Script": {"content": "x", "language": "bun"}
+            }}},
+            "policy": {"execution_mode": "publisher", "triggerables_v2": {}}
+        })))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a NUL in a key must not hide an inline script: {}",
+        resp.text().await?
+    );
+
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app(
+            "u/operator/a5",
+            "publisher",
+            "u/operator/some_script",
+        ))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "a builder must be able to deploy a full-code app over readable runnables: {}",
+        resp.text().await?
+    );
+    let sandbox: Option<bool> = sqlx::query_scalar(
+        "SELECT (policy->>'sandbox')::boolean FROM app WHERE workspace_id = $1 AND path = $2",
+    )
+    .bind(WS)
+    .bind("u/operator/a5")
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        sandbox,
+        Some(true),
+        "a builder-authored app must be stored sandboxed"
+    );
+
+    // `execute_component` looks up `<component>:<path>` with an unrestricted component string, so
+    // a key with a second colon still resolves at run time and must not slip past validation.
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app_form(json!({
+            "path": "u/operator/a6", "summary": "",
+            "value": {"files": {}, "runnables": {}},
+            "policy": {"execution_mode": "publisher", "triggerables_v2": {
+                "x:y:script/u/alice/private": {"static_inputs": {}, "one_of_inputs": {}}
+            }}
+        })))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "a multi-colon triggerable key must not hide an unreadable runnable from validation"
+    );
+
+    // The two rights are independent.
+    set_builder(&db, true, false).await?;
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&composition_flow("u/operator/flows_only"))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "flows-only must still create a flow: {}",
+        resp.text().await?
+    );
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app(
+            "u/operator/flows_only_app",
+            "publisher",
+            "u/operator/some_script",
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "flows-only must not deploy a full-code app"
+    );
+
+    set_builder(&db, false, true).await?;
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&composition_flow("u/operator/apps_only"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "apps-only must not create a flow"
+    );
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app(
+            "u/operator/apps_only_app",
+            "publisher",
+            "u/operator/some_script",
+        ))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "apps-only must still deploy a full-code app: {}",
+        resp.text().await?
+    );
+
+    // The deploy panel saves access and frontend scopes through the settings-only endpoint.
+    for (body, expected) in [
+        (
+            json!({"policy": {"execution_mode": "anonymous", "triggerables_v2": {}}}),
+            200,
+        ),
+        (
+            json!({"policy": {"execution_mode": "publisher", "sandbox": false, "triggerables_v2": {}}}),
+            403,
+        ),
+        (
+            json!({"value": {"files": {}, "runnables": {}}, "policy": {"execution_mode": "publisher"}}),
+            403,
+        ),
+    ] {
+        let resp = c
+            .post(format!("{api}/apps/update/u/operator/apps_only_app"))
+            .json(&body)
+            .send()
+            .await?;
+        let status = resp.status();
+        assert_eq!(
+            status,
+            expected,
+            "settings update {body}: {}",
+            resp.text().await?
+        );
+    }
+    let sandbox: Option<bool> = sqlx::query_scalar(
+        "SELECT (policy->>'sandbox')::boolean FROM app WHERE workspace_id = $1 AND path = $2",
+    )
+    .bind(WS)
+    .bind("u/operator/apps_only_app")
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        sandbox,
+        Some(true),
+        "a settings update must not turn a builder app's sandbox off"
+    );
+
+    // The editor runs the runnables a draft names as whoever opens it, and its frontend code
+    // with their session unless the preview is sandboxed.
+    for (runnables, policy, expected) in [
+        (json!({}), json!({"sandbox": true}), 200),
+        (
+            json!({"a": {"type": "inline", "inlineScript": {"content": "x", "language": "bun"}}}),
+            json!({"sandbox": true}),
+            403,
+        ),
+        (json!({}), json!({"sandbox": false}), 403),
+        (
+            json!({}),
+            json!({"sandbox": true, "execution_mode": "viewer"}),
+            403,
+        ),
+        (json!({}), json!(null), 403),
+        (
+            json!({}),
+            json!({"sandbox": true, "on_behalf_of": "u/alice", "on_behalf_of_email": "alice@windmill.dev"}),
+            403,
+        ),
+        (
+            json!({}),
+            json!({"sandbox": true, "on_behalf_of": "u/operator"}),
+            200,
+        ),
+        (
+            json!({}),
+            json!({"sandbox": true, "triggerables": {
+                format!("{}script/u/operator/some_script", "a:".repeat(300)): {}
+            }}),
+            400,
+        ),
+        (
+            json!({"r": {"type": "runnableByPath", "runType": "script", "path": "u/operator/some_script"}}),
+            json!({"sandbox": true}),
+            200,
+        ),
+        (
+            json!({"r": {"type": "runnableByPath", "runType": "script", "path": "u/alice/private"}}),
+            json!({"sandbox": true}),
+            403,
+        ),
+        (
+            json!({"r": {"type": "runnableByPath", "runType": "script", "path": "u/alice/reused"}}),
+            json!({"sandbox": true}),
+            403,
+        ),
+        (
+            json!({"r": {"type": "path", "runType": "hubscript", "path": "hub/1/x/y"}}),
+            json!({"sandbox": true}),
+            403,
+        ),
+        (
+            json!({"r": {"type": "path", "runType": "script/u/alice", "path": "u/operator/some_script"}}),
+            json!({"sandbox": true}),
+            400,
+        ),
+        (
+            json!({"r": {"type": "path", "runType": "script", "path": ["u/alice/private"]}}),
+            json!({"sandbox": true}),
+            400,
+        ),
+        (
+            json!({"r": {"type": ["path"], "runType": "script", "path": "u/alice/private"}}),
+            json!({"sandbox": true}),
+            400,
+        ),
+        (
+            json!([{"type": "path", "runType": "script", "path": "u/alice/private"}]),
+            json!({"sandbox": true}),
+            400,
+        ),
+        (
+            json!({"r": {"type": "path", "runType": "script", "path": "u/operator/some_script",
+                "fields": {"x": {"type": "static", "value": {"type": "path", "path": "/srv/out"}}}}}),
+            json!({"sandbox": true}),
+            200,
+        ),
+        (
+            json!({}),
+            json!({"sandbox": true, "triggerables": {"x:rawscript/abc": {}}}),
+            403,
+        ),
+        (
+            json!({}),
+            json!({"sandbox": true, "triggerables": {"x:script/u/alice/private": {}}}),
+            403,
+        ),
+        (
+            json!({}),
+            json!({"sandbox": true, "triggerables_v2": {
+                "x:script/u/alice/private": {"static_inputs": {}, "one_of_inputs": {}},
+                "y:rawscript/abc": {"static_inputs": {}, "one_of_inputs": {}}
+            }}),
+            200,
+        ),
+    ] {
+        let resp = c
+            .post(format!("{api}/drafts/update/raw_app/u/operator/d1"))
+            .json(&json!({
+                "value": {"files": {}, "runnables": runnables, "summary": "", "policy": policy},
+                "force": true
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        assert_eq!(
+            status,
+            expected,
+            "raw app draft {runnables} {policy}: {}",
+            resp.text().await?
+        );
+    }
+
+    // The component preview runs a deployed runnable for a builder; inline code and hub
+    // scripts are unreviewed code.
+    for (preview, expected) in [
+        (json!({"path": "script/u/operator/some_script"}), 200),
+        (json!({"path": "script/hub/1/x/y"}), 403),
+        (
+            json!({"raw_code": {"content": "x", "language": "bun"}}),
+            403,
+        ),
+    ] {
+        let mut body = json!({"component": "c", "args": {}, "force_viewer_static_fields": {}});
+        body.as_object_mut()
+            .unwrap()
+            .extend(preview.as_object().unwrap().clone());
+        let resp = c
+            .post(format!(
+                "{api}/apps_u/execute_component/u/operator/apps_only_app"
+            ))
+            .json(&body)
+            .send()
+            .await?;
+        let status = resp.status();
+        assert_eq!(
+            status,
+            expected,
+            "component preview {preview}: {}",
+            resp.text().await?
+        );
+    }
+
+    // Delete and redeploy each serve both kinds; builder rights cover only full-code apps.
+    let resp = client("SECRET_TOKEN")
+        .post(format!("{api}/apps/create"))
+        .json(&json!({
+            "path": "u/operator/low_code", "summary": "",
+            "value": {"grid": []}, "policy": {"execution_mode": "publisher"}
+        }))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "{}", resp.text().await?);
+    let resp = c
+        .post(format!("{api}/apps/update_raw/u/operator/low_code"))
+        .multipart(raw_app_form(json!({
+            "policy": {"execution_mode": "publisher", "triggerables_v2": {}}
+        })))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "policy-only update of a low-code app: {}",
+        resp.text().await?
+    );
+    // Deployment history restores a full-code version with allow_kind_change set.
+    let resp = c
+        .post(format!("{api}/apps/update_raw/u/operator/apps_only_app"))
+        .multipart(raw_app_form(json!({
+            "value": {"files": {}, "runnables": {}},
+            "policy": {"execution_mode": "publisher", "triggerables_v2": {}},
+            "allow_kind_change": true
+        })))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "restore of a full-code version: {}",
+        resp.text().await?
+    );
+    for (path, expected) in [("low_code", 403), ("apps_only_app", 200)] {
+        let resp = c
+            .delete(format!("{api}/apps/delete/u/operator/{path}"))
+            .send()
+            .await?;
+        let status = resp.status();
+        assert_eq!(status, expected, "delete {path}: {}", resp.text().await?);
+    }
+
+    Ok(())
+}
+
+/// The readability check must not hold its RLS transaction while it takes a second connection,
+/// or a one-connection pool (`DATABASE_CONNECTIONS=1`) stalls every builder draft naming a script.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
+async fn test_operator_builder_app_check_fits_one_connection(
+    pool_opts: sqlx::postgres::PgPoolOptions,
+    connect_opts: sqlx::postgres::PgConnectOptions,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let db = pool_opts
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect_with(connect_opts)
+        .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let api = format!("http://localhost:{}/api/w/{WS}", server.addr.port());
+    add_script(&db, 4241, "u/operator/some_script", "operator").await?;
+    set_builder(&db, false, true).await?;
+
+    let resp = client("OPERATOR_TOKEN_1")
+        .post(format!("{api}/drafts/update/raw_app/u/operator/d1"))
+        .json(&json!({
+            "value": {"files": {}, "summary": "", "runnables": {"r": {
+                "name": "r", "type": "runnableByPath", "runType": "script",
+                "path": "u/operator/some_script"
+            }}, "policy": {"sandbox": true, "triggerables_v2": {}}},
+            "force": true
+        }))
+        .send()
+        .await?;
+    let status = resp.status();
+    assert_eq!(status, 200, "{}", resp.text().await?);
+    Ok(())
+}

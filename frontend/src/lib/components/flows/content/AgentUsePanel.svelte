@@ -2,7 +2,6 @@
 	import { X } from 'lucide-svelte'
 	import { resource } from 'runed'
 	import { bash, typescript } from 'svelte-highlight/languages'
-	import { base } from '$lib/base'
 	import { Alert, Button, CopyButton, Tab, TabContent, Tabs } from '$lib/components/common'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
@@ -148,7 +147,7 @@
 	let userSettings: UserSettings | undefined = $state(undefined)
 	let token = $state('')
 	let target = $derived({
-		api: `${location.origin}${base}/api/w/${workspace}`,
+		api: `${location.origin}/api/w/${workspace}`,
 		agentPath,
 		chat,
 		token
@@ -197,7 +196,7 @@
 								<Button
 									variant="default"
 									unifiedSize="md"
-									href="{base}/workspace_settings?tab=slack&agents=true"
+									href="/workspace_settings?tab=slack&agents=true"
 								>
 									Connect Slack
 								</Button>
@@ -217,7 +216,7 @@
 								Slack refused the workspace's bot token or couldn't be reached, so agents can't
 								answer there.
 								{#if isAdmin}
-									<a href="{base}/workspace_settings?tab=slack&agents=true">Reconnect Slack</a> to fix
+									<a href="/workspace_settings?tab=slack&agents=true">Reconnect Slack</a> to fix
 									it.
 								{:else}
 									A workspace admin can reconnect Slack to fix it.
@@ -228,7 +227,7 @@
 							<Alert type="warning" title="Slack was connected without AI agents" size="xs">
 								The connection lacks {missingScopes.join(', ')}, so agents can't tell who is asking.
 								{#if isAdmin}
-									<a href="{base}/workspace_settings?tab=slack&agents=true">Disconnect Slack</a>,
+									<a href="/workspace_settings?tab=slack&agents=true">Disconnect Slack</a>,
 									then connect it again with AI agents enabled. Disconnecting clears the channel
 									defaults.
 								{:else}
@@ -371,7 +370,7 @@
 						{#snippet content()}
 							<TabContent value="sdk" class="flex flex-col gap-2 mt-2">
 								<span class="text-xs text-secondary">
-									React with <code>windmill-chat</code>: streaming, tool calls and conversations
+									React with <code>@windmill-labs/chat-sdk</code>: streaming, tool calls and conversations
 									handled. It also plugs into the Vercel AI SDK and assistant-ui.
 								</span>
 								<CopyableCodeBlock code={sdkExample(target)} language={typescript} />
