@@ -322,6 +322,15 @@
 			(registryCcCapable() && connectClient != '' && !(connects?.includes(connectClient) ?? false))
 	)
 
+	/** The provider also has a browser sign-in, unavailable here only because the
+	 * instance holds no OAuth client for it */
+	let signInNeedsInstanceClient = $derived.by(
+		() =>
+			(registryEntry()?.grant_types?.includes('authorization_code') ?? false) &&
+			connectClient != '' &&
+			!(connects?.includes(connectClient) ?? false)
+	)
+
 	/** Clear CC inputs and scopes so a previous selection never leaks into a new one */
 	function resetClientCredentialsState() {
 		supportsClientCredentials = false
@@ -1399,11 +1408,7 @@
 				</div>
 				{#if apiTokenApps[resourceType].img}
 					<div class="mt-4 w-full overflow-hidden">
-						<img
-							class="m-auto max-h-60"
-							alt="connect"
-							src={apiTokenApps[resourceType].img}
-						/>
+						<img class="m-auto max-h-60" alt="connect" src={apiTokenApps[resourceType].img} />
 					</div>
 				{/if}
 			{/if}
@@ -1522,6 +1527,10 @@
 								{:else}
 									{resourceType} connects server-to-server. Enter a client ID and secret; the token is
 									acquired and refreshed automatically.
+									{#if signInNeedsInstanceClient}
+										To sign in through {resourceType} in a browser, a superadmin first adds its OAuth
+										client in the instance settings.
+									{/if}
 								{/if}
 							</div>
 						{:else}
