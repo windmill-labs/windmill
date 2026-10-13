@@ -281,6 +281,9 @@ pub fn sanitize_db_error(e: sqlx::Error) -> Error {
         return Error::from(e);
     };
     match db_err.code().as_deref() {
+        Some("23514") if db_err.constraint() == Some("variable_value_length") => {
+            Error::BadRequest("A field exceeds its maximum length".to_string())
+        }
         // check_violation — `proper_id` / `proper_name` and friends
         Some("23514") => Error::BadRequest(
             "Invalid path or name: it does not match the required format".to_string(),

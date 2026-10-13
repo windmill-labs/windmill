@@ -267,6 +267,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_hub: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_hub_resource_types_daily: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_build_binary_on_deploy: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_sessions_instance_storage_fallback: Option<bool>,
@@ -1013,6 +1015,43 @@ pub struct ConfigsDiff {
     pub deletes: Vec<String>,
 }
 
+/// Told of each write an instance config apply makes, as soon as it has landed: the writes
+/// are not transactional, so an apply that fails midway must not leave the ones it did make
+/// unrecorded. The audit entry is the implementor's to write, as this crate sits below
+/// `windmill-audit`.
+pub trait ConfigWriteObserver: Sync {
+    /// `value` is `None` for a deleted setting.
+    fn setting_written(
+        &self,
+        key: &str,
+        value: Option<&serde_json::Value>,
+    ) -> impl std::future::Future<Output = crate::error::Result<()>> + Send;
+
+    fn worker_config_written(
+        &self,
+        group: &str,
+        deleted: bool,
+    ) -> impl std::future::Future<Output = crate::error::Result<()>> + Send;
+}
+
+impl ConfigWriteObserver for () {
+    async fn setting_written(
+        &self,
+        _key: &str,
+        _value: Option<&serde_json::Value>,
+    ) -> crate::error::Result<()> {
+        Ok(())
+    }
+
+    async fn worker_config_written(
+        &self,
+        _group: &str,
+        _deleted: bool,
+    ) -> crate::error::Result<()> {
+        Ok(())
+    }
+}
+
 /// Settings that must never be deleted by the operator or bulk API.
 pub const PROTECTED_SETTINGS: &[&str] = &[
     "ducklake_user_pg_pwd",
@@ -1024,6 +1063,8 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "rsa_keys",
     "jwt_secret",
     "min_keep_alive_version",
+    // Deleting it would let a worker sign OIDC tokens with a local key again.
+    "oidc_external_signer",
 ];
 
 /// Secrets the server signs with or generated for itself. `jwt_secret` signs API and job
@@ -1077,6 +1118,8 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     "custom_instance_replication_pwd",
     // Same for the passwords and database registry Windmill keeps for the external cluster.
     "external_instance_pg_state",
+    // Written by servers that sign OIDC tokens with an external signer.
+    "oidc_external_signer",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
@@ -1396,10 +1439,14 @@ pub fn diff_worker_configs(
 /// AUTHORIZATION: replaces instance-wide settings and takes no authed context, so
 /// callers MUST have established superadmin or equivalent system authority (the CLI
 /// and the operator both run with direct instance credentials).
+///
+/// `observer` is what audits the sync: no user request stands behind these writes, so
+/// nothing else records them.
 pub async fn sync_global_settings_declarative(
     db: &sqlx::Pool<sqlx::Postgres>,
     current: &BTreeMap<String, serde_json::Value>,
     desired: &BTreeMap<String, serde_json::Value>,
+    observer: &impl ConfigWriteObserver,
 ) -> anyhow::Result<()> {
     for url_key in [
         crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING,
@@ -1463,16 +1510,22 @@ pub async fn sync_global_settings_declarative(
         .map_err(|e| anyhow::anyhow!("{max_expiration_key}: {e}"))?;
 
     let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
-    crate::external_instance_pg::write_external_instance_pg_from_diff(db, &mut diff).await?;
-    apply_settings_diff(db, &diff).await?;
+    crate::external_instance_pg::write_external_instance_pg_from_diff(db, &mut diff, observer)
+        .await?;
+    apply_settings_diff(db, &diff, observer).await?;
 
     Ok(())
 }
 
-/// Apply a settings diff to the global_settings table.
+/// Apply a settings diff to the global_settings table, reporting each write to `observer`.
+///
+/// AUTHORIZATION: writes instance-wide settings, credentials included, and checks
+/// nothing; `observer` records and authorizes nothing. Callers MUST have established
+/// superadmin or equivalent system authority.
 pub async fn apply_settings_diff(
     db: &sqlx::Pool<sqlx::Postgres>,
     diff: &SettingsDiff,
+    observer: &impl ConfigWriteObserver,
 ) -> anyhow::Result<()> {
     for (key, value) in &diff.upserts {
         sqlx::query(
@@ -1495,6 +1548,7 @@ pub async fn apply_settings_diff(
                 format_setting_value(key, value)
             );
         }
+        observer.setting_written(key, Some(value)).await?;
     }
     for key in &diff.deletes {
         sqlx::query("DELETE FROM global_settings WHERE name = $1")
@@ -1509,6 +1563,7 @@ pub async fn apply_settings_diff(
         } else {
             tracing::info!("Deleted global setting: {key}");
         }
+        observer.setting_written(key, None).await?;
     }
     if diff.unchanged_count > 0 {
         tracing::info!("{} global setting(s) unchanged", diff.unchanged_count);
@@ -1516,10 +1571,16 @@ pub async fn apply_settings_diff(
     Ok(())
 }
 
-/// Apply a configs diff to the config table (worker__ prefix).
+/// Apply a configs diff to the config table (worker__ prefix), reporting each write to
+/// `observer`.
+///
+/// AUTHORIZATION: writes worker group configs, whose init scripts run on the workers, and
+/// checks nothing; `observer` records and authorizes nothing. Callers MUST have
+/// established superadmin or equivalent system authority.
 pub async fn apply_configs_diff(
     db: &sqlx::Pool<sqlx::Postgres>,
     diff: &ConfigsDiff,
+    observer: &impl ConfigWriteObserver,
 ) -> anyhow::Result<()> {
     for (group_name, config_value) in &diff.upserts {
         let db_key = format!("worker__{group_name}");
@@ -1532,6 +1593,7 @@ pub async fn apply_configs_diff(
         .execute(db)
         .await?;
         tracing::info!("Synced worker config: {db_key}");
+        observer.worker_config_written(group_name, false).await?;
     }
     for group_name in &diff.deletes {
         let db_key = format!("worker__{group_name}");
@@ -1540,6 +1602,7 @@ pub async fn apply_configs_diff(
             .execute(db)
             .await?;
         tracing::info!("Deleted worker config: {db_key}");
+        observer.worker_config_written(group_name, true).await?;
     }
     Ok(())
 }
@@ -1661,7 +1724,11 @@ impl InstanceConfig {
     ///
     /// Reads the current state, computes a diff, then applies upserts and
     /// deletes for both global settings and worker configs.
-    pub async fn sync_to_db(&self, db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+    pub async fn sync_to_db(
+        &self,
+        db: &sqlx::Pool<sqlx::Postgres>,
+        observer: &impl ConfigWriteObserver,
+    ) -> anyhow::Result<()> {
         let desired_settings = self.global_settings.to_settings_map();
 
         // Current global settings
@@ -1671,7 +1738,8 @@ impl InstanceConfig {
                 .await?;
         let current_settings: BTreeMap<String, serde_json::Value> = rows.into_iter().collect();
 
-        sync_global_settings_declarative(db, &current_settings, &desired_settings).await?;
+        sync_global_settings_declarative(db, &current_settings, &desired_settings, observer)
+            .await?;
 
         // Worker configs
         let desired_configs: BTreeMap<String, serde_json::Value> = self
@@ -1699,7 +1767,7 @@ impl InstanceConfig {
 
         let configs_diff =
             diff_worker_configs(&current_configs, &desired_configs, ApplyMode::Replace);
-        apply_configs_diff(db, &configs_diff).await?;
+        apply_configs_diff(db, &configs_diff, observer).await?;
 
         Ok(())
     }

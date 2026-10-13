@@ -301,7 +301,7 @@ export async function inferAnsibleExecutionMode(code: string): Promise<any> {
 	}
 }
 
-const SQL_LANGUAGES = [
+export const SQL_LANGUAGES = [
 	'postgresql',
 	'mysql',
 	'bigquery',

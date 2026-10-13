@@ -19,6 +19,7 @@ serde_json.workspace = true
 sqlx.workspace = true
 tracing.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-audit.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 kube.workspace = true

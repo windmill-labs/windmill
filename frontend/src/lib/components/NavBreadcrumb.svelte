@@ -22,7 +22,6 @@ not this component) — so the lead can run the whole line.
 	import { userWorkspaces, workspaceStore, workspaceColor, superadmin } from '$lib/stores'
 	import { findWorkspaceRoot } from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
-	import { base } from '$lib/base'
 	import { twMerge } from 'tailwind-merge'
 	import { Badge } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -61,7 +60,7 @@ not this component) — so the lead can run the whole line.
 
 	const scopeId = $derived(actingWorkspaceId ?? $workspaceStore ?? undefined)
 	const homeHref = $derived(
-		actingWorkspaceId ? `${base}/?workspace=${encodeURIComponent(actingWorkspaceId)}` : `${base}/`
+		actingWorkspaceId ? `/?workspace=${encodeURIComponent(actingWorkspaceId)}` : `/`
 	)
 
 	// With no item or section registered, the route still says where the user is: Runs, Variables,
@@ -69,7 +68,7 @@ not this component) — so the lead can run the whole line.
 	// Home is the root the workspace part already stands for, so it names no page of its own.
 	const routePage = $derived.by(() => {
 		if (item || section) return undefined
-		const found = navPageFor(page.url.pathname, base)
+		const found = navPageFor(page.url.pathname)
 		return found?.path === '/' ? undefined : found
 	})
 

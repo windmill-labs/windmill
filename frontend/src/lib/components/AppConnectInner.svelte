@@ -33,7 +33,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import OauthScopes from './OauthScopes.svelte'
 	import autosize from '$lib/autosize'
-	import { base } from '$lib/base'
 	import Required from './Required.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Pen, Search } from 'lucide-svelte'
@@ -1403,7 +1402,7 @@
 						<img
 							class="m-auto max-h-60"
 							alt="connect"
-							src={base + apiTokenApps[resourceType].img}
+							src={apiTokenApps[resourceType].img}
 						/>
 					</div>
 				{/if}

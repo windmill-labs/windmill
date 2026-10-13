@@ -1,4 +1,3 @@
-import { base } from '$lib/base'
 import type { WorkspaceItemKind } from '$lib/components/workspacePicker'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 
@@ -63,7 +62,7 @@ export const drawerHashFor = (pagePath: string, itemPath: string) =>
 /** The full page a page item is edited on: its list page, with the row's drawer open. */
 export function pageItemPageHref(ref: PageItemRef): string {
 	const listPath = pageItemListPath(ref)
-	return `${pageHref(listPath)}#${drawerHashFor(listPath, ref.path)}`
+	return `${listPath}#${drawerHashFor(listPath, ref.path)}`
 }
 
 /** The list page a page item is edited from. */
@@ -80,14 +79,14 @@ export function pageItemListPath(ref: PageItemRef): string {
 	}
 }
 
-/** Whether a (base-stripped) path is the list page of a page item kind. */
+/** Whether a path is the list page of a page item kind. */
 export function isPageItemListPath(path: string): boolean {
 	return pageItemForListPath(path, '') !== undefined
 }
 
 /** The page item a list page's row names, or undefined for a page that lists none. */
 export function pageItemForListPath(pagePath: string, path: string): PageItemRef | undefined {
-	const clean = stripBase(pagePath)
+	const clean = barePath(pagePath)
 	if (clean === VARIABLES_PATH) return { kind: 'variable', path }
 	if (clean === RESOURCES_PATH) return { kind: 'resource', path }
 	if (clean === SCHEDULES_PATH) return { kind: 'schedule', path }
@@ -135,22 +134,19 @@ export function pageItemKindLabel(ref: PageItemRef): string {
 	}
 }
 
-/** Label a trigger list page from its (base-stripped) pathname, or undefined. */
+/** Label a trigger list page from its pathname, or undefined. */
 export function triggerLabelForPath(path: string): string | undefined {
-	const clean = stripBase(path)
+	const clean = barePath(path)
 	return Object.values(TRIGGER_PAGES).find((t) => t.path === clean)?.label
 }
 
 export const pageKey = (path: string) => `page:${path}`
 export const isPageKey = (key: string) => key.startsWith('page:')
-export const pageHref = (path: string) => `${base}${path}`
 
-/** Strip the deployment base prefix (and any query/hash) from a preview path
- * so it can be matched against `PREVIEW_PAGES` / parsed as an item route. */
-export function stripBase(path: string): string {
-	let p = path.split('?')[0].split('#')[0]
-	if (base && p.startsWith(base)) p = p.slice(base.length)
-	return p || '/'
+/** Strip the query and hash from a preview path so it can be matched against
+ * `PREVIEW_PAGES` / parsed as an item route. */
+export function barePath(path: string): string {
+	return path.split('?')[0].split('#')[0] || '/'
 }
 
 /** Which side of an item a route addresses: `/edit/` builds it, `/get/` shows the
@@ -168,7 +164,7 @@ export type PreviewItemRoute = {
 // non-item page (home, runs, …). Shared by the breadcrumb (drill segments) and
 // `previewRouter`'s tab resolver so both agree on what counts as an item route.
 export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null {
-	const p = stripBase(fullPath)
+	const p = barePath(fullPath)
 	const m = p.match(/^\/(scripts|flows|apps|apps_raw)\/(edit|get)\/(.+)$/)
 	if (!m) return null
 	const itemPath = decodeURIComponent(m[3])
@@ -193,6 +189,6 @@ export function parseHistoricalScriptEdit(url: string): { path: string; hash: st
 // (the folder is a single path segment, not a workspace item path). The bare
 // `/pipeline` list page is not an editor. Returns the folder name, or null.
 export function parsePipelineRoute(fullPath: string): string | null {
-	const m = stripBase(fullPath).match(/^\/pipeline\/([^/?#]+)/)
+	const m = barePath(fullPath).match(/^\/pipeline\/([^/?#]+)/)
 	return m ? normalizePipelineFolder(decodeURIComponent(m[1])) : null
 }

@@ -150,7 +150,7 @@ You can run scripts locally by passing the right environment variables for the `
 - **Frontend**: Svelte 5
 - **Sandboxing**: [nsjail](https://github.com/google/nsjail) and PID namespace isolation
 - **Runtimes**:
-  - TypeScript/JavaScript: Bun (default) and Deno
+  - TypeScript/JavaScript: Bun (default); Deno only on the `windmill-full` images
   - Python: python3 with uv for dependency management
   - Go, Bash, PowerShell, PHP, Rust, C#, Java, Ansible
 
@@ -318,7 +318,7 @@ running options.
    This will also avoid compile time issue with sqlx's `query!` macro.
 2. (optional, linux only) Install [nsjail](https://github.com/google/nsjail) and have it accessible in
    your PATH
-3. Install bun, deno and python3 (+ any languages you want to use), have the bins at `/usr/bin/bun`,`/usr/bin/deno`, and
+3. Install bun and python3 (+ any languages you want to use), have the bins at `/usr/bin/bun` and
    `/usr/local/bin/python3` or set the corresponding environment variables.
 4. (optional) Install the [lld linker](https://lld.llvm.org/)
 5. Go to `frontend/`:

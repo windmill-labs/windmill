@@ -7,7 +7,6 @@
 	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
-	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
 	import { Badge, Button, Drawer, DrawerContent } from './common'
@@ -254,7 +253,7 @@
 	)
 	let resultDownloadHref = $derived(
 		resultApiPath
-			? `${base}/api${resultApiPath}`
+			? `/api${resultApiPath}`
 			: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`
 	)
 	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
@@ -856,7 +855,6 @@
 							{workspaceId}
 							{jobId}
 							{nodeId}
-							{base}
 							{result}
 							{disableTooltips}
 							on:open-drawer={() => openDrawer()}

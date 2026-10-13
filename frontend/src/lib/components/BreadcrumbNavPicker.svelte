@@ -15,7 +15,6 @@ highlighted, a workspace page inside Pages with that page highlighted.
 	import PreviewRouterPicker, { type Scope } from './sessions/PreviewRouterPicker.svelte'
 	import { pageKey, parsePreviewItemRoute, type PreviewTarget } from './sessions/previewRouter'
 	import { editPathFor, leafKeyFor, viewPathFor, type WorkspaceItem } from './workspacePicker'
-	import { base } from '$lib/base'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import type { PageHeaderItem } from './pageHeaderRegistry.svelte'
 
@@ -71,10 +70,8 @@ highlighted, a workspace page inside Pages with that page highlighted.
 
 	function hrefFor(target: PreviewTarget): string | undefined {
 		if (target.type === 'page') return target.href
-		if (target.type === 'item') {
-			const path = target.mode === 'view' ? viewPathFor(target.item) : editPathFor(target.item)
-			return `${base}${path}`
-		}
+		if (target.type === 'item')
+			return target.mode === 'view' ? viewPathFor(target.item) : editPathFor(target.item)
 		return undefined
 	}
 

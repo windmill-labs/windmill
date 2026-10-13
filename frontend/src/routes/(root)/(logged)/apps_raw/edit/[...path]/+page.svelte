@@ -4,6 +4,8 @@
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { useOperatorBuilderApps, workspaceListLoaded } from '$lib/operatorWriteRights'
+	import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -32,7 +34,11 @@
 		type RawAppBuildMode,
 		type RawAppTemplatePickerResult
 	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
-	import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
+	import {
+		BUILDER_FRAMEWORK_TEMPLATES,
+		react19Template,
+		STARTER_RUNNABLES
+	} from '$lib/components/raw_apps/templates'
 	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type RawAppDraft = {
@@ -97,6 +103,8 @@
 	// edits to the just-deployed app autosaved to a dead key (autosave appeared
 	// broken). See /scripts/edit, which derives its draft path the same way.
 	// effectivePath omitted: the live-editor-draft entry is owned by RawAppEditor.
+	const operatorBuilderApps = useOperatorBuilderApps()
+
 	const draftSync = usePageDraftSync<RawAppDraft>({
 		itemKind: 'raw_app',
 		path: () => page.params.path ?? '',
@@ -188,6 +196,8 @@
 		// `?new_draft` loads the saved draft instead of blanking it — see
 		// shouldSeedNewDraft.
 		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'raw_app', path)) {
+			await workspaceListLoaded()
+			if (tok !== loadAppToken) return
 			isNewApp = true
 			// Page reused across same-route nav: clear the previous path's
 			// draft-presence state so it doesn't bleed onto the fresh draft.
@@ -270,8 +280,10 @@
 			}
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
-			const seedFiles = { ...react19Template }
-			const seedRunnables = structuredClone(STARTER_RUNNABLES)
+			const seedFiles = {
+				...($operatorBuilderApps ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template)
+			}
+			const seedRunnables = starterRunnables()
 			savedApp = {
 				summary: '',
 				value: { files: seedFiles as any, runnables: seedRunnables as any },
@@ -520,10 +532,22 @@
 
 	let rawAppEditor: RawAppEditor | undefined = $state()
 
+	// The starter runnables are inline scripts, which the backend refuses from an operator with
+	// builder rights: seeding them would make their very first deploy fail.
+	function starterRunnables() {
+		return $operatorBuilderApps ? {} : structuredClone(STARTER_RUNNABLES)
+	}
+
+	// The deploy panel cannot switch Viewer mode off, nor drop the identity an app another user
+	// deployed carries, so the editor conforms the policy as soon as it opens.
+	$effect(() => {
+		if ($operatorBuilderApps && policy) conformBuilderAppPolicy(policy, $userStore)
+	})
+
 	async function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
 		const picked = {
 			files: { ...result.files },
-			runnables: { ...result.runnables, ...structuredClone(STARTER_RUNNABLES) },
+			runnables: { ...result.runnables, ...starterRunnables() },
 			data: result.data,
 			summary: '',
 			policy: result.policy

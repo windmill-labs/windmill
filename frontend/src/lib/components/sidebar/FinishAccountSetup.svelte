@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { Component } from 'svelte'
-	import { base } from '$lib/base'
 	import { UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { Button } from '$lib/components/common'
@@ -106,7 +105,7 @@
 								// Read by the OAuth callback: a provider asserting another address is refused
 								// rather than opening a second account under it (see oauth2_ee.rs).
 								document.cookie = `finish_setup=${encodeURIComponent(email)}; path=/; max-age=600; SameSite=Lax`
-								window.location.assign(`${base}/api/oauth/login/${login.type}`)
+								window.location.assign(`/api/oauth/login/${login.type}`)
 							}}
 						>
 							Continue with {login.displayName}

@@ -28,7 +28,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import { base } from '$lib/base'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext, OutputViewerJob } from '../types'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
@@ -564,7 +563,6 @@
 					<DisplayResultControlBar
 						workspaceId={selectedJob.workspace_id}
 						jobId={selectedJob.id}
-						{base}
 						result={selectedJob.result}
 						disableTooltips={false}
 						on:open-drawer={() => {
@@ -576,7 +574,6 @@
 				{:else if mock?.enabled && displayResultMock && toolbarLocationMock === 'external'}
 					<DisplayResultControlBar
 						customUi={{ disableDownload: true }}
-						{base}
 						result={mock.return_value}
 						disableTooltips={false}
 						on:open-drawer={() => {

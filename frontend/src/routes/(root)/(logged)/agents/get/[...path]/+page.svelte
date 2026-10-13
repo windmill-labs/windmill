@@ -2,7 +2,6 @@
 	import { page } from '$app/state'
 	import { FlaskConical, FormInput, MessageSquare, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
-	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
 	import AgentEvalsModal from '$lib/components/flows/content/AgentEvalsModal.svelte'
@@ -60,7 +59,7 @@
 	}
 
 	async function remove() {
-		if (ws && (await deleteAgent(ws, path))) await goto(`${base}/?kind=agent`)
+		if (ws && (await deleteAgent(ws, path))) await goto('/?kind=agent')
 	}
 
 	// The workspace's, so a path change never waits on it and a menu never outlives its path.
@@ -122,7 +121,7 @@
 			? async (newPath) => {
 					// A rename moves the page; a summary saved in place has to be read again, since
 					// what is shown here came from the load this page keys on.
-					if (newPath !== path) await goto(`${base}/agents/get/${newPath}`)
+					if (newPath !== path) await goto(`/agents/get/${newPath}`)
 					else reloaded++
 				}
 			: undefined}
@@ -146,7 +145,7 @@
 								variant: 'accent',
 								unifiedSize: 'md',
 								startIcon: Pen,
-								href: `${base}/agents/edit/${path}`
+								href: `/agents/edit/${path}`
 							}
 						}
 					]

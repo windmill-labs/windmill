@@ -1,6 +1,5 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { goto } from '$lib/navigation'
-import { base } from '$app/paths'
 import { UserDraft, draftValuesEqual, type UserDraftItemKind } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
@@ -55,13 +54,13 @@ const overwriteOpen = new SvelteSet<string>()
 export function editRouteFor(itemKind: UserDraftItemKind, path: string): string {
 	switch (itemKind) {
 		case 'script':
-			return `${base}/scripts/edit/${path}`
+			return `/scripts/edit/${path}`
 		case 'flow':
-			return `${base}/flows/edit/${path}`
+			return `/flows/edit/${path}`
 		case 'app':
-			return `${base}/apps/edit/${path}`
+			return `/apps/edit/${path}`
 		case 'raw_app':
-			return `${base}/apps_raw/edit/${path}`
+			return `/apps_raw/edit/${path}`
 		default:
 			throw new Error(`Cannot load drafts of kind ${itemKind}`)
 	}

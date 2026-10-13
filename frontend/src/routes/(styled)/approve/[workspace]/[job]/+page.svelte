@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { type Job, JobService } from '$lib/gen'
-	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -157,7 +156,7 @@
 	// approver this link serves, leaving `job` undefined — and `page.params.job` is the
 	// flow id the token is minted for anyway.
 	let runDetailsHref = $derived.by(() => {
-		let url = `${base}/run/${page.params.job}?workspace=${page.params.workspace}`
+		let url = `/run/${page.params.job}?workspace=${page.params.workspace}`
 		if (approvalInfo?.view_token) {
 			url += `&view_token=${encodeURIComponent(approvalInfo.view_token)}`
 		}

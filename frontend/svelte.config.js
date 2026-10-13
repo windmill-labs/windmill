@@ -35,9 +35,6 @@ const config = {
 		// revisions (SvelteKit only full-page reloads on a missing chunk if this changed).
 		version: { name: process.env.WM_BUILD_VERSION || pkg.version },
 		prerender: { entries: [] },
-		paths: {
-			base: process.env.VITE_BASE_URL ?? ''
-		},
 		alias: {
 			$system_prompts: '../system_prompts/auto-generated',
 			$oauth_connect_registry: '../backend/oauth_connect.json',

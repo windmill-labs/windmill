@@ -13,7 +13,6 @@
 		ExternalLink,
 		BookOpen
 	} from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import { truncateRev } from '$lib/utils'
 	import {
 		EXIT_PLAN_MODE_TOOL,
@@ -301,7 +300,7 @@
 
 	{#snippet jobLink()}
 		<a
-			href="{base}/run/{message.jobId}?workspace={chatHost.operatingWorkspace}"
+			href="/run/{message.jobId}?workspace={chatHost.operatingWorkspace}"
 			target="_blank"
 			rel="noopener noreferrer"
 			class="shrink-0 inline-flex items-center gap-1 font-main text-2xs text-tertiary hover:text-primary hover:underline"

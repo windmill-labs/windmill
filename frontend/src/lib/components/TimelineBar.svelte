@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { msToSec } from '$lib/utils'
-	import { base } from '$lib/base'
 	import { ExternalLink } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
 
@@ -59,7 +58,7 @@
 			{#if tooltip}
 				<span>{tooltip}</span>
 			{:else}
-				<a href="{base}/run/{id}" class="inline-flex items-center gap-1" target="_blank"
+				<a href="/run/{id}" class="inline-flex items-center gap-1" target="_blank"
 					>{id} <ExternalLink size={14} /></a
 				>
 			{/if}

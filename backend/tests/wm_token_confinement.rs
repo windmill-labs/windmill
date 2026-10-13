@@ -319,7 +319,7 @@ async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyho
         );
     }
     // ...and the `settings/global` keys on the allowlist, which the CLI reads from a job: on a
-    // git-sync push, and in `u/admin/hub_sync`. `ws_base_url` is the control: the handler
+    // git-sync push, and in `wmill hub pull`. `ws_base_url` is the control: the handler
     // leaves it as ungated as these, so only the allowlist stops it.
     for key in ["automate_username_creation", "uid", "hub_base_url"] {
         let resp = authed(

@@ -2,6 +2,36 @@ use sqlx::{Pool, Postgres};
 
 use windmill_test_utils::*;
 
+/// Both job-running tests seed `f/test/success_handler` with a different hash, each in its own
+/// database, while the deployed-script caches are process-global and keyed by workspace and
+/// path. With them on, one test resolves the handler to the other's hash and the handler push
+/// 404s whenever that hash's info is not cached yet.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn disable_deployed_script_cache() {
+    windmill_common::DEPLOYED_SCRIPT_CACHE_DISABLED
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The handler job is pushed after the job it handles is reported complete.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn wait_for_success_handler_job(
+    db: &Pool<Postgres>,
+) -> anyhow::Result<Option<(Option<String>, Option<uuid::Uuid>)>> {
+    for _ in 0..100 {
+        let job = sqlx::query_as::<_, (Option<String>, Option<uuid::Uuid>)>(
+            "SELECT runnable_path, parent_job FROM v2_job
+             WHERE workspace_id = 'test-workspace' AND permissioned_as_email = 'success_handler@windmill.dev'",
+        )
+        .fetch_optional(db)
+        .await?;
+        if job.is_some() {
+            return Ok(job);
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+    Ok(None)
+}
+
 /// Test that the workspace success handler cache works correctly with 60s TTL
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
@@ -108,6 +138,7 @@ async fn test_success_handler_triggered_on_success(db: Pool<Postgres>) -> anyhow
     use windmill_common::scripts::{ScriptHash, ScriptLang};
 
     initialize_tracing().await;
+    disable_deployed_script_cache();
 
     let server = ApiServer::start(db.clone()).await?;
 
@@ -123,7 +154,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
     sqlx::query!(
         r#"
         INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
-        VALUES ('test-workspace', 1234567890, 'f/test/success_handler', $1, 'deno', 'script', 'test-user', '{}', 'Success handler script', 'Handles successful job completions', '')
+        VALUES ('test-workspace', 1234567890, 'f/test/success_handler', $1, 'bun', 'script', 'test-user', '{}', 'Success handler script', 'Handles successful job completions', E'{}\n//bun.lock\n<empty>')
         "#,
         success_handler_code
     )
@@ -138,7 +169,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
     sqlx::query!(
         r#"
         INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
-        VALUES ('test-workspace', $1, 'f/test/simple_script', $2, 'deno', 'script', 'test-user', '{}', 'Simple test script', 'A simple test script', '')
+        VALUES ('test-workspace', $1, 'f/test/simple_script', $2, 'bun', 'script', 'test-user', '{}', 'Simple test script', 'A simple test script', E'{}\n//bun.lock\n<empty>')
         "#,
         test_script_hash,
         test_script_code
@@ -175,7 +206,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        language: ScriptLang::Deno,
+        language: ScriptLang::Bun,
         priority: None,
         apply_preprocessor: false,
         concurrency_settings: ConcurrencySettings::default(),
@@ -191,49 +222,14 @@ export async function main(path: string, email: string, job_id: string, is_flow:
 
     let main_job_id = completed_job.id;
 
-    // Wait a short time for the success handler job to be created
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-    // Verify the success handler job was created (query by email since trigger is not set)
-    let success_handler_job = sqlx::query!(
-        r#"
-        SELECT
-            id,
-            runnable_path,
-            permissioned_as_email,
-            parent_job
-        FROM v2_job
-        WHERE workspace_id = 'test-workspace'
-            AND permissioned_as_email = 'success_handler@windmill.dev'
-        ORDER BY created_at DESC
-        LIMIT 1
-        "#
-    )
-    .fetch_optional(&db)
-    .await?;
-
-    assert!(
-        success_handler_job.is_some(),
-        "Success handler job should have been created"
-    );
-
-    let handler_job = success_handler_job.unwrap();
-
-    // Verify the success handler job has correct parameters
+    let handler_job = wait_for_success_handler_job(&db).await?;
     assert_eq!(
-        handler_job.runnable_path.as_deref(),
-        Some("f/test/success_handler"),
-        "Success handler should run the configured script"
-    );
-    assert_eq!(
-        handler_job.permissioned_as_email.as_str(),
-        "success_handler@windmill.dev",
-        "Success handler should run as success_handler user"
-    );
-    assert_eq!(
-        handler_job.parent_job,
-        Some(main_job_id),
-        "Success handler should have main job as parent"
+        handler_job,
+        Some((
+            Some("f/test/success_handler".to_string()),
+            Some(main_job_id)
+        )),
+        "Success handler should run the configured script with the main job as parent"
     );
     // Note: root_job may be None when it equals parent_job (optimization in push function)
 
@@ -250,6 +246,7 @@ async fn test_success_handler_triggered_on_hub_script_success(
     use windmill_common::jobs::JobPayload;
 
     initialize_tracing().await;
+    disable_deployed_script_cache();
 
     let server = ApiServer::start(db.clone()).await?;
 
@@ -285,21 +282,9 @@ async fn test_success_handler_triggered_on_hub_script_success(
     .await;
     assert!(completed_job.success, "Hub script should have succeeded");
 
-    let mut handler_parent = None;
-    for _ in 0..50 {
-        handler_parent = sqlx::query_scalar::<_, Option<uuid::Uuid>>(
-            "SELECT parent_job FROM v2_job
-             WHERE workspace_id = 'test-workspace' AND permissioned_as_email = 'success_handler@windmill.dev'",
-        )
-        .fetch_optional(&db)
-        .await?;
-        if handler_parent.is_some() {
-            break;
-        }
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    }
+    let handler_job = wait_for_success_handler_job(&db).await?;
     assert_eq!(
-        handler_parent,
+        handler_job.map(|(_, parent)| parent),
         Some(Some(completed_job.id)),
         "Workspace success handler should handle the successful hub script"
     );

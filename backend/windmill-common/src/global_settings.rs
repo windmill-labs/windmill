@@ -158,6 +158,7 @@ pub const SSO_GROUPS_CLAIM_SETTING: &str = "sso_groups_claim";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const DISABLE_HUB_SETTING: &str = "disable_hub";
+pub const SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING: &str = "sync_hub_resource_types_daily";
 pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
 pub const CRITICAL_ALERT_MUTE_UI_SETTING: &str = "critical_alert_mute_ui";
 pub const CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING: &str = "critical_alerts_on_db_oversize";

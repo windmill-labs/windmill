@@ -118,7 +118,7 @@ while (cont) {
         } else {
           uuid = await windmill.JobService.runScriptByPath({
             workspace: config.workspace_id,
-            path: "f/benchmarks/" + (config.scriptPattern || "deno"),
+            path: "f/benchmarks/" + (config.scriptPattern || "bun"),
             requestBody: {},
           });
         }

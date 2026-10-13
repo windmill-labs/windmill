@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { copilotInfo } from '$lib/aiStore'
 	import { aiUserDisabled } from '$lib/stores'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -50,7 +49,7 @@
 				{:else}
 					<p class="text-sm"
 						>Enable Windmill AI in the <a
-							href="{base}/workspace_settings?tab=ai"
+							href="/workspace_settings?tab=ai"
 							target="_blank"
 							class="inline-flex flex-row items-center gap-1"
 							>workspace settings <ExternalLink size={16} /></a
