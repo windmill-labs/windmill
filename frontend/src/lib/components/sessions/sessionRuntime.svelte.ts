@@ -666,22 +666,26 @@ function createRuntime(session: Session): SessionRuntime {
 			return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
 		})
 		if (open) {
-			// A tab pinned to a version is one the reader put somewhere deliberately, and
-			// `navigate` below rebuilds its url without the pin. Worth it when the reader asked
-			// for this page; not worth silently moving them off a version they chose, so an
-			// unasked-for hand-off declines and leaves the call on the card.
-			if (onlyIfAlreadyOpen && new URL(open.url, 'http://x').searchParams.get('version')) {
+			// An unasked-for hand-off goes only to the page the reader already has in front of
+			// them. `navigate` below re-points the tab, which reloads it and rebuilds its url:
+			// on a tab they cannot see that silently drops whatever they had typed into its
+			// form and leaves the call on an off-screen page, and on a pinned one it moves them
+			// off the version they chose. Declining leaves the call on the card, which can run
+			// it. A reader who presses Preview is asking for all of that.
+			if (
+				onlyIfAlreadyOpen &&
+				(previewTabs.activeId !== open.id ||
+					previewTabs.collapsed ||
+					new URL(open.url, 'http://x').searchParams.get('version'))
+			) {
 				return false
 			}
 			previewTabs.navigate(viewTarget, open.id)
 			// `navigate` re-points a tab in place and nothing more, while the call is about to
 			// tell the reader the page is open. `open` would have brought it forward and shown
-			// the panel; this path has to do both itself — except when nobody asked, where
-			// taking the panel off the tab the reader is on is the thing to avoid.
-			if (!onlyIfAlreadyOpen || previewTabs.activeId === open.id) {
-				previewTabs.select(open.id)
-				previewTabs.setCollapsed(false)
-			}
+			// the panel; this path has to do both itself.
+			previewTabs.select(open.id)
+			previewTabs.setCollapsed(false)
 		} else {
 			// Only the item's own page carries a form for this call, so a caller routing a call
 			// that was not asked to open anything gets a no rather than a new tab.
