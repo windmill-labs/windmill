@@ -54,9 +54,13 @@ function sessionReachableTools(): SessionTool<any>[] {
 }
 
 function withheldNames(access: SessionAccess): string[] {
+	// Shipped, not merely allowed: a kind-taking tool left with no kind is dropped too.
+	const shipped = new Set(
+		filterSessionTools(sessionReachableTools(), access).map((t) => t.def.function.name)
+	)
 	return sessionReachableTools()
-		.filter((t) => !sessionToolAllowed(t, access))
 		.map((t) => t.def.function.name)
+		.filter((n) => !shipped.has(n))
 }
 
 /** The tools a session actually ships, through the same assembly production uses. */

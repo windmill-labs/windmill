@@ -1427,9 +1427,11 @@ function buildFolderGuidance(
 	return lines.join('\n')
 }
 
-/** "a", "a and b", "a, b and c". */
-function joinList(items: string[]): string {
-	return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+/** "a", "a and b", "a, b and c" — or with `or`. */
+function joinList(items: string[], conjunction = 'and'): string {
+	return items.length < 2
+		? items.join('')
+		: `${items.slice(0, -1).join(', ')} ${conjunction} ${items.at(-1)}`
 }
 
 const buildGlobalSystemPrompt = (
@@ -1462,14 +1464,23 @@ const buildGlobalSystemPrompt = (
 		canDraftTriggers ||
 		canDraftResources ||
 		canDraftVariables
+	const canDeploy = !access || access.has('deploy')
+	// Whether deploy_workspace_item and delete_workspace_item keep any kind: only schedules and
+	// triggers skip the deploy rules, and an admin passes them.
+	const canDeployAnyKind =
+		canDeploy || access.has('manage_schedules') || access.has('manage_triggers')
 	// These read only where `write_draft` is missing: it implies the other draft rights.
-	const draftedOperatorKinds = joinList(
-		[
-			canDraftResources && 'resources',
-			canDraftVariables && 'variables',
-			canDraftSchedules && 'schedules',
-			canDraftTriggers && 'triggers'
-		].filter((k): k is string => !!k)
+	const draftedKinds = [
+		canDraftResources && 'resources',
+		canDraftVariables && 'variables',
+		canDraftSchedules && 'schedules',
+		canDraftTriggers && 'triggers'
+	].filter((k): k is string => !!k)
+	const draftedOperatorKinds = joinList(draftedKinds)
+	// Resources and variables deploy under the rules; schedules and triggers under the right
+	// that also lets them be drafted.
+	const deployableKinds = draftedKinds.filter(
+		(k) => canDeploy || k === 'schedules' || k === 'triggers'
 	)
 	const refusedKinds = [
 		!buildsFlows && 'flows',
@@ -1536,7 +1547,7 @@ The current user's workspace username is "${username}".${instanceLine}
 ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
-		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${refusedKinds.slice(0, -1).join(', ')} or ${refusedKinds.at(-1)} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${joinList(refusedCode)} outside this chat too, so for those suggest asking a workspace admin rather than creating them in the editor.${when(
+		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${joinList(refusedKinds, 'or')} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${joinList(refusedCode)} outside this chat too, so for those suggest asking a workspace admin rather than creating them in the editor.${when(
 				buildsFlows,
 				'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.'
 			)}${when(
@@ -1552,7 +1563,11 @@ ${
 						canDraftTriggers &&
 							'write_trigger (call get_trigger_schema first: the config fields differ per kind)'
 					].filter((k): k is string => !!k)
-				)}, then deploy them with deploy_workspace_item once the user asks.`
+				)}${
+					deployableKinds.length
+						? `, then deploy ${deployableKinds.length === draftedKinds.length ? 'them' : joinList(deployableKinds)} with deploy_workspace_item once the user asks`
+						: ''
+				}.`
 			)}`
 }${when(
 		canWriteAnyDraft,
@@ -1579,10 +1594,16 @@ Rules:${when(
 	)}
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${when(
+		canWriteAnyDraft && canDeployAnyKind,
+		`
+- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.`
+	)}${when(
 		canWriteAnyDraft,
 		`
-- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
-- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.`
+- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft).${when(
+			canDeployAnyKind,
+			' Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.'
+		)}`
 	)}${when(
 		!canWriteAnyDraft,
 		`
@@ -2728,6 +2749,8 @@ export function getSessionContextPromptSection(
 		(!access || access.has('manage_schedules')) && 'schedules',
 		(!access || access.has('manage_triggers')) && 'triggers'
 	].filter((k): k is string => !!k)
+	// With no kind left to deploy, the deploy tool is not shipped, so the lines below cannot name it.
+	const deployer = canDeploy || unruledKinds.length ? 'deploy_workspace_item' : 'A deploy'
 	const targets = ['reads', canWriteDraft && 'drafts', canRunPreview && 'test runs', 'deploys']
 		.filter(Boolean)
 		.join(', ')
@@ -2743,19 +2766,19 @@ export function getSessionContextPromptSection(
 		)
 	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". deploy_workspace_item publishes into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". ${deployer} publishes into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.parentWorkspaceId) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. deploy_workspace_item publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. ${deployer} publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.forkParentUnknown) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. deploy_workspace_item publishes into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
+			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. ${deployer} publishes into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
 		)
 	} else if (ctx.workspaceId) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork. deploy_workspace_item publishes directly to everyone in it.`
+			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork. ${deployer} publishes directly to everyone in it.`
 		)
 	} else {
 		lines.push(
