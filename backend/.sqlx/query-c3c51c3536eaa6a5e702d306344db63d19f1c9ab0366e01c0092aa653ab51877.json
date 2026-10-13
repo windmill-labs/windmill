@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM token WHERE email = $1 AND label = 'session' AND token_hash != $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c3c51c3536eaa6a5e702d306344db63d19f1c9ab0366e01c0092aa653ab51877"
+}
