@@ -24,13 +24,16 @@ export function filterSessionTools<T extends FilterableTool>(
 	access: SessionAccess | undefined
 ): T[] {
 	if (!access) return tools
-	return tools.filter((t) => sessionToolAllowed(t, access)).map((t) => narrowKinds(t, access))
+	return tools
+		.filter((t) => sessionToolAllowed(t, access))
+		.flatMap((t) => narrowKinds(t, access) ?? [])
 }
 
 /** Returns the tool itself when every kind is allowed, so full access ships the same bytes:
  * tool defs are part of every iteration's cached prefix. Builds new objects otherwise — the
- * defs are module singletons shared by every session. */
-function narrowKinds<T extends FilterableTool>(tool: T, access: SessionAccess): T {
+ * defs are module singletons shared by every session. `undefined` when no kind is left: an
+ * empty enum would offer a tool no call can satisfy. */
+function narrowKinds<T extends FilterableTool>(tool: T, access: SessionAccess): T | undefined {
 	const kindRequires = tool.kindRequires
 	if (!kindRequires) return tool
 	const parameters = tool.def.function.parameters as {
@@ -40,6 +43,7 @@ function narrowKinds<T extends FilterableTool>(tool: T, access: SessionAccess): 
 	// A kind with no entry is withheld, as a tool with no `requires` is.
 	const allowed = kinds.filter((k) => kindRequires[k] && satisfies(kindRequires[k], access))
 	if (allowed.length === kinds.length) return tool
+	if (allowed.length === 0) return undefined
 	const def = structuredClone(tool.def)
 	;(def.function.parameters as typeof parameters).properties.type.enum = allowed
 	return { ...tool, def }
