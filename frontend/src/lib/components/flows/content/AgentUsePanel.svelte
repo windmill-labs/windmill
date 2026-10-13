@@ -14,6 +14,7 @@
 	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import { Sparkles } from 'lucide-svelte'
 	import {
 		curlExample,
@@ -147,7 +148,7 @@
 	let userSettings: UserSettings | undefined = $state(undefined)
 	let token = $state('')
 	let target = $derived({
-		api: `${location.origin}/api/w/${workspace}`,
+		api: `${apiBaseUrl()}/api/w/${workspace}`,
 		agentPath,
 		chat,
 		token

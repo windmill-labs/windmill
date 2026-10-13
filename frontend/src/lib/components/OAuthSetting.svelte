@@ -234,7 +234,7 @@
 							>.
 						</span>
 						<CopyableCodeBlock
-							code={slackAppManifest(`${window.location.origin}`)}
+							code={slackAppManifest(window.location.origin)}
 							language={yaml}
 						/>
 					</div>
