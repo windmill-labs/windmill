@@ -135,10 +135,13 @@
 			  }
 			| undefined
 		/** Set to refuse every write this form can make, and to say so when a run is
-		 * attempted. No edits, no dynamic-select helper, no JSON, and no run — `run()` mints
-		 * the `password` arguments it is about to send, so refusing in `runAction` is already
-		 * too late. For a form standing in for a chat card under plan mode, which promised
-		 * none of it. */
+		 * attempted: the fields are disabled, the dynamic-select helper is not wired, the JSON
+		 * editor is read-only, and `run()` refuses before it mints the `password` arguments it
+		 * would send — so a caller cannot gate this in `runAction`, which comes after that
+		 * mint. For a form standing in for a chat card under plan mode, which promised none of
+		 * it. The caller must also leave this form on the side it is showing: swapping fields
+		 * for JSON or back mounts a `password` widget, which mints from the literal it opens
+		 * on regardless of being disabled. */
 		runRefusal?: string
 		runAction: (
 			scheduledForStr: string | undefined,
@@ -349,6 +352,7 @@
 			>
 				<JsonInputs
 					bind:this={jsonEditor}
+					readOnly={argsReadonly}
 					on:select={(e) => {
 						// The other way into the arguments, and the one disabling the fields misses.
 						if (argsReadonly) return

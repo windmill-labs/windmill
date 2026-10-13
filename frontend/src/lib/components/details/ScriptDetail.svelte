@@ -1059,6 +1059,10 @@
 										}}
 										{inputSelected}
 									/>
+									<!-- Not offered while the form refuses writes: each side of this toggle
+									     mounts what the other unmounts, and a `password` field mints a
+									     variable from the literal it opens on. The form stays on whichever
+									     side it is already showing, read-only. -->
 									{#if hasSchema && !pendingRun?.planModeActive}
 										<Toggle
 											bind:checked={jsonView}
@@ -1135,7 +1139,7 @@
 								bind:args
 								schedulable={!pendingRun}
 								bind:this={runForm}
-								jsonView={jsonView && !pendingRun?.planModeActive}
+								{jsonView}
 								actions={promptForAi ? undefined : aiAssistant}
 							/>
 						</div>
