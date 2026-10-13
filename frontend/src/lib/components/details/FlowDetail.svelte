@@ -854,17 +854,25 @@
 								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
 							<!-- Normal Mode: Form Layout -->
 							<div class="flex flex-col align-left">
-								{#if hasSchema || inputSelected}
+								{#if hasSchema || inputSelected || pendingRun}
 									<div
 										class="flex flex-row justify-between min-h-12"
 										transition:slide={{ duration: 150 }}
 									>
-										<InputSelectedBadge
-											onReject={() => {
-												savedInputsV2?.resetSelected()
-											}}
-											{inputSelected}
-										/>
+										<div class="flex flex-row items-start gap-2">
+											{#if pendingRun}
+												<InputSelectedBadge
+													inputSelected="pending_run"
+													onReject={() => pendingRun.decline()}
+												/>
+											{/if}
+											<InputSelectedBadge
+												onReject={() => {
+													savedInputsV2?.resetSelected()
+												}}
+												{inputSelected}
+											/>
+										</div>
 
 										<!-- Not offered while the form refuses writes: each side of this
 										     toggle mounts what the other unmounts, and a `password` field
@@ -898,13 +906,6 @@
 								{/snippet}
 								{#if promptForAi}
 									{@render aiAssistant()}
-								{/if}
-
-								{#if pendingRun}
-									<InputSelectedBadge
-										inputSelected="pending_run"
-										onReject={() => pendingRun.decline()}
-									/>
 								{/if}
 
 								<RunForm

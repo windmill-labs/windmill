@@ -1047,19 +1047,27 @@
 						{/if}
 
 						<div class="flex flex-col align-left">
-							{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected}
+							{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected || pendingRun}
 								{@const hasSchema =
 									script.schema && Object.keys(script.schema.properties ?? {}).length > 0}
 								<div
 									class="flex flex-row justify-between min-h-12"
 									transition:slide={{ duration: 150 }}
 								>
-									<InputSelectedBadge
-										onReject={() => {
-											savedInputsV2?.resetSelected()
-										}}
-										{inputSelected}
-									/>
+									<div class="flex flex-row items-start gap-2">
+										{#if pendingRun}
+											<InputSelectedBadge
+												inputSelected="pending_run"
+												onReject={() => pendingRun.decline()}
+											/>
+										{/if}
+										<InputSelectedBadge
+											onReject={() => {
+												savedInputsV2?.resetSelected()
+											}}
+											{inputSelected}
+										/>
+									</div>
 									<!-- Not offered while the form refuses writes: each side of this toggle
 									     mounts what the other unmounts, and a `password` field mints a
 									     variable from the literal it opens on. The form stays on whichever
@@ -1115,12 +1123,6 @@
 								{@render aiAssistant()}
 							{/if}
 
-							{#if pendingRun}
-								<InputSelectedBadge
-									inputSelected="pending_run"
-									onReject={() => pendingRun.decline()}
-								/>
-							{/if}
 							<RunForm
 								bind:scheduledForStr
 								bind:invisible_to_owner

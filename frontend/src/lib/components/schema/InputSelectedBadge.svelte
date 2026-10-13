@@ -19,11 +19,7 @@
 	let { inputSelected, className = '', acceptButton, onReject, labelColor = '' }: Props = $props()
 </script>
 
-<!-- The reserved slot keeps the form from jumping as the badge toggles with the input
-     picker's selection. A `pending_run` badge does not toggle — it stands for as long as
-     the call is parked — so it holds no space open, which in a short pane is enough to
-     push the form's footer out of sight. -->
-<div class={inputSelected === 'pending_run' ? '' : 'min-h-[38px]'}>
+<div class="min-h-[38px]">
 	<div
 		class={twMerge(
 			'rounded-md flex flex-row gap-2 items-center py-1 px-2 w-fit',
@@ -49,11 +45,12 @@
 			{@render acceptButton()}
 		{/if}
 		<Button
-			color="light"
-			size="xs2"
+			unifiedSize="2xs"
+			variant="subtle"
+			tone="info"
 			startIcon={{ icon: X }}
 			shortCut={{ key: 'esc', withoutModifier: true }}
-			on:click={onReject}
+			onClick={onReject}
 		/>
 	</div>
 </div>
