@@ -4279,8 +4279,10 @@ export const globalTools: SessionTool<{}>[] = [
 			app: WRITE_DRAFT,
 			resource: WRITE_DRAFT,
 			variable: WRITE_DRAFT,
-			schedule: WRITE_SCHEDULE_DRAFT,
-			trigger: WRITE_TRIGGER_DRAFT
+			// Not the schedule/trigger draft rights: `rebaseDraft` has no handler for these kinds,
+			// so an operator holding only those rights would be offered a tool that always throws.
+			schedule: WRITE_DRAFT,
+			trigger: WRITE_DRAFT
 		} satisfies Record<(typeof ITEM_TYPES)[number], SessionToolPolicy>,
 		def: createToolDef(
 			rebaseDraftSchema,
