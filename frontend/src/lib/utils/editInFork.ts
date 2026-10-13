@@ -76,6 +76,18 @@ export function canCreateFork(user: UserExt | undefined): boolean {
 	)
 }
 
+export const OPERATOR_FORK_BLOCKED_REASON =
+	'Operators cannot fork this workspace. A workspace admin can allow it by turning on "Allow operators to fork" in a ruleset, under Workspace settings > Rulesets.'
+
+/**
+ * Whether the only thing refusing this user a fork is the missing `AllowOperatorForking`. The fork
+ * entries then stay visible, disabled, so the operator learns an admin can turn it on; when forking
+ * is disabled for everyone they stay hidden, as they are for developers.
+ */
+export function operatorForkBlocked(user: UserExt | undefined): boolean {
+	return !!user?.operator && !canCreateFork(user) && !isRuleActive('DisableWorkspaceForking')
+}
+
 function editPathFor(itemType: ItemType, itemPath: string): string {
 	switch (itemType) {
 		case 'script':
