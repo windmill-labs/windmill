@@ -612,7 +612,7 @@ function createRuntime(session: Session): SessionRuntime {
 			get proposedArgs() {
 				return manager.pendingRunFormArgs(toolCallId) ?? {}
 			},
-			adopt: (jobId) => manager.handleRunFormJob(toolCallId, jobId),
+			adopt: (jobId, args) => manager.handleRunFormJob(toolCallId, jobId, args),
 			decline: () => manager.handleRunFormCancel(toolCallId)
 		}
 	}

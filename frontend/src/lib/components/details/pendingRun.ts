@@ -14,9 +14,11 @@ export type PendingRun = {
 	/** What the chat proposed, for the form to open on. Read when the form is built, so this
 	 * is the live draft of the card's own form rather than a copy to keep in step. */
 	readonly proposedArgs: Record<string, any>
-	/** The job the reader started here answers the call. True when it did: the chat then shows
-	 * that run in place of this page, so the page must not navigate to it as well. False when
-	 * the call settled while the job was starting, and the run is the reader's alone. */
-	adopt: (jobId: string) => boolean
+	/** The job the reader started here answers the call, with the arguments it was started
+	 * with — the card has no other way to show what ran. True when the call took it: the chat
+	 * then shows that run in place of this page, so the page must not navigate to it as well.
+	 * False when the call settled while the job was starting, and the run is the reader's
+	 * alone. */
+	adopt: (jobId: string, args: Record<string, any>) => boolean
 	decline: () => void
 }

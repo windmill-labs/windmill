@@ -614,7 +614,9 @@ export type RunFormDisplay = {
  * a run the reader already started on the item's own page, which the tool follows instead. */
 export type RunFormAnswer =
 	| { kind: 'args'; args: Record<string, any> }
-	| { kind: 'job'; jobId: string }
+	/** A job another surface already started. Its `args` are what that surface sent, already
+	 * coerced and minted by its own form, so they are reported rather than processed. */
+	| { kind: 'job'; jobId: string; args: Record<string, any> }
 
 export type RunFormDraft = {
 	args: Record<string, any>

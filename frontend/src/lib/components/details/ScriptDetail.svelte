@@ -389,12 +389,6 @@
 		// pressed under, and a call settled meanwhile — declined, then another proposed for
 		// this same script — must not be answered with a job it never asked for.
 		const call = pendingRun
-		// The page runs its own job, so nothing downstream gates this: the chat asked for the
-		// run and then promised not to make one.
-		if (call?.planModeActive) {
-			sendUserToast(PLAN_MODE_MESSAGES.runFormRefused, true)
-			return
-		}
 		try {
 			runLoading = true
 			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
@@ -423,7 +417,7 @@
 			// The call asked for this run; it follows the job rather than starting one, and
 			// shows it in place of this page — so navigating here as well would leave two
 			// surfaces open on the same job.
-			if (!call?.adopt(run)) await onNavigate('/run/' + run + '?workspace=' + workspace)
+			if (!call?.adopt(run, args)) await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} catch (err) {
 			sendUserToast(`Could not create job: ${err.body}`, true)
 		} finally {
@@ -1135,11 +1129,13 @@
 								bind:isValid
 								runnable={script}
 								runAction={runScript}
-								argsReadonly={pendingRun?.planModeActive}
+								runRefusal={pendingRun?.planModeActive
+									? PLAN_MODE_MESSAGES.runFormRefused
+									: undefined}
 								bind:args
 								schedulable={!pendingRun}
 								bind:this={runForm}
-								{jsonView}
+								jsonView={jsonView && !pendingRun?.planModeActive}
 								actions={promptForAi ? undefined : aiAssistant}
 							/>
 						</div>

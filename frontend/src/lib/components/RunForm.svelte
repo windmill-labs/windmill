@@ -75,6 +75,13 @@
 	}
 
 	export async function run(overrideScheduledForStr?: string | undefined | null) {
+		// Ahead of everything, including the flush below: the secret processing further down
+		// creates a variable per `password` argument, so a refusal that waits for `runAction`
+		// has already written. The keybinding reaches here without the button.
+		if (runRefusal) {
+			sendUserToast(runRefusal, true)
+			return
+		}
 		// An editor whose text does not parse never wrote it to `args`, so running now would send
 		// the last value that did parse. Flush first: a keystroke still inside the editor debounce
 		// has not been parsed yet, and per-field editors parse it in an effect, hence the tick.
@@ -127,11 +134,12 @@
 					extra_perms?: Record<string, boolean>
 			  }
 			| undefined
-		/** Take no writes from the reader: no edits, no dynamic-select helper, no JSON. All
-		 * three write before Run is pressed — a `password` mints as it is typed, the helper
-		 * runs its entrypoint on mount — so gating Run cannot stop them. For a form standing
-		 * in for a chat card under plan mode, which promised none of it. */
-		argsReadonly?: boolean
+		/** Set to refuse every write this form can make, and to say so when a run is
+		 * attempted. No edits, no dynamic-select helper, no JSON, and no run — `run()` mints
+		 * the `password` arguments it is about to send, so refusing in `runAction` is already
+		 * too late. For a form standing in for a chat card under plan mode, which promised
+		 * none of it. */
+		runRefusal?: string
 		runAction: (
 			scheduledForStr: string | undefined,
 			args: Record<string, any>,
@@ -165,7 +173,7 @@
 	let {
 		runnable,
 		runAction,
-		argsReadonly = false,
+		runRefusal = undefined,
 		buttonText = 'Run',
 		schedulable = true,
 		detailed = true,
@@ -183,6 +191,8 @@
 		syncArgsToUrl = true,
 		actions = undefined
 	}: Props = $props()
+
+	const argsReadonly = $derived(!!runRefusal)
 
 	let showPsCommonParams = $derived(
 		runnable?.language === 'powershell' && runnable?.schema?.['x-windmill-ps-cmd-binding'] === true
@@ -393,7 +403,7 @@
 					variant="accent"
 					unifiedSize="md"
 					btnClasses="!inline-flex"
-					disabled={!isValid && !jsonView}
+					disabled={(!isValid && !jsonView) || argsReadonly}
 					on:click={() => run()}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
@@ -442,7 +452,7 @@
 				variant="accent"
 				unifiedSize="md"
 				btnClasses="!inline-flex"
-				disabled={!isValid && !jsonView}
+				disabled={(!isValid && !jsonView) || argsReadonly}
 				on:click={() => run(null)}
 				shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 			>
@@ -455,7 +465,7 @@
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			variant="accent"
-			disabled={!isValid && !jsonView}
+			disabled={(!isValid && !jsonView) || argsReadonly}
 			on:click={() => run(null)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>

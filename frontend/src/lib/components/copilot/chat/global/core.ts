@@ -6363,11 +6363,11 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		return runFormCancelled(spec.toolName, noun)
 	}
 
-	// A run the reader started on the item's own page. It is already going, with that page's
-	// own arguments and version, so there is nothing here to gate, mint or redact — only a job
-	// to follow, which is what makes the chat able to report on it.
-	const adopted = answer.kind === 'job' ? answer.jobId : undefined
-	const submitted = answer.kind === 'args' ? answer.args : {}
+	// A run the reader started on the item's own page. It is already going, at that page's own
+	// version and with arguments its own form coerced and minted — so there is nothing here to
+	// gate or process, only a job to follow and its arguments to show.
+	const adopted = answer.kind === 'job' ? answer : undefined
+	const submitted = answer.args
 
 	const blockedBeforeRun = adopted ? undefined : blockedByPlanMode()
 	if (blockedBeforeRun) {
@@ -6403,16 +6403,18 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// job instead. Only once there is a job to read them from: substituting the marker any
 	// earlier would leave a run that never started showing nothing but the marker.
 	const oversized = JSON.stringify(forCard).length > MAX_PERSISTED_ARGS_LENGTH
-	// An adopted job's arguments are the page's, not these: the card reads them off the job.
-	if (!oversized && !adopted) {
+	if (!oversized) {
 		toolCallbacks.setToolStatus(toolId, { parameters: forCard })
+	} else if (adopted) {
+		// Its job exists already, so the marker can stand in now rather than in `jobStarter`.
+		toolCallbacks.setToolStatus(toolId, { parameters: { reason: 'WINDMILL_TOO_BIG' } })
 	}
 
 	const outcome = await executeTestRun({
 		jobStarter: async () => {
 			if (adopted) {
 				toolCallbacks.markRunFormStarted?.(toolId)
-				return adopted
+				return adopted.jobId
 			}
 			let jobId: string
 			try {
@@ -6473,15 +6475,14 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// Naming them costs a copy of arguments already in the call above, and cleared/reset/
 	// stripped name every way the form's own differ from the proposed ones — so only what
 	// the user changed is news.
-	// An adopted job is the page's own: its arguments and version are whatever that page held,
-	// which is not readable from here. Saying so beats naming arguments that may not be the
-	// ones that ran — and the notes below all describe the proposal this run did not use.
-	if (adopted) {
-		return `The user ran "${spec.path}" themselves on its own page, with the arguments and version that page held — not necessarily the ones proposed here. Read the job if you need them.\n${outcome}`
-	}
 	const ran = deepEqual(redacted, proposed)
 		? 'Ran with the arguments the form opened with, unedited.'
 		: `Ran with arguments: ${shown}`
+	// The notes below say what THIS form did to the proposal, and an adopted run went through
+	// the page's form instead — so they describe a submission that never happened.
+	if (adopted) {
+		return `The user ran it on the ${spec.contextName}'s own page, at the version that page showed. ${ran}\n${outcome}`
+	}
 	return `${ran}${cleared}${reset}${stripped}${undeclared}\n${outcome}`
 }
 

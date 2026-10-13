@@ -2137,9 +2137,15 @@ export class AIChatManager implements ChatViewHost {
 
 	/** The reader ran the item on its own page; the tool follows that job rather than
 	 * starting one. False when the call is no longer waiting. */
-	handleRunFormJob = (toolId: string, jobId: string): boolean => {
+	handleRunFormJob = (toolId: string, jobId: string, args: Record<string, any>): boolean => {
 		if (!this.isRunFormPending(toolId)) return false
-		this.#settleRunForm(toolId, { kind: 'job', jobId })
+		// Snapshotted for the same reason the draft is: these are `$state` proxies off the
+		// page's own form, which keeps editing them after the run.
+		this.#settleRunForm(toolId, {
+			kind: 'job',
+			jobId,
+			args: ($state.snapshot(args) ?? {}) as Record<string, any>
+		})
 		return true
 	}
 
@@ -2172,7 +2178,7 @@ export class AIChatManager implements ChatViewHost {
 		answer: RunFormAnswer | undefined,
 		card?: (runForm: RunFormDisplay) => Partial<ToolDisplayMessage>
 	) => {
-		const submitted = answer?.kind === 'args' ? answer.args : answer ? {} : undefined
+		const submitted = answer?.args
 		const entry = this.#runForms.get(toolId)
 		// Its draft holds whatever was typed into the form, a minted password included.
 		this.#runForms.delete(toolId)

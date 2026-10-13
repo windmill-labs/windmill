@@ -5241,7 +5241,10 @@ describe('global AI tools', () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce(script)
 
 		const statuses: any[] = []
-		const requestRunArgs = vi.fn(async (_toolId: string, form: any) => ({ kind: 'args', args: form.args }))
+		const requestRunArgs = vi.fn(async (_toolId: string, form: any) => ({
+			kind: 'args',
+			args: form.args
+		}))
 		const yolo = {
 			...toolCallbacks,
 			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
@@ -5438,6 +5441,39 @@ describe('global AI tools', () => {
 		expect(statuses.find((s) => s.runForm)?.runForm?.conversational).toBe(true)
 	})
 
+	// A run confirmed on the item's own page answers with the job it started, so this tool
+	// never sees a submission: the card and the model would otherwise be left describing the
+	// proposal as what ran, which is wrong as soon as the reader edits a field.
+	it('run_script reports an adopted job with the arguments that page sent', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/adopted',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const statuses: any[] = []
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/adopted', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					setToolStatus: (_id: string, s: any) => statuses.push(s),
+					requestRunArgs: async () => ({
+						kind: 'job',
+						jobId: 'job-123',
+						args: { name: 'Grace' }
+					})
+				}
+			)
+		)
+
+		// Started by the page, so this tool must not start one of its own.
+		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
+		expect(statuses.filter((s) => s.parameters).at(-1)?.parameters).toEqual({ name: 'Grace' })
+		expect(result).toContain('Grace')
+		expect(result).not.toContain('Ada')
+	})
+
 	// The posture answers wherever it is set, form or no form: what it answers is consent, and a
 	// host without one has nothing left to ask. A secret still becomes a reference first, which
 	// is the only thing the missing form would have done.
@@ -5551,7 +5587,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'test_run_script',
 				{ path: 'f/scripts/noargs-test', args: { force_delete: true } },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args }) }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args })
+				}
 			)
 		)
 
@@ -5576,7 +5615,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'run_script',
 				{ path: 'f/scripts/host-literal', args: { token: 'hunter2' } },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args }) }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args })
+				}
 			)
 		)
 
@@ -5703,7 +5745,10 @@ describe('global AI tools', () => {
 					path: 'u/admin/live_flow',
 					args: { name: 'Ada' }
 				},
-				{ ...toolCallbacks, requestRunArgs: async () => ({ kind: 'args', args: { name: 'Grace' } }) },
+				{
+					...toolCallbacks,
+					requestRunArgs: async () => ({ kind: 'args', args: { name: 'Grace' } })
+				},
 				{ testActiveFlow }
 			)
 		)
@@ -6544,7 +6589,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'test_run_step',
 				{ path: 'f/flows/drifted-step', stepId: 'call_script', args: { name: 'Ada' } },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, f) => ((form = f), { kind: 'args', args: f.args }) }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => ((form = f), { kind: 'args', args: f.args })
+				}
 			)
 		)
 
@@ -6583,7 +6631,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'test_run_step',
 				{ path: 'f/flows/secretful-step', stepId: 'call_secretful', args: {} },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, f) => ((form = f), { kind: 'args', args: f.args }) }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => ((form = f), { kind: 'args', args: f.args })
+				}
 			)
 		)
 
@@ -6612,7 +6663,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'test_run_step',
 				{ path: 'f/flows/preprocessed', stepId: 'preprocessor', args: { event: 'signup' } },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, f) => ((form = f), { kind: 'args', args: f.args }) }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => ((form = f), { kind: 'args', args: f.args })
+				}
 			)
 		)
 
@@ -6812,7 +6866,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'run_script',
 				{ path: 'f/scripts/greet', args: { name: 'Ada' } },
-				{ ...toolCallbacks, requestRunArgs: async () => ({ kind: 'args', args: { name: 'Grace' } }) }
+				{
+					...toolCallbacks,
+					requestRunArgs: async () => ({ kind: 'args', args: { name: 'Grace' } })
+				}
 			)
 		)
 
@@ -6839,7 +6896,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'run_script',
 				{ path: 'f/scripts/greet', args: { name: 'Ada' } },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args }) }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args })
+				}
 			)
 		)
 
