@@ -10,7 +10,7 @@
 
 <!-- Pulled up against the input above: it reads as a footnote on that field rather than
      as the next thing in the form. -->
-<div class="text-2xs flex flex-row-reverse items-center justify-between gap-2 -mt-2">
+<div class="text-2xs flex flex-row-reverse items-start justify-between gap-2 -mt-2">
 	<Button
 		on:click={() => {
 			opened = !opened
@@ -24,8 +24,8 @@
 		Help
 	</Button>
 	{#if hint}
-		<!-- Nudged down to the 4px a hint keeps from its input; the row itself sits flush. -->
-		<span class="relative top-1 text-hint">{hint}</span>
+		<!-- The 4px a hint keeps from its input; the toggle stays flush against it. -->
+		<span class="mt-1 text-hint">{hint}</span>
 	{/if}
 </div>
 
