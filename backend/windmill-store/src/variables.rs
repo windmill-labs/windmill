@@ -563,7 +563,8 @@ async fn check_path_conflict(db: &DB, w_id: &str, path: &str) -> Result<()> {
 ///
 /// The check is purely structural and never decrypts, so it cannot act as a
 /// decryption/padding oracle for a caller who can write but not read secrets.
-/// `encrypt` (AES-256-CBC) always yields standard base64 decoding to a non-zero
+/// `encrypt` (AES-256-GCM, or legacy AES-256-CBC; see `windmill_common::workspace_crypt`)
+/// always yields standard base64 decoding to a non-zero
 /// multiple of the 16-byte block size; anything else cannot be our ciphertext.
 /// Values stored by an external backend ($vault:/$aws_sm:/$azure_kv: markers)
 /// are not workspace ciphertext and are passed through untouched.

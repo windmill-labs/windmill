@@ -16333,6 +16333,7 @@ dependencies = [
  "git-version",
  "globset",
  "hex",
+ "hkdf",
  "hmac 0.12.1",
  "hyper 1.12.0",
  "indexmap 2.14.2",

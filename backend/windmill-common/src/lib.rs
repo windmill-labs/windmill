@@ -157,6 +157,7 @@ pub mod wac;
 pub mod webhook;
 pub mod worker;
 pub mod worker_group_job_stats;
+pub mod workspace_crypt;
 pub mod workspaces;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
