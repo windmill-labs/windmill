@@ -125,7 +125,7 @@
       "prompt": "consent"
     }
   },
-  "onedrive": {
+  "msonedrive": {
     "req_body_auth": true,
     "scopes": ["offline_access", "User.Read", "Files.ReadWrite"],
     "scope_options": [
@@ -137,7 +137,7 @@
       { "value": "Files.ReadWrite.All", "label": "Read and edit all files you can access (shared and SharePoint drives)" }
     ],
     "connect_config_template": {
-      "display_name": "OneDrive",
+      "display_name": "Microsoft OneDrive",
       "label": "Microsoft Entra tenant",
       "placeholder": "common, organizations, or your tenant id",
       "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
@@ -147,7 +147,7 @@
       "scopes": ["offline_access", "User.Read", "Files.ReadWrite"]
     }
   },
-  "sharepoint": {
+  "mssharepoint": {
     "req_body_auth": true,
     "scopes": ["offline_access", "User.Read", "Sites.ReadWrite.All"],
     "scope_options": [
@@ -158,7 +158,7 @@
       { "value": "Sites.Manage.All", "label": "Create and manage lists and libraries" }
     ],
     "connect_config_template": {
-      "display_name": "SharePoint",
+      "display_name": "Microsoft SharePoint",
       "label": "Microsoft Entra tenant",
       "placeholder": "common, organizations, or your tenant id",
       "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
@@ -168,7 +168,7 @@
       "scopes": ["offline_access", "User.Read", "Sites.ReadWrite.All"]
     }
   },
-  "excel": {
+  "msexcel": {
     "req_body_auth": true,
     "scopes": ["offline_access", "User.Read", "Files.ReadWrite"],
     "scope_options": [
