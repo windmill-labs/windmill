@@ -43,7 +43,6 @@
 	import { pluralize, MAX_RESOLUTION_BATCH, MAX_RESOLUTION_NOTE_LEN } from '$lib/utils'
 	import type { BatchReRunOptions } from '$lib/components/runs/BatchReRunOptionsPane.svelte'
 	import { untrack, type Snippet } from 'svelte'
-	import { fromStore } from 'svelte/store'
 	import { page } from '$app/state'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
@@ -618,15 +617,6 @@
 	// is the page's own and wraps instead.
 	const fold = $derived(hosted ? 0 : pageHeader.actionFold)
 	const filterBelow = $derived(fold >= 3)
-	// The counters are as wide as their counts' digits, and they change while folded away, where
-	// the bar cannot see them: it keys what it measured on this (`actionsVersion`). A count of 0
-	// shows no badge at all.
-	const queueShown = $derived(queue_count ? fromStore(queue_count) : undefined)
-	const suspendedShown = $derived(suspended_count ? fromStore(suspended_count) : undefined)
-	const digits = (n: number | undefined) => (n && n >= 0.5 ? n.toFixed(0).length : 0)
-	const actionsVersion = $derived(
-		`${digits(queueShown?.current)}:${digits(suspendedShown?.current)}`
-	)
 </script>
 
 {#snippet runsHint()}
@@ -940,7 +930,6 @@
 				afterName={runsHint}
 				actions={headerActions}
 				actionFolds={3}
-				{actionsVersion}
 				belowBar={filterRow}
 				belowBarFold={3}
 			/>
