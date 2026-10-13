@@ -6397,7 +6397,12 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// The card's details pane must show what ran, not what was proposed. Bytes are marked by
 	// size because the card is persisted; everything else stands as the run page shows it for
 	// the same job.
-	const forCard = redactFileArgs(toRun, schema as any)
+	// The page's own, for an adopted run: a deploy between this call reading the schema and the
+	// reader pressing Run can have added arguments, and redaction only visits the leaves the
+	// schema it is given declares — so a file argument missing from ours would keep its bytes
+	// through both the persisted card and the model's result.
+	const ranAgainst = (adopted?.schema ?? schema) as any
+	const forCard = redactFileArgs(toRun, ranAgainst)
 	// The transcript is re-cloned into IndexedDB on every save and a form carries whatever was
 	// pasted into it, so past what the pane would render the card reads the arguments off the
 	// job instead. Only once there is a job to read them from: substituting the marker any
@@ -6466,7 +6471,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		: ''
 	// Redacted for the model alone: what it proposed is already in its own tool call, but a
 	// secret the user typed into the form would be entering its context here.
-	const redacted = redactFileArgs(redactSecretArgs(toRun, schema as any), schema as any)
+	const redacted = redactFileArgs(redactSecretArgs(toRun, ranAgainst), ranAgainst)
 	const submittedJson = JSON.stringify(redacted)
 	const shown =
 		submittedJson.length > MAX_SUBMITTED_ARGS_LENGTH

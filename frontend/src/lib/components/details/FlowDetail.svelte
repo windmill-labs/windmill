@@ -315,7 +315,8 @@
 			// The call asked for this run; it follows the job rather than starting one, and
 			// shows it in place of this page — so navigating here as well would leave two
 			// surfaces open on the same job.
-			if (!call?.adopt(run, args)) await onNavigate('/run/' + run + '?workspace=' + workspace)
+			if (!call?.adopt(run, args, flow?.schema ?? {}))
+				await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} catch (e) {
 			throw e
 		} finally {

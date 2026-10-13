@@ -5461,7 +5461,8 @@ describe('global AI tools', () => {
 					requestRunArgs: async () => ({
 						kind: 'job',
 						jobId: 'job-123',
-						args: { name: 'Grace' }
+						args: { name: 'Grace' },
+						schema: { properties: { name: { type: 'string' } } }
 					})
 				}
 			)
@@ -5472,6 +5473,46 @@ describe('global AI tools', () => {
 		expect(statuses.filter((s) => s.parameters).at(-1)?.parameters).toEqual({ name: 'Grace' })
 		expect(result).toContain('Grace')
 		expect(result).not.toContain('Ada')
+	})
+
+	// Redaction only visits the leaves the schema it is given declares, and the page runs the
+	// deployed version as it is now — which a deploy can have given an argument this call's
+	// schema never had. Redacting with ours would put the bytes in the persisted card and in
+	// the model's context.
+	it('run_script redacts an adopted job against the schema that page ran', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/redeployed',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const statuses: any[] = []
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/redeployed', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					setToolStatus: (_id: string, s: any) => statuses.push(s),
+					requestRunArgs: async () => ({
+						kind: 'job',
+						jobId: 'job-123',
+						args: { name: 'Grace', attachment: 'QUJDREVG' },
+						// The deployed version the page loaded declares a file this call never saw.
+						schema: {
+							properties: {
+								name: { type: 'string' },
+								attachment: { type: 'string', contentEncoding: 'base64' }
+							}
+						}
+					})
+				}
+			)
+		)
+
+		const parameters = statuses.filter((s) => s.parameters).at(-1)?.parameters
+		expect(parameters?.name).toBe('Grace')
+		expect(parameters?.attachment).not.toBe('QUJDREVG')
+		expect(result).not.toContain('QUJDREVG')
 	})
 
 	// The posture answers wherever it is set, form or no form: what it answers is consent, and a

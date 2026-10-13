@@ -615,8 +615,10 @@ export type RunFormDisplay = {
 export type RunFormAnswer =
 	| { kind: 'args'; args: Record<string, any> }
 	/** A job another surface already started. Its `args` are what that surface sent, already
-	 * coerced and minted by its own form, so they are reported rather than processed. */
-	| { kind: 'job'; jobId: string; args: Record<string, any> }
+	 * coerced and minted by its own form, so they are reported rather than processed, and
+	 * `schema` is the one it ran against — which redaction needs, since it only visits the
+	 * leaves a schema declares. */
+	| { kind: 'job'; jobId: string; args: Record<string, any>; schema: Record<string, any> }
 
 export type RunFormDraft = {
 	args: Record<string, any>

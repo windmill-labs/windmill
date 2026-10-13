@@ -15,10 +15,13 @@ export type PendingRun = {
 	 * is the live draft of the card's own form rather than a copy to keep in step. */
 	readonly proposedArgs: Record<string, any>
 	/** The job the reader started here answers the call, with the arguments it was started
-	 * with — the card has no other way to show what ran. True when the call took it: the chat
+	 * with — the card has no other way to show what ran — and the schema it ran against, which
+	 * a deploy can have moved on from the one the call fetched. Both are needed: redaction
+	 * only visits the leaves a schema declares, so a file argument this page has and that one
+	 * does not would reach the transcript as bytes. True when the call took the job: the chat
 	 * then shows that run in place of this page, so the page must not navigate to it as well.
 	 * False when the call settled while the job was starting, and the run is the reader's
 	 * alone. */
-	adopt: (jobId: string, args: Record<string, any>) => boolean
+	adopt: (jobId: string, args: Record<string, any>, schema: Record<string, any>) => boolean
 	decline: () => void
 }

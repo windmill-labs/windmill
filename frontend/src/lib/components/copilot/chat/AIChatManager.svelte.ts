@@ -2137,14 +2137,20 @@ export class AIChatManager implements ChatViewHost {
 
 	/** The reader ran the item on its own page; the tool follows that job rather than
 	 * starting one. False when the call is no longer waiting. */
-	handleRunFormJob = (toolId: string, jobId: string, args: Record<string, any>): boolean => {
+	handleRunFormJob = (
+		toolId: string,
+		jobId: string,
+		args: Record<string, any>,
+		schema: Record<string, any>
+	): boolean => {
 		if (!this.isRunFormPending(toolId)) return false
 		// Snapshotted for the same reason the draft is: these are `$state` proxies off the
 		// page's own form, which keeps editing them after the run.
 		this.#settleRunForm(toolId, {
 			kind: 'job',
 			jobId,
-			args: ($state.snapshot(args) ?? {}) as Record<string, any>
+			args: ($state.snapshot(args) ?? {}) as Record<string, any>,
+			schema: ($state.snapshot(schema) ?? {}) as Record<string, any>
 		})
 		return true
 	}
