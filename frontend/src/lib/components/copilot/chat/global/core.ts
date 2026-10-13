@@ -121,6 +121,7 @@ import {
 } from '../skills/skillResources'
 import { MAX_SKILL_DESCRIPTION_LENGTH, MAX_SKILL_INSTRUCTIONS_LENGTH } from '../skills/skillMd'
 import {
+	getDatatablePrompt,
 	getDatatableSdkReference,
 	getFlowPrompt,
 	getPipelinePrompt,
@@ -364,7 +365,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -1459,10 +1460,10 @@ const buildGlobalSystemPrompt = (
 	const datatableRolesAvailable = !isCloudHosted() && (!BROWSER || !!get(enterpriseLicense))
 	const datatableRolesBullet = datatableRolesAvailable
 		? `
-- A datatable can be under roles: Postgres roles assigned to users, groups or folders, each reaching only what it was granted; list_datatables then reports its \`usable_roles\` and \`default_role\`. \`permission denied\` means the role in use lacks a grant: say which, do not switch to \`admin\` to get past it. When working on a raw app that pins a role (\`data.roles\` in its raw_app.yaml), pass that role to the datatable tools, and to wmill.datatable in its runnables, so you see and change only what the app itself can. Before designing who reaches what (roles, grants, rows that differ per viewer), read the "Permissions" section of https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables with read_docs_page.`
+- A datatable can be under roles; list_datatables then reports its \`usable_roles\` and \`default_role\`. When working on a raw app that pins a role (\`data.roles\` in its raw_app.yaml), pass that role to the datatable tools, and to wmill.datatable in its runnables, so you see and change only what the app itself can. For anything else about roles, grants or a \`permission denied\`, call get_instructions with subject "datatable".`
 		: BROWSER
 			? `
-- Datatable roles and permissions need a self-hosted Enterprise Edition, so they are not available here: everyone who can use a datatable reaches all of it. Do not promise per-user, per-schema or per-row access on one; say what the feature needs instead.`
+- Datatable roles and permissions are not available on this instance (they need a self-hosted Enterprise Edition): everyone who can use a datatable reaches all of it, so do not promise per-user, per-schema or per-row access on one.`
 			: ''
 	// Hosting and edition come from the hostname and a store the app populates at init, so
 	// they are knowable only in the browser: a non-browser caller reads false for both and
@@ -1635,7 +1636,7 @@ Data Tables:
 		canRunPreview,
 		`
 - Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.
-- A datatable that list_datatables reports with \`migrations_enabled\` keeps its schema as versioned migrations, which is what carries it to git and to other workspaces. Make every schema change there (CREATE/ALTER/DROP, anything but row data) with create_datatable_migration, not exec_datatable_sql, whose change would exist in this database only. list_datatable_migrations shows the history and what is still pending; run_datatable_migrations applies what is pending and rollback_datatable_migration undoes the last one.`
+- A datatable that list_datatables reports with \`migrations_enabled\` keeps its schema as versioned migrations: change its schema with create_datatable_migration, never exec_datatable_sql. list_datatable_migrations reads them, run_datatable_migrations applies what is pending, rollback_datatable_migration undoes one. A migration is applied for real, not drafted, so call get_instructions with subject "datatable" before your first one.`
 	)}${datatableRolesBullet}${when(
 		canWriteDraft,
 		`
@@ -2532,7 +2533,9 @@ ${getResourcePrompt()}`
 function getDatatableInstructions(language?: ScriptLang): string {
 	// Default to the TypeScript SDK so we return only what's needed, not both.
 	const lang = language ?? 'bun'
-	return `# Datatable SQL SDK reference
+	return `${getDatatablePrompt()}
+
+# Datatable SQL SDK reference
 
 Datatables are workspace-scoped managed PostgreSQL databases. In chat, explore and shape them with the datatable tools you were given. The reference below is for code you author inside runnables (inline app runnables, scripts, or flow rawscript modules) that reads or writes datatable data at runtime.
 
@@ -3490,7 +3493,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get authoring guidance for scripts, flows, data pipelines, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
+			'Get authoring guidance for scripts, flows, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		planModeSafe: true,
 		fn: async (ctx) => {

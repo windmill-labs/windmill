@@ -712,7 +712,8 @@ function benchmarkDatatable(workspace: string, datatableName: string): Benchmark
 /** Run a migration body through the in-memory engine, one statement at a time and without the
  * transaction frame, so the tables it creates show up in later reads. */
 function applyBenchmarkMigrationSql(datatable: BenchmarkDatatableSeed, sql: string): void {
-	for (const statement of sql.split(';')) {
+	// Split on the semicolons outside single-quoted literals.
+	for (const statement of sql.match(/(?:'(?:[^']|'')*'|[^;'])+/g) ?? []) {
 		const trimmed = statement.replace(/^\s*--.*$/gm, '').trim()
 		if (trimmed !== '' && !/^(begin|end|commit)$/i.test(trimmed)) {
 			applyDatatableSql(datatable, trimmed)

@@ -91,7 +91,7 @@ const getCreateMigrationToolDef = memo(() =>
 	createToolDef(
 		getCreateMigrationSchema(),
 		'create_datatable_migration',
-		'Change the schema of a datatable that has migrations enabled: saves the change as a new migration and applies it. A migration that fails to apply is discarded, so fix the SQL and call this again.'
+		'Change the schema of a datatable that has migrations enabled: saves the change as a new migration and applies it. One that fails inside its transaction is discarded, so fix the SQL and call this again.'
 	)
 )
 
@@ -104,12 +104,19 @@ const getRunMigrationsToolDef = memo(() =>
 	)
 )
 
-const getRollbackMigrationSchema = memo(() => z.object({ datatable_name: datatableNameSchema() }))
+const getRollbackMigrationSchema = memo(() =>
+	z.object({
+		datatable_name: datatableNameSchema(),
+		version: z
+			.number()
+			.describe('The applied migration to undo, normally the most recent one, as listed.')
+	})
+)
 const getRollbackMigrationToolDef = memo(() =>
 	createToolDef(
 		getRollbackMigrationSchema(),
 		'rollback_datatable_migration',
-		'Undo the most recently applied migration of a datatable by running its down SQL. The migration stays in the list as pending.'
+		'Undo one applied migration of a datatable by running its down SQL. The migration stays in the list as pending.'
 	)
 )
 
@@ -232,8 +239,14 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 						workspace,
 						datatableName
 					})
-					earlierPending = status.migrations
-						.filter((m) => m.timestamp < version && m.status !== 'ran')
+					const earlier = status.migrations.filter((m) => m.timestamp < version)
+					// Unreadable is not pending: reporting it so would send the user to apply
+					// migrations that already ran.
+					if (status.error || earlier.some((m) => m.status === 'unknown')) {
+						throw new Error(status.error ?? 'the applied migrations could not be read')
+					}
+					earlierPending = earlier
+						.filter((m) => m.status === 'not_run')
 						.map((m) => migrationLabel({ version: m.timestamp, name: m.name }))
 				} catch (e) {
 					return fail(
@@ -258,7 +271,16 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 					})
 				} catch (e) {
 					const applyError = apiErrorMessage(e)
-					// A definition that cannot apply blocks every later run of the list.
+					// Outside a transaction the statements before the failing one are committed, and the
+					// definition, with its down, is the only record of them.
+					if (!isTransactional(parsed.code_up)) {
+						return fail(
+							toolCallbacks,
+							toolId,
+							`Migration ${label} failed to apply: ${applyError}. It does not run in a transaction, so part of it may be applied: it is kept as pending and blocks later migrations. Tell the user, who can fix or delete it in Workspace settings → Data Tables.`
+						)
+					}
+					// Nothing of it is applied, and a definition that cannot apply blocks every later run.
 					try {
 						await WorkspaceService.deleteDatatableMigration({
 							workspace,
@@ -321,21 +343,23 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 			requires: RUN_PREVIEW,
 			def: getRollbackMigrationToolDef(),
 			requiresConfirmation: true,
-			confirmationMessage: 'Roll back the last data table migration',
-			queuedLabel: (args) => `Roll back migration on "${args?.datatable_name ?? 'datatable'}"`,
+			confirmationMessage: (args) => `Roll back data table migration ${args?.version ?? ''}`,
+			queuedLabel: (args) => `Roll back migration ${args?.version ?? ''}`,
+			showDetails: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-				const { datatable_name } = getRollbackMigrationSchema().parse(args)
+				const { datatable_name, version } = getRollbackMigrationSchema().parse(args)
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Rolling back the last migration on "${datatable_name}"...`
+					content: `Rolling back migration ${version} on "${datatable_name}"...`
 				})
 				try {
 					const { rolled_back } = await WorkspaceService.rollbackDatatableMigrations({
 						workspace,
-						datatableName: datatable_name
+						datatableName: datatable_name,
+						only: version
 					})
 					if (rolled_back.length === 0) {
-						toolCallbacks.setToolStatus(toolId, { content: 'No applied migration to roll back' })
-						return `No applied migration to roll back on datatable "${datatable_name}".`
+						toolCallbacks.setToolStatus(toolId, { content: `Migration ${version} is not applied` })
+						return `Migration ${version} is not applied on datatable "${datatable_name}", so there is nothing to roll back.`
 					}
 					const label = rolled_back.map(migrationLabel).join(', ')
 					toolCallbacks.setToolStatus(toolId, { content: `Rolled back migration ${label}` })
@@ -350,6 +374,17 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 
 function migrationStatus(status: 'ran' | 'not_run' | 'unknown'): 'applied' | 'pending' | 'unknown' {
 	return status === 'ran' ? 'applied' : status === 'not_run' ? 'pending' : 'unknown'
+}
+
+/** Whether the whole of `sql` is one `BEGIN; ... END;` frame, so that a failure leaves nothing of
+ * it applied. */
+function isTransactional(sql: string): boolean {
+	const body = sql
+		.split('\n')
+		.filter((line) => !line.trim().startsWith('--'))
+		.join('\n')
+		.trim()
+	return /^begin\s*;/i.test(body) && /;\s*(end|commit)\s*;?$/i.test(body)
 }
 
 function withRole(sql: string, role: string | undefined): string {
