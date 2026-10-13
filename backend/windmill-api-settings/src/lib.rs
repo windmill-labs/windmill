@@ -137,10 +137,7 @@ async fn get_instance_ui(
 /// resolver the senders use, so SMTP set through `SMTP_*` env vars counts too.
 async fn get_smtp_configured(Extension(db): Extension<DB>, _authed: ApiAuthed) -> JsonResult<bool> {
     Ok(Json(
-        SMTP_ENABLED
-            && windmill_common::server::load_smtp_config(&db)
-                .await?
-                .is_some(),
+        SMTP_ENABLED && windmill_common::server::is_smtp_configured(&db).await?,
     ))
 }
 
