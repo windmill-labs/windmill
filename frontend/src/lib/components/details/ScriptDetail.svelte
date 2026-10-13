@@ -379,30 +379,6 @@
 	let isValid = $state(true)
 
 	let runLoading = $state(false)
-	/** Held between `claimRun` and `runScript`: the form mints its `password` arguments in
-	 * between, so the claim has to be taken before that write while the job is started after
-	 * it. Cleared as it is used, so a press that never claimed cannot inherit it. */
-	let claimedCall: PendingRun | undefined = undefined
-
-	/** One call is one job, and the chat card's form is live alongside this page's: the first
-	 * of the two to claim owns the call, and the other stops here — before it mints a
-	 * variable per `password` argument for a run it will not start. */
-	function claimRun(): boolean {
-		const call = pendingRun
-		if (call && !call.beginSubmit()) {
-			sendUserToast('This run is already being started from the chat.', true)
-			return false
-		}
-		claimedCall = call
-		return true
-	}
-
-	/** The form claimed and then never reached the run — its secret processing failed. */
-	function releaseRun() {
-		claimedCall?.endSubmit()
-		claimedCall = undefined
-	}
-
 	async function runScript(
 		scheduledForStr: string | undefined,
 		args: Record<string, any>,
@@ -412,12 +388,7 @@
 		// Taken before the round trip below: the call this press answers is the one it was
 		// pressed under, and a call settled meanwhile — declined, then another proposed for
 		// this same script — must not be answered with a job it never asked for.
-		// The call this press claimed, not whatever is pending now: the form mints its secrets
-		// between the claim and here, and a call that settled across that round trip would
-		// leave this press looking like a page run of its own — starting a second job for a
-		// call the chat has already answered.
-		const call = claimedCall
-		claimedCall = undefined
+		const call = pendingRun
 		try {
 			runLoading = true
 			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
@@ -449,9 +420,6 @@
 			if (!call?.adopt(run, args, script?.schema ?? {}))
 				await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} catch (err) {
-			// No job came of the claim, so hand it back rather than leaving the call unrunnable
-			// on either surface.
-			call?.endSubmit()
 			sendUserToast(`Could not create job: ${err.body}`, true)
 		} finally {
 			// Not only on failure: a navigation that keeps this component mounted — the run
@@ -1168,8 +1136,6 @@
 								bind:isValid
 								runnable={script}
 								runAction={runScript}
-								{claimRun}
-								{releaseRun}
 								runRefusal={pendingRun?.planModeActive
 									? PLAN_MODE_MESSAGES.runFormRefused
 									: undefined}

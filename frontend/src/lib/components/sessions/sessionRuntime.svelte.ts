@@ -614,11 +614,7 @@ function createRuntime(session: Session): SessionRuntime {
 				return manager.pendingRunFormArgs(toolCallId) ?? {}
 			},
 			adopt: (jobId, args, schema) => manager.handleRunFormJob(toolCallId, jobId, args, schema),
-			decline: () => manager.handleRunFormCancel(toolCallId),
-			// The same claim the card's own form takes, so the two surfaces of one call cannot
-			// both be mid-submit.
-			beginSubmit: () => manager.beginRunFormSubmit(toolCallId),
-			endSubmit: () => manager.endRunFormSubmit(toolCallId)
+			decline: () => manager.handleRunFormCancel(toolCallId)
 		}
 	}
 
