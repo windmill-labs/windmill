@@ -17,14 +17,13 @@
 
 	type MainButton = {
 		label: string
-		/** Shown under the label once the button has collapsed into a menu. */
+		/** Shown under the label once the button is a row of a menu. */
 		description?: string
 		buttonProps: ButtonProps
-		/** Where the button lands below the `lg` breakpoint, where the bar cannot hold every
-		 * button beside the summary: the ellipsis menu, or the dropdown of the enabled bar button
-		 * labelled `dropdownOf` (the menu when there is none). Unset keeps it in the bar at every
-		 * width. */
-		narrow?: 'menu' | { dropdownOf: string }
+		/** A secondary action, kept out of the bar at every width: in the ellipsis menu, or in the
+		 * dropdown of the enabled bar button labelled `dropdownOf` (the menu when there is none).
+		 * Unset makes it a bar button, which folds into the menu only when the bar is short. */
+		placement?: 'menu' | { dropdownOf: string }
 	}
 
 	type ButtonProps = any
@@ -70,6 +69,9 @@
 		wide?: boolean
 		/** Controls ahead of the menu, such as the way an agent's page runs it. */
 		leading_actions?: import('svelte').Snippet
+		/** Marks that belong to the item's name, such as its favorite star: drawn right after the
+		 *  summary rather than among the badges and buttons at the far end. */
+		name_marks?: import('svelte').Snippet
 	}
 
 	let {
@@ -89,7 +91,8 @@
 		trigger_badges,
 		ownsPageHeader = false,
 		wide = true,
-		leading_actions
+		leading_actions,
+		name_marks
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -98,20 +101,37 @@
 	// no error handler and says so itself.
 	const renameKind = $derived(itemKind ?? errorHandlerKind)
 
-	// Two reasons the row can be too tight, and either one collapses it. The host knows when its
-	// own box is narrow while the window is not — a session's preview panel — and says so through
-	// `wide`. The band knows what its breadcrumb leaves, which the host cannot see, and folds the
-	// row once the breadcrumb has given all it can (`actionFolds` below).
-	const roomInBar = $derived(!ownsPageHeader || pageHeader.actionFold === 0)
-	const wideRow = $derived(wide && roomInBar)
+	// The band folds the bar buttons once its breadcrumb has given all it can (`actionFolds` below):
+	// first every one but the last, which is what the page is for (Edit), then that one too. The
+	// host knows when its own box is narrow while the window is not — a session's preview panel —
+	// and says so through `wide`, which only sends the error handler's toggle to the menu.
+	const fold = $derived(ownsPageHeader ? pageHeader.actionFold : 0)
+	const wideRow = $derived(wide && fold === 0)
 
-	const barButtons = $derived(wideRow ? mainButtons : mainButtons.filter((b) => !b.narrow))
+	const rowButtons = $derived(mainButtons.filter((b) => !b.placement))
+	const barButtons = $derived(fold >= 2 ? [] : fold === 1 ? rowButtons.slice(-1) : rowButtons)
 
 	function dropdownHost(btn: MainButton): MainButton | undefined {
-		if (typeof btn.narrow !== 'object') return undefined
-		const label = btn.narrow.dropdownOf
+		if (typeof btn.placement !== 'object') return undefined
+		const label = btn.placement.dropdownOf
 		return barButtons.find((b) => b.label === label && !b.buttonProps.disabled)
 	}
+
+	/** What the menu holds of the buttons: the folded bar buttons, each followed by what its
+	 *  dropdown would have held, then the secondary actions with no bar button to hang from. */
+	const menuButtons = $derived.by(() => {
+		const folded = rowButtons.filter((b) => !barButtons.includes(b))
+		const homeless = mainButtons.filter((b) => b.placement && !dropdownHost(b))
+		const childOf = (host: MainButton) =>
+			homeless.filter(
+				(b) => typeof b.placement === 'object' && b.placement.dropdownOf === host.label
+			)
+		const placed = new Set(folded.flatMap(childOf))
+		return [
+			...folded.flatMap((host) => [host, ...childOf(host)]),
+			...homeless.filter((b) => !placed.has(b))
+		]
+	})
 
 	async function toggleErrorHandler() {
 		if (!errorHandlerKind || !scriptOrFlowPath) return
@@ -125,7 +145,7 @@
 	}
 
 	const allMenuItems: Item[] = $derived([
-		...(wideRow ? [] : mainButtons.filter((b) => b.narrow && !dropdownHost(b))).map((b) => ({
+		...menuButtons.map((b) => ({
 			displayName: b.label,
 			description: b.description,
 			icon: b.buttonProps.startIcon,
@@ -150,12 +170,11 @@
 			action: item.onclick,
 			disabled: item.disabled,
 			type: item.color === 'red' ? ('delete' as const) : ('action' as const),
-			separatorTop: i === 0 && !wideRow
+			separatorTop: i === 0 && (menuButtons.length > 0 || (!wideRow && !!errorHandlerKind))
 		}))
 	])
 
 	function dropdownItemsOf(host: MainButton) {
-		if (wideRow) return undefined
 		const items = mainButtons
 			.filter((b) => dropdownHost(b) === host)
 			.map((b) => ({
@@ -171,15 +190,18 @@
 </script>
 
 {#snippet summaryContent()}
-	<SummaryPathDisplay
-		{summary}
-		{path}
-		bind:labels
-		{inheritedLabels}
-		{onSaved}
-		kind={renameKind}
-		compact
-	/>
+	<div class="flex items-center gap-1 min-w-0">
+		<SummaryPathDisplay
+			{summary}
+			{path}
+			bind:labels
+			{inheritedLabels}
+			{onSaved}
+			kind={renameKind}
+			compact
+		/>
+		{#if name_marks}<span class="flex items-center shrink-0">{@render name_marks()}</span>{/if}
+	</div>
 {/snippet}
 
 <!-- The same editor as the summary's, hung off the band's path segment so it opens under the path.
@@ -273,7 +295,7 @@
 			pathTrigger: onSaved ? pathTrigger : undefined
 		}}
 		{actions}
-		actionFolds={1}
+		actionFolds={2}
 		contexts={headerContexts}
 		separator="always"
 	/>
@@ -297,6 +319,7 @@
 							kind={renameKind}
 						/>
 					</div>
+					{@render name_marks?.()}
 					{@render badges('md')}
 				</div>
 				<div class="flex gap-1 items-center pr-4">

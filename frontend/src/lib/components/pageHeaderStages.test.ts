@@ -37,16 +37,16 @@ describe('fitBar', () => {
 	it("takes the squeeze from the path's name before the summary", () => {
 		const fit = fitBar({
 			...base,
-			barWidth: 400,
+			barWidth: 360,
 			actions: [0],
 			folds: 0,
 			trail: trail.map((w) => w - 400),
 			summary: BAR_STAGES.map(() => 100),
 			natural: { family: 0, fork: 0, summary: 300, name: 300 }
 		})
-		// Stage 0 at its floors is 300px; whole, the name and the summary add 140 and 204, so 244
-		// has to go: all 140 the name has above its floor, then 104 from the summary.
-		expect(fit).toMatchObject({ stage: 0, caps: { name: 160, summary: 196 }, scopesGive: false })
+		// Stage 0 at its floors is 300px; whole, the name and the summary add 140 and 100, so 180
+		// has to go: all 140 the name has above its floor, then 40 from the summary.
+		expect(fit).toMatchObject({ stage: 0, caps: { name: 160, summary: 260 }, scopesGive: false })
 	})
 
 	it('keeps the summary and drops the path when only one of them fits', () => {

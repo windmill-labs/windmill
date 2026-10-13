@@ -80,8 +80,9 @@ export type Part = 'family' | 'fork' | 'summary' | 'name'
 /** The trail at each stage with its names at their floors, and each name's own width. */
 export type TrailMeasures = { trail: number[]; family: number; fork: number; name: number }
 
-/** The width a part may truncate to before the next stage drops something whole. */
-export const FLOOR: Record<Part, number> = { family: 56, fork: 56, summary: 96, name: 160 }
+/** The width a part may truncate to before the next stage drops something whole. The summary's
+ *  is wide: below it the path goes rather than the summary losing most of what it says. */
+export const FLOOR: Record<Part, number> = { family: 56, fork: 56, summary: 200, name: 160 }
 /** Past the last stage and fold, the item's name and then its summary keep this much before the
  *  folders give any. */
 export const SQUEEZED_FLOOR = 40
