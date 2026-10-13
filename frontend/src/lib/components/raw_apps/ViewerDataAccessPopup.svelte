@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Button } from '$lib/components/common'
-	import { Database, UserRound } from 'lucide-svelte'
+	import { AppWindow, UserRound } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { autoPlacement } from '@floating-ui/core'
 	import { enterpriseLicense } from '$lib/stores'
@@ -38,14 +38,13 @@
 			nonCaptureEvent={true}
 			variant={viewer_data_access ? 'accent-secondary' : 'default'}
 			unifiedSize="sm"
-			startIcon={{ icon: viewer_data_access ? UserRound : Database }}
-			btnClasses="whitespace-nowrap"
-			title={viewer_data_access
+			startIcon={{ icon: viewer_data_access ? UserRound : AppWindow }}
+			iconOnly
+			title={(viewer_data_access
 				? 'Reads data tables and object storage as the viewer'
-				: 'Reads data tables and object storage as the app'}
-		>
-			{viewer_data_access ? 'data as viewer' : 'data as app'}{unavailable ? ' (EE)' : ''}
-		</Button>
+				: 'Reads data tables and object storage as the app') +
+				(unavailable ? ' (Enterprise Edition)' : '')}
+		/>
 	{/snippet}
 	{#snippet content()}
 		<Toggle
