@@ -168,7 +168,7 @@
       "scopes": ["offline_access", "User.Read", "Sites.ReadWrite.All"]
     }
   },
-  "microsoft_excel": {
+  "excel": {
     "req_body_auth": true,
     "scopes": ["offline_access", "User.Read", "Files.ReadWrite"],
     "scope_options": [

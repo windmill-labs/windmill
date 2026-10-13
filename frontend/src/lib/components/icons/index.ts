@@ -5,7 +5,8 @@ import GcalIcon from './GcalIcon.svelte'
 import GdriveIcon from './GdriveIcon.svelte'
 import OnedriveIcon from './OnedriveIcon.svelte'
 import SharepointIcon from './SharepointIcon.svelte'
-import MicrosoftExcelIcon from './MicrosoftExcelIcon.svelte'
+import ExcelIcon from './ExcelIcon.svelte'
+import WordIcon from './WordIcon.svelte'
 import GithubIcon from './GithubIcon.svelte'
 import GitlabIcon from './GitlabIcon.svelte'
 import GmailIcon from './GmailIcon.svelte'
@@ -365,7 +366,8 @@ export const APP_TO_ICON_COMPONENT = {
 	gdrive: GdriveIcon,
 	onedrive: OnedriveIcon,
 	sharepoint: SharepointIcon,
-	microsoft_excel: MicrosoftExcelIcon,
+	excel: ExcelIcon,
+	msword: WordIcon,
 	airtable: AirtableIcon,
 	toggl: TogglIcon,
 	s3: S3Icon,
@@ -700,7 +702,8 @@ export {
 	GdriveIcon,
 	OnedriveIcon,
 	SharepointIcon,
-	MicrosoftExcelIcon,
+	ExcelIcon,
+	WordIcon,
 	GithubIcon,
 	GitlabIcon,
 	GmailIcon,
