@@ -209,6 +209,20 @@ export async function pushWorkspaceSettings(
   if (await applySettingsDocument(workspace, localSettings)) {
     return;
   }
+  // The per-setting endpoints of a server without the settings document know nothing of
+  // these keys, nor of a secret it would have to decrypt or keep.
+  for (const key of SETTINGS_MANAGED_ONLY_WHEN_PRESENT) {
+    delete (localSettings as any)[key];
+  }
+  const secret = localSettings.slack_oauth_client_secret;
+  const slackSecretUnreadable =
+    typeof secret === "string" &&
+    (secret.startsWith("$encrypted:") || secret === "__SENSITIVE_AND_UNCHANGED__");
+  if (slackSecretUnreadable) {
+    log.warn(
+      "Leaving the Slack OAuth client and secret unchanged: this server cannot read an encrypted or redacted secret. Upgrade it, or write the secret in plain text."
+    );
+  }
 
   try {
     const remoteSettings = await wmill.getSettings({
@@ -488,8 +502,9 @@ export async function pushWorkspaceSettings(
   // every other setting): both present → upsert; anything else → delete.
   // Pull always emits both fields as null when remote is NULL.
   if (
-    localSettings.slack_oauth_client_id != settings.slack_oauth_client_id ||
-    localSettings.slack_oauth_client_secret != settings.slack_oauth_client_secret
+    !slackSecretUnreadable &&
+    (localSettings.slack_oauth_client_id != settings.slack_oauth_client_id ||
+      localSettings.slack_oauth_client_secret != settings.slack_oauth_client_secret)
   ) {
     log.debug(`Updating slack oauth config...`);
     if (
@@ -522,7 +537,8 @@ async function applySettingsDocument(
       requestBody: { document: document as unknown as Record<string, unknown>, replace: true },
     });
   } catch (err: any) {
-    if (err?.status === 404) {
+    // A missing route answers 404 with no body; a handler's own 404 carries a message.
+    if (err?.status === 404 && !err?.body) {
       return false;
     }
     throw new Error(`Failed to apply workspace settings: ${err?.body ?? err}`);

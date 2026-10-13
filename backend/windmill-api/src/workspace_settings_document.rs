@@ -333,6 +333,7 @@ struct Plan {
     replace: bool,
     changes: Vec<SettingsChange>,
     writes: Vec<Write>,
+    warnings: Vec<String>,
 }
 
 impl Plan {
@@ -394,43 +395,109 @@ impl Plan {
     }
 }
 
+/// The plain value of a secret the document states, or `None` to keep the stored one: for the
+/// placeholder, and for a value encrypted under another workspace's key, which a repo synced to
+/// several workspaces carries. That one is reported rather than failing every other setting.
 fn resolve_secret(
     key: &str,
     v: Value,
-    current: Option<&Value>,
     mc: &windmill_common::variables::WorkspaceCrypt,
-) -> Result<Value> {
+    warnings: &mut Vec<String>,
+) -> Option<Value> {
     match v.as_str() {
-        Some(SENSITIVE_UNCHANGED) => Ok(current.cloned().unwrap_or(Value::Null)),
-        Some(s) if s.starts_with(ENCRYPTED_PREFIX) => mc
-            .decrypt_str(&s[ENCRYPTED_PREFIX.len()..])
-            .map(Value::String)
-            .map_err(|_| {
-                Error::BadRequest(format!(
-                    "{key} is encrypted with a different workspace key than this workspace's. \
-                     Write it in plain text, or sync the workspace key (includeKey) first."
-                ))
-            }),
-        _ => Ok(v),
+        Some(SENSITIVE_UNCHANGED) => None,
+        Some(s) if s.starts_with(ENCRYPTED_PREFIX) => {
+            match mc.decrypt_str(&s[ENCRYPTED_PREFIX.len()..]) {
+                Ok(plain) => Some(Value::String(plain)),
+                Err(_) => {
+                    warnings.push(format!(
+                        "{key} was left unchanged: it is encrypted with another workspace's key. \
+                         Give this workspace its own settings file, export secrets in plain text \
+                         (plainSecrets), or share the workspace key (includeKey)."
+                    ));
+                    None
+                }
+            }
+        }
+        _ => Some(v),
     }
 }
 
-async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: bool) -> Result<Plan> {
+const KNOWN_KEYS: &[&str] = &[
+    "auto_invite",
+    "webhook",
+    "error_handler",
+    "success_handler",
+    "ai_config",
+    "large_file_storage",
+    "git_sync",
+    "default_app",
+    "default_scripts",
+    "name",
+    "mute_critical_alerts",
+    "color",
+    "operator_settings",
+    "datatable",
+    "slack_team_id",
+    "slack_name",
+    "slack_command_script",
+    "slack_oauth_client_id",
+    "slack_oauth_client_secret",
+    "ducklake",
+    "dbt_warehouses",
+    "deploy_ui",
+    "teams_command_script",
+    "public_app_execution_limit_per_minute",
+    "guest_access_enabled",
+    "guest_jwt_public_key",
+    "guest_jwt_jwks_url",
+    "error_handler_fallback_to_instance_alerts",
+    "add_admins_and_developers_to_forks",
+];
+
+async fn plan(db: &DB, w_id: &str, desired: Map<String, Value>, replace: bool) -> Result<Plan> {
     let current = {
         let mut conn = db.acquire().await?;
         load_settings_document(&mut conn, db, w_id, SecretMode::Plain).await?
     };
     let mc = build_crypt(db, w_id).await?;
+    plan_document(current, desired, replace, &mc)
+}
+
+fn plan_document(
+    current: Map<String, Value>,
+    mut desired: Map<String, Value>,
+    replace: bool,
+    mc: &windmill_common::variables::WorkspaceCrypt,
+) -> Result<Plan> {
+    let mut warnings = vec![];
+    let unknown: Vec<&str> = desired
+        .keys()
+        .map(String::as_str)
+        .filter(|k| !KNOWN_KEYS.contains(k))
+        .collect();
+    if !unknown.is_empty() {
+        warnings.push(format!("Ignored unknown settings: {}", unknown.join(", ")));
+    }
+    for key in ["auto_invite", "error_handler", "success_handler"] {
+        if desired.get(key).is_some_and(|v| !v.is_null() && !v.is_object()) {
+            return Err(Error::BadRequest(format!(
+                "{key} must be an object or null"
+            )));
+        }
+    }
     for key in SECRET_KEYS {
         if let Some(v) = desired.remove(*key) {
-            desired.insert(
-                key.to_string(),
-                resolve_secret(key, v, current.get(*key), &mc)?,
-            );
+            if let Some(v) = resolve_secret(key, v, mc, &mut warnings) {
+                desired.insert(key.to_string(), v);
+            } else if let Some(cur) = current.get(*key) {
+                desired.insert(key.to_string(), cur.clone());
+            }
         }
     }
 
-    let mut p = Plan { current, desired, replace, changes: vec![], writes: vec![] };
+    let stated: Vec<String> = desired.keys().cloned().collect();
+    let mut p = Plan { current, desired, replace, changes: vec![], writes: vec![], warnings };
 
     let webhook = p.legacy("webhook");
     p.simple(
@@ -749,18 +816,18 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
         p.managed("guest_jwt_jwks_url"),
     );
     if public_key.is_some() || jwks_url.is_some() {
-        let public_key = public_key.unwrap_or_else(|| {
-            p.current
-                .get("guest_jwt_public_key")
-                .cloned()
-                .unwrap_or(Value::Null)
-        });
-        let jwks_url = jwks_url.unwrap_or_else(|| {
-            p.current
-                .get("guest_jwt_jwks_url")
-                .cloned()
-                .unwrap_or(Value::Null)
-        });
+        // At most one of the two is set, so stating one clears the other.
+        let other = |stated: &Option<Value>, key: &str| {
+            if stated.as_ref().is_some_and(|v| !v.is_null()) {
+                Value::Null
+            } else {
+                p.current.get(key).cloned().unwrap_or(Value::Null)
+            }
+        };
+        let (public_key, jwks_url) = (
+            public_key.clone().unwrap_or_else(|| other(&jwks_url, "guest_jwt_public_key")),
+            jwks_url.clone().unwrap_or_else(|| other(&public_key, "guest_jwt_jwks_url")),
+        );
         let key_changes = p.differs("guest_jwt_public_key", &public_key);
         let url_changes = p.differs("guest_jwt_jwks_url", &jwks_url);
         if key_changes || url_changes {
@@ -785,7 +852,46 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
         |v| json!({ "add_admins_and_developers_to_forks": v.as_bool().unwrap_or(false) }),
     );
 
+    // As `wmill sync push` always did: a document whose stated settings all match changes
+    // nothing, so a settings.yaml pulled before a setting was turned on in the UI does not
+    // clear it just for omitting it.
+    let changes_stated = p.changes.iter().any(|c| {
+        stated
+            .iter()
+            .any(|k| c.key == *k || c.key.starts_with(&format!("{k}.")))
+    });
+    if replace && !changes_stated {
+        p.changes.clear();
+        p.writes.clear();
+    }
+
+    // Refused here rather than by the endpoint, so a dry run already says so.
+    let unavailable: Vec<String> = p
+        .writes
+        .iter()
+        .filter(|w| !available_in_this_edition(&w.target))
+        .flat_map(|w| w.keys.clone())
+        .collect();
+    if !unavailable.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Only available on Windmill Enterprise Edition: {}",
+            unavailable.join(", ")
+        )));
+    }
+
     Ok(p)
+}
+
+fn available_in_this_edition(target: &Target) -> bool {
+    match target {
+        Target::MuteCriticalAlerts
+        | Target::Edit(SettingsEdit::DefaultApp)
+        | Target::Edit(SettingsEdit::DeployUi) => cfg!(feature = "enterprise"),
+        Target::TeamsCommand | Target::Edit(SettingsEdit::InstanceGroups) => {
+            cfg!(feature = "private")
+        }
+        _ => true,
+    }
 }
 
 async fn execute(authed: &ApiAuthed, db: &DB, w_id: &str, write: Write) -> Result<Value> {
@@ -866,7 +972,11 @@ pub async fn apply_settings_document(
 ) -> JsonResult<ApplySettingsDocumentResult> {
     require_admin(authed.is_admin, &authed.username)?;
     let p = plan(&db, &w_id, req.document, req.replace).await?;
-    let mut result = ApplySettingsDocumentResult { changes: p.changes, ..Default::default() };
+    let mut result = ApplySettingsDocumentResult {
+        changes: p.changes,
+        warnings: p.warnings,
+        ..Default::default()
+    };
     if req.dry_run || p.writes.is_empty() {
         return Ok(Json(result));
     }
@@ -883,7 +993,10 @@ pub async fn apply_settings_document(
             );
             match e {
                 Error::BadRequest(m) => Error::BadRequest(format!("{m}{applied}")),
-                e => Error::BadRequest(format!("{e}{applied}")),
+                Error::NotFound(m) => Error::NotFound(format!("{m}{applied}")),
+                Error::PermissionDenied(m) => Error::PermissionDenied(format!("{m}{applied}")),
+                Error::NotAuthorized(m) => Error::NotAuthorized(format!("{m}{applied}")),
+                e => Error::internal_err(format!("{e}{applied}")),
             }
         })?;
         if let Some(stranded) = response
@@ -910,4 +1023,81 @@ pub async fn apply_settings_document(
     }
     result.applied = true;
     Ok(Json(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windmill_common::variables::WorkspaceCrypt;
+
+    fn doc(v: Value) -> Map<String, Value> {
+        v.as_object().unwrap().clone()
+    }
+
+    fn keys(p: &Plan) -> Vec<&str> {
+        p.changes.iter().map(|c| c.key.as_str()).collect()
+    }
+
+    fn current() -> Map<String, Value> {
+        doc(json!({
+            "name": "ws",
+            "webhook": "https://a",
+            "large_file_storage": { "type": "S3Storage", "s3_resource_path": "f/s3" },
+            "slack_oauth_client_id": "cid",
+            "slack_oauth_client_secret": "sekret",
+            "guest_jwt_public_key": "PEM",
+            "guest_jwt_jwks_url": null,
+            "public_app_execution_limit_per_minute": 5,
+        }))
+    }
+
+    #[test]
+    fn replace_clears_an_omitted_setting_only_when_a_stated_one_changes() {
+        let mc = WorkspaceCrypt::new("k");
+        let unchanged = doc(json!({ "name": "other", "webhook": "https://a" }));
+        let p = plan_document(current(), unchanged, true, &mc).unwrap();
+        assert!(p.writes.is_empty(), "{:?}", keys(&p));
+
+        let changed = doc(json!({ "webhook": "https://b" }));
+        let p = plan_document(current(), changed, true, &mc).unwrap();
+        assert_eq!(keys(&p), ["webhook", "large_file_storage", "slack_oauth_client_id", "slack_oauth_client_secret"]);
+        assert!(!keys(&p).contains(&"public_app_execution_limit_per_minute"));
+    }
+
+    #[test]
+    fn secrets_keep_their_value_for_the_placeholder_and_a_foreign_key() {
+        let mc = WorkspaceCrypt::new("k");
+        let ours = format!("{ENCRYPTED_PREFIX}{}", mc.encrypt_str_deterministic("sekret"));
+        let theirs = format!(
+            "{ENCRYPTED_PREFIX}{}",
+            WorkspaceCrypt::new("other").encrypt_str_deterministic("x")
+        );
+        for secret in [SENSITIVE_UNCHANGED.to_string(), ours, theirs.clone()] {
+            let p = plan_document(
+                current(),
+                doc(json!({ "slack_oauth_client_secret": secret })),
+                false,
+                &mc,
+            )
+            .unwrap();
+            assert!(p.changes.is_empty(), "{secret}: {:?}", keys(&p));
+            assert_eq!(p.warnings.len(), usize::from(secret == theirs));
+        }
+    }
+
+    #[test]
+    fn unset_switches_compare_as_false() {
+        let mc = WorkspaceCrypt::new("k");
+        let d = doc(json!({ "mute_critical_alerts": false, "guest_access_enabled": null }));
+        assert!(plan_document(current(), d, false, &mc).unwrap().changes.is_empty());
+    }
+
+    #[test]
+    fn stating_one_guest_key_clears_the_other() {
+        let mc = WorkspaceCrypt::new("k");
+        let d = doc(json!({ "guest_jwt_jwks_url": "https://jwks" }));
+        let p = plan_document(current(), d, false, &mc).unwrap();
+        assert_eq!(p.writes.len(), 1);
+        assert_eq!(p.writes[0].body, json!({ "public_key": null, "jwks_url": "https://jwks" }));
+    }
 }
