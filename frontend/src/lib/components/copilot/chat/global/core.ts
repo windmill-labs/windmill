@@ -229,6 +229,8 @@ import {
 	type SessionTool,
 	type SessionToolPolicy
 } from '../sessionCapabilities'
+import { OPERATOR_SETTINGS_LOCATION } from '../assistantPermissions'
+import { capitalize } from '$lib/utils/capitalize'
 import {
 	buildRunsUrl,
 	buildSchedulesUrl,
@@ -1423,6 +1425,9 @@ function buildFolderGuidance(
 	return lines.join('\n')
 }
 
+const listJoin = (items: (string | false)[]) =>
+	new Intl.ListFormat('en', { type: 'conjunction' }).format(items.filter((i): i is string => !!i))
+
 const buildGlobalSystemPrompt = (
 	username: string,
 	previewTools: boolean,
@@ -1498,7 +1503,10 @@ The current user's workspace username is "${username}".${instanceLine}
 ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
-		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${buildsFlows ? '' : 'flows, '}scripts, ${buildsApps ? '' : 'apps, '}schedules, triggers, resources or variables here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${refusedCode.length > 1 ? `${refusedCode.slice(0, -1).join(', ')} and ${refusedCode.at(-1)}` : refusedCode[0]} outside this chat too, so for those suggest asking a workspace admin rather than creating them in the editor. Resources and variables they can still edit themselves on their pages, so when open_page lists that page, open it for them instead.${when(
+		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${buildsFlows ? '' : 'flows, '}scripts, ${buildsApps ? '' : 'apps, '}schedules, triggers, resources or variables here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${refusedCode.length > 1 ? `${refusedCode.slice(0, -1).join(', ')} and ${refusedCode.at(-1)}` : refusedCode[0]} outside this chat too, so for those suggest asking a workspace admin, who grants operators more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor. ${capitalize(listJoin(['resources', 'variables', canManageSchedules && 'schedules', canManageTriggers && 'triggers']))} they can still edit themselves on their pages, so when open_page lists that page, open it for them instead.${when(
+				canManageSchedules,
+				' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
+			)} When you decline something, give the reason stated here and keep to it.${when(
 				buildsFlows,
 				'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.'
 			)}${when(
@@ -1529,6 +1537,7 @@ Rules:${when(
 - Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.`
 	)}
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
+- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${when(
 		canWriteAnyDraft,
 		`
@@ -2719,6 +2728,11 @@ export function getSessionContextPromptSection(
 			}. Scripts, flows, apps, resources and variables must be promoted from the session's deploy panel (fork or pull request); do not offer to deploy or delete them directly.`
 		)
 	}
+	lines.push(
+		'- Sessions are saved: the sidebar lists them under AI Sessions, and the user can reopen any of them.',
+		'- The composer has a permission mode picker: Ask permission, Auto-accept edits, Yolo (bypass permissions: tool confirmations are accepted without asking) and Plan (read-only). Some modes are hidden where they do not apply.',
+		"- The sliders button next to the model picker opens Assistant settings. Its Permissions section shows what the user's role lets them change and what you can change for them; point them there when they ask what they are allowed to do."
+	)
 	return lines.join('\n')
 }
 

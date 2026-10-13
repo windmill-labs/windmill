@@ -287,4 +287,25 @@ describe('session tool policies', () => {
 			expect(full).toBe(ungated)
 		}
 	})
+
+	// The operator's own rights outrun the chat's tools: what they schedule in the UI must not
+	// be sent to an admin.
+	it("sends an operator to the UI for what their role allows and the chat's tools do not", () => {
+		const prompt = (operatorSettings: { manage_schedules?: boolean }): string =>
+			prepareGlobalSystemMessage(undefined, {
+				user: { username: 'op' },
+				access: capabilitiesForRole({
+					isAdmin: false,
+					operator: true,
+					deployRulesPass: true,
+					operatorSettings
+				})
+			}).content as string
+
+		expect(prompt({})).toContain(
+			'Resources, variables, schedules, and triggers they can still edit'
+		)
+		expect(prompt({})).toContain('schedule a deployed script or flow themselves')
+		expect(prompt({ manage_schedules: false })).not.toContain('schedule a deployed script')
+	})
 })
