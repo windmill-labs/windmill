@@ -136,9 +136,18 @@ export function createEvalPreviewPanel(input: {
     activePreview: () => {
       const tab = owner.displayedTab;
       if (!tab) return undefined;
-      // Artifact and editor tabs are not iframes: they carry no page location, and an
-      // artifact's pinned version reaches the chat only through get_preview_status.
-      if (resolvePreviewTab(tab.url).kind !== "iframe") return undefined;
+      // Artifact and editor tabs carry no page location, and an artifact's pinned version
+      // reaches the chat only through get_preview_status. The other slots are pages, framed
+      // or mounted in process, as sessionRuntime's resolver reads them.
+      const slotKind = resolvePreviewTab(tab.url).kind;
+      if (
+        slotKind !== "iframe" &&
+        slotKind !== "pageitem" &&
+        slotKind !== "pagelist" &&
+        slotKind !== "run" &&
+        slotKind !== "viewer"
+      )
+        return undefined;
       return previewLocationContext(whereIs(tab));
     },
     dispose: () => {
