@@ -32,6 +32,9 @@ const TAG_LEN: usize = 16;
 const BLOCK: usize = 16;
 const NARROW_VARIABLE_VALUE_WIDTH: usize = 15000;
 
+/// The most `encrypt_bytes_in` adds to a plaintext, in either format.
+pub const MAX_BYTES_OVERHEAD: usize = V2_MAGIC.len() + NONCE_LEN + BLOCK + TAG_LEN;
+
 const AEAD_KEY_INFO: &[u8] = b"windmill workspace secret aes-256-gcm v1";
 
 const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
@@ -78,8 +81,8 @@ pub struct WorkspaceCrypt {
     aead: Aes256Gcm,
 }
 
-/// Code that drives `magic_crypt` directly on this cipher (app link secrets, AI session
-/// objects) keeps the legacy format it always had.
+/// Code that drives `magic_crypt` directly on this cipher (app link secrets) keeps the legacy
+/// format it always had.
 impl std::ops::Deref for WorkspaceCrypt {
     type Target = MagicCrypt256;
     fn deref(&self) -> &MagicCrypt256 {
@@ -153,7 +156,14 @@ impl WorkspaceCrypt {
         (self.decrypt_str(&upgraded).ok()? == plaintext).then_some(upgraded)
     }
 
-    fn decrypt_bytes(&self, bytes: &[u8]) -> Result<Vec<u8>, DecryptFailure> {
+    pub fn encrypt_bytes_in(&self, plaintext: &[u8], format: CipherFormat) -> Vec<u8> {
+        match format {
+            CipherFormat::V2 => self.seal(plaintext),
+            CipherFormat::LegacyCbc => self.legacy.encrypt_bytes_to_bytes(plaintext),
+        }
+    }
+
+    pub fn decrypt_bytes(&self, bytes: &[u8]) -> Result<Vec<u8>, DecryptFailure> {
         match self.open(bytes) {
             Some(plaintext) => Ok(plaintext),
             // Also for a value with the magic: a CBC ciphertext starts with it one time in 2^32.
@@ -257,6 +267,20 @@ mod tests {
             WorkspaceCrypt::new(KEY).decrypt_bytes(&ciphertext).unwrap(),
             plaintext
         );
+    }
+
+    #[test]
+    fn bytes_round_trip_within_the_overhead_in_both_formats() {
+        let wc = WorkspaceCrypt::new(KEY);
+        for len in 0..64 {
+            let plain = vec![b'x'; len];
+            for format in [CipherFormat::V2, CipherFormat::LegacyCbc] {
+                let sealed = wc.encrypt_bytes_in(&plain, format);
+                assert_eq!(wc.open(&sealed).is_some(), format == CipherFormat::V2);
+                assert!(sealed.len() <= len + MAX_BYTES_OVERHEAD, "len {len}");
+                assert_eq!(wc.decrypt_bytes(&sealed).unwrap(), plain);
+            }
+        }
     }
 
     #[test]
