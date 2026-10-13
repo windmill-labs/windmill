@@ -97,6 +97,7 @@
 	import SettingsFooter from '$lib/components/workspaceSettings/SettingsFooter.svelte'
 	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
+	import WorkspaceSettingsYaml from '$lib/components/workspaceSettings/WorkspaceSettingsYaml.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -384,6 +385,16 @@
 	// something for a fork. A root workspace deploys nowhere by lineage.
 	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
+	let yamlMode = $state(false)
+
+	async function reloadAfterYamlApply() {
+		await Promise.all([
+			loadSettings(),
+			loadSlackOAuthConfig(),
+			WorkspaceService.listUserWorkspaces().then((w) => usersWorkspaceStore.set(w))
+		])
+	}
+
 	// The creator of a fork gets the fork members screen even when they are not an admin of it:
 	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
 	// unable to bring anyone in to collaborate. Nothing else on this page opens up — the backend
@@ -1482,7 +1493,11 @@
 		     two controls that sat beside the title are the page's actions. The panes below scroll
 		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
 		<PageHeaderContent
-			section={tabLabel ? { parent: 'Workspace settings', label: tabLabel } : undefined}
+			section={yamlMode
+				? { parent: 'Workspace settings', label: 'YAML' }
+				: tabLabel
+					? { parent: 'Workspace settings', label: tabLabel }
+					: undefined}
 			actions={settingsActions}
 			separator="always"
 		/>
@@ -1492,17 +1507,19 @@
 			<!-- The top padding belongs inside both scrollers, not above them: it is the gap under the
 			     separator at rest, and it has to travel with the content so what scrolls passes under
 			     the line rather than stopping short of it. -->
-			<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
-				<SidebarNavigation
-					groups={navigationGroups}
-					selectedId={tab}
-					onNavigate={(id) => {
-						const params = new URLSearchParams($page.url.searchParams)
-						params.set('tab', id)
-						goto(`?${params.toString()}`)
-					}}
-				/>
-			</div>
+			{#if !yamlMode}
+				<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
+					<SidebarNavigation
+						groups={navigationGroups}
+						selectedId={tab}
+						onNavigate={(id) => {
+							const params = new URLSearchParams($page.url.searchParams)
+							params.set('tab', id)
+							goto(`?${params.toString()}`)
+						}}
+					/>
+				</div>
+			{/if}
 
 			<!-- Main Content -->
 			<div class="flex-1 min-w-0 h-full">
@@ -1510,6 +1527,8 @@
 					<div class="h-fit px-6 pt-6" style="scrollbar-gutter: stable both-edges;">
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
+						{:else if yamlMode && canAdmin}
+							<WorkspaceSettingsYaml onApplied={reloadAfterYamlApply} />
 						{:else if tab == 'users'}
 							{#if canAdmin}
 								<WorkspaceUserSettings />
@@ -2440,6 +2459,9 @@ export async function main(
 />
 
 {#snippet settingsActions()}
+	{#if canAdmin}
+		<Toggle bind:checked={yamlMode} options={{ right: 'YAML' }} size="sm" />
+	{/if}
 	{#if $superadmin}
 		<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
 			Instance settings
