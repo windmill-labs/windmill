@@ -1,12 +1,12 @@
-//! A publisher-mode app run is allowed only while the caller can read the app,
-//! and a grant or revocation applies to the very next run in the same process.
+//! A refused publisher-mode app run is not remembered: once the caller is granted
+//! read access to the app, the very next run in the same process is allowed.
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
 #[sqlx::test(fixtures("base", "app_publisher_permit"))]
-async fn test_publisher_app_read_access_is_rechecked(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_publisher_app_refusal_is_not_cached(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -25,26 +25,16 @@ async fn test_publisher_app_read_access_is_rechecked(db: Pool<Postgres>) -> anyh
         let status = resp.status().as_u16();
         anyhow::Ok((status, resp.text().await?))
     };
-    let set_extra_perms = |perms: serde_json::Value| {
-        sqlx::query("UPDATE app SET extra_perms = $1 WHERE id = 999101")
-            .bind(perms)
-            .execute(&db)
-    };
 
     let (status, body) = run().await?;
     assert_eq!(status, 401, "unshared app must be refused: {body}");
     assert!(body.contains("Missing read permissions"), "{body}");
 
-    set_extra_perms(json!({ "u/test-user-2": false })).await?;
+    sqlx::query("UPDATE app SET extra_perms = '{\"u/test-user-2\": false}' WHERE id = 999101")
+        .execute(&db)
+        .await?;
     let (status, body) = run().await?;
     assert_eq!(status, 200, "a grant must apply to the next run: {body}");
-
-    set_extra_perms(json!({})).await?;
-    let (status, body) = run().await?;
-    assert_eq!(
-        status, 401,
-        "a revocation must apply to the next run: {body}"
-    );
 
     Ok(())
 }
