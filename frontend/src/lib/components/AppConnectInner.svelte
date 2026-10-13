@@ -322,6 +322,15 @@
 			(registryCcCapable() && connectClient != '' && !(connects?.includes(connectClient) ?? false))
 	)
 
+	/** The provider also has a browser sign-in, unavailable here only because the
+	 * instance holds no OAuth client for it */
+	let signInNeedsInstanceClient = $derived.by(
+		() =>
+			(registryEntry()?.grant_types?.includes('authorization_code') ?? false) &&
+			connectClient != '' &&
+			!(connects?.includes(connectClient) ?? false)
+	)
+
 	/** Clear CC inputs and scopes so a previous selection never leaks into a new one */
 	function resetClientCredentialsState() {
 		supportsClientCredentials = false
@@ -1399,11 +1408,7 @@
 				</div>
 				{#if apiTokenApps[resourceType].img}
 					<div class="mt-4 w-full overflow-hidden">
-						<img
-							class="m-auto max-h-60"
-							alt="connect"
-							src={apiTokenApps[resourceType].img}
-						/>
+						<img class="m-auto max-h-60" alt="connect" src={apiTokenApps[resourceType].img} />
 					</div>
 				{/if}
 			{/if}
@@ -1514,14 +1519,14 @@
 				{#if supportsClientCredentials}
 					<div class="flex flex-col gap-1">
 						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication</h3>
-						{#if ccOnly || ccBringYourOwn}
+						{#if (ccOnly || ccBringYourOwn) && !signInNeedsInstanceClient}
 							<div class="text-xs text-secondary font-normal mb-2">
 								{#if useSharedInstanceCreds}
 									{resourceType} connects server-to-server using the credentials configured for this
-									instance. The token is acquired and refreshed automatically.
+									instance.
 								{:else}
-									{resourceType} connects server-to-server. Enter a client ID and secret; the token is
-									acquired and refreshed automatically.
+									{resourceType} connects server-to-server with the client credentials grant. Enter a
+									client ID and secret.
 								{/if}
 							</div>
 						{:else}
@@ -1534,17 +1539,20 @@
 							>
 								<RadioCard
 									label={`Sign in through ${resourceType}`}
-									description="Opens a browser window to log in and authorize. Connects as you."
+									description={signInNeedsInstanceClient
+										? `Authorization code grant. Needs an OAuth client for ${resourceType} in the instance settings, added by a superadmin.`
+										: 'Authorization code grant. Opens a browser window to log in and authorize. Connects as you.'}
 									selected={!useClientCredentials}
 									onSelect={selectAuthCodeGrant}
+									disabled={signInNeedsInstanceClient}
 								/>
 								<RadioCard
 									label={useSharedInstanceCreds
 										? 'Use the configured instance credentials'
 										: 'Use a client ID and secret'}
 									description={useSharedInstanceCreds
-										? "Runs server-to-server with this instance's credentials. No input needed."
-										: 'Runs server-to-server. Best for automation or service accounts.'}
+										? "Client credentials grant. Runs server-to-server with this instance's credentials. No input needed."
+										: 'Client credentials grant. Runs server-to-server. Best for automation or service accounts.'}
 									selected={useClientCredentials}
 									onSelect={() => enableClientCredentials()}
 								/>
