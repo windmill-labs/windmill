@@ -28,7 +28,7 @@ use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, resolve_job_timeout, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
-        script_envars, start_child_process, OccupancyMetrics,
+        script_envars, script_overrides, start_child_process, OccupancyMetrics,
     },
     handle_child, is_sandboxing_enabled, read_ee_registry_bool_with_workspace_override,
     read_ee_registry_with_workspace_override,
@@ -783,7 +783,7 @@ async fn run<'a>(
             .env("PATH", PATH_ENV.as_str())
             .env("HOME", &*JAVA_HOME_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .envs(reserved_variables)
+            .envs(&reserved_variables)
             .envs(crate::get_otel_context_envs(&job.id))
             .args(vec![
                 "--config",
@@ -835,7 +835,7 @@ async fn run<'a>(
                 .replace("{TIMEOUT}", &nsjail_timeout)
                 .replace(
                     "{ENVARS}",
-                    &script_envars(&envs, &cmd, &["PATH", "HOME", "BASE_INTERNAL_URL"]),
+                    &script_envars(&envs, &cmd, &script_overrides(&["PATH", "HOME", "BASE_INTERNAL_URL"], &reserved_variables)),
                 ),
         )?;
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?

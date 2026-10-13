@@ -1358,8 +1358,8 @@ pub(crate) fn render_envars<'a>(env: impl IntoIterator<Item = (&'a str, &'a str)
 /// The profile sets `keep_env`, so the child also inherits the launcher's env, and
 /// an `envar:` overrides an inherited key. A key the launcher sets therefore keeps
 /// the launcher's value, as it did when both were set on the launcher with the
-/// script's env first, unless it is listed in `script_overrides` (the keys the
-/// executor sets on the launcher *before* the script's env).
+/// script's env first, unless it is listed in `script_overrides` (see
+/// [`script_overrides`]).
 pub(crate) fn script_envars(
     envs: &HashMap<String, String>,
     launcher: &Command,
@@ -1375,6 +1375,20 @@ pub(crate) fn script_envars(
             })
             .map(|(k, v)| (k.as_str(), v.as_str())),
     )
+}
+
+/// The keys an executor sets on its nsjail launcher before the script's env, so the
+/// script's value wins, less those `reserved_variables` (applied after the script's env,
+/// and carrying worker-group env vars) sets again, so the worker's value wins.
+pub(crate) fn script_overrides<'a>(
+    set_before: &[&'a str],
+    reserved_variables: &HashMap<String, String>,
+) -> Vec<&'a str> {
+    set_before
+        .iter()
+        .copied()
+        .filter(|k| !reserved_variables.contains_key(*k))
+        .collect()
 }
 
 /// Default size (in bytes) of the `/tmp` tmpfs mount inside nsjail sandboxes,
@@ -2698,6 +2712,36 @@ mod tests {
         let result = transform_json_value("test", &client, "test", input, &job, &conn, 0).await;
 
         assert!(result.is_err());
+    }
+
+    // A profile that loses `{ENVARS}` silently drops the script's env, since a
+    // `replace` on a missing token does nothing. It must also precede every fixed
+    // `envar:`, which overrides it the way it overrode the launcher's env.
+    #[test]
+    fn script_profiles_take_envars_before_their_fixed_ones() {
+        for (name, profile) in [
+            ("go", include_str!("../nsjail/run.go.config.proto")),
+            ("rust", include_str!("../nsjail/run.rust.config.proto")),
+            ("bun", include_str!("../nsjail/run.bun.config.proto")),
+            ("nu", include_str!("../nsjail/run.nu.config.proto")),
+            ("php", include_str!("../nsjail/run.php.config.proto")),
+            ("csharp", include_str!("../nsjail/run.csharp.config.proto")),
+            ("java", include_str!("../nsjail/run.java.config.proto")),
+            ("ruby", include_str!("../nsjail/run.ruby.config.proto")),
+            ("r", include_str!("../nsjail/run.r.config.proto")),
+            (
+                "gem install",
+                include_str!("../nsjail/download.ruby.config.proto"),
+            ),
+        ] {
+            let at = profile
+                .find("\n{ENVARS}\n")
+                .unwrap_or_else(|| panic!("{name}: no {{ENVARS}}"));
+            assert!(
+                !profile[..at].contains("\nenvar:"),
+                "{name}: a fixed envar precedes {{ENVARS}}"
+            );
+        }
     }
 
     #[test]

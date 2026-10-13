@@ -24,7 +24,7 @@ use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, script_envars,
-        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
+        script_overrides, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::{self},
@@ -629,21 +629,11 @@ async fn install<'a>(
         // true,
         // crate::common::InstallStrategy::Single(Arc::new(move |dependency| {
         move |dependency| {
-            let mut cmd = if jailed {
+            let nsjail_proto = jailed.then(|| format!("{}.download.config.proto", Uuid::new_v4()));
+            let mut cmd = if let Some(nsjail_proto) = &nsjail_proto {
                 std::fs::create_dir_all(&dependency.path)?;
-                let nsjail_proto = format!("{}.download.config.proto", Uuid::new_v4());
-                let _ = write_file(
-                    &job_dir,
-                    &nsjail_proto,
-                    &NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT
-                        .replace("{TARGET}", &dependency.path)
-                        .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                        .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                        .replace("{TMP_MOUNT_BLOCK}", &nsjail_tmp_mount_block)
-                        .replace("#{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
-                )?;
                 let mut cmd = Command::new(NSJAIL_PATH.as_str());
-                cmd.args(vec!["--config", &nsjail_proto, "--", GEM_PATH.as_str()]);
+                cmd.args(vec!["--config", nsjail_proto, "--", GEM_PATH.as_str()]);
                 cmd
             } else {
                 Command::new(if cfg!(windows) {
@@ -699,10 +689,36 @@ async fn install<'a>(
                 "--source",
                 source.as_str(),
             ])
-            .envs(envs.clone())
-            .envs(reserved_variables.clone())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+            if !jailed {
+                cmd.envs(&envs);
+            }
+            cmd.envs(&reserved_variables);
+            if let Some(nsjail_proto) = &nsjail_proto {
+                let set_before = ["PATH", "HOME"]
+                    .into_iter()
+                    .chain(RUBY_PROXY_ENVS.iter().map(|(k, _)| k.as_str()))
+                    .collect::<Vec<_>>();
+                let _ = write_file(
+                    &job_dir,
+                    nsjail_proto,
+                    &NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT
+                        .replace("{TARGET}", &dependency.path)
+                        .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                        .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                        .replace("{TMP_MOUNT_BLOCK}", &nsjail_tmp_mount_block)
+                        .replace("#{DEV}", DEV_CONF_NSJAIL)
+                        .replace(
+                            "{ENVARS}",
+                            &script_envars(
+                                &envs,
+                                &cmd,
+                                &script_overrides(&set_before, &reserved_variables),
+                            ),
+                        ),
+                )?;
+            }
 
             if !verbose {
                 // Make it output minimal info
@@ -808,7 +824,7 @@ mount {{
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("RUBYLIB", rubylib.as_str())
-            .envs(reserved_variables)
+            .envs(&reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
             .envs(
                 get_proxy_envs_for_lang(
@@ -846,7 +862,14 @@ mount {{
                 .replace("{TIMEOUT}", &nsjail_timeout)
                 .replace(
                     "{ENVARS}",
-                    &script_envars(&envs, &cmd, &["PATH", "BASE_INTERNAL_URL", "RUBYLIB"]),
+                    &script_envars(
+                        &envs,
+                        &cmd,
+                        &script_overrides(
+                            &["PATH", "BASE_INTERNAL_URL", "RUBYLIB"],
+                            &reserved_variables,
+                        ),
+                    ),
                 ),
         )?;
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?

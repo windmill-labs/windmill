@@ -14,7 +14,7 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, script_envars,
+        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, script_envars, script_overrides,
         start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang, handle_child, is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH,
@@ -254,7 +254,7 @@ async fn run<'a>(
             .current_dir(*job_dir)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .envs(reserved_variables)
+            .envs(&reserved_variables)
             .envs(
                 get_proxy_envs_for_lang(
                     &ScriptLang::Nu,
@@ -293,7 +293,7 @@ async fn run<'a>(
                 .replace("{TIMEOUT}", &nsjail_timeout)
                 .replace(
                     "{ENVARS}",
-                    &script_envars(&envs, &nsjail_cmd, &["PATH", "BASE_INTERNAL_URL"]),
+                    &script_envars(&envs, &nsjail_cmd, &script_overrides(&["PATH", "BASE_INTERNAL_URL"], &reserved_variables)),
                 ),
         )?;
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
