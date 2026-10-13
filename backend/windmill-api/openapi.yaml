@@ -37332,6 +37332,7 @@ components:
           default_role,
           can_create_schema,
           creatable_schemas,
+          migrations_enabled,
         ]
       properties:
         datatable_name:
@@ -37365,6 +37366,9 @@ components:
           description: the schemas the role the listing connected as may create in
           items:
             type: string
+        migrations_enabled:
+          type: boolean
+          description: whether its schema is kept as versioned migrations, which a change made with plain SQL would bypass
 
     DataTableTableSchema:
       type: object

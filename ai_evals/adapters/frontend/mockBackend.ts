@@ -692,8 +692,120 @@ export function listBenchmarkDatatables(workspace: string): DataTableTables[] | 
 		datatable_name: datatable.datatable_name,
 		schemas: Object.fromEntries(
 			Object.entries(datatable.schemas).map(([schema, tables]) => [schema, Object.keys(tables)])
-		)
+		),
+		...(datatable.migrations_enabled && { migrations_enabled: true })
 	}))
+}
+
+// ============= Datatable migrations =============
+
+function benchmarkDatatable(workspace: string, datatableName: string): BenchmarkDatatableSeed {
+	const datatable = (benchmarkWorkspaceRunnables.get(workspace)?.datatables ?? []).find(
+		(entry) => entry.datatable_name === datatableName
+	)
+	if (!datatable) {
+		throw new Error(`datatable "${datatableName}" not found`)
+	}
+	return datatable
+}
+
+/** Run a migration body through the in-memory engine, one statement at a time and without the
+ * transaction frame, so the tables it creates show up in later reads. */
+function applyBenchmarkMigrationSql(datatable: BenchmarkDatatableSeed, sql: string): void {
+	for (const statement of sql.split(';')) {
+		const trimmed = statement.replace(/^\s*--.*$/gm, '').trim()
+		if (trimmed !== '' && !/^(begin|end|commit)$/i.test(trimmed)) {
+			applyDatatableSql(datatable, trimmed)
+		}
+	}
+}
+
+export function getBenchmarkDatatableMigrationsStatus(input: {
+	workspace: string
+	datatableName: string
+}) {
+	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
+	if (!datatable.migrations_enabled) {
+		return { enabled: false, migrations: [] }
+	}
+	return {
+		enabled: true,
+		migrations: (datatable.migrations ?? []).map(({ applied, ...migration }) => ({
+			...migration,
+			status: applied ? ('ran' as const) : ('not_run' as const)
+		}))
+	}
+}
+
+export function createBenchmarkDatatableMigration(input: {
+	workspace: string
+	datatableName: string
+	requestBody: { name: string; code_up: string; code_down?: string }
+}) {
+	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
+	if (!datatable.migrations_enabled) {
+		throw new Error(
+			`Migrations are not enabled for data table '${input.datatableName}'. Enable them first.`
+		)
+	}
+	const migrations = (datatable.migrations ??= [])
+	const timestamp = Math.max(20260101000000, ...migrations.map((m) => m.timestamp)) + 1
+	migrations.push({ timestamp, ...input.requestBody })
+	return { datatable: input.datatableName, timestamp, ...input.requestBody }
+}
+
+export function runBenchmarkDatatableMigrations(input: {
+	workspace: string
+	datatableName: string
+	upTo?: number
+	only?: number
+}) {
+	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
+	const applied: { version: number; name: string }[] = []
+	for (const migration of datatable.migrations ?? []) {
+		if (
+			migration.applied ||
+			(input.only !== undefined && migration.timestamp !== input.only) ||
+			(input.only === undefined && input.upTo !== undefined && migration.timestamp > input.upTo)
+		) {
+			continue
+		}
+		applyBenchmarkMigrationSql(datatable, migration.code_up)
+		migration.applied = true
+		applied.push({ version: migration.timestamp, name: migration.name })
+	}
+	return { applied }
+}
+
+export function rollbackBenchmarkDatatableMigration(input: {
+	workspace: string
+	datatableName: string
+}) {
+	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
+	const last = (datatable.migrations ?? []).filter((m) => m.applied).at(-1)
+	if (!last) {
+		return { rolled_back: [] }
+	}
+	if (last.code_down === undefined) {
+		throw new Error(
+			`Cannot roll back migration ${last.timestamp} (${last.name}): it has no down migration`
+		)
+	}
+	applyBenchmarkMigrationSql(datatable, last.code_down)
+	last.applied = false
+	return { rolled_back: [{ version: last.timestamp, name: last.name }] }
+}
+
+export function deleteBenchmarkDatatableMigration(input: {
+	workspace: string
+	datatableName: string
+	timestamp: number
+}): string {
+	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
+	datatable.migrations = (datatable.migrations ?? []).filter(
+		(m) => m.timestamp !== input.timestamp
+	)
+	return `Deleted migration ${input.timestamp} from ${input.datatableName}`
 }
 
 // ============= DuckLake catalogs and declared metrics =============

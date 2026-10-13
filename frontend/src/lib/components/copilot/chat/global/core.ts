@@ -161,6 +161,7 @@ import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
+import { getDatatableMigrationTools } from '../datatableMigrationTools'
 import { getDucklakeTools } from '../ducklakeTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
@@ -1453,6 +1454,16 @@ const buildGlobalSystemPrompt = (
 		? '\n- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against `open` (the item the user has open in its editor) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel\'s *other* tabs.'
 		: ''
 	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow. list_pipelines lists the existing ones by folder.${pipelineAlphaNote}`
+	// Roles need a self-hosted Enterprise Edition. The edition is knowable only in the browser,
+	// so elsewhere the guidance stays and nothing is claimed about the instance.
+	const datatableRolesAvailable = !isCloudHosted() && (!BROWSER || !!get(enterpriseLicense))
+	const datatableRolesBullet = datatableRolesAvailable
+		? `
+- A datatable can be under roles: Postgres roles assigned to users, groups or folders, each reaching only what it was granted; list_datatables then reports its \`usable_roles\` and \`default_role\`. \`permission denied\` means the role in use lacks a grant: say which, do not switch to \`admin\` to get past it. When working on a raw app that pins a role (\`data.roles\` in its raw_app.yaml), pass that role to the datatable tools, and to wmill.datatable in its runnables, so you see and change only what the app itself can. Before designing who reaches what (roles, grants, rows that differ per viewer), read the "Permissions" section of https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables with read_docs_page.`
+		: BROWSER
+			? `
+- Datatable roles and permissions need a self-hosted Enterprise Edition, so they are not available here: everyone who can use a datatable reaches all of it. Do not promise per-user, per-schema or per-row access on one; say what the feature needs instead.`
+			: ''
 	// Hosting and edition come from the hostname and a store the app populates at init, so
 	// they are knowable only in the browser: a non-browser caller reads false for both and
 	// would be told "self-hosted Community Edition" whatever it targets. No base URL here
@@ -1623,13 +1634,9 @@ Data Tables:
 - Use get_datatable_table_schema only when you need a table's column names/types; list_datatables is enough for table-list or availability summaries.${when(
 		canRunPreview,
 		`
-- Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.`
-	)}${
-		isCloudHosted()
-			? ''
-			: `
-- A raw app may use a datatable through a role (\`data.roles\` in its raw_app.yaml). When working on such an app, pass that role to the datatable tools, and to wmill.datatable in its runnables, so you see and change only what the app itself can.`
-	}${when(
+- Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.
+- A datatable that list_datatables reports with \`migrations_enabled\` keeps its schema as versioned migrations, which is what carries it to git and to other workspaces. Make every schema change there (CREATE/ALTER/DROP, anything but row data) with create_datatable_migration, not exec_datatable_sql, whose change would exist in this database only. list_datatable_migrations shows the history and what is still pending; run_datatable_migrations applies what is pending and rollback_datatable_migration undoes the last one.`
+	)}${datatableRolesBullet}${when(
 		canWriteDraft,
 		`
 - When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(). Default to TypeScript (bun) unless the user asked for another language. Call get_instructions with subject "datatable" and language "bun" for the TypeScript SQL SDK reference (or language "python3" for Python) — it returns only that language so you get just what you need.`
@@ -4773,6 +4780,7 @@ export const globalTools: SessionTool<{}>[] = [
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
+	...getDatatableMigrationTools(),
 	// Workspace DuckLake: pipeline storage prerequisite, and declared measures
 	...getDucklakeTools(),
 	// Read-only tools over files the user attached to the conversation
