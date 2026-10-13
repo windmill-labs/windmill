@@ -5568,6 +5568,9 @@ paths:
                   type: boolean
                 default_role:
                   type: string
+                  description: >-
+                    The id of one of `roles`, `admin` (the default), or `$none` for no default
+                    role: a connection that names no role then holds its viewer's roles only.
                 roles:
                   type: array
                   items:
@@ -34782,6 +34785,7 @@ components:
           type: boolean
         default_role:
           type: string
+          description: A role id, `admin`, or `$none` when the data table has no default role.
         roles:
           type: array
           items:
