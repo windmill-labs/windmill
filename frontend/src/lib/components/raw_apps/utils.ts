@@ -194,8 +194,7 @@ export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): stri
 const BUILD_LOG_TAIL_LINES = 40
 const BUILD_LOG_TAIL_CHARS = 6000
 // Per-package install progress: dozens of lines per build that would crowd the errors out of the tail.
-const ROUTINE_INSTALL_LOG_LINE =
-	/^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
+const ROUTINE_INSTALL_LOG_LINE = /^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
 
 export function formatBuildLogTailForChat(buildLogs: string): string {
 	// The bundler log accumulates every install and build since the editor opened.

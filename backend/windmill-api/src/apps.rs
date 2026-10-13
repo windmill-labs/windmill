@@ -6052,10 +6052,11 @@ async fn app_load_table_count(
     let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
-    let resp = crate::job_helpers_oss::load_table_count_internal(
-        job_authed, &db, None, &w_id, file_key, inner,
-    )
-    .await?;
+    let resp =
+        crate::job_helpers_oss::load_table_count_internal(
+            job_authed, &db, None, &w_id, file_key, inner,
+        )
+            .await?;
     Ok(Json(resp).into_response())
 }
 
