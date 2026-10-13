@@ -13,30 +13,11 @@
 	let candidates = $derived(earlyReturnCandidates(modules))
 	let selected = $derived(candidates.find((c) => c.id === value))
 
-	// Select filters on `label` alone, so it carries the path too and a search matches either; the
-	// visible id is drawn by `startSnippet`.
-	let items = $derived(
-		candidates.map((c) => ({
-			value: c.id,
-			label: c.location ? `${c.id} ${c.location}` : c.id,
-			subtitle: c.location
-		}))
-	)
+	let items = $derived(candidates.map((c) => ({ value: c.id, label: c.id })))
 </script>
 
 <div class="flex flex-col gap-1 max-w-sm">
-	<Select
-		{items}
-		bind:value
-		transformInputSelectedText={(_, id) => String(id)}
-		itemLabelWrapperClasses="hidden"
-		placeholder="Node's id"
-		size="sm"
-	>
-		{#snippet startSnippet({ item })}
-			<div>{item.value}</div>
-		{/snippet}
-	</Select>
+	<Select {items} bind:value placeholder="Node's id" size="sm" />
 	{#if value && !selected}
 		<span class="text-2xs text-red-600 dark:text-red-400">
 			Step {value} is not one of the steps above. Pick another step.

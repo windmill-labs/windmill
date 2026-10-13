@@ -1,11 +1,8 @@
 import type { FlowModule } from '$lib/gen'
-import { defaultIfEmptyString } from '$lib/utils'
 
 export type EarlyReturnCandidate = {
 	id: string
-	// Where a node inside a branch to one sits, e.g. `a › Branch 1`. Absent at top level.
-	location?: string
-	// False for a node inside a branch to one: it only runs when its branch is taken.
+	// False for a step inside a branch to one: it only runs when its branch is taken.
 	deterministic: boolean
 }
 
@@ -15,34 +12,16 @@ export type EarlyReturnCandidate = {
 const NOT_NESTABLE = new Set(['branchall', 'forloopflow', 'whileloopflow'])
 
 export function earlyReturnCandidates(modules: FlowModule[]): EarlyReturnCandidate[] {
-	const candidates: EarlyReturnCandidate[] = []
-	for (const module of modules) {
-		candidates.push({ id: module.id, deterministic: true })
-		collectBranchOne(module, [], candidates)
-	}
-	return candidates
+	return modules.flatMap((module) => [
+		{ id: module.id, deterministic: true },
+		...insideBranchOne(module)
+	])
 }
 
-function collectBranchOne(
-	module: FlowModule,
-	path: string[],
-	candidates: EarlyReturnCandidate[]
-): void {
-	if (module.value.type !== 'branchone') return
-	// Labels match the ones the flow graph shows.
-	const branches = [
-		{ label: 'Default', modules: module.value.default },
-		...module.value.branches.map((b, i) => ({
-			label: defaultIfEmptyString(b.summary, 'Branch ' + (i + 1)),
-			modules: b.modules
-		}))
-	]
-	for (const branch of branches) {
-		const location = [...path, module.id, branch.label]
-		for (const child of branch.modules) {
-			if (NOT_NESTABLE.has(child.value.type)) continue
-			candidates.push({ id: child.id, location: location.join(' › '), deterministic: false })
-			collectBranchOne(child, location, candidates)
-		}
-	}
+function insideBranchOne(module: FlowModule): EarlyReturnCandidate[] {
+	if (module.value.type !== 'branchone') return []
+	return [module.value.default, ...module.value.branches.map((b) => b.modules)]
+		.flat()
+		.filter((child) => !NOT_NESTABLE.has(child.value.type))
+		.flatMap((child) => [{ id: child.id, deterministic: false }, ...insideBranchOne(child)])
 }

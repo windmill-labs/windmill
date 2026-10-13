@@ -61,10 +61,10 @@ describe('earlyReturnCandidates', () => {
 		expect(earlyReturnCandidates(modules)).toEqual([
 			{ id: 'a', deterministic: true },
 			{ id: 'b', deterministic: true },
-			{ id: 'c', location: 'b › Default', deterministic: false },
-			{ id: 'd', location: 'b › Branch 1', deterministic: false },
-			{ id: 'e', location: 'b › Branch 1', deterministic: false },
-			{ id: 'f', location: 'b › Branch 1 › e › Branch 1', deterministic: false },
+			{ id: 'c', deterministic: false },
+			{ id: 'd', deterministic: false },
+			{ id: 'e', deterministic: false },
+			{ id: 'f', deterministic: false },
 			{ id: 'k', deterministic: true },
 			{ id: 'm', deterministic: true }
 		])
