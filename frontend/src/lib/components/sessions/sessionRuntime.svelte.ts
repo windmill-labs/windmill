@@ -72,6 +72,7 @@ import {
 	promptSafe,
 	parseRunFormRoute,
 	resolvePreviewTab,
+	slotShowsPage,
 	type PreviewSlot
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -466,15 +467,7 @@ function createRuntime(session: Session): SessionRuntime {
 		// point those at a page the user cannot see.
 		const tab = owner?.displayedTab
 		if (!tab) return undefined
-		const slotKind = resolvePreviewTab(tab.url).kind
-		if (
-			slotKind !== 'iframe' &&
-			slotKind !== 'pageitem' &&
-			slotKind !== 'pagelist' &&
-			slotKind !== 'run' &&
-			slotKind !== 'viewer'
-		)
-			return undefined
+		if (!slotShowsPage(resolvePreviewTab(tab.url).kind)) return undefined
 		return previewLocationContext(whereIs(tab))
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit

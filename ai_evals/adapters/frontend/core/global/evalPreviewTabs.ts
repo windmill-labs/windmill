@@ -17,6 +17,7 @@ import {
   previewLocationLabel,
   promptSafe,
   resolvePreviewTab,
+  slotShowsPage,
 } from "../../../../../frontend/src/lib/components/sessions/previewRouter";
 import type { ArtifactVersionTarget } from "../../../../../frontend/src/lib/components/sessions/previewRouter";
 import type { SessionTarget } from "../../../../../frontend/src/lib/components/sessions/sessionState.svelte";
@@ -136,18 +137,8 @@ export function createEvalPreviewPanel(input: {
     activePreview: () => {
       const tab = owner.displayedTab;
       if (!tab) return undefined;
-      // Artifact and editor tabs carry no page location, and an artifact's pinned version
-      // reaches the chat only through get_preview_status. The other slots are pages, framed
-      // or mounted in process, as sessionRuntime's resolver reads them.
-      const slotKind = resolvePreviewTab(tab.url).kind;
-      if (
-        slotKind !== "iframe" &&
-        slotKind !== "pageitem" &&
-        slotKind !== "pagelist" &&
-        slotKind !== "run" &&
-        slotKind !== "viewer"
-      )
-        return undefined;
+      // An artifact's pinned version reaches the chat only through get_preview_status.
+      if (!slotShowsPage(resolvePreviewTab(tab.url).kind)) return undefined;
       return previewLocationContext(whereIs(tab));
     },
     dispose: () => {
