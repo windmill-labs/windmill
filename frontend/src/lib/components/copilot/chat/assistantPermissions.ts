@@ -11,7 +11,8 @@ export const OPERATOR_SETTINGS_LOCATION = 'Workspace settings → Users → Oper
 type PermissionRow = {
 	kind: EditKind
 	label: string
-	/** The capabilities the kind's write tool declares in `requires`, plus its deploy gate. */
+	/** The draft capability the kind's write tool declares in `requires`, plus the schedule or
+	 * trigger write gate where the kind has one. */
 	assistant: (access: SessionAccess) => boolean
 }
 
