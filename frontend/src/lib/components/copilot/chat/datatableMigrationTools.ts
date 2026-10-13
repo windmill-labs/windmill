@@ -229,12 +229,29 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 						})
 						version = created.timestamp
 					} else {
-						// The server refuses rewriting one that is applied.
 						version = parsed.version
+						// The server inserts at a version it does not know, which would wedge a new
+						// migration into the middle of the history, and stores a down left out as none.
+						const { migrations } = await WorkspaceService.getDatatableMigrationsStatus({
+							workspace,
+							datatableName
+						})
+						const existing = migrations.find((m) => m.timestamp === version)
+						if (existing?.status !== 'not_run') {
+							return fail(
+								toolCallbacks,
+								toolId,
+								`Migration ${version} is not a pending migration of datatable "${datatableName}", so it cannot be rewritten. Omit \`version\` to add a new migration.`
+							)
+						}
 						await WorkspaceService.upsertDatatableMigration({
 							workspace,
 							datatableName,
-							requestBody: { timestamp: version, ...definition }
+							requestBody: {
+								timestamp: version,
+								...(existing.code_down != null && { code_down: existing.code_down }),
+								...definition
+							}
 						})
 					}
 				} catch (e) {

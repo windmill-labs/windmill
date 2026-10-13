@@ -769,6 +769,8 @@ export function upsertBenchmarkDatatableMigration(input: {
 		)
 	}
 	if (existing) {
+		// Replaced whole, as the server does: a down left out is stored as none.
+		delete existing.code_down
 		Object.assign(existing, input.requestBody)
 	} else {
 		migrations.push({ ...input.requestBody })

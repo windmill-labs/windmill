@@ -84,6 +84,10 @@ describe('create_datatable_migration', () => {
 		expect(failed).toContain('relation "refunds" already exists')
 		expect(failed).toContain('with version 30')
 
+		statusMock.mockResolvedValue({
+			enabled: true,
+			migrations: [applied, { ...created, code_down: 'DROP TABLE refunds;' }]
+		})
 		await create({ version: 30, code_up: 'BEGIN;\nCREATE TABLE refunds2 ();\nEND;' })
 		expect(createMock).toHaveBeenCalledTimes(1)
 		expect(upsertMock).toHaveBeenCalledWith({
@@ -91,6 +95,7 @@ describe('create_datatable_migration', () => {
 			datatableName: 'main',
 			requestBody: {
 				timestamp: 30,
+				code_down: 'DROP TABLE refunds;',
 				name: 'add_refunds',
 				code_up: 'BEGIN;\nCREATE TABLE refunds2 ();\nEND;'
 			}
@@ -100,6 +105,13 @@ describe('create_datatable_migration', () => {
 			datatableName: 'main',
 			only: 30
 		})
+	})
+
+	it('refuses to rewrite a version that is not pending', async () => {
+		const result = await create({ version: 10 })
+		expect(upsertMock).not.toHaveBeenCalled()
+		expect(runMock).not.toHaveBeenCalled()
+		expect(result).toContain('cannot be rewritten')
 	})
 
 	it('does not call unreadable earlier migrations pending', async () => {

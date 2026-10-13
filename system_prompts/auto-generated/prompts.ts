@@ -1360,7 +1360,7 @@ Writing a migration:
 A migration is saved to the workspace and changes the database as soon as it is applied, for everything that reads those tables. To try a schema out without touching tables already in use:
 
 - put the new tables in a schema of their own, created by the same migration (\`CREATE SCHEMA IF NOT EXISTS\`), and point what you are building at it. A raw app names its schema in its \`data\` config, which is why a new app gets a new schema by default;
-- or work in a workspace fork. A fork gets its own copy of the data table, migrations applied there change that copy alone, and they reach the parent workspace when the fork is merged.
+- or work in a workspace fork whose data table was cloned when the fork was created ("Clone schema only" or "Clone schema and data"): migrations applied there change that copy alone, and reach the parent workspace when the fork is merged. A fork that kept the original data table points at the parent's database, so a migration applied in it changes the parent's tables at once.
 
 Altering or dropping a table other scripts or apps use is neither of those: say what depends on it before doing it.
 
