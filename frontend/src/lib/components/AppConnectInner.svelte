@@ -1540,8 +1540,8 @@
 								<RadioCard
 									label={`Sign in through ${resourceType}`}
 									description={signInNeedsInstanceClient
-										? `Needs an OAuth client for ${resourceType} in the instance settings, added by a superadmin.`
-										: 'Opens a browser window to log in and authorize. Connects as you.'}
+										? `Authorization code grant. Needs an OAuth client for ${resourceType} in the instance settings, added by a superadmin.`
+										: 'Authorization code grant. Opens a browser window to log in and authorize. Connects as you.'}
 									selected={!useClientCredentials}
 									onSelect={selectAuthCodeGrant}
 									disabled={signInNeedsInstanceClient}
@@ -1549,10 +1549,10 @@
 								<RadioCard
 									label={useSharedInstanceCreds
 										? 'Use the configured instance credentials'
-										: 'Use a client ID and secret (client credentials grant)'}
+										: 'Use a client ID and secret'}
 									description={useSharedInstanceCreds
-										? "Runs server-to-server with this instance's credentials. No input needed."
-										: 'Runs server-to-server. Best for automation or service accounts.'}
+										? "Client credentials grant. Runs server-to-server with this instance's credentials. No input needed."
+										: 'Client credentials grant. Runs server-to-server. Best for automation or service accounts.'}
 									selected={useClientCredentials}
 									onSelect={() => enableClientCredentials()}
 								/>
