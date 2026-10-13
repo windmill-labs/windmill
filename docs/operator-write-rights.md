@@ -65,6 +65,10 @@ stay refused even though operators edit those items directly. The AI session cha
 schedules and triggers only as drafts and then deploys them, so without this rule an operator who
 may create a schedule on its page could not ask the chat for one.
 
+The schedule and trigger list routes append an operator's draft-only rows under the same
+`operator_can_draft` check, so a saved draft shows on its list page exactly while the operator may
+still save it.
+
 Deploying a draft goes through the ordinary create and update routes, so the router gate is still
 what decides the write. The draft rule only has to agree with it: a draft the gate would refuse to
 deploy should not be saved in the first place. The frontend mirrors the rule in `roleCanDraft`

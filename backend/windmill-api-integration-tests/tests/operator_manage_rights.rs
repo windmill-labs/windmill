@@ -242,9 +242,31 @@ async fn test_manage_rights_admit_matching_drafts(db: Pool<Postgres>) -> anyhow:
         assert_eq!(resp.status(), 200);
         Ok(resp.json().await?)
     };
+    let schedule_list_has_draft = async || -> anyhow::Result<bool> {
+        let resp = c
+            .get(format!("{api}/schedules/list?include_draft_only=true"))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 200);
+        let rows: Vec<serde_json::Value> = resp.json().await?;
+        Ok(rows.iter().any(|r| r["path"] == "u/operator/sched_draft"))
+    };
 
-    let (status, body) = save("trigger_schedule", "u/operator/sched_draft").await?;
-    assert_eq!(status, 200, "{body}");
+    let resp = c
+        .post(format!("{api}/drafts/update/trigger_schedule/u/operator/sched_draft"))
+        .json(&json!({ "value": {
+            "path": "u/operator/sched_draft",
+            "schedule": "0 0 12 * * *",
+            "timezone": "UTC",
+            "script_path": "f/system/hello",
+            "is_flow": false,
+            "args": {},
+            "enabled": false
+        } }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert!(schedule_list_has_draft().await?);
     let (status, body) = save("trigger_http", "u/operator/http_draft").await?;
     assert_eq!(status, 200, "{body}");
     // The rights name schedules and triggers, nothing else.
@@ -260,6 +282,8 @@ async fn test_manage_rights_admit_matching_drafts(db: Pool<Postgres>) -> anyhow:
     );
     let (status, body) = save("trigger_schedule", "u/operator/sched_draft").await?;
     assert_eq!(status, 403, "{body}");
+    // The list follows the right too, as the app list follows `builder_apps`.
+    assert!(!schedule_list_has_draft().await?);
     let (status, body) = save("trigger_http", "u/operator/http_draft").await?;
     assert_eq!(status, 200, "{body}");
 
