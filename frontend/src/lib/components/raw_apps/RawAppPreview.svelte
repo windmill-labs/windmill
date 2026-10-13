@@ -242,15 +242,17 @@
 		}
 	})
 
-	// The page's own title, put back when the app clears its title or unmounts.
-	let pageTitle: string | undefined = undefined
+	// The page's own title, put back when the app clears its title or unmounts. Only
+	// while the tab still shows the app's: anything else is the page's newer title.
+	let pageTitle = ''
+	let appTitle: string | undefined = undefined
 	function setAppTitle(title: string) {
-		pageTitle ??= document.title
-		const trimmed = title.trim().slice(0, 200)
-		document.title = trimmed || pageTitle
+		if (document.title !== appTitle) pageTitle = document.title
+		appTitle = title.trim().slice(0, 200) || pageTitle
+		document.title = appTitle
 	}
 	onMount(() => () => {
-		if (pageTitle !== undefined) document.title = pageTitle
+		if (appTitle !== undefined && document.title === appTitle) document.title = pageTitle
 	})
 
 	$effect(() => {
