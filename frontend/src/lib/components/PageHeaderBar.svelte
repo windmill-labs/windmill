@@ -16,6 +16,9 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	import ContextBridge from './ContextBridge.svelte'
 	import { afterNavigate } from '$app/navigation'
 	import { twMerge } from 'tailwind-merge'
+	import { onDestroy } from 'svelte'
+	import type { Attachment } from 'svelte/attachments'
+	import { BAR_STAGES, FLOOR, fitBar, type BarFit, type TrailMeasures } from './pageHeaderStages'
 
 	let {
 		navHidden = false,
@@ -34,13 +37,70 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	const section = $derived(content?.section)
 	const hasSummary = $derived(!!item && !!(item.summaryContent || item.summary))
 
-	// Below this the trail holds a tighter cap on the path it draws. The names in it truncate on
-	// their own at any width (see NavBreadcrumb), so this is not a breakpoint the look changes at —
-	// it only stops a long path from claiming a third of a short bar before the squeeze starts.
-	const NARROW_BAR = 1000
-	const narrow = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < NARROW_BAR)
-	/** A phone's bar: the trail gives way before the page's buttons do (see the markup). */
+	/** A phone's bar: a tighter gutter around the same row. */
 	const phone = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
+
+	// What the bar drops, and when the page's actions fold, follows from the widths of what is in
+	// it (see pageHeaderStages): measured here and in NavBreadcrumb, never guessed per page.
+	/** `gap-1` between the bar's boxes. */
+	const GAP = 4
+	/** Actions that shrink or fill the bar have no width of their own to plan around: the trail
+	 *  leaves them this much and they take whatever is left. */
+	const FLEXIBLE_ACTIONS_RESERVE = 240
+
+	let trailMeasures = $state<TrailMeasures>({ trail: [], family: 0, fork: 0, name: 0 })
+	/** The summary held at its floor, with the dot before it. */
+	let summaryFloorWidth = $state(0)
+	let summaryTextWidth = $state(0)
+	/** A page's own summary control, last seen uncapped. */
+	let summaryContentWidth = $state(0)
+	let handleWidth = $state(0)
+	/** The actions box at each fold level it has been seen at, for this page. */
+	let actionWidths = $state<(number | undefined)[]>([])
+	let actionsEpoch = $state(0)
+
+	const handleShown = $derived((navDetached.val || panelled) && !navHidden)
+	// The bar's own padding, in px, as the classes on the row below set it.
+	const padLeft = $derived(navHidden ? 16 : phone ? 4 : 8)
+	const padRight = $derived(content?.actionsFill ? 0 : phone ? 8 : 16)
+	const actionsRigid = $derived(!content?.actionsFlexible && !content?.actionsFill)
+	const FULL: BarFit = { stage: 0, fold: 0, caps: {}, scopesGive: false }
+
+	const fit = $derived.by((): BarFit => {
+		// Unmeasured counts as wide: the bar measures itself on mount, and starting narrow would fold
+		// a page's buttons for one frame and pop them back out the next.
+		if (pageHeader.barWidth === 0) return FULL
+		return fitBar({
+			barWidth: pageHeader.barWidth,
+			chrome: padLeft + padRight + (handleShown ? handleWidth + GAP : 0),
+			trail: trailMeasures.trail,
+			summary: BAR_STAGES.map((s) => (hasSummary && s.summary ? GAP + summaryFloorWidth : 0)),
+			actions:
+				actions.length === 0 ? [0] : actionsRigid ? actionWidths : [GAP + FLEXIBLE_ACTIONS_RESERVE],
+			folds: actions.length > 0 && actionsRigid ? (content?.actionFolds ?? 0) : 0,
+			natural: {
+				family: trailMeasures.family,
+				fork: trailMeasures.fork,
+				summary: hasSummary ? (item?.summaryContent ? summaryContentWidth : summaryTextWidth) : 0,
+				name: trailMeasures.name
+			}
+		})
+	})
+	const stage = $derived(BAR_STAGES[fit.stage])
+	onDestroy(pageHeader.provideActionFold(() => fit.fold))
+
+	// Re-attached whenever the fold level changes, so the first reading at a level is taken even
+	// when the row comes out exactly as wide as it was at the last one.
+	function measureActions(fold: number, _epoch: number): Attachment<HTMLElement> {
+		return (node) => {
+			const ro = new ResizeObserver(() => (actionWidths[fold] = GAP + node.offsetWidth))
+			ro.observe(node)
+			return () => ro.disconnect()
+		}
+	}
+	// Until the row has been seen at the level the bar picked, it is laid out but not shown: the bar
+	// may find it does not fit and fold it further, and that should not flash.
+	const actionsUnmeasured = $derived(actionsRigid && actionWidths[fit.fold] === undefined)
 
 	// The band's edge is there to say "something is passing under me", so it is drawn only while
 	// something is. Scroll events do not bubble, but they do capture, so one listener on the window
@@ -69,8 +129,14 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		scrolledUnder = next
 	}
 	// A page left while scrolled would otherwise hand its edge to the next one, which may have
-	// nothing to scroll at all.
-	afterNavigate(() => (scrolledUnder = false))
+	// nothing to scroll at all. Its actions' widths go with it.
+	afterNavigate(({ from, to }) => {
+		scrolledUnder = false
+		if (from?.url.pathname !== to?.url.pathname) {
+			actionWidths = []
+			actionsEpoch++
+		}
+	})
 
 	const separator = $derived(pageHeader.content?.separator ?? 'onScroll')
 	const showEdge = $derived(separator === 'always' || (separator === 'onScroll' && scrolledUnder))
@@ -112,6 +178,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			data-nav-handle
+			bind:clientWidth={handleWidth}
 			onmouseenter={() => navHandleSlot.open()}
 			onmouseleave={() => navHandleSlot.scheduleClose()}
 		>
@@ -128,26 +195,13 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		</div>
 	{/if}
 
-	<!-- The breadcrumb yields width more slowly than the page's controls (shrink-[0.3]) but it does
-	     yield, at every width: the trail truncates from its start, so the squeeze is spent on the
-	     workspace and the folders before it ever reaches the name of the thing the page is about.
-	     The 5rem floor is what is left when every name in it has gone — the workspace disc, the
-	     fork mark and the environment badge, which is as small as the part can be and still say
-	     where the user is.
+	<!-- The breadcrumb's parts are rigid and the bar sizes them (see `fit`): it drops whole parts
+	     and caps the names left, so this box only shrinks past what they add up to on a bar too
+	     narrow for even the last stage.
 	     An embed (`navHidden`) keeps the page's own name but drops the workspace part around it:
 	     the trail would offer to navigate the host's workspace, while the name is what says which
-	     page the controls beside it belong to.
-	     The 0.3 only holds against a summary or an actions box that shrinks too: alone, a factor
-	     sum below 1 makes flex hand out only that share of the overflow, and the bar overflows
-	     instead. -->
-	<div
-		class={twMerge(
-			'flex shrink-[0.3] min-w-[5rem]',
-			!hasSummary &&
-				(actions.length === 0 || (phone && !content?.actionsFlexible && !content?.actionsFill)) &&
-				'shrink'
-		)}
-	>
+	     page the controls beside it belong to. -->
+	<div class="flex min-w-0">
 		<!-- Bridged like the actions below: what a page hangs off its own name renders here, out of
 		     the tree that named it, and the rename editor in there asks that tree who the acting user
 		     is before it offers to rename anything. -->
@@ -162,7 +216,10 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 					<NavBreadcrumb
 						{item}
 						{section}
-						{narrow}
+						{stage}
+						caps={fit.caps}
+						scopesGive={fit.scopesGive}
+						bind:measures={trailMeasures}
 						nameOnly={navHidden}
 						afterName={content?.afterName}
 						actingWorkspaceId={content?.actingWorkspaceId}
@@ -172,36 +229,54 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		</svelte:boundary>
 	</div>
 
-	{#if item && hasSummary}
+	{#if item && hasSummary && stage.summary}
 		<!-- No kind icon: the page below is the item, and saying "this is a flow" above a flow
 		     editor tells the reader what they can already see. -->
-		<div class={twMerge('flex items-center gap-1 min-w-0', phone && 'shrink')}>
+		<div class="flex items-center gap-1 shrink-0">
 			<!-- A dot rather than a slash: the summary names the same item the path just located, it
-			     is not another level of it. Inside this box so that it narrows with the summary. -->
+			     is not another level of it. -->
 			<span class="shrink-0 text-hint/40 text-xs px-0.5" aria-hidden="true">·</span>
 			{#if item.summaryContent}
-				<svelte:boundary onerror={(e) => console.error('page header: summary failed to render', e)}>
-					{#key content?.contexts}
-						<ContextBridge contexts={content?.contexts}>
-							{@render item.summaryContent()}
-						</ContextBridge>
-					{/key}
-				</svelte:boundary>
+				<!-- Read only while uncapped: capped, the box says how wide the bar let it be, not how
+				     wide the page's control wants to be. -->
+				<div
+					class="flex min-w-0 overflow-hidden"
+					style={fit.caps.summary === undefined ? undefined : `max-width: ${fit.caps.summary}px`}
+					bind:clientWidth={
+						() => summaryContentWidth,
+						(w) => fit.caps.summary === undefined && (summaryContentWidth = w)
+					}
+				>
+					<svelte:boundary
+						onerror={(e) => console.error('page header: summary failed to render', e)}
+					>
+						{#key content?.contexts}
+							<ContextBridge contexts={content?.contexts}>
+								{@render item.summaryContent()}
+							</ContextBridge>
+						{/key}
+					</svelte:boundary>
+				</div>
 			{:else}
-				<span class="min-w-0 truncate text-xs font-medium text-emphasis">{item.summary}</span>
+				<span
+					class="truncate text-xs font-medium text-emphasis"
+					style={fit.caps.summary === undefined ? undefined : `max-width: ${fit.caps.summary}px`}
+					>{item.summary}</span
+				>
 			{/if}
 		</div>
 	{/if}
 
 	{#if actions.length > 0}
-		<!-- min-w-0, not shrink-0: a page whose actions are a filter row (Runs) puts a control in
-		     here that can give width back, and it can only do that if this box may shrink. A phone
-		     only tightens the gutter — pages fold their own buttons into a menu at that width, and
-		     a box that refused to shrink would make the one flexible field take its max instead. -->
+		<!-- A plain row of buttons holds its width (shrink-0): squeezing it only pushes buttons out
+		     of the bar, so the bar makes room by dropping breadcrumb parts and then by asking the
+		     page to fold (`actionFolds`). Flexible actions (the Runs filter row) are a control that
+		     can give width back, which it can only do if this box may shrink. -->
 		<!-- `actionsFill`: the actions are a surface rather than a row, so they take the rest of the
 		     bar and run to its right edge, and they stretch its full height because that surface
 		     sits on the bottom edge. -->
 		<div
+			{@attach measureActions(fit.fold, actionsEpoch)}
 			class={twMerge(
 				'flex',
 				// pl-4: the gap between the breadcrumb and the filling surface is bare bar, so it
@@ -209,8 +284,9 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 				content?.actionsFill
 					? 'flex-1 min-w-0 self-stretch items-stretch pl-4'
 					: 'ml-auto items-center',
-				!content?.actionsFill && (phone && !content?.actionsFlexible ? 'shrink-0' : 'min-w-0'),
-				!content?.actionsFill && (phone ? 'gap-1 pl-1' : 'gap-2 pl-4')
+				!content?.actionsFill && (actionsRigid ? 'shrink-0' : 'min-w-0'),
+				!content?.actionsFill && (phone ? 'gap-1 pl-1' : 'gap-2 pl-4'),
+				actionsUnmeasured && 'invisible'
 			)}
 		>
 			{#each actions as entry, i (i)}
@@ -222,6 +298,27 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 					{/key}
 				</svelte:boundary>
 			{/each}
+		</div>
+	{/if}
+
+	{#if item && hasSummary}
+		<!-- The summary at its floor, which is what a stage that keeps it needs; and whole, which is
+		     what the bar caps it from. A page's own control stands in at the width last seen. -->
+		<div class="absolute -left-[99999px] top-0 invisible" aria-hidden="true" inert>
+			<div class="flex items-center gap-1 w-max" bind:clientWidth={summaryFloorWidth}>
+				<span class="shrink-0 text-hint/40 text-xs px-0.5">·</span>
+				{#if item.summaryContent}
+					<span style="width: {Math.min(summaryContentWidth, FLOOR.summary)}px"></span>
+				{:else}
+					<span class="truncate text-xs font-medium" style="max-width: {FLOOR.summary}px"
+						>{item.summary}</span
+					>
+				{/if}
+			</div>
+			<span
+				class="inline-block whitespace-nowrap text-xs font-medium"
+				bind:clientWidth={summaryTextWidth}>{item.summary ?? ''}</span
+			>
 		</div>
 	{/if}
 </div>

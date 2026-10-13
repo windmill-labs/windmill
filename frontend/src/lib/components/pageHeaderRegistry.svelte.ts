@@ -52,6 +52,11 @@ export type PageHeaderContent = {
 	 *  controls share one shape that opens into the page below. The bar gives up its right padding
 	 *  to it, since the surface is what meets the edge. */
 	actionsFill?: boolean
+	/** How many levels past the full row these actions can fold through, each a narrower row than
+	 *  the last. The bar picks the level from the room its breadcrumb leaves once it has dropped
+	 *  all it can, and the page reads it back as `pageHeader.actionFold`. Without it the actions
+	 *  never fold and the breadcrumb gives up width around them. */
+	actionFolds?: number
 	/** Rendered right after the page's name in the breadcrumb: a mark that belongs to the name,
 	 *  like a documentation tooltip, or a control that acts on the thing named — an app's Edit,
 	 *  which at the far end of the bar would be a journey away from what it edits. */
@@ -91,10 +96,9 @@ let entries = $state<{ id: number; get: () => PageHeaderContent }[]>([])
 let nextId = 0
 
 /**
- * Below this bar width a page keeps one button — the thing the page is for — and folds the rest
- * into the menu it already shows when compact. A phone in portrait is ~390px of bar and a tablet
- * in portrait ~720; the breadcrumb with its workspace disc takes ~150 of either, which is why the
- * line sits above the tablet rather than between the two.
+ * A phone's bar: a tighter gutter, and the width below which controls that cannot fold through
+ * `actionFolds` — a flexible filter row, a banner — slim down. A phone in portrait is ~390px of
+ * bar and a tablet in portrait ~720, which is why the line sits above the tablet.
  */
 export const PHONE_BAR = 800
 
@@ -112,6 +116,9 @@ export const BAR_HEIGHT_PX = 48
 // share that row with the breadcrumb, so it is the width they crowd against — not the window's,
 // which the sidebar and a page's side panel both take from.
 let barWidth = $state(0)
+// The bar owns the fold level: it is derived from the bar's own measurements, so the bar hands
+// over a getter rather than writing a copy that an effect would have to keep in step.
+let actionFoldSource = $state<(() => number) | undefined>(undefined)
 
 /**
  * One registration's content, or undefined while it cannot answer.
@@ -151,6 +158,7 @@ export const pageHeader = {
 			if (c.barRightInset !== undefined) merged.barRightInset = c.barRightInset
 			if (c.actionsFlexible !== undefined) merged.actionsFlexible = c.actionsFlexible
 			if (c.actionsFill !== undefined) merged.actionsFill = c.actionsFill
+			if (c.actionFolds !== undefined) merged.actionFolds = c.actionFolds
 			if (c.separator !== undefined) merged.separator = c.separator
 		}
 		return merged
@@ -175,6 +183,17 @@ export const pageHeader = {
 	},
 	setBarWidth(w: number) {
 		barWidth = w
+	},
+	/** How far the page's actions are folded: 0 for the full row, up to its `actionFolds`. */
+	get actionFold(): number {
+		return actionFoldSource?.() ?? 0
+	},
+	/** Called by the bar once; returns the release to call when the bar goes away. */
+	provideActionFold(get: () => number): () => void {
+		actionFoldSource = get
+		return () => {
+			if (actionFoldSource === get) actionFoldSource = undefined
+		}
 	},
 	/** Registers on mount and returns the id to release on destroy. */
 	register(get: () => PageHeaderContent): number {

@@ -16,7 +16,6 @@ not this component) — so the lead can run the whole line.
 	import WorkspaceItemKindIcon from './WorkspaceItemKindIcon.svelte'
 	import { Menu, Menubar } from '$lib/components/meltComponents'
 	import MeltButton from '$lib/components/meltComponents/MeltButton.svelte'
-	import BreadcrumbItemContent from './BreadcrumbItemContent.svelte'
 	import WorkspacePickerBody from '$lib/components/sidebar/WorkspacePickerBody.svelte'
 	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
 	import { userWorkspaces, workspaceStore, workspaceColor, superadmin } from '$lib/stores'
@@ -33,14 +32,25 @@ not this component) — so the lead can run the whole line.
 	import { KIND_LABEL_LOWER, kindKey } from '$lib/components/workspacePicker'
 	import type { PageHeaderItem, PageHeaderSection } from './pageHeaderRegistry.svelte'
 	import type { Snippet } from 'svelte'
+	import {
+		BAR_STAGES,
+		FLOOR,
+		shownPathLevels,
+		type Part,
+		type TrailMeasures,
+		type TrailStage
+	} from './pageHeaderStages'
 
 	let {
 		item,
 		section,
 		afterName,
 		actingWorkspaceId,
-		narrow = false,
-		nameOnly = false
+		nameOnly = false,
+		stage = BAR_STAGES[0],
+		caps = {},
+		scopesGive = false,
+		measures = $bindable()
 	}: {
 		item?: PageHeaderItem
 		section?: PageHeaderSection
@@ -49,9 +59,14 @@ not this component) — so the lead can run the whole line.
 		afterName?: Snippet
 		/** The workspace the page acts on, when it differs from the one the app is pointed at. */
 		actingWorkspaceId?: string
-		/** The bar is short of room: the path holds a tighter cap, so it cannot claim a third of the
-		 *  line before anything else has given way. The names truncate at every width either way. */
-		narrow?: boolean
+		/** Which parts the bar has dropped for room (see pageHeaderStages). */
+		stage?: TrailStage
+		/** Max widths the bar holds the names to, once dropping whole parts is not enough. */
+		caps?: Partial<Record<Part, number>>
+		/** The folders above the name truncate too: even the name at its last floor does not fit. */
+		scopesGive?: boolean
+		/** Filled in for the bar to choose a stage with; left undefined, nothing is measured. */
+		measures?: TrailMeasures
 		/** Only the page's own name, with no workspace part and no picker — the band inside a
 		 *  session's preview frame, where the workspace is the host's and leading the reader out of
 		 *  it is exactly what that band must not offer. The page still has to say what it is. */
@@ -156,15 +171,8 @@ not this component) — so the lead can run the whole line.
 		twMerge(SEGMENT, 'hover:bg-transparent', workspaceIsLast && !showFork ? LAST : LEAD)
 	)
 
-	// Capped: a draft's path is a 40-character uuid slug, and the trail yields so grudgingly that
-	// one would push a page's buttons off the end of the bar.
 	const pathSegment = $derived(
-		twMerge(
-			SEGMENT,
-			'gap-1.5 overflow-hidden',
-			itemIsLast ? LAST : LEAD,
-			narrow ? 'max-w-[11rem]' : 'max-w-[16rem]'
-		)
+		twMerge(SEGMENT, 'gap-1.5 overflow-hidden', itemIsLast ? LAST : LEAD)
 	)
 	// Copying is the one thing a segment does that leaves no mark on the page, so it is the one
 	// without a hover fill: the pointer and the confirmation under it are the affordance. A segment
@@ -191,6 +199,18 @@ not this component) — so the lead can run the whole line.
 	const scopeKind = $derived(item?.path?.split('/')[0])
 	/** The path's levels, the `f`/`u` prefix dropped — that is what the icon says. */
 	const pathLevels = $derived((item?.path ?? '').split('/').slice(1).filter(Boolean))
+
+	// The off-screen copies stand in a fixed-width box for what a page renders into the trail: a
+	// second render of a page's snippet would be a second live copy of its controls.
+	let afterNameWidth = $state(0)
+	let sectionContentWidth = $state(0)
+
+	/** A measured copy holds each name at its floor; the trail on screen at the bar's cap. */
+	function capStyle(part: Part, measure: boolean): string | undefined {
+		if (measure) return `max-width: ${FLOOR[part]}px`
+		const cap = caps[part]
+		return cap === undefined ? undefined : `max-width: ${cap}px`
+	}
 </script>
 
 {#snippet workspaceDisc()}
@@ -241,80 +261,114 @@ not this component) — so the lead can run the whole line.
 	<span class={twMerge('shrink-0 text-hint/40 text-xs', extra)} aria-hidden="true">/</span>
 {/snippet}
 
-<nav
-	aria-label="Breadcrumb"
-	class="flex items-center gap-1.5 min-w-0 text-xs font-normal text-primary"
->
+{#snippet workspaceMenu_(measure: boolean)}
+	{#if measure}
+		<span class="flex items-center h-9 px-1.5 shrink-0">
+			<ChevronDown size={ICON} class="flex-shrink-0" />
+		</span>
+	{:else}
+		<Menubar>
+			{#snippet children({ createMenu })}
+				<Menu
+					bind:this={workspaceMenu}
+					{createMenu}
+					usePointerDownOutside
+					placement="bottom-start"
+					class="h-auto"
+					contentStyle="margin-left: {-nameWidth}px"
+				>
+					{#snippet triggr({ trigger })}
+						<MeltButton
+							meltElement={trigger}
+							class="flex items-center h-9 px-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
+							title="Switch workspace"
+						>
+							<ChevronDown size={ICON} class="flex-shrink-0" />
+						</MeltButton>
+					{/snippet}
+					{#snippet children({ item: menuItem })}
+						<WorkspacePickerBody
+							item={menuItem}
+							collapseFamilies={actingWorkspaceId != undefined}
+							closeMenu={() => workspaceMenu?.close()}
+						/>
+					{/snippet}
+				</Menu>
+			{/snippet}
+		</Menubar>
+	{/if}
+{/snippet}
+
+{#snippet trail(f: TrailStage, measure: boolean)}
+	{@const scopeTitle = showFork ? `${familyName} / ${scopeName}` : familyName}
 	{#if !nameOnly}
 		<!-- One part for where the user is: the name of the workspace they are standing in — a fork
-	     included, in its own colour — leading home, and one chevron whose picker changes it. The
-	     picker lists the families and expands one to reach its forks, so a fork needs no part of
-	     its own here. -->
-		<!-- `shrink-[999]`: the whole trail can give width back, and this part gives it first. Flex
-		     takes it from the parts in proportion to what they ask for, so a factor this far above
-		     the rest means the names here are eaten down to their icons before the page's own name
-		     loses a character. -->
-		<div class="flex items-center min-w-0 shrink-[999]">
+		     included, in its own colour — leading home, and one chevron whose picker changes it. The
+		     picker lists the families and expands one to reach its forks, so a fork needs no part of
+		     its own here. Its parts never shrink on their own: the bar drops them whole and caps the
+		     names left, in the order pageHeaderStages sets. -->
+		<div class="flex items-center shrink-0">
 			<!-- No hover fill on the name: the chevron beside it is the thing that lights up, and two
-		     boxes reacting to one pass of the pointer read as two controls fighting. -->
+			     boxes reacting to one pass of the pointer read as two controls fighting. -->
 			<!-- bind:clientWidth: the menu hangs from the chevron, so it is shifted back by the width of
-		     the name to line its left edge up with the disc. -->
-			<div class="flex items-center min-w-0" bind:clientWidth={nameWidth}>
-				<a
-					href={homeHref}
-					class={scopeChipClass}
-					title={showFork ? `${familyName} / ${scopeName}` : familyName}
+			     the name to line its left edge up with the disc. -->
+			<div
+				class="flex items-center"
+				bind:clientWidth={() => nameWidth, (w) => !measure && (nameWidth = w)}
+			>
+				<svelte:element
+					this={measure ? 'span' : 'a'}
+					href={measure ? undefined : homeHref}
+					class={f.wsButton ? 'flex items-center gap-1 pl-1 py-0.5 rounded' : scopeChipClass}
+					title={scopeTitle}
 				>
-					<!-- The family's name goes before the fork's: the fork is where the work happens, the
-					     family is which product it is part of, and of the two that is the one a reader can
-					     do without. Both truncate to nothing rather than disappearing at a breakpoint —
-					     what is left then is what the part cannot be read without, the disc in the
-					     workspace's own colour, the fork mark and the environment. The hover title
-					     carries the names whole, and the picker beside it names them all. -->
-					<span class="flex items-center gap-1 min-w-0 shrink-[999]">
-						<BreadcrumbItemContent label={familyName} icon={workspaceDisc} />
-					</span>
-					{#if showFork}
-						{@render slash('mx-0.5')}
-						<span class={forkChipClass} style={forkAccent}>
-							<GitFork size={ICON} class="flex-shrink-0" />
-							<span class="truncate">{scopeName}</span>
-							{@render envBadgeMark()}
+					{#if f.wsButton}
+						<!-- Down to its disc, the part still leads home: the fork it stands in rides on the
+						     disc as a mark, and the environment stays beside it. -->
+						<span class="relative flex shrink-0">
+							{@render workspaceDisc()}
+							{#if showFork}
+								<span
+									class={twMerge(
+										'absolute -right-1 -bottom-0.5 size-3.5 rounded-full grid place-items-center ring-2 ring-surface',
+										forkAccent
+											? 'bg-[color:var(--fork-accent-badge)] text-white'
+											: 'bg-surface-sunken text-primary'
+									)}
+									style={forkAccent}
+								>
+									<GitFork size={9} />
+								</span>
+							{/if}
 						</span>
-					{:else}
 						{@render envBadgeMark()}
+					{:else}
+						<!-- The family's name goes before the fork's: the fork is where the work happens,
+						     the family is which product it is part of, and of the two that is the one a
+						     reader can do without. Outside a fork it is the workspace's own name and stays
+						     until the part is down to its disc. -->
+						<span class="flex items-center gap-1 shrink-0">
+							{@render workspaceDisc()}
+							{#if f.familyName || !showFork}
+								<span class="truncate" style={capStyle('family', measure)}>{familyName}</span>
+							{/if}
+						</span>
+						{#if showFork}
+							{@render slash('mx-0.5')}
+							<span class={twMerge(forkChipClass, 'shrink-0')} style={forkAccent}>
+								<GitFork size={ICON} class="flex-shrink-0" />
+								{#if f.forkName}
+									<span class="truncate" style={capStyle('fork', measure)}>{scopeName}</span>
+								{/if}
+								{@render envBadgeMark()}
+							</span>
+						{:else}
+							{@render envBadgeMark()}
+						{/if}
 					{/if}
-				</a>
+				</svelte:element>
 			</div>
-			<Menubar>
-				{#snippet children({ createMenu })}
-					<Menu
-						bind:this={workspaceMenu}
-						{createMenu}
-						usePointerDownOutside
-						placement="bottom-start"
-						class="h-auto"
-						contentStyle="margin-left: {-nameWidth}px"
-					>
-						{#snippet triggr({ trigger })}
-							<MeltButton
-								meltElement={trigger}
-								class="flex items-center h-9 px-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
-								title="Switch workspace"
-							>
-								<ChevronDown size={ICON} class="flex-shrink-0" />
-							</MeltButton>
-						{/snippet}
-						{#snippet children({ item: menuItem })}
-							<WorkspacePickerBody
-									item={menuItem}
-									collapseFamilies={actingWorkspaceId != undefined}
-									closeMenu={() => workspaceMenu?.close()}
-								/>
-						{/snippet}
-					</Menu>
-				{/snippet}
-			</Menubar>
+			{@render workspaceMenu_(measure)}
 		</div>
 	{/if}
 
@@ -324,6 +378,7 @@ not this component) — so the lead can run the whole line.
 
 	{#if item}
 		{#if item.path}
+			{@const shown = shownPathLevels(pathLevels, f)}
 			<!-- The path whole, as one label rather than a row of pickers: it is what a person reads
 			     to know which item this is, and what they reach for to paste somewhere else. -->
 			<div class="relative flex items-center min-w-0">
@@ -334,19 +389,28 @@ not this component) — so the lead can run the whole line.
 					{:else}
 						{@render folderIcon()}
 					{/if}
-					{#each pathLevels as level, i (i)}
+					{#each shown as level, i (i)}
 						{#if i > 0}{@render slash()}{/if}
-						<!-- The scopes above the name absorb the squeeze, the name itself last: a path is
-						     read from its end, and which folder a thing is in is answerable from the
-						     picker while the thing's own name is not. -->
-						<span
-							class={i === pathLevels.length - 1
-								? 'truncate'
-								: 'truncate min-w-0 shrink-[999] max-w-[8rem]'}>{level}</span
-						>
+						{#if i === shown.length - 1}
+							<span class="truncate shrink-0" style={capStyle('name', measure)}>{level}</span>
+						{:else if level === '…' && !f.middleLevels}
+							<span class="shrink-0 text-tertiary">…</span>
+						{:else}
+							<!-- The folder or user gives width only once the name is down to a few
+							     characters: it is short and says whose thing this is, while a name long
+							     enough to need truncating still reads from its first words. -->
+							<span
+								class={twMerge(
+									'truncate max-w-[8rem]',
+									scopesGive && !measure ? 'min-w-0' : 'shrink-0'
+								)}>{level}</span
+							>
+						{/if}
 					{/each}
 				{/snippet}
-				{#if item.pathTrigger}
+				{#if measure}
+					<span class={pathSegment}>{@render pathLabel()}</span>
+				{:else if item.pathTrigger}
 					<!-- The page hangs its own rename off this segment, anchored here so the editor
 					     opens under the path rather than beside the summary. It wears the segment's
 					     own classes, so a clickable path reads the same as one that only copies. -->
@@ -361,8 +425,8 @@ not this component) — so the lead can run the whole line.
 						{@render pathLabel()}
 					</button>
 				{/if}
-				{#if afterName}{@render afterName()}{/if}
-				{#if pathCopied}
+				{@render afterNameSlot(measure)}
+				{#if pathCopied && !measure}
 					<span
 						class="absolute left-0 top-full mt-1 z-[6000] rounded-md border bg-surface px-2 py-1 text-2xs text-secondary shadow-md whitespace-nowrap"
 						role="status"
@@ -386,15 +450,21 @@ not this component) — so the lead can run the whole line.
 			</span>
 		{/if}
 	{:else if section?.kind}
-		<BreadcrumbSegment
-			label={KIND_LABEL_LOWER[section.kind]}
-			icon={sectionKindIcon}
-			extraClass={twMerge(SEGMENT, LAST)}
-			isCurrent
-			initialHighlight={kindKey(section.kind)}
-			initialScope={{ kind: section.kind }}
-			onPick={() => {}}
-		/>
+		{#if measure}
+			<span class={twMerge('inline-flex items-center px-1', SEGMENT, LAST)}>
+				{@render sectionKindIcon()}<span>{KIND_LABEL_LOWER[section.kind]}</span>
+			</span>
+		{:else}
+			<BreadcrumbSegment
+				label={KIND_LABEL_LOWER[section.kind]}
+				icon={sectionKindIcon}
+				extraClass={twMerge(SEGMENT, LAST)}
+				isCurrent
+				initialHighlight={kindKey(section.kind)}
+				initialScope={{ kind: section.kind }}
+				onPick={() => {}}
+			/>
+		{/if}
 	{:else if section}
 		{#if section.parent}
 			<!-- Gives width back with the workspace part, before the section's own name does. -->
@@ -405,30 +475,87 @@ not this component) — so the lead can run the whole line.
 			</span>
 			{@render slash()}
 		{/if}
-		<!-- A section's own widget lays out as a row: its title, and whatever belongs with it. -->
-		<span
-			class={twMerge(
-				SEGMENT,
-				LAST,
-				'hover:bg-transparent hover:text-emphasis',
-				section.content ? '' : 'truncate'
-			)}
-			aria-current="page"
-		>
-			{#if section.content}{@render section.content()}{:else}{section.label}{/if}
-		</span>
-		{#if afterName}{@render afterName()}{/if}
+		{#if section.content && measure}
+			<span class="shrink-0" style="width: {sectionContentWidth}px"></span>
+		{:else}
+			<!-- A section's own widget lays out as a row: its title, and whatever belongs with it. -->
+			<span
+				class={twMerge(
+					SEGMENT,
+					LAST,
+					'hover:bg-transparent hover:text-emphasis',
+					section.content ? '' : 'truncate'
+				)}
+				aria-current={measure ? undefined : 'page'}
+				bind:clientWidth={
+					() => sectionContentWidth, (w) => !measure && section.content && (sectionContentWidth = w)
+				}
+			>
+				{#if section.content}{@render section.content()}{:else}{section.label}{/if}
+			</span>
+		{/if}
+		{@render afterNameSlot(measure)}
 	{:else if routePage}
 		{@const RouteIcon = routePage.icon}
 		<!-- shrink-0: a page's own name is short and is the one part of the trail worth keeping
 		     whole, so the workspace and fork names give way first when the bar is full. -->
 		<span
 			class={twMerge(SEGMENT, LAST, 'shrink-0 hover:bg-transparent hover:text-emphasis')}
-			aria-current="page"
+			aria-current={measure ? undefined : 'page'}
 		>
 			{#if RouteIcon}<RouteIcon size={ICON} class="flex-shrink-0 text-tertiary" />{/if}
 			<span class="truncate">{routePage.label}</span>
 		</span>
-		{#if afterName}{@render afterName()}{/if}
+		{@render afterNameSlot(measure)}
 	{/if}
+{/snippet}
+
+{#snippet afterNameSlot(measure: boolean)}
+	{#if afterName}
+		{#if measure}
+			<span class="shrink-0" style="width: {afterNameWidth}px"></span>
+		{:else}
+			<span class="flex items-center shrink-0" bind:clientWidth={afterNameWidth}>
+				{@render afterName()}
+			</span>
+		{/if}
+	{/if}
+{/snippet}
+
+<nav
+	aria-label="Breadcrumb"
+	class="flex items-center gap-1.5 min-w-0 text-xs font-normal text-primary"
+>
+	{@render trail(stage, false)}
 </nav>
+
+{#if measures}
+	<!-- The trail at every stage, each name at its floor, for the bar to choose a stage with; and
+	     each name whole, for it to cap them with. Same snippet, same classes, so the widths are the
+	     ones the trail on screen would take. -->
+	<div class="absolute -left-[99999px] top-0 invisible" aria-hidden="true" inert>
+		{#each BAR_STAGES as s, i (i)}
+			<nav
+				class="flex items-center gap-1.5 w-max text-xs font-normal text-primary"
+				bind:clientWidth={measures.trail[i]}
+			>
+				{@render trail(s, true)}
+			</nav>
+		{/each}
+		<!-- Always rendered, empty where the page has no such part: a width of 0 is how the bar
+		     knows the part is not there. -->
+		<span
+			class={twMerge(scopeChipClass, 'inline-block whitespace-nowrap p-0')}
+			bind:clientWidth={measures.family}>{nameOnly ? '' : familyName}</span
+		>
+		<span
+			class={twMerge(forkChipClass, 'inline-block whitespace-nowrap p-0')}
+			bind:clientWidth={measures.fork}>{!nameOnly && showFork ? scopeName : ''}</span
+		>
+		<span
+			class={twMerge('inline-block whitespace-nowrap text-xs', itemIsLast ? LAST : LEAD)}
+			bind:clientWidth={measures.name}
+			>{item?.path ? (pathLevels[pathLevels.length - 1] ?? '') : ''}</span
+		>
+	</div>
+{/if}

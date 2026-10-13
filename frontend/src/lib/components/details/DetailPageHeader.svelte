@@ -100,14 +100,9 @@
 
 	// Two reasons the row can be too tight, and either one collapses it. The host knows when its
 	// own box is narrow while the window is not — a session's preview panel — and says so through
-	// `wide`. The band knows its own width, which the host cannot see: these buttons share that row
-	// with the breadcrumb, and the trail and summary want ~580px against the set's ~530. Unmeasured
-	// (0) counts as wide, because the bar measures itself on mount and starting narrow would pop
-	// the buttons out of the menu a frame later.
-	// Measured on a flow's page: a 1192px bar leaves the last button 4px past the edge, so the row
-	// has to fold before that rather than at the ~1150 the two parts add up to on paper.
-	const COLLAPSE_BELOW = 1250
-	const roomInBar = $derived(pageHeader.barWidth === 0 || pageHeader.barWidth >= COLLAPSE_BELOW)
+	// `wide`. The band knows what its breadcrumb leaves, which the host cannot see, and folds the
+	// row once the breadcrumb has given all it can (`actionFolds` below).
+	const roomInBar = $derived(!ownsPageHeader || pageHeader.actionFold === 0)
 	const wideRow = $derived(wide && roomInBar)
 
 	const barButtons = $derived(wideRow ? mainButtons : mainButtons.filter((b) => !b.narrow))
@@ -278,6 +273,7 @@
 			pathTrigger: onSaved ? pathTrigger : undefined
 		}}
 		{actions}
+		actionFolds={1}
 		contexts={headerContexts}
 		separator="always"
 	/>
