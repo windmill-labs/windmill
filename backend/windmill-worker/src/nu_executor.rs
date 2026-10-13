@@ -14,8 +14,8 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
-        OccupancyMetrics, DEV_CONF_NSJAIL,
+        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, script_envars,
+        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang, handle_child, is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH,
     PATH_ENV, TRACING_PROXY_CA_CERT_PATH,
@@ -248,29 +248,12 @@ async fn run<'a>(
 
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
-        write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_NU_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{NU_PATH}", &NU_PATH)
-                .replace("{SHARED_MOUNT}", &shared_mount)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                .replace("#{DEV}", DEV_CONF_NSJAIL)
-                .replace(
-                    "{TMP_MOUNT_BLOCK}",
-                    &resolve_nsjail_tmp_mount_block(job_dir).await,
-                )
-                .replace("{TIMEOUT}", &nsjail_timeout),
-        )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .env_clear()
-            .current_dir(job_dir)
+            .current_dir(*job_dir)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .envs(envs)
             .envs(reserved_variables)
             .envs(
                 get_proxy_envs_for_lang(
@@ -293,6 +276,26 @@ async fn run<'a>(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_NU_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{NU_PATH}", &NU_PATH)
+                .replace("{SHARED_MOUNT}", &shared_mount)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .replace("{TIMEOUT}", &nsjail_timeout)
+                .replace(
+                    "{ENVARS}",
+                    &script_envars(&envs, &nsjail_cmd, &["PATH", "BASE_INTERNAL_URL"]),
+                ),
+        )?;
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         append_logs(
