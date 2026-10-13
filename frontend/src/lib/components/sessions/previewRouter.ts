@@ -464,9 +464,9 @@ export function previewLocationLabel(url: string): string {
 	if (page) return page.label
 	const trigger = triggerLabelForPath(url)
 	if (trigger) return trigger
-	const run = barePath(url).match(/^\/run\/([^/?#]+)/)
+	const run = parseRunRoute(url)
 	// Job ids are time-ordered, so runs started moments apart share their head.
-	if (run) return `Run ${decodeURIComponent(run[1]).slice(-8)}`
+	if (run) return `Run ${run.jobId.slice(-8)}`
 	// The runs of one item, as a detail page's Runs button links them.
 	const itemRuns = barePath(url).match(/^\/runs\/(.+)$/)
 	if (itemRuns) return `Runs · ${decodeURIComponent(itemRuns[1]).split('/').pop()}`
@@ -550,6 +550,21 @@ export function parseRunFormRoute(url: string): { toolCallId: string; label: str
 	}
 }
 
+/** The run a `/run/<id>` location shows, in the workspace its query names (the opener's,
+ * when it names none). */
+export function parseRunRoute(url: string): { jobId: string; workspace?: string } | null {
+	const m = barePath(url).match(/^\/run\/([^/?#]+)$/)
+	if (!m) return null
+	try {
+		return {
+			jobId: decodeURIComponent(m[1]),
+			workspace: new URL(url, 'http://_').searchParams.get('workspace') || undefined
+		}
+	} catch {
+		return null
+	}
+}
+
 export function runFormUrl(toolCallId: string, label: string): string {
 	return `runform:${encodeURIComponent(toolCallId)}#${encodeURIComponent(label)}`
 }
@@ -575,7 +590,7 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // flow, raw app) mounts its per-(kind,path) cell editor on `/edit/` and its viewer
 // on `/get/`; a `/pipeline/<folder>` route mounts the data-pipeline graph editor of
 // that folder (`path` is the folder); the list page of a page item kind mounts that
-// list; everything
+// list; a `/run/<id>` route mounts that run's page; everything
 // else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
@@ -584,6 +599,7 @@ export type PreviewSlot =
 	| { kind: 'runform'; toolCallId: string }
 	| { kind: 'pageitem'; ref: PageItemRef }
 	| { kind: 'pagelist'; path: string }
+	| { kind: 'run'; jobId: string; workspace?: string }
 	| { kind: 'iframe' }
 
 export function resolvePreviewTab(url: string): PreviewSlot {
@@ -595,6 +611,8 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	if (pageItem) return { kind: 'pageitem', ref: pageItem }
 	const route = barePath(url)
 	if (isPageItemListPath(route)) return { kind: 'pagelist', path: route }
+	const run = parseRunRoute(url)
+	if (run) return { kind: 'run', ...run }
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
@@ -628,6 +646,7 @@ export function workspacePageHref(location: string): string | undefined {
 		case 'editor':
 		case 'viewer':
 		case 'pagelist':
+		case 'run':
 		case 'iframe':
 			return location
 		default: {
