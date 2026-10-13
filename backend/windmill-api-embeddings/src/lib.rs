@@ -160,29 +160,47 @@ async fn match_resource_types_by_text(
         .filter(|word| !word.is_empty())
         .map(str::to_string)
         .collect();
-    let rows: Vec<(String, Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
-        "SELECT name, description, schema FROM resource_type WHERE workspace_id = $1 OR workspace_id = 'admins'",
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT workspace_id, name, description FROM resource_type WHERE workspace_id = $1 OR workspace_id = 'admins'",
     )
     .bind(w_id)
     .fetch_all(db)
     .await?;
 
-    let mut results: Vec<ResourceTypeResult> = rows
+    let mut ranked: Vec<(f32, String, String)> = rows
         .into_iter()
-        .map(|(name, description, schema)| ResourceTypeResult {
-            score: text_match_score(&words, &name, description.as_deref().unwrap_or_default()),
-            name,
-            schema,
+        .map(|(workspace_id, name, description)| {
+            let score = text_match_score(&words, &name, description.as_deref().unwrap_or_default());
+            (score, workspace_id, name)
         })
-        .filter(|rt| rt.score > 0.0)
+        .filter(|(score, _, _)| *score > 0.0)
         .collect();
-    results.sort_by(|a, b| {
-        b.score
-            .total_cmp(&a.score)
-            .then_with(|| a.name.cmp(&b.name))
-    });
-    results.truncate(limit.unwrap_or(10).max(0) as usize);
-    Ok(results)
+    ranked.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+    ranked.truncate(limit.unwrap_or(10).max(0) as usize);
+
+    // Schemas are read for the kept rows only: a synced instance holds megabytes of them.
+    let (workspaces, names): (Vec<&str>, Vec<&str>) = ranked
+        .iter()
+        .map(|(_, workspace_id, name)| (workspace_id.as_str(), name.as_str()))
+        .unzip();
+    let mut schemas: Vec<(String, String, Option<serde_json::Value>)> = sqlx::query_as(
+        "SELECT workspace_id, name, schema FROM resource_type WHERE (workspace_id, name) IN (SELECT * FROM unnest($1::text[], $2::text[]))",
+    )
+    .bind(&workspaces)
+    .bind(&names)
+    .fetch_all(db)
+    .await?;
+
+    Ok(ranked
+        .into_iter()
+        .map(|(score, workspace_id, name)| {
+            let schema = schemas
+                .iter_mut()
+                .find(|(w, n, _)| *w == workspace_id && *n == name)
+                .and_then(|(_, _, schema)| schema.take());
+            ResourceTypeResult { score, name, schema }
+        })
+        .collect())
 }
 
 /// A word found in the name counts twice a word found in the description: names are what
@@ -533,14 +551,19 @@ impl EmbeddingsDb {
     }
 
     fn replace_resource_types(&mut self, index: ResourceTypeIndex) -> Result<()> {
-        if self.db.get_collection("resource_types").is_some() {
-            self.db.delete_collection("resource_types")?;
-        }
+        // Built aside and swapped in whole: an insert the collection refuses must not leave
+        // searches on a half-filled index.
+        const NEXT: &str = "resource_types_next";
+        self.db.collections.remove(NEXT);
         self.db
-            .create_collection("resource_types".to_string(), 384, Distance::Cosine)?;
+            .create_collection(NEXT.to_string(), 384, Distance::Cosine)?;
         for embedding in index.embeddings {
+            self.db.insert_into_collection(NEXT, embedding)?;
+        }
+        if let Some(next) = self.db.collections.remove(NEXT) {
             self.db
-                .insert_into_collection("resource_types", embedding)?;
+                .collections
+                .insert("resource_types".to_string(), next);
         }
         self.resource_types_fingerprint = index.fingerprint;
         self.custom_resource_type_vectors = index.custom_vectors;
@@ -754,7 +777,9 @@ async fn resource_type_index(
         };
 
         embeddings.push(Embedding {
-            id: format!("{}_{}", rt.workspace_id, rt.name),
+            // Neither part can hold a `/`, so two types never share an id; with `_` between
+            // them, `acme_c` + `c_x` and `acme` + `c_c_x` would.
+            id: format!("{}/{}", rt.workspace_id, rt.name),
             vector,
             metadata: Some(hm),
         });
@@ -782,7 +807,11 @@ pub async fn refresh_resource_type_embeddings(pg_db: &Pool<Postgres>) -> Result<
     let index =
         resource_type_index(pg_db, &model_instance, &hub_embeddings, &custom_vectors).await?;
     if let Some(db) = EMBEDDINGS_DB.write().await.as_mut() {
-        db.replace_resource_types(index)?;
+        // A full fill that landed meanwhile indexed the types from newer hub vectors than
+        // the ones this index was built from.
+        if Arc::ptr_eq(&db.hub_resource_type_embeddings, &hub_embeddings) {
+            db.replace_resource_types(index)?;
+        }
     }
     Ok(())
 }
