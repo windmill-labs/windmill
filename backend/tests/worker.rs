@@ -4725,7 +4725,14 @@ async fn test_run_wait_result_early_return_inside_branch_one(
                 "id": "a",
                 "value": {
                     "type": "branchone",
-                    "branches": [{ "expr": "flow_input.take", "modules": [{ "id": "c", "value": returns("c", 0) }] }],
+                    "branches": [{ "expr": "flow_input.take", "modules": [{
+                        "id": "b",
+                        "value": {
+                            "type": "branchone",
+                            "branches": [],
+                            "default": [{ "id": "c", "value": returns("c", 0) }],
+                        },
+                    }] }],
                     "default": [],
                 },
             },

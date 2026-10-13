@@ -11887,7 +11887,8 @@ paths:
                               Id of the step whose result a sync webhook returns
                               as soon as that step completes, while the rest of
                               the flow keeps running. When the step does not
-                              run, the flow's final result is returned.
+                              run, or fails while the flow has a failure module,
+                              the flow's final result is returned instead.
                           chat_input_enabled:
                             type: boolean
                             description: Whether this flow accepts chat-style input
@@ -19215,8 +19216,9 @@ paths:
                       description: >-
                         Id of the step whose result a sync webhook returns as
                         soon as that step completes, while the rest of the flow
-                        keeps running. When the step does not run, the flow's
-                        final result is returned.
+                        keeps running. When the step does not run, or fails
+                        while the flow has a failure module, the flow's final
+                        result is returned instead.
                     chat_input_enabled:
                       type: boolean
                       description: Whether this flow accepts chat-style input
