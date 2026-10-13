@@ -284,13 +284,21 @@
 		saveDrawerOpen = false
 	}
 
+	// `parent_version` is the draft's stale-check base. Deployed, it would put a version
+	// id that changes on every deploy into git-synced files and version diffs.
+	function withoutDraftBase<T extends App | undefined>(a: T): T {
+		if (!a) return a
+		const { parent_version: _pv, ...rest } = a
+		return rest as T
+	}
+
 	async function createApp(path: string) {
 		policy = await updatePolicy($app, policy)
 		try {
 			await AppService.createApp({
 				workspace: $workspaceStore!,
 				requestBody: {
-					value: $app,
+					value: withoutDraftBase($app),
 					path,
 					summary: $summary,
 					policy,
@@ -349,7 +357,7 @@
 					orderedJsonStringify(
 						replaceFalseWithUndefined({
 							summary: $summary,
-							value: $app,
+							value: withoutDraftBase($app),
 							path: newEditedPath || savedApp.path,
 							policy,
 							custom_path: customPath,
@@ -392,6 +400,7 @@
 		// Strip off extra information
 		deployedValue = replaceFalseWithUndefined({
 			...deployedApp,
+			value: withoutDraftBase(deployedApp.value as App),
 			id: undefined,
 			created_at: undefined,
 			created_by: undefined,
@@ -406,7 +415,7 @@
 			workspace: $workspaceStore!,
 			path: $appPath!,
 			requestBody: {
-				value: $app!,
+				value: withoutDraftBase($app!),
 				summary: $summary,
 				policy,
 				path: npath,
@@ -753,7 +762,7 @@
 						deployed: deployedValue ?? savedApp,
 						current: {
 							summary: $summary,
-							value: $app,
+							value: withoutDraftBase($app),
 							path: newEditedPath || savedApp.path,
 							policy,
 							custom_path: customPath,
@@ -847,7 +856,7 @@
 	bind:deployedValue
 	currentValue={{
 		summary: $summary,
-		value: $app,
+		value: withoutDraftBase($app),
 		path: newEditedPath || savedApp?.path,
 		policy,
 		custom_path: customPath,
@@ -898,7 +907,7 @@
 								deployed: deployedValue ?? savedApp,
 								current: {
 									summary: $summary,
-									value: $app,
+									value: withoutDraftBase($app),
 									path: newEditedPath || savedApp.path,
 									policy,
 									custom_path: customPath,
