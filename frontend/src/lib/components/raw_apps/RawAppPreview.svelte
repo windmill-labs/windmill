@@ -27,9 +27,10 @@
 		 * (publish flow) needs it to read the app's DOM, which is only possible on
 		 * the unsandboxed path. */
 		oniframe?: (iframe: HTMLIFrameElement | undefined) => void
-		/** Mirror the app's own route into the page URL's hash, and start from it. Off where
-		 * the app is embedded in a page that is not its own — an AI session preview tab —
-		 * since there the hash belongs to that page and to whichever app was opened first. */
+		/** Mirror the app's own route into the page URL's hash, and start from it, and its
+		 * `document.title` into the page's. Off where the app is embedded in a page that is
+		 * not its own — an AI session preview tab — since there the hash and title belong to
+		 * that page and to whichever app was opened first. */
 		syncHashToUrl?: boolean
 	}
 
@@ -241,6 +242,17 @@
 		}
 	})
 
+	// The page's own title, put back when the app clears its title or unmounts.
+	let pageTitle: string | undefined = undefined
+	function setAppTitle(title: string) {
+		pageTitle ??= document.title
+		const trimmed = title.trim().slice(0, 200)
+		document.title = trimmed || pageTitle
+	}
+	onMount(() => () => {
+		if (pageTitle !== undefined) document.title = pageTitle
+	})
+
 	$effect(() => {
 		function handleMessage(event: MessageEvent) {
 			const data = event.data
@@ -287,6 +299,8 @@
 				if (syncHashToUrl && window.location.hash !== newHash) {
 					history.replaceState(null, '', newHash || window.location.pathname)
 				}
+			} else if (data?.type === 'windmill:title') {
+				if (syncHashToUrl) setAppTitle(typeof data.title === 'string' ? data.title : '')
 			} else if (runnerFailed) {
 				refuseRequest(event)
 			} else if (!runner) {

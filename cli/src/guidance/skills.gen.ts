@@ -6679,6 +6679,8 @@ Svelte (\`index.ts\`): \`mount(App, { target: document.getElementById('root')! }
 
 **Never replace the entrypoint with a bare component** (\`export default function App() { ... }\` and no mount call). A component that is defined but never mounted renders a blank screen with **no error thrown** — it never executes, so nothing reaches the console or the error overlay. If an app renders blank, check that the entrypoint still mounts \`App\` into \`#root\`.
 
+**Set the browser tab title with \`document.title = '...'\`** (or a \`<title>\` the framework renders into \`<head>\`). The app has no \`index.html\` of its own, so a \`<title>\` written there is never served; the deployed app's page shows whatever \`document.title\` holds, and follows it when it changes.
+
 **Always begin every React file (\`.tsx\`/\`.jsx\`) that uses JSX with \`import React from 'react'\`.** esbuild uses the classic JSX transform, so \`React\` must be in scope wherever JSX appears — a missing import compiles fine but throws \`React is not defined\` at runtime, leaving a blank screen.
 
 ### Generated bindings (\`wmill.d.ts\` / \`wmill.ts\`)

@@ -194,7 +194,8 @@ export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): stri
 const BUILD_LOG_TAIL_LINES = 40
 const BUILD_LOG_TAIL_CHARS = 6000
 // Per-package install progress: dozens of lines per build that would crowd the errors out of the tail.
-const ROUTINE_INSTALL_LOG_LINE = /^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
+const ROUTINE_INSTALL_LOG_LINE =
+	/^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
 
 export function formatBuildLogTailForChat(buildLogs: string): string {
 	// The bundler log accumulates every install and build since the editor opened.
@@ -293,7 +294,6 @@ export function unsandboxedRawAppHtml(
 <html>
 <head>
 	<meta charset="UTF-8" />
-	<title>App</title>
 	<!-- Before the app's own stylesheet, so a bundle that wants a margin can still set one: the
 	     browser default of 8px would otherwise frame every app with a gap it never asked for. -->
 	<style>html, body { margin: 0; }</style>
@@ -318,6 +318,21 @@ export function unsandboxedRawAppHtml(
 			history.pushState = function () { _ps.apply(this, arguments); notifyParent(); };
 			history.replaceState = function () { _rs.apply(this, arguments); notifyParent(); };
 			setTimeout(notifyParent, 0);
+
+			// The parent shows the app's document.title in its tab. This document has no
+			// <title> of its own: document.title reads the first one, so a placeholder would
+			// shadow the one a framework (React 19, react-helmet) appends.
+			var lastTitle = '';
+			new MutationObserver(function () {
+				var t = document.title;
+				if (t === lastTitle) return;
+				lastTitle = t;
+				try {
+					if (window.parent !== window) {
+						window.parent.postMessage({ type: 'windmill:title', title: t }, '*');
+					}
+				} catch (_) {}
+			}).observe(document.head, { childList: true, subtree: true, characterData: true });
 		})();
 	</script>
 </head>

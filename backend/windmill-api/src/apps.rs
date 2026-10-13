@@ -1009,7 +1009,6 @@ fn raw_app_wrapper_html(secret: &str) -> String {
 <html>
 <head>
 <meta charset="UTF-8" />
-<title>App</title>
 <link rel="stylesheet" href="./__SECRET__.css" />
 <script>
 (function () {
@@ -1060,6 +1059,17 @@ fn raw_app_wrapper_html(secret: &str) -> String {
   var _ps = history.pushState, _rs = history.replaceState;
   history.pushState = function () { _ps.apply(this, arguments); notifyParent(); };
   history.replaceState = function () { _rs.apply(this, arguments); notifyParent(); };
+
+  // The parent shows the app's document.title in its tab. This document has no
+  // <title> of its own: document.title reads the first one, so a placeholder would
+  // shadow the one a framework (React 19, react-helmet) appends.
+  var lastTitle = '';
+  new MutationObserver(function () {
+    var t = document.title;
+    if (t === lastTitle) return;
+    lastTitle = t;
+    try { window.parent.postMessage({ type: 'windmill:title', title: t }, '*'); } catch (_) {}
+  }).observe(document.head, { childList: true, subtree: true, characterData: true });
 
   // ctx handshake: the embedding parent hands us the user context (and any
   // persisted storage) before we evaluate the bundle, so `window.ctx` is set
@@ -6042,11 +6052,10 @@ async fn app_load_table_count(
     let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
-    let resp =
-        crate::job_helpers_oss::load_table_count_internal(
-            job_authed, &db, None, &w_id, file_key, inner,
-        )
-            .await?;
+    let resp = crate::job_helpers_oss::load_table_count_internal(
+        job_authed, &db, None, &w_id, file_key, inner,
+    )
+    .await?;
     Ok(Json(resp).into_response())
 }
 
