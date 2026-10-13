@@ -300,6 +300,12 @@
 		// pressed under, and a call settled meanwhile — declined, then another proposed for
 		// this same flow — must not be answered with a job it never asked for.
 		const call = pendingRun
+		// One call is one job, and the card's form is live alongside this one: without the
+		// claim, a Run there during the round trip below starts a second.
+		if (call && !call.beginSubmit()) {
+			sendUserToast('This run is already being started from the chat.', true)
+			return
+		}
 		loading = true
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 		try {
@@ -318,6 +324,9 @@
 			if (!call?.adopt(run, args, flow?.schema ?? {}))
 				await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} catch (e) {
+			// No job came of the claim, so hand it back rather than leaving the call unrunnable
+			// on either surface.
+			call?.endSubmit()
 			throw e
 		} finally {
 			loading = false

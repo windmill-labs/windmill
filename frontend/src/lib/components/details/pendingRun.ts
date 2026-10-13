@@ -24,4 +24,13 @@ export type PendingRun = {
 	 * alone. */
 	adopt: (jobId: string, args: Record<string, any>, schema: Record<string, any>) => boolean
 	decline: () => void
+	/** Claim the call's one job, before starting one. The card's form is live at the same
+	 * time as this page's, and the call stays pending until `adopt` — which is a round trip
+	 * later — so without this claim a Run on the card in between starts a second job, with
+	 * its own arguments and no mention in the chat. False when the other surface claimed it
+	 * first; send nothing and say so. */
+	beginSubmit: () => boolean
+	/** Hand the claim back when no job came of it, so the reader can try again. A started
+	 * job needs no release: adopting it settles the call. */
+	endSubmit: () => void
 }

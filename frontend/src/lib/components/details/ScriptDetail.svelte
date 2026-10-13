@@ -389,6 +389,12 @@
 		// pressed under, and a call settled meanwhile — declined, then another proposed for
 		// this same script — must not be answered with a job it never asked for.
 		const call = pendingRun
+		// One call is one job, and the card's form is live alongside this one: without the
+		// claim, a Run there during the round trip below starts a second.
+		if (call && !call.beginSubmit()) {
+			sendUserToast('This run is already being started from the chat.', true)
+			return
+		}
 		try {
 			runLoading = true
 			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
@@ -420,6 +426,9 @@
 			if (!call?.adopt(run, args, script?.schema ?? {}))
 				await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} catch (err) {
+			// No job came of the claim, so hand it back rather than leaving the call unrunnable
+			// on either surface.
+			call?.endSubmit()
 			sendUserToast(`Could not create job: ${err.body}`, true)
 		} finally {
 			// Not only on failure: a navigation that keeps this component mounted — the run
