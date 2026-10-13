@@ -125,7 +125,7 @@
       "prompt": "consent"
     }
   },
-  "msonedrive": {
+  "ms_onedrive": {
     "req_body_auth": true,
     "scopes": ["offline_access", "User.Read", "Files.ReadWrite"],
     "scope_options": [
@@ -147,7 +147,7 @@
       "scopes": ["offline_access", "User.Read", "Files.ReadWrite"]
     }
   },
-  "mssharepoint": {
+  "ms_sharepoint": {
     "req_body_auth": true,
     "scopes": ["offline_access", "User.Read", "Sites.ReadWrite.All"],
     "scope_options": [
@@ -168,7 +168,7 @@
       "scopes": ["offline_access", "User.Read", "Sites.ReadWrite.All"]
     }
   },
-  "msexcel": {
+  "ms_excel": {
     "req_body_auth": true,
     "scopes": ["offline_access", "User.Read", "Files.ReadWrite"],
     "scope_options": [
