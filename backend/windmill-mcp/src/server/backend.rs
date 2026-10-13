@@ -4,6 +4,7 @@
 //! (typically windmill-api) to provide the actual functionality for the MCP server.
 
 use async_trait::async_trait;
+use rmcp::model::{CallToolResult, Tool};
 use rmcp::ErrorData;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -219,4 +220,27 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
 
     /// Get all available endpoint tools
     fn all_endpoint_tools(&self) -> Vec<EndpointTool>;
+
+    // ─────────────────────────────────────────────────────────────────
+    // Workspace server (`SessionRunner`): the AI-session toolset
+    // ─────────────────────────────────────────────────────────────────
+
+    /// The instructions a client receives on connecting, built for this user.
+    async fn session_instructions(
+        &self,
+        auth: &Self::Auth,
+        workspace_id: &str,
+    ) -> BackendResult<String>;
+
+    /// The tools offered; a read-only token gets the read tools alone.
+    fn session_tools(&self, read_only: bool) -> Vec<Tool>;
+
+    async fn call_session_tool(
+        &self,
+        auth: &Self::Auth,
+        workspace_id: &str,
+        name: &str,
+        args: Value,
+        read_only: bool,
+    ) -> BackendResult<CallToolResult>;
 }

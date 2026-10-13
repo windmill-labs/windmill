@@ -1195,6 +1195,7 @@ pub async fn resolve_opt_job_authed(
                         || (path.starts_with("/api/mcp/w/")
                             && (path.ends_with("/mcp")
                                 || path.ends_with("/sse")
+                                || path.ends_with("/windmill")
                                 || path.ends_with("/list_tools")));
                     if !is_mcp_transport {
                         if let Err(err) = crate::scopes::check_read_only_for_route(path, method) {

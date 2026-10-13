@@ -277,8 +277,22 @@ pub async fn workspaced_oauth_metadata(
 pub async fn protected_resource_metadata_by_path(
     Path(workspace_id): Path<String>,
 ) -> Json<ProtectedResourceMetadata> {
+    protected_resource_metadata(&workspace_id, "mcp")
+}
+
+/// GET /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/windmill
+pub async fn workspace_server_protected_resource_metadata(
+    Path(workspace_id): Path<String>,
+) -> Json<ProtectedResourceMetadata> {
+    protected_resource_metadata(&workspace_id, "windmill")
+}
+
+fn protected_resource_metadata(
+    workspace_id: &str,
+    endpoint: &str,
+) -> Json<ProtectedResourceMetadata> {
     let base_url = BASE_URL.load();
-    let resource_path = format!("/api/mcp/w/{}/mcp", workspace_id);
+    let resource_path = format!("/api/mcp/w/{}/{}", workspace_id, endpoint);
     let oauth_prefix = format!("/api/w/{}/mcp/oauth/server", workspace_id);
     Json(build_protected_resource_metadata(
         &resource_path,

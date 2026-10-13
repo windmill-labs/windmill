@@ -51,6 +51,7 @@
 
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
+	let newMcpTokenReachesWorkspaceServer = $state(false)
 	// What the user picked; `newTokenExpiration` is that pick held within the ceiling.
 	let pickedExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
@@ -182,6 +183,7 @@
 			if (mcpMode) {
 				newToken = undefined
 				newMcpToken = `${createdToken}`
+				newMcpTokenReachesWorkspaceServer = !!tokenScopes?.includes('mcp:all')
 			} else {
 				newMcpToken = undefined
 				newToken = `${createdToken}`
@@ -255,6 +257,12 @@
 				: undefined
 	)
 	const mcpBaseUrl = $derived(`${mcpUrl ?? ''}?token=`)
+	// The workspace server (the AI-session toolset) is bound to one workspace: no gateway form.
+	const mcpWorkspaceUrl = $derived(
+		!isAllWorkspaces && newTokenWorkspace
+			? `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/windmill`
+			: undefined
+	)
 
 	$effect(() => {
 		const requestedMcpMode = mcpOnly || openWithMcpMode
@@ -330,7 +338,16 @@
 			{/if}
 
 			{#if mcpUrl}
+				<span class="block mb-1 text-emphasis text-xs font-semibold"
+					>Run scripts and flows as tools</span
+				>
 				<CopyableCodeBlock code={mcpUrl} language={shell} wrap />
+				{#if mcpWorkspaceUrl}
+					<span class="block mt-3 mb-1 text-emphasis text-xs font-semibold"
+						>Build in the workspace (drafts, test runs, deploy)</span
+					>
+					<CopyableCodeBlock code={mcpWorkspaceUrl} language={shell} wrap />
+				{/if}
 
 				<div class="mt-2">
 					<Alert type="info" title="This instance requires MCP clients to sign in" size="xs">
@@ -462,6 +479,12 @@
 	{/if}
 
 	{#if newMcpToken && displayCreateToken}
-		<TokenDisplay token={newMcpToken} mcpUrl={`${mcpBaseUrl}${newMcpToken}`} />
+		<TokenDisplay
+			token={newMcpToken}
+			mcpUrl={`${mcpBaseUrl}${newMcpToken}`}
+			mcpWorkspaceUrl={mcpWorkspaceUrl && newMcpTokenReachesWorkspaceServer
+				? `${mcpWorkspaceUrl}?token=${newMcpToken}`
+				: undefined}
+		/>
 	{/if}
 </div>

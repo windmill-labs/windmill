@@ -8,11 +8,13 @@
 	interface Props {
 		token: string
 		mcpUrl?: string
+		/** The same token on the workspace server, when its scope reaches it. */
+		mcpWorkspaceUrl?: string
 		title?: string
 		onClose?: () => void
 	}
 
-	let { token, mcpUrl, title, onClose }: Props = $props()
+	let { token, mcpUrl, mcpWorkspaceUrl, title, onClose }: Props = $props()
 
 	const displayTitle = $derived(
 		title || (mcpUrl ? 'MCP URL generated successfully' : 'Token created successfully')
@@ -62,6 +64,12 @@
 			<div class="flex flex-col gap-y-1">
 				<!-- Token display with proper surface and border styling -->
 				<CopyableCodeBlock code={tokenOrUrl} language={shell} wrap />
+				{#if mcpWorkspaceUrl}
+					<p class="mt-2 text-xs text-secondary">
+						To build in the workspace instead (drafts, test runs, deploy), connect this URL:
+					</p>
+					<CopyableCodeBlock code={mcpWorkspaceUrl} language={shell} wrap />
+				{/if}
 
 				<!-- Warning alert using existing Alert component -->
 				<div class="mt-1">

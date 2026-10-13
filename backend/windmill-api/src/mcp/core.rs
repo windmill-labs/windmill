@@ -13,7 +13,8 @@ use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
 use windmill_mcp::server::{
-    BackendResult, EndpointTool, ErrorData, McpBackend, McpRequest, PathFilter,
+    BackendResult, CallToolResult, EndpointTool, ErrorData, McpBackend, McpRequest, PathFilter,
+    Tool,
 };
 
 use crate::auth::AuthCache;
@@ -23,6 +24,7 @@ use crate::jobs::{
 };
 
 use super::auto_generated_endpoints::all_tools;
+use super::session;
 use super::utils::{
     build_query_string, build_request_body, create_http_request, get_hub_script_schema,
     get_item_schema, get_items, get_resources, get_resources_types, get_scripts_from_hub,
@@ -34,8 +36,8 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 use windmill_mcp::server::{
-    LocalSessionManager, McpToken, MultiWorkspaceMcp, Runner, StreamableHttpServerConfig,
-    StreamableHttpService,
+    LocalSessionManager, McpToken, MultiWorkspaceMcp, Runner, SessionRunner,
+    StreamableHttpServerConfig, StreamableHttpService,
 };
 use windmill_mcp::WorkspaceId;
 
@@ -64,6 +66,10 @@ pub struct WindmillBackend {
 }
 
 impl WindmillBackend {
+    fn session_ctx<'a>(&'a self, auth: &'a ApiAuthed, w_id: &'a str) -> session::Ctx<'a> {
+        session::Ctx { auth, w_id, base_internal_url: &self.base_internal_url }
+    }
+
     pub fn new(
         db: DB,
         user_db: UserDB,
@@ -221,6 +227,7 @@ impl McpBackend for WindmillBackend {
         args: Value,
         request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
+        windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "script");
         let push_args = prepare_push_args(&self.db, workspace_id, path, false, args, request)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
@@ -248,6 +255,7 @@ impl McpBackend for WindmillBackend {
         args: Value,
         request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
+        windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "flow");
         let push_args = prepare_push_args(&self.db, workspace_id, path, true, args, request)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
@@ -274,6 +282,12 @@ impl McpBackend for WindmillBackend {
         endpoint_tool: &EndpointTool,
         args: Value,
     ) -> BackendResult<Value> {
+        // Whether the generated endpoint tools are used at all, and which ones.
+        windmill_common::feature_usage::log_feature_usage(
+            "mcp",
+            "endpoint_tool_call",
+            &endpoint_tool.name,
+        );
         let args_map = match &args {
             Value::Object(map) => map,
             _ => {
@@ -400,7 +414,36 @@ impl McpBackend for WindmillBackend {
     fn all_endpoint_tools(&self) -> Vec<EndpointTool> {
         all_tools()
     }
+
+    async fn session_instructions(
+        &self,
+        auth: &ApiAuthed,
+        workspace_id: &str,
+    ) -> BackendResult<String> {
+        Ok(session::session_instructions(&self.session_ctx(auth, workspace_id)).await)
+    }
+
+    fn session_tools(&self, read_only: bool) -> Vec<Tool> {
+        session::session_tools(read_only)
+    }
+
+    async fn call_session_tool(
+        &self,
+        auth: &ApiAuthed,
+        workspace_id: &str,
+        name: &str,
+        args: Value,
+        read_only: bool,
+    ) -> BackendResult<CallToolResult> {
+        session::call_session_tool(&self.session_ctx(auth, workspace_id), name, args, read_only)
+            .await
+    }
 }
+
+/// The last segment of the workspace-scoped URL a request arrived on, when it is not
+/// the tools server's `mcp`: each URL is its own OAuth protected resource.
+#[derive(Clone, Copy)]
+pub struct McpEndpoint(pub &'static str);
 
 /// Extract workspace ID from path and store it in request extensions
 pub async fn extract_and_store_workspace_id(
@@ -433,6 +476,10 @@ pub async fn add_www_authenticate_header(
             .body(axum::body::Body::from("Missing workspace_id in request"))
             .unwrap();
     };
+    let endpoint = request
+        .extensions()
+        .get::<McpEndpoint>()
+        .map_or("mcp", |e| e.0);
 
     let response = next.run(request).await;
 
@@ -443,7 +490,7 @@ pub async fn add_www_authenticate_header(
         // RFC 9728: The resource parameter contains the protected resource URL.
         // Clients derive the metadata URL by inserting /.well-known/oauth-protected-resource
         // after the host, e.g., http://host/.well-known/oauth-protected-resource/api/mcp/w/test/mcp
-        let resource_url = format!("{}/api/mcp/w/{}/mcp", base_url, workspace_id);
+        let resource_url = format!("{}/api/mcp/w/{}/{}", base_url, workspace_id, endpoint);
         let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
 
         // Reconstruct response with the new header
@@ -585,11 +632,12 @@ pub async fn setup_mcp_server(
     user_db: UserDB,
     base_internal_url: String,
     auth_cache: Arc<AuthCache>,
-) -> anyhow::Result<(Router, CancellationToken)> {
+) -> anyhow::Result<(Router, Router, CancellationToken)> {
     let cancellation_token = CancellationToken::new();
     let session_manager = Arc::new(LocalSessionManager::default());
 
     let backend = WindmillBackend::new(db, user_db, base_internal_url, auth_cache);
+    let session_runner = SessionRunner::new(backend.clone());
     let runner = Runner::new(backend);
 
     let service_config = StreamableHttpServerConfig::default()
@@ -611,11 +659,17 @@ pub async fn setup_mcp_server(
         // much smaller default, which would 413 them with no way to raise it.
         .with_max_request_body_bytes(*crate::REQUEST_SIZE_LIMIT.read().await);
 
+    let session_service = StreamableHttpService::new(
+        move || Ok(session_runner.clone()),
+        session_manager.clone(),
+        service_config.clone(),
+    );
     let service =
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);
 
     let router = Router::new().route_service("/", service);
-    Ok((router, cancellation_token))
+    let session_router = Router::new().route_service("/", session_service);
+    Ok((router, session_router, cancellation_token))
 }
 
 /// HTTP handler to list MCP tools as JSON

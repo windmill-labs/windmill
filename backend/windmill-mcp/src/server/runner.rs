@@ -36,7 +36,7 @@ use tokio::sync::broadcast;
 /// Protocol revisions this server is willing to speak. `2026-07-28` is served
 /// statelessly with per-request metadata; the older revisions keep the
 /// `initialize` handshake, so both eras are answered on the same endpoint.
-const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
+pub(super) const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
     ProtocolVersion::V_2024_11_05,
     ProtocolVersion::V_2025_03_26,
     ProtocolVersion::V_2025_06_18,
@@ -52,12 +52,12 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
 /// covers only some of what the listing depends on (not resources, favorites or
 /// permissions), lags by up to a poll interval, and reaches only clients that hold a
 /// `subscriptions/listen` stream.
-const LIST_TTL_MS: u64 = 0;
+pub(super) const LIST_TTL_MS: u64 = 0;
 
 /// Every listing is filtered by the caller's token scopes and workspace
 /// membership, so no two callers necessarily see the same tools — a shared
 /// cache entry would leak one token's view to another.
-const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
+pub(super) const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
 
 /// How long a `subscriptions/listen` stream waits after a change before notifying,
 /// collecting the rest of the burst into the same notification.
@@ -71,7 +71,7 @@ use http::request::Parts as HttpParts;
 /// At ~3.5 bytes/token, 87,500 bytes is a safe upper bound.
 const MAX_TOOL_RESULT_BYTES: usize = 87_500;
 
-fn truncate_tool_result(text: String) -> String {
+pub(super) fn truncate_tool_result(text: String) -> String {
     if text.len() <= MAX_TOOL_RESULT_BYTES {
         return text;
     }
@@ -102,7 +102,7 @@ impl<B: McpBackend> Clone for Runner<B> {
 
 /// Whether the request targets one bound workspace or spans every workspace the
 /// token can access.
-enum McpMode {
+pub(super) enum McpMode {
     /// A single workspace, resolved from the URL path or the token's bound
     /// workspace. Tools operate against this workspace implicitly.
     Single(String),
@@ -113,10 +113,10 @@ enum McpMode {
 }
 
 /// Everything a request carries besides its MCP payload.
-struct McpContext<A> {
-    auth: A,
-    mode: McpMode,
-    headers: http::HeaderMap,
+pub(super) struct McpContext<A> {
+    pub(super) auth: A,
+    pub(super) mode: McpMode,
+    pub(super) headers: http::HeaderMap,
 }
 
 impl<B: McpBackend> Runner<B> {
@@ -127,7 +127,7 @@ impl<B: McpBackend> Runner<B> {
 
     /// Extract authentication, the workspace mode and the HTTP request itself
     /// from the request context
-    fn extract_context(
+    pub(super) fn extract_context(
         context: &RequestContext<RoleServer>,
     ) -> Result<McpContext<B::Auth>, ErrorData> {
         let http_parts = context.extensions.get::<HttpParts>().ok_or_else(|| {
