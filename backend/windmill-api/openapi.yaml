@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.830.0
+  version: 1.831.0
   title: Windmill API
 
   contact:
@@ -5568,6 +5568,9 @@ paths:
                   type: boolean
                 default_role:
                   type: string
+                  description: >-
+                    The id of one of `roles`, `admin` (the default), or `$none` for no default
+                    role: a connection that names no role then holds its viewer's roles only.
                 roles:
                   type: array
                   items:
@@ -34782,6 +34785,7 @@ components:
           type: boolean
         default_role:
           type: string
+          description: A role id, `admin`, or `$none` when the data table has no default role.
         roles:
           type: array
           items:
@@ -37332,6 +37336,7 @@ components:
           default_role,
           can_create_schema,
           creatable_schemas,
+          migrations_enabled,
         ]
       properties:
         datatable_name:
@@ -37365,6 +37370,9 @@ components:
           description: the schemas the role the listing connected as may create in
           items:
             type: string
+        migrations_enabled:
+          type: boolean
+          description: whether its schema is kept as versioned migrations, which a change made with plain SQL would bypass
 
     DataTableTableSchema:
       type: object

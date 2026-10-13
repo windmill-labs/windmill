@@ -22,6 +22,7 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 rmcp.workspace = true
+sse-stream = "0.2"
 sqlx = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }

@@ -18,7 +18,7 @@ type PermissionRow = {
 const ROWS: PermissionRow[] = [
 	{ kind: 'script', label: 'Scripts', assistant: (a) => a.has('write_draft') },
 	{ kind: 'flow', label: 'Flows', assistant: (a) => a.has('write_flow_draft') },
-	{ kind: 'raw_app', label: 'Apps', assistant: (a) => a.has('write_draft') },
+	{ kind: 'raw_app', label: 'Apps', assistant: (a) => a.has('write_app_draft') },
 	{
 		kind: 'schedule',
 		label: 'Schedules',
