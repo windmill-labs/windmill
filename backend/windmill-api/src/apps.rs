@@ -4733,35 +4733,21 @@ async fn execute_component(
     // execute the app.
     if let (ExecutionMode::Publisher, Some(authed)) = (policy.execution_mode(), opt_authed.as_ref())
     {
-        lazy_static! {
-            /// Cache for the permit to execute an app component.
-            static ref PERMIT_CACHE: cache::Cache<[u8; 32], bool> = cache::Cache::new(1000);
-        }
+        // Not cached: the outcome depends on the app's `extra_perms` and the caller's
+        // groups and folders, all mutable, so a cached answer would outlive a grant
+        // or a revocation.
+        let mut tx = user_db.clone().begin(authed).await?;
+        // Permissions are checked by the database; just fetch a row from app using `user_db`:
+        let row = sqlx::query_scalar!(
+            "SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2 LIMIT 1",
+            path,
+            &w_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
 
-        // Avoid allocation for the permit key using a sha256 hash of:
-        // - the user email,
-        // - the application path,
-        // - the workspace id.
-        let permit_key: [u8; 32] = [authed.email.as_bytes(), path.as_bytes(), &w_id.as_bytes()]
-            .iter()
-            .fold(Sha256::new(), |hasher, bytes| hasher.chain_update(bytes))
-            .finalize()
-            .into();
-        let permit_fut = PERMIT_CACHE.get_or_insert_async(&permit_key, async {
-            let mut tx = user_db.clone().begin(authed).await?;
-            // Permissions are checked by the database; just fetch a row from app using `user_db`:
-            let row = sqlx::query_scalar!(
-                "SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2 LIMIT 1",
-                path,
-                &w_id,
-            )
-            .fetch_optional(&mut *tx)
-            .await?;
-            tx.commit().await?;
-            Result::Ok(row.is_some_and(|x| x.is_some()))
-        });
-
-        if !permit_fut.await? {
+        if !row.is_some_and(|x| x.is_some()) {
             return Err(Error::NotAuthorized(format!(
                 "Missing read permissions on the `{}` app to execute `{}` runnable",
                 path, payload.component
