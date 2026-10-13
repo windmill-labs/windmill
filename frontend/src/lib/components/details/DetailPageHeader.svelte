@@ -304,7 +304,9 @@
 		item={{
 			kind: errorHandlerKind,
 			path,
-			summary,
+			// Read-only, the summary control falls back to the path when there is no summary, so the
+			// path is what names the item there and the trail's own copy can go.
+			summary: onSaved ? summary : summary || path,
 			summaryContent,
 			// Only where this page can save one: without `onSaved` the editor behind it has nothing
 			// to write, and the band keeps its own segment, which copies the path.

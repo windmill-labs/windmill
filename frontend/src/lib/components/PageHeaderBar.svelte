@@ -58,8 +58,10 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	let summaryContentWidth = $state(0)
 	let handleWidth = $state(0)
 	/** The actions box at each fold level it has been seen at, for this page. */
-	let actionWidths = $state<(number | undefined)[]>([])
+	let actionWidthsByVersion = $state<Record<string, (number | undefined)[]>>({})
 	let actionsEpoch = $state(0)
+	const actionsVersion = $derived(content?.actionsVersion ?? '')
+	const actionWidths = $derived(actionWidthsByVersion[actionsVersion] ?? [])
 
 	const handleShown = $derived((navDetached.val || panelled) && !navHidden)
 	// The bar's own padding, in px, as the classes on the row below set it.
@@ -93,17 +95,24 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	const stage = $derived(BAR_STAGES[fit.stage])
 	onDestroy(pageHeader.provideActionFold(() => fit.fold))
 
-	// Re-attached whenever the fold level changes, so the first reading at a level is taken even
-	// when the row comes out exactly as wide as it was at the last one.
+	// Re-attached whenever the fold level, the page or the actions' version changes, so the first
+	// reading there is taken even when the row comes out exactly as wide as it was before.
 	// The page's actions can change on screen — a run's Cancel goes once the job completes — and
 	// the other levels most likely changed with them, so a change here drops their widths: kept, a
 	// stale wider one would hold the row folded for good. The bar measures them again by trying.
 	function recordActions(fold: number, width: number) {
-		const seen = actionWidths[fold]
-		if (seen !== undefined && seen !== width) actionWidths = []
-		actionWidths[fold] = width
+		const version = actionsVersion
+		const widths = actionWidthsByVersion[version] ?? []
+		const seen = widths[fold]
+		const next = seen !== undefined && seen !== width ? [] : [...widths]
+		next[fold] = width
+		actionWidthsByVersion[version] = next
 	}
-	function measureActions(fold: number, _epoch: number): Attachment<HTMLElement> {
+	function measureActions(
+		fold: number,
+		_epoch: number,
+		_version: string
+	): Attachment<HTMLElement> {
 		return (node) => {
 			const ro = new ResizeObserver(() => recordActions(fold, GAP + node.offsetWidth))
 			ro.observe(node)
@@ -145,7 +154,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	afterNavigate(({ from, to }) => {
 		scrolledUnder = false
 		if (from?.url.pathname !== to?.url.pathname) {
-			actionWidths = []
+			actionWidthsByVersion = {}
 			actionsEpoch++
 		}
 	})
@@ -301,7 +310,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		     bar and run to its right edge, and they stretch its full height because that surface
 		     sits on the bottom edge. -->
 			<div
-				{@attach measureActions(fit.fold, actionsEpoch)}
+				{@attach measureActions(fit.fold, actionsEpoch, actionsVersion)}
 				class={twMerge(
 					'flex',
 					// pl-4: the gap between the breadcrumb and the filling surface is bare bar, so it

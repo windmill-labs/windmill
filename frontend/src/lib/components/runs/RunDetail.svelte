@@ -765,6 +765,25 @@
 			!isCloudHosted() &&
 			editInForkAllowed(workspaceId, $userWorkspaces)
 	)
+	/** Which actions the row has: they come and go as the job runs and completes, often while the
+	 *  row is folded into the menu, where the bar cannot see them change (`actionsVersion`). */
+	const actionsVersion = $derived(
+		[
+			canDelete,
+			canCancel,
+			forceCancel,
+			canDebug,
+			canRunNow,
+			canEdit,
+			canEditInFork,
+			dbtResumable,
+			!!job?.schedule_path,
+			persistentScriptDefinition !== undefined,
+			restartStep !== undefined && canRestart(restart)
+		]
+			.map(Number)
+			.join('')
+	)
 
 	async function runAgain() {
 		// The form this lands on rebuilds the whole project. When resuming THIS run is the cheaper
@@ -1059,7 +1078,12 @@
 			{@render runActions()}
 		</div>
 	{:else}
-		<PageHeaderContent section={{ label: `run/${runId}` }} actions={runActions} actionFolds={2} />
+		<PageHeaderContent
+			section={{ label: `run/${runId}` }}
+			actions={runActions}
+			actionFolds={2}
+			{actionsVersion}
+		/>
 	{/if}
 
 	{#snippet runActions()}
