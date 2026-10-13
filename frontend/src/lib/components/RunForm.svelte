@@ -91,6 +91,10 @@
 		if (blockedByUnparseable) {
 			return
 		}
+		// Last gate before the first write: everything below either mints or sends.
+		if (claimRun && !claimRun()) {
+			return
+		}
 		let processedArgs: Record<string, any>
 		const { args: withDefaults, resetKeys } = enforceDisabledDefaults(args ?? {}, runnable?.schema)
 		if (resetKeys.length > 0) {
@@ -99,6 +103,7 @@
 		try {
 			processedArgs = await processSecretArgs(withDefaults, runnable?.schema, $operatingWorkspace)
 		} catch (e) {
+			releaseRun?.()
 			sendUserToast('Failed to process sensitive args: ' + e, true)
 			return
 		}
@@ -143,6 +148,18 @@
 		 * for JSON or back mounts a `password` widget, which mints from the literal it opens
 		 * on regardless of being disabled. */
 		runRefusal?: string
+		/** Take whatever this press has to own before anything is written, and return false to
+		 * drop it. Behind the same boundary as `runRefusal` and for the same reason: the
+		 * secret processing mints a variable per `password` argument, so a claim made in
+		 * `runAction` comes after that write. For a caller whose run can be started from a
+		 * second surface — the chat card holding the same tool call — where one press winning
+		 * has to stop the other from minting, not just from starting a job. Called once per
+		 * press that reaches the mint, and says itself why a press was dropped. */
+		claimRun?: () => boolean
+		/** Hand back what `claimRun` took, for a press that claimed and then never reached
+		 * `runAction` — the secret processing in between can still fail. A press that does
+		 * reach it releases through the caller's own start path instead. */
+		releaseRun?: () => void
 		runAction: (
 			scheduledForStr: string | undefined,
 			args: Record<string, any>,
@@ -177,6 +194,8 @@
 		runnable,
 		runAction,
 		runRefusal = undefined,
+		claimRun = undefined,
+		releaseRun = undefined,
 		buttonText = 'Run',
 		schedulable = true,
 		detailed = true,
