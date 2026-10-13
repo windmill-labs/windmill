@@ -253,6 +253,16 @@ frontend_api: [jobs:run, users:read]
 A file with a `sandbox` key states both settings: `sandbox: false` turns isolation off, and a missing `frontend_api` means no scopes. A file without the key leaves the deployed app's isolation and scopes as they are, so removing `sandbox: true` does not unsandbox it. `frontend_api` needs `sandbox: true`; the push fails otherwise.
 <!-- /cli-only -->
 
+## Reading data as the viewer
+
+A backend runnable reads data as the app's identity (the publisher in publisher mode), the same for every viewer. An inline runnable can instead read data as the person using the app: its data table connections that name no role hold that viewer's roles, and object storage permission rules (which paths may be listed, read, written) are checked against the viewer. Resources, variables and everything else stay the app's, and an anonymous viewer is refused. Turn it on only when what the runnable reads should differ per viewer: row-level security on a data table, or per-user paths in object storage. Both are Enterprise Edition features.
+<!-- chat-only -->
+Set it with `viewerDataAccess: true` on the backend runnable.
+<!-- /chat-only -->
+<!-- cli-only -->
+Set it with `viewer_data_access: true` in the runnable's `backend/<id>.yaml`.
+<!-- /cli-only -->
+
 ## Data Tables
 
 Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the `wmill` client; the frontend never queries them directly. **When the app needs to store or persist data** (user data, settings, application state, records, logs), use a data table.
@@ -264,7 +274,7 @@ Data tables are PostgreSQL databases managed by Windmill. Backend runnables quer
 3. **No DDL inside runnables**: runnables only read and write rows (SELECT, INSERT, UPDATE, DELETE) on existing tables. Never CREATE, ALTER or DROP a table from a runnable.
 4. **Qualify table names**: an unqualified name means the `public` schema, so write every other table as `schema.table`, in table creation and queries alike. The app's `data` config sets the default datatable and schema its tables go in; use them consistently across runnables.
 5. **Pass the role**: when the app's `data.roles` gives a data table a role, every `wmill.datatable` call on it passes that role (`wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python). The role only reaches what it was granted, so a query outside it fails with `permission denied`.
-6. **Per-viewer rows**: a data table with no entry in `data.roles` is called with no role. Unless its default role is `admin`, the connection then holds the default role, if it has one, plus every role the person using the app is a tenant of, and is refused when that is none. Row-level security policies written as `pg_has_role(current_user, '<role>', 'member')` return that viewer's rows with nothing added to the runnable. A role pins the connection to that one role for every viewer, so where rows should differ per viewer give the data table no `data.roles` entry.
+6. **Per-viewer rows**: a data table with no entry in `data.roles` is called with no role. Unless its default role is `admin`, the connection then holds the default role, if it may use it, plus every role it is a tenant of, and is refused when that is none. Whose roles those are follows the runnable's identity (see "Reading data as the viewer"). Row-level security policies written as `pg_has_role(current_user, '<role>', 'member')` then return the right rows with nothing added to the code. A role pins the connection to that one role either way, so a data table whose rows should differ per viewer gets no `data.roles` entry. Data table roles are an Enterprise Edition feature, self-hosted only.
 <!-- cli-only -->
 
 `wmill datatable list` lists the workspace's data tables. Create or change tables with a migration in `sql_to_apply/` (see "SQL Migrations" above), then add them to `data.tables` in `raw_app.yaml`.

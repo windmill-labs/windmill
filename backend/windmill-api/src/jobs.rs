@@ -9069,7 +9069,8 @@ async fn run_inline_preview_script(
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
     }
-    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
+    let (end_user_email, viewer_data_access) =
+        run_inline_preview_end_user(&db, &w_id, &authed).await?;
     let utils = get_worker_internal_server_inline_utils()?;
     let result = utils.run_inline_preview_script.as_ref()(RunInlinePreviewScriptFnParams {
         content: preview.content,
@@ -9081,6 +9082,7 @@ async fn run_inline_preview_script(
         permissioned_as: username_to_permissioned_as(&authed.username),
         permissioned_as_email: authed.email.clone(),
         end_user_email,
+        viewer_data_access,
         lang: preview.language,
         job_dir: "".to_string(),
         worker_name: "".to_string(),

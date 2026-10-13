@@ -29,14 +29,15 @@ export async function updateRawAppPolicy(
 type RunnableWithInlineScript = RunnableWithFields & {
 	inlineScript?: InlineScript & { language: ScriptLang }
 	delete_after_secs?: number
+	viewer_data_access?: boolean
 }
 export type Runnable = RunnableWithInlineScript | undefined
 
 function extraFields(
 	runnable: RunnableWithInlineScript,
 	fields: Record<string, any>
-): Partial<Pick<TriggerableV2, 'delete_after_secs' | 'sensitive_inputs' | 'tag'>> {
-	const out: Partial<Pick<TriggerableV2, 'delete_after_secs' | 'sensitive_inputs' | 'tag'>> = {}
+): Partial<TriggerableV2> {
+	const out: Partial<TriggerableV2> = {}
 	if (typeof runnable.delete_after_secs === 'number' && runnable.delete_after_secs >= 0)
 		out.delete_after_secs = runnable.delete_after_secs
 	const sensitive_inputs = Object.entries(fields)
@@ -44,6 +45,9 @@ function extraFields(
 		.filter(Boolean) as string[]
 	if (sensitive_inputs.length > 0) out.sensitive_inputs = sensitive_inputs
 	if (runnable.inlineScript?.tag) out.tag = runnable.inlineScript.tag
+	// The server honors it on inline runnables only, whose code is deployed with the app.
+	if (runnable.viewer_data_access === true && isRunnableByName(runnable))
+		out.viewer_data_access = true
 	return out
 }
 

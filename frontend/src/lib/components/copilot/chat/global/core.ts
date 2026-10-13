@@ -1054,6 +1054,12 @@ const backendRunnableSchema = z
 			.optional()
 			.describe(
 				'Required when type is "script", "flow", or "hubscript". Workspace path of the runnable.'
+			),
+		viewerDataAccess: z
+			.boolean()
+			.optional()
+			.describe(
+				"Inline only. When true, the runnable reads data as the person viewing the app instead of as the app's identity: data table connections that name no role hold the viewer's roles, and object storage permission rules are checked against the viewer, so row-level security and per-user storage paths answer per viewer. Resources and variables stay the app's. Anonymous viewers are refused. Omit to keep the current setting."
 			)
 	})
 	.describe(
@@ -1854,6 +1860,7 @@ function convertPersistedToBackendRunnable(
 				content: persisted.inlineScript.content ?? ''
 			}
 		}
+		if (persisted.viewer_data_access === true) out.viewerDataAccess = true
 	} else if (persisted.type === 'path' || persisted.type === 'runnableByPath') {
 		if (persisted.runType === 'flow') out.type = 'flow'
 		else if (persisted.runType === 'hubscript') out.type = 'hubscript'
@@ -1891,7 +1898,14 @@ function buildPersistedRunnable(
 	// `type` (isRunnableByName / isRunnableByPath), so a leftover does not change which code
 	// runs — it contradicts it: a runnable reported back as inline still names a flow in
 	// `path`, and that is what the model reads on its next turn.
-	const { runType: _runType, path: _path, inlineScript: _inlineScript, ...carried } = existing ?? {}
+	const {
+		runType: _runType,
+		path: _path,
+		inlineScript: _inlineScript,
+		viewer_data_access: carriedAsViewer,
+		...carried
+	}: Partial<PersistedRunnable> = existing ?? {}
+	const viewerDataAccess = input.viewerDataAccess ?? carriedAsViewer === true
 
 	// `schema` describes the item a path runnable points at, so it only survives while that
 	// target is unchanged. Carried across a retarget it types `backend.<key>(args)` from the
@@ -1913,6 +1927,7 @@ function buildPersistedRunnable(
 				content: input.inlineScript.content,
 				language: input.inlineScript.language
 			},
+			...(viewerDataAccess && { viewer_data_access: true }),
 			fields
 		}
 	}
