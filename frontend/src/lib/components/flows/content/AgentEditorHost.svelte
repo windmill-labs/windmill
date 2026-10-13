@@ -9,7 +9,8 @@
 		AGENT_CHAT_SCHEMA,
 		agentChatFlow,
 		agentChatGap,
-		agentChatPath
+		agentChatPath,
+		AGENT_STEP_ID
 	} from '../conversations/agentEditorChat'
 	import { runFlowPreview } from '../utils.svelte'
 	import { goto } from '$lib/navigation'
@@ -100,7 +101,7 @@
 	 *  schema per tool — the linked branch deliberately loads none. Reserved in `forbiddenIds`:
 	 *  the root shares a flow-state map with the tools, so a tool of this id would lose its
 	 *  schema to the root's. */
-	const AGENT_ID = '__wm_agent_root'
+	const AGENT_ID = AGENT_STEP_ID
 
 	const draft = useAgentDraft({
 		path: () => path,

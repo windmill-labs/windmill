@@ -27,7 +27,6 @@
 	import { page } from '$app/state'
 	import { onDestroy, onMount, setContext, type Snippet } from 'svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
-	import { base } from '$app/paths'
 	import { goto } from '$app/navigation'
 	import { WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils/queryParams'
 	import { EMBED_NAV_CONTEXT_KEY, type EmbedNav } from '../types'
@@ -647,7 +646,7 @@
 			<div class="px-4 mt-20">
 				<Alert type="error" title="Not found">
 					There was an error loading the app, is the url correct?
-					<a href={base}>Go to Windmill</a>
+					<a href="/">Go to Windmill</a>
 				</Alert>
 			</div>
 		{:else if status === 'sdkPrompt'}

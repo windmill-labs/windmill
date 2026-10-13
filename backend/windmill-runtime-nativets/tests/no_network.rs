@@ -55,6 +55,9 @@ async function attempt(f) {{
 export async function main() {{
   return {{
     fetch: await attempt(() => fetch("http://127.0.0.1:{port}/").then((r) => r.text())),
+    data_url: await attempt(() => fetch("data:text/plain,ok").then((r) => r.text())),
+    blob_url: await attempt(() => fetch(URL.createObjectURL(new Blob(["ok"]))).then((r) => r.text())),
+    raw_fetch: await attempt(() => Deno.core.ops.op_fetch("GET", "http://127.0.0.1:{port}/", [], null, false, null, null)),
     tcp: await attempt(() => Deno.core.ops.op_net_connect_tcp({{ hostname: "127.0.0.1", port: {port} }}, null, null)),
     unix: await attempt(() => Deno.core.ops.op_net_connect_unix("/var/run/docker.sock")),
     quic: await attempt(() => Deno.core.ops.op_quic_endpoint_create({{ hostname: "localhost", port: 0 }}, true)),
@@ -75,6 +78,15 @@ async fn no_network_denies_fetch_and_raw_socket_ops() {
     assert!(
         fetch.contains("no_network"),
         "fetch was not denied: {fetch}"
+    );
+    // Neither opens a connection, so neither is network access.
+    assert_eq!(out["data_url"], "allowed", "{out}");
+    assert_eq!(out["blob_url"], "allowed", "{out}");
+    // The global `fetch` only words the refusal; the op under it is what refuses.
+    let raw_fetch = out["raw_fetch"].as_str().unwrap();
+    assert!(
+        raw_fetch.contains("Requires net access"),
+        "the fetch op was not denied: {raw_fetch}"
     );
     for key in ["tcp", "unix", "quic"] {
         let msg = out[key].as_str().unwrap();

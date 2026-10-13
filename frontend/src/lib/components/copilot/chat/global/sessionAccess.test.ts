@@ -8,7 +8,7 @@ const { whoami, deployRules } = vi.hoisted(() => ({
 vi.mock('$lib/gen', () => ({ UserService: { whoami } }))
 vi.mock('$lib/utils_workspace_deploy', () => ({ checkDeployRules: deployRules }))
 
-import { resolveSessionAccess } from './sessionAccess'
+import { capabilitiesForRole, resolveSessionAccess } from './sessionAccess'
 import { clearWorkspaceRoleCache } from '$lib/user'
 
 type WhoamiOverrides = { is_admin?: boolean; is_super_admin?: boolean; operator?: boolean }
@@ -45,20 +45,30 @@ describe('resolveSessionAccess', () => {
 
 	it('gives a developer every capability but admin', async () => {
 		const caps = await capabilitiesFor({})
-		expect([...caps].sort()).toEqual(['deploy', 'manage_code', 'run_preview', 'write_draft'])
+		expect([...caps].sort()).toEqual([
+			'deploy',
+			'manage_code',
+			'manage_flows',
+			'manage_schedules',
+			'manage_triggers',
+			'run_flow_preview',
+			'run_preview',
+			'write_draft',
+			'write_flow_draft'
+		])
 	})
 
 	// The folder, resource and variable handlers run the rules but have no operator check,
 	// so withholding `deploy` from an operator would be stricter than the server.
 	it('leaves an operator the deploy-rule capability, and nothing their token refuses', async () => {
 		const caps = await capabilitiesFor({ operator: true })
-		expect([...caps]).toEqual(['deploy'])
+		expect([...caps].sort()).toEqual(['deploy', 'manage_schedules', 'manage_triggers'])
 	})
 
 	it('takes deploy from the rules alone, so a rule blocks an operator too', async () => {
 		deployRules.mockResolvedValue({ ok: false, refusedBy: 'DisableDirectDeployment' })
 		const caps = await capabilitiesFor({ operator: true })
-		expect([...caps]).toEqual([])
+		expect([...caps].sort()).toEqual(['manage_schedules', 'manage_triggers'])
 	})
 
 	// Both spellings of `authed.is_admin`, which the draft path honours and the handlers
@@ -67,7 +77,14 @@ describe('resolveSessionAccess', () => {
 		'lets an admin who is also an operator draft and deploy, but not preview or manage code (%o)',
 		async (role) => {
 			const caps = await capabilitiesFor({ ...role, operator: true })
-			expect([...caps].sort()).toEqual(['admin', 'deploy', 'write_draft'])
+			expect([...caps].sort()).toEqual([
+				'admin',
+				'deploy',
+				'manage_schedules',
+				'manage_triggers',
+				'write_draft',
+				'write_flow_draft'
+			])
 		}
 	)
 
@@ -80,6 +97,37 @@ describe('resolveSessionAccess', () => {
 		const caps = await capabilitiesFor({})
 		expect(caps.has('deploy')).toBe(false)
 		expect(caps.has('write_draft')).toBe(true)
+	})
+
+	// flows.rs, drafts.rs and run_preview_flow all let a builder through for flows, and
+	// nothing else moves: scripts, apps and their previews stay refused.
+	it("gives a builder operator the flow capabilities and nothing a script's handler refuses", () => {
+		const caps = capabilitiesForRole({
+			isAdmin: false,
+			operator: true,
+			deployRulesPass: true,
+			operatorSettings: { builder_flows: true }
+		})
+		expect([...caps].sort()).toEqual([
+			'deploy',
+			'manage_flows',
+			'manage_schedules',
+			'manage_triggers',
+			'run_flow_preview',
+			'write_flow_draft'
+		])
+	})
+
+	// A withdrawable right: only `false` withdraws it, as `gate_operator_writes` reads it.
+	it('withholds schedule and trigger writes only where the workspace set them to false', () => {
+		const caps = capabilitiesForRole({
+			isAdmin: false,
+			operator: true,
+			deployRulesPass: true,
+			operatorSettings: { manage_schedules: false }
+		})
+		expect(caps.has('manage_schedules')).toBe(false)
+		expect(caps.has('manage_triggers')).toBe(true)
 	})
 
 	it('grants everything when the role cannot be resolved', async () => {

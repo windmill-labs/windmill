@@ -13,7 +13,6 @@ import { SettingService, UserService, WorkspaceService } from '$lib/gen'
 import { usersWorkspaceStore } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
 import { isCloudHosted } from '$lib/cloud'
-import { base } from '$lib/base'
 import { WORKSPACE_NAME_MAX_LENGTH } from '$lib/utils/workspaceId'
 
 /**
@@ -30,7 +29,7 @@ import { WORKSPACE_NAME_MAX_LENGTH } from '$lib/utils/workspaceId'
 export async function canCreateWorkspace(isSuperadmin: boolean): Promise<boolean> {
 	if (isSuperadmin || isCloudHosted()) return true
 	try {
-		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
+		const r = await fetch('/api/workspaces/create_workspace_require_superadmin')
 		if ((await r.text()) != 'true') return true
 		return !!(await UserService.globalWhoami()).super_admin
 	} catch {

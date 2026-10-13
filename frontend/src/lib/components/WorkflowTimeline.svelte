@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { displayDate, msToSec, emptyString } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
@@ -315,7 +314,7 @@
 								<a
 									target="_blank"
 									class="inline-flex gap-2 items-baseline hover:underline whitespace-nowrap"
-									href="{base}/run/{k}"
+									href="/run/{k}"
 									onclick={(e) => e.stopPropagation()}
 								>
 									{v.name ?? k}

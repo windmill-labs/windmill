@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { JobService, SettingService, WorkspaceService, type AIConfig } from '$lib/gen'
+	import { SettingService, WorkspaceService, type AIConfig } from '$lib/gen'
 	import { setCopilotInfo } from '$lib/aiStore'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
@@ -7,6 +7,7 @@
 	import { workspaceAIClients } from '../copilot/lib'
 	import AISettings from '../workspaceSettings/AISettings.svelte'
 	import { Alert, Button } from '../common'
+	import SettingCard from './SettingCard.svelte'
 
 	interface Props {
 		hasUnsavedChanges?: boolean
@@ -80,20 +81,15 @@
 		hubSyncStatus = 'loading'
 		hubSyncMessage = ''
 		try {
-			await JobService.runWaitResultScriptByPath({
-				workspace: 'admins',
-				path: 'u/admin/hub_sync',
-				requestBody: {}
-			})
+			const res = await fetch('/api/settings/sync_cached_resource_types', { method: 'POST' })
+			if (!res.ok) {
+				const body = await res.text()
+				throw new Error(body || res.statusText)
+			}
+			hubSyncMessage = await res.text()
 			hubSyncStatus = 'success'
-			hubSyncMessage = 'Resource types synced from hub successfully'
 		} catch (e: any) {
-			hubSyncMessage =
-				e?.body?.error?.message ||
-				e?.body?.message ||
-				(typeof e?.body === 'string' ? e.body : null) ||
-				e?.message ||
-				'Failed to sync from hub'
+			hubSyncMessage = e?.message ?? 'Failed to sync from hub'
 			hubSyncStatus = 'error'
 		}
 	}
@@ -101,37 +97,31 @@
 
 {#if loaded}
 	{#if showHubSync}
-		<div
-			class="p-3 border rounded-md bg-surface-secondary mb-4 mt-4 flex items-center justify-between gap-4"
+		<SettingCard
+			label="Resource types"
+			description="AI providers require their resource types. Sync from the Hub if they are missing."
+			class="my-4"
 		>
-			<div>
-				<p class="text-xs font-medium text-secondary">Resource types</p>
-				<p class="text-2xs text-tertiary mt-0.5">
-					AI providers require their resource types. Sync from the Hub if they are missing.
-				</p>
-			</div>
-			<Button
-				variant="default"
-				unifiedSize="sm"
-				loading={hubSyncStatus === 'loading'}
-				onClick={syncFromHub}
-			>
-				Sync from hub
-			</Button>
-		</div>
-		{#if hubSyncStatus === 'success'}
-			<div class="mb-4">
-				<Alert type="success" title="Resource types synced">
+			{#snippet headerAction()}
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					loading={hubSyncStatus === 'loading'}
+					onClick={syncFromHub}
+				>
+					Sync from hub
+				</Button>
+			{/snippet}
+			{#if hubSyncStatus === 'success'}
+				<Alert type="success" title="Resource types synced" class="mt-2">
 					{hubSyncMessage}
 				</Alert>
-			</div>
-		{:else if hubSyncStatus === 'error'}
-			<div class="mb-4">
-				<Alert type="error" title="Sync failed">
+			{:else if hubSyncStatus === 'error'}
+				<Alert type="error" title="Sync failed" class="mt-2">
 					{hubSyncMessage}
 				</Alert>
-			</div>
-		{/if}
+			{/if}
+		</SettingCard>
 	{/if}
 
 	<AISettings

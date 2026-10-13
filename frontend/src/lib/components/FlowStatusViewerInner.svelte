@@ -15,7 +15,6 @@
 		type FlowNote,
 		type FlowValue
 	} from '$lib/gen'
-	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import WorkflowTimeline from './WorkflowTimeline.svelte'
 	import DisplayResult from './DisplayResult.svelte'
@@ -69,6 +68,7 @@
 		retainLinkedToolsScope
 	} from './flows/linkedAgentToolsStore.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { AGENT_STEP_ID, agentStepLabel } from './flows/conversations/agentEditorChat'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -1238,6 +1238,8 @@
 		id: string
 		type: FlowModuleValue['type']
 		suspend?: boolean
+		/** Shown in place of the id. */
+		label?: string
 	}
 
 	function allModulesForTimeline(
@@ -1250,7 +1252,8 @@
 				({
 					id: x.id,
 					type: x.value.type,
-					suspend: x.suspend != undefined
+					suspend: x.suspend != undefined,
+					label: x.id === AGENT_STEP_ID ? agentStepLabel(job?.script_path) : undefined
 				}) as FlowModuleForTimeline,
 			{
 				skipToolNodes: true
@@ -1933,7 +1936,7 @@
 							</Button>
 						{:else}
 							<Button
-								href="{base}/api{logsApiPath}"
+								href="/api{logsApiPath}"
 								download={logsName}
 								color="light"
 								size="xs"
@@ -2195,7 +2198,7 @@
 																				class="text-right text-xs"
 																				rel="noreferrer"
 																				target="_blank"
-																				href="{base}/run/{node.job_id ??
+																				href="/run/{node.job_id ??
 																					''}?workspace={job?.workspace_id}"
 																			>
 																				{truncateRev(node.job_id ?? '', 10)}

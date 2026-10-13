@@ -15,7 +15,7 @@
 	import Row from './table/Row.svelte'
 	import Cell from './table/Cell.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Label from './Label.svelte'
@@ -42,6 +42,7 @@
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
+	const editRights = useEditRights()
 
 	const ROLE_TOOLTIPS = {
 		member:
@@ -92,7 +93,7 @@
 	// Derived for the same reason as the trigger editors: the acting user's role can land after
 	// the group does, and a snapshot taken first would stay read-only.
 	const can_write = $derived(
-		writeVerdict ?? (groupPerms !== undefined && canWrite(name, groupPerms, actingUser))
+		writeVerdict ?? (groupPerms !== undefined && editRights.canEditItem('group', name, groupPerms))
 	)
 	let group: Group | undefined
 	let instance_group: InstanceGroup | undefined = $state()

@@ -15,7 +15,6 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
-	import { base } from '$lib/base'
 	import { Badge } from '$lib/components/common'
 	import { Popover } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
@@ -288,7 +287,7 @@
 			</span>
 			<a
 				class="text-3xs text-blue-600 hover:underline shrink-0"
-				href={`${base}/run/${selectedJob.id}?workspace=${$operatingWorkspace}`}
+				href={`/run/${selectedJob.id}?workspace=${$operatingWorkspace}`}
 				target="_blank">Open ↗</a
 			>
 			{#if $operatingWorkspace}

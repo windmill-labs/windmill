@@ -15,7 +15,7 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { base } from '$lib/base'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { ClipboardCopy, Download, Trash } from 'lucide-svelte'
@@ -136,7 +136,7 @@
 			obj = {
 				openapi_spec_format: lang,
 				info,
-				url: `${window.location.origin}${base}`,
+				url: apiBaseUrl(),
 				http_route_filters: getHttpRouteFilters(),
 				webhook_filters: getWebhookFilters()
 			}
@@ -155,7 +155,7 @@
 				requestBody: {
 					openapi_spec_format,
 					info,
-					url: `${window.location.origin}${base}`,
+					url: apiBaseUrl(),
 					http_route_filters: getHttpRouteFilters(),
 					webhook_filters: getWebhookFilters()
 				}
@@ -225,7 +225,7 @@
 				{/snippet}
 				<CopyableCodeBlock
 					code={`token=${emptyString(token) ? '' : token}; \\
-curl -X POST "${window.location.origin}${base}/api/w/${$operatingWorkspace!}/openapi/generate" \\
+curl -X POST "${apiBaseUrl()}/api/w/${$operatingWorkspace!}/openapi/generate" \\
 -H "Authorization: Bearer $token" \\
 -H "Content-Type: application/json" \\
 -d '${JSON.stringify(obj)}'`}

@@ -66,7 +66,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
 	import { page } from '$app/state'
-	import { base } from '$app/paths'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import {
 		dateBucket,
@@ -119,7 +118,7 @@
 
 	// Only highlight the active session while the sessions page is open — elsewhere
 	// `currentSessionId` lingers but no row should appear selected.
-	const onSessionsPage = $derived(page.url.pathname.startsWith(`${base}/sessions`))
+	const onSessionsPage = $derived(page.url.pathname.startsWith('/sessions'))
 	const sessionActive = $derived(onSessionsPage)
 
 	interface Props {

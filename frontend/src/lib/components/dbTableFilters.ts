@@ -52,7 +52,7 @@ export function buildDbTableFilterSchema(columns: ColumnDef[]): DbTableFilterSch
 	const columnOfKey: Record<string, string> = {}
 	const keyOfColumn: Record<string, string> = {}
 	for (const col of columns) {
-		if (!col.field) continue
+		if (!col.field || col.filterable === false) continue
 		let base = col.field.replace(/\W+/g, '_') || 'column'
 		if (base === FREE_TEXT_KEY) base = `${base}col`
 		let key = base

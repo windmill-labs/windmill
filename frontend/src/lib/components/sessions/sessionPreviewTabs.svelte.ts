@@ -1,4 +1,3 @@
-import { base } from '$lib/base'
 import { randomUUID } from '$lib/utils/uuid'
 import { editPathFor, viewPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -20,7 +19,7 @@ import {
 	previewLocationLabel,
 	resolvePreviewTab,
 	runFormUrl,
-	stripBase,
+	barePath,
 	type ArtifactVersionTarget,
 	type PreviewItemMode,
 	type PreviewTarget
@@ -113,7 +112,7 @@ function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 	// A re-point with no mode keeps the side the tab is already on, so an AI write to
 	// an item the user left on View does not yank them back to the editor.
 	const mode = target.mode ?? (onto ? (parsePreviewItemRoute(onto.url)?.mode ?? 'edit') : 'edit')
-	if (mode !== 'view') return `${base}${editPathFor(target.item)}`
+	if (mode !== 'view') return editPathFor(target.item)
 	// Neither is carried over from `onto`. A version pin is something the reader asked for
 	// once, so every other re-point of this tab lands on the current deployed version — and a
 	// chat tool call is carried by the tab that was opened for it, so re-pointing that tab
@@ -127,7 +126,7 @@ function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 	const hashed = new URLSearchParams()
 	for (const [k, v] of Object.entries(target.runArgs ?? {})) hashed.set(k, JSON.stringify(v))
 	const hash = hashed.size > 0 ? `#${hashed}` : ''
-	return `${base}${viewPathFor(target.item)}${query}${hash}`
+	return `${viewPathFor(target.item)}${query}${hash}`
 }
 
 // Point a tab at a new destination. Clears `friendlyLabel`/`friendlyPath`
@@ -185,7 +184,7 @@ export function previewTargetForSessionTarget(
 ): PreviewTarget | undefined {
 	if (kind === 'pipeline') {
 		const folder = normalizePipelineFolder(path)
-		return { type: 'page', href: `${base}/pipeline/${encodeURIComponent(folder)}`, label: folder }
+		return { type: 'page', href: `/pipeline/${encodeURIComponent(folder)}`, label: folder }
 	}
 	const item: WorkspaceItem =
 		kind === 'raw_app'
@@ -813,7 +812,7 @@ export function selectPreviewTabsToClose(
 // whose hash is app state, and any page can carry a filter value the user typed.
 function previewLocationDetail(where: string): string {
 	const { location, open } = previewLocationContext(where)
-	const detail = [location === stripBase(where) ? undefined : location, open && `open: ${open}`]
+	const detail = [location === barePath(where) ? undefined : location, open && `open: ${open}`]
 		.filter(Boolean)
 		.join(', ')
 	return detail ? ` (${detail})` : ''
@@ -849,7 +848,7 @@ export function describePreview(
 							? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
 							: // Trigger list pages land here (they're outside PREVIEW_PAGES), and
 								// their `#<path>` is the trigger the drawer has open.
-								`${stripBase(where)}${previewLocationDetail(where)}`
+								`${barePath(where)}${previewLocationDetail(where)}`
 		const slotKind = resolvePreviewTab(t.url).kind
 		const live =
 			slotKind === 'editor' || slotKind === 'pageitem'

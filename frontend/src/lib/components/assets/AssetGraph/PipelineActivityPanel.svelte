@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import type { Job } from '$lib/gen'
 	import Select from '$lib/components/select/Select.svelte'
@@ -477,7 +476,7 @@
 									<span class="font-mono truncate flex-1 min-w-0">{expandedJob.id}</span>
 									<a
 										class="text-blue-600 hover:underline shrink-0"
-										href={`${base}/run/${expandedJob.id}?workspace=${$workspaceStore}`}
+										href={`/run/${expandedJob.id}?workspace=${$workspaceStore}`}
 										target="_blank">Open ↗</a
 									>
 								</div>

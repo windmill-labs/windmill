@@ -32,6 +32,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	const item = $derived(content?.item)
 	const section = $derived(content?.section)
+	const hasSummary = $derived(!!item && !!(item.summaryContent || item.summary))
 
 	// Below this the trail holds a tighter cap on the path it draws. The names in it truncate on
 	// their own at any width (see NavBreadcrumb), so this is not a breakpoint the look changes at —
@@ -135,8 +136,18 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	     where the user is.
 	     An embed (`navHidden`) keeps the page's own name but drops the workspace part around it:
 	     the trail would offer to navigate the host's workspace, while the name is what says which
-	     page the controls beside it belong to. -->
-	<div class="flex shrink-[0.3] min-w-[5rem]">
+	     page the controls beside it belong to.
+	     The 0.3 only holds against a summary or an actions box that shrinks too: alone, a factor
+	     sum below 1 makes flex hand out only that share of the overflow, and the bar overflows
+	     instead. -->
+	<div
+		class={twMerge(
+			'flex shrink-[0.3] min-w-[5rem]',
+			!hasSummary &&
+				(actions.length === 0 || (phone && !content?.actionsFlexible && !content?.actionsFill)) &&
+				'shrink'
+		)}
+	>
 		<!-- Bridged like the actions below: what a page hangs off its own name renders here, out of
 		     the tree that named it, and the rename editor in there asks that tree who the acting user
 		     is before it offers to rename anything. -->
@@ -161,7 +172,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		</svelte:boundary>
 	</div>
 
-	{#if item && (item.summaryContent || item.summary)}
+	{#if item && hasSummary}
 		<!-- No kind icon: the page below is the item, and saying "this is a flow" above a flow
 		     editor tells the reader what they can already see. -->
 		<div class={twMerge('flex items-center gap-1 min-w-0', phone && 'shrink')}>
