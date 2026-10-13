@@ -223,14 +223,31 @@
 	const autoTab = $derived(hasOutcome ? 'outcome' : ran ? 'logs' : 'input')
 	const activeTab = $derived(steered && tabs.some((t) => t.value === steered) ? steered : autoTab)
 
+	// The panel mounts the chat's own form on this call, so the card must not mount a second
+	// one: two views binding the one draft would each reorder the schema SchemaForm edits in
+	// place. Only the form is exclusive. A run shows in both, and collapsing the row or
+	// closing the tab is the user's own way out of seeing it twice.
+	const formInPreview = $derived(
+		pending && (aiChatManager.isRunFormTabOpen?.(message.tool_call_id) ?? false)
+	)
+	// A deployed page holding the call builds its own form from a copy of the proposal, so it
+	// shares no draft and this card keeps a working one. The row folds instead, and expanding
+	// it is how the reader runs from the transcript without going to the page.
+	const carriedByPage = $derived(
+		pending && !formInPreview && (aiChatManager.isRunFormInPreview?.(message.tool_call_id) ?? false)
+	)
+
 	// Keyed by call id: a bare flag would carry one card's collapse onto the next message
 	// reusing this instance. Open by default, since the run is what was asked for —
 	// except for an inspection, which is usually a step in the reasoning rather than
 	// the answer, and which pays a fetch for being opened. A run cancelled before it started
-	// is closed too: the row already says Cancelled, and there is no run to show.
+	// is closed too: the row already says Cancelled, and there is no run to show. So is a call
+	// whose page is on screen, which is the copy the reader is looking at.
 	let toggled = $state<{ id: string; open: boolean } | undefined>(undefined)
 	const expanded = $derived(
-		toggled?.id === message.tool_call_id ? toggled.open : !inspected && (ran || !canceled)
+		toggled?.id === message.tool_call_id
+			? toggled.open
+			: !inspected && (ran || !canceled) && !carriedByPage
 	)
 
 	$effect(() => {
@@ -284,14 +301,6 @@
 			logsReq.cancel()
 		}
 	})
-
-	// The panel mounts the chat's own form on this call, so the card must not mount a second
-	// one: two views binding the one draft would each reorder the schema SchemaForm edits in
-	// place. Only the form is exclusive. A run shows in both, and collapsing the row or
-	// closing the tab is the user's own way out of seeing it twice.
-	const formInPreview = $derived(
-		pending && (aiChatManager.isRunFormInPreview?.(message.tool_call_id) ?? false)
-	)
 
 	// The three moments a run moves the card — a tab arrives, the selection follows it, the body
 	// changes under it — are staggered rather than landing in one frame, which is what makes the
@@ -454,12 +463,6 @@
 
 	function openPreview() {
 		const label = runnableName
-		// The panel now shows what this card was showing, so the card folds away rather than
-		// holding a second copy open in the transcript. Through `toggled`, so it reads as an
-		// ordinary collapse the reader can undo. Only when the page is taking the run: a page
-		// opened to look at leaves the form here, and folding it away would hide the only
-		// place this call can still be confirmed.
-		if (carries) toggled = { id: message.tool_call_id, open: false }
 		if (previewTarget === 'form') {
 			aiChatManager.openRunForm?.({ toolCallId: message.tool_call_id, label })
 			return

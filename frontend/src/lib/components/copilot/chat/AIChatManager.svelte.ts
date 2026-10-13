@@ -595,6 +595,10 @@ export class AIChatManager implements ChatViewHost {
 		path: string
 		summary: string
 		carries: boolean
+		/** Re-point a tab already on that page, and answer `false` rather than opening one.
+		 * For handing a call to a page the reader already has in front of them: a tab showing
+		 * something else, a run included, has no form to confirm this call on. */
+		onlyIfAlreadyOpen?: boolean
 	}) => boolean
 	closeRunForm?: (toolCallId: string) => void
 	/** Hands that tab from the form to the run it just started, in place: the tab keeps its
@@ -605,11 +609,16 @@ export class AIChatManager implements ChatViewHost {
 		workspace: string
 		label: string
 	}) => void
-	/** Whether the panel holds this call's pending form. Answered off the session's tab list,
-	 * so it stays true while the user is on another tab, and per call rather than "the open
-	 * one". Read from a `$derived` — the reader subscribes to the tab list through the call.
-	 * The card hides its form on it, which is what keeps exactly one mounted per call. */
+	/** Whether the panel holds this call's pending form, on either surface. Answered off the
+	 * session's tab list, so it stays true while the user is on another tab, and per call
+	 * rather than "the open one". Read from a `$derived` — the reader subscribes to the tab
+	 * list through the call. The card folds its row on it, and a started job takes over
+	 * whichever surface was waiting. */
 	isRunFormInPreview?: (toolCallId: string) => boolean
+	/** Whether the panel holds this call on the chat's own form, as opposed to on the item's
+	 * page. The card's form is exclusive with this one alone: it is the same draft, and two
+	 * mounts of it each reorder the schema SchemaForm edits in place. */
+	isRunFormTabOpen?: (toolCallId: string) => boolean
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 	closeArtifact?: (artifactId: string) => void
 	#loading = $state<boolean>(false)
@@ -2064,9 +2073,26 @@ export class AIChatManager implements ChatViewHost {
 		// `displayMessages` are redacted, so a draft built from those would open the form on
 		// the marker rather than on the bytes the model proposed.
 		const entry = this.#runFormEntry(toolId, form)
-		return new Promise((resolve) => {
+		const answer = new Promise<RunFormAnswer | undefined>((resolve) => {
 			this.#runForms.set(toolId, { ...entry, resolve })
 		})
+		// A tab already on this item's deployed page is where the reader would be sent anyway,
+		// so the call goes there without waiting to be asked: declining a proposal and having
+		// the agent propose another leaves that page open, and the second proposal belongs on
+		// it. Only a tab already there — opening one for every proposed run would take the
+		// panel away from whatever the reader is doing. After the resolve above is installed,
+		// since the page reads the call back through `isRunFormPending`.
+		if (form.kind === 'run' && form.path && !form.conversational) {
+			this.openRunOnDeployedPage?.({
+				toolCallId: toolId,
+				kind: form.runnableKind === 'flow' ? 'flow' : 'script',
+				path: form.path,
+				summary: form.summary || form.path,
+				carries: true,
+				onlyIfAlreadyOpen: true
+			})
+		}
+		return answer
 	}
 
 	/**

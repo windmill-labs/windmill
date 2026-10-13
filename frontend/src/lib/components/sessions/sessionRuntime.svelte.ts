@@ -636,7 +636,14 @@ function createRuntime(session: Session): SessionRuntime {
 	}
 	// Show a deployed run on the item's own page. With `carries`, that page answers the call:
 	// the job its Run starts is the one the tool follows.
-	manager.openRunOnDeployedPage = ({ toolCallId, kind, path, summary, carries }) => {
+	manager.openRunOnDeployedPage = ({
+		toolCallId,
+		kind,
+		path,
+		summary,
+		carries,
+		onlyIfAlreadyOpen
+	}) => {
 		// Through the shared adapter: a session target spells a code-based app `raw_app` and a
 		// workspace item spells it `app` with a flag, and one place should know that.
 		const target = previewTargetForSessionTarget(kind, path)
@@ -661,6 +668,9 @@ function createRuntime(session: Session): SessionRuntime {
 			previewTabs.select(open.id)
 			previewTabs.setCollapsed(false)
 		} else {
+			// Only the item's own page carries a form for this call, so a caller routing a call
+			// that was not asked to open anything gets a no rather than a new tab.
+			if (onlyIfAlreadyOpen) return false
 			previewTabs.open(viewTarget)
 		}
 		return true
@@ -677,17 +687,23 @@ function createRuntime(session: Session): SessionRuntime {
 		if (carrying) previewTabs.retargetById(carrying.id, runHref)
 		previewTabs.retargetRunForm(toolCallId, runHref)
 	}
-	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
-	// away from is unmounted but still open, and the card must keep its form hidden until it
-	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
-	// to `tabs` through it, and the runtime is not inside an effect root to push from.
-	// A page carrying the call counts: its form is this call's, so the card must not mount a
-	// second one. Both read the same fact, so a tab closed or re-pointed hands the form back.
+	// Both read off the tab list rather than the slot's lifecycle: a tab the user has switched
+	// away from is unmounted but still open. Resolvers, like activePreviewResolver: the
+	// reader's own $derived subscribes to `tabs` through them, and the runtime is not inside
+	// an effect root to push from. So a tab closed or re-pointed hands the card back whatever
+	// it had given up.
+	// Either surface — the chat's own form in a tab, or the item's page carrying the call.
 	manager.isRunFormInPreview = (toolCallId) =>
 		previewTabs.tabs.some(
 			(t) =>
 				parseRunFormRoute(t.url)?.toolCallId === toolCallId || pendingRunIdOf(t.url) === toolCallId
 		)
+	// The chat's own form alone. The card's form is exclusive with this one and no other:
+	// both bind the one draft, and SchemaForm reorders in place the schema it is handed, so a
+	// second mount reorders it again. A page builds its own form from a copy of the proposal
+	// and shares nothing, so the card keeps its form while a page carries the call.
+	manager.isRunFormTabOpen = (toolCallId) =>
+		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
 
 	manager.openArtifact = (id, name, version) => {
 		previewTabs.open({ type: 'artifact', id, name, version })
