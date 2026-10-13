@@ -515,8 +515,11 @@
 	function pointerInMenu(): boolean {
 		return !!document.querySelector('[role="menu"]:hover')
 	}
+	// A click on the handle pins the card: it then outlives the pointer leaving. Only meaningful
+	// while open — every open from closed starts unpinned.
+	let menuPinned = $state(false)
 	const { debounced: schedulePeekClose, clearDebounce: cancelPeekClose } = debounce(() => {
-		if (!peeksOnHover) return
+		if (!peeksOnHover || menuPinned) return
 		if (pointerInMenu()) {
 			schedulePeekClose()
 			return
@@ -530,9 +533,17 @@
 
 	// The handle and the edge band both open the card this layout owns.
 	navHandleSlot.setOpener(
-		() => (menuOpen = true),
+		() => {
+			if (!menuOpen) menuPinned = false
+			menuOpen = true
+		},
 		{ schedule: schedulePeekClose, cancel: cancelPeekClose },
-		{ isOpen: () => menuOpen, close: () => (menuOpen = false) }
+		{
+			isOpen: () => menuOpen,
+			isPinned: () => menuPinned,
+			pin: () => (menuPinned = true),
+			close: () => (menuOpen = false)
+		}
 	)
 
 	// The open card is dismissed by any press on the page, and that press still reaches its target:

@@ -106,14 +106,14 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	{#if (navDetached.val || panelled) && !navHidden}
 		<!-- Reveals the hidden sidebar, and only that: the card follows the pointer, holding while it
 		     is on the handle, on the card, or in a menu either opened, and sliding back out when it
-		     leaves. Where no pointer hovers, a tap opens it and it stays until a tap here, a tap on the
-		     page or Esc puts it back. Attaching
+		     leaves. A click or tap pins it instead, until another one here, a press on the page or Esc
+		     puts it back. Attaching
 		     it for good belongs to the toggle in the sidebar's own footer, where detaching it
 		     happened. Docked, the sidebar speaks for itself and nothing leads the bar. -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			data-nav-handle
-			onmouseenter={() => navHandleSlot.peek()}
+			onmouseenter={() => navHandleSlot.open()}
 			onmouseleave={() => navHandleSlot.scheduleClose()}
 		>
 			<!-- No tooltip: hovering here already slides the sidebar in, which says what the button
@@ -124,6 +124,8 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 				iconOnly
 				startIcon={{ icon: PanelLeft }}
 				aria-label="Show sidebar"
+				selected={navHandleSlot.pinned}
+				aria-pressed={navHandleSlot.pinned}
 				onclick={() => navHandleSlot.toggle()}
 			/>
 		</div>
