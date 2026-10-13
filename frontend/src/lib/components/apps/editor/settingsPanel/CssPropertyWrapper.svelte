@@ -7,8 +7,8 @@
 		forceClass?: boolean
 		id: string
 		property?: ComponentCssProperty | undefined
-		overriden?: boolean
-		overridding?: boolean
+		overridden?: boolean
+		overriding?: boolean
 		wmClass?: string | undefined
 	}
 
@@ -17,8 +17,8 @@
 		forceClass = false,
 		id,
 		property = $bindable(undefined),
-		overriden = false,
-		overridding = false,
+		overridden = false,
+		overriding = false,
 		wmClass = undefined
 	}: Props = $props()
 
@@ -38,8 +38,8 @@
 		shouldDisplayLeft={hasValues(property[id])}
 		on:left
 		on:right
-		{overriden}
-		{overridding}
+		{overridden}
+		{overriding}
 		{wmClass}
 	/>
 {/if}
