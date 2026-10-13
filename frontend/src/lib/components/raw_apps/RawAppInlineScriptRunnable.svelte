@@ -43,6 +43,7 @@
 	type RunnableWithInlineScript = RunnableWithFields & {
 		inlineScript?: InlineScript & { language: ScriptLang }
 		delete_after_secs?: number
+		datatable_as_viewer?: boolean
 	}
 	export type Runnable = RunnableWithInlineScript | undefined
 	interface Props {
@@ -224,6 +225,7 @@
 					bind:name={runnable.name}
 					bind:fields={runnable.fields}
 					bind:delete_after_secs={runnable.delete_after_secs}
+					bind:datatable_as_viewer={runnable.datatable_as_viewer}
 					onRun={testPreview}
 					on:delete
 					path={appPath}

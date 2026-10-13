@@ -17,6 +17,7 @@
 	import CacheTtlPopup from '../apps/editor/inlineScriptsPanel/CacheTtlPopup.svelte'
 	import TagPopup from '../apps/editor/inlineScriptsPanel/TagPopup.svelte'
 	import DeleteAfterUsePopup from './DeleteAfterUsePopup.svelte'
+	import DatatableIdentityPopup from './DatatableIdentityPopup.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
 	import EditorBar, { EDITOR_BAR_HELPERS_INLINE_THRESHOLD } from '../EditorBar.svelte'
 	import { LanguageIcon } from '../common/languageIcons'
@@ -52,6 +53,7 @@
 		editor?: any | undefined
 		lastDeployedCode?: string | undefined
 		delete_after_secs?: number | undefined
+		datatable_as_viewer?: boolean | undefined
 		/** Called when code is selected in the editor */
 		onSelectionChange?: (
 			selection: {
@@ -74,8 +76,15 @@
 		editor = $bindable(undefined),
 		lastDeployedCode,
 		onSelectionChange,
-		delete_after_secs = $bindable()
+		delete_after_secs = $bindable(),
+		datatable_as_viewer = $bindable()
 	}: Props = $props()
+
+	// The asset parser misses a chained `wmill.datatable('x')`...``, so the source is matched too.
+	const usesDatatable = $derived(
+		(inlineScript?.assets?.some((a) => a.kind === 'datatable') ?? false) ||
+			/datatable\s*\(|datatable:\/\//.test(inlineScript?.content ?? '')
+	)
 
 	const operatingWorkspace = useOperatingWorkspace()
 	let opWs = $derived($operatingWorkspace)
@@ -620,6 +629,9 @@
 				/>
 			{/if}
 			<div class="flex w-full flex-row gap-2 items-center justify-end">
+				{#if usesDatatable || datatable_as_viewer}
+					<DatatableIdentityPopup bind:datatable_as_viewer />
+				{/if}
 				{#if inlineScript}
 					<TagPopup bind:tag={inlineScript.tag} />
 					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />

@@ -7266,6 +7266,7 @@ pub fn init_worker_internal_server_inline_utils(
                 Some(params.lang),
             );
             job.permissioned_as_end_user_email = params.end_user_email;
+            job.datatable_as_viewer = Some(params.datatable_as_viewer);
             Box::pin(async move {
                 let mut mem_peak: i32 = -1;
                 let mut canceled_by: Option<CanceledBy> = None;

@@ -14,7 +14,7 @@ use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
     get_datatable_resource_from_db, get_ducklake_from_db_unchecked,
-    strip_fork_reserved_attach_args, DatatableAccess, DucklakeCatalogResourceType,
+    strip_fork_reserved_attach_args, DatatableAccess, DatatableConnectAs, DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
 use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
@@ -2758,7 +2758,10 @@ async fn transform_attach_datatable(
                 DatatableAccess::PermissionedAs {
                     permissioned_as: &job.permissioned_as,
                     email: &job.permissioned_as_email,
-                    end_user_email: job.permissioned_as_end_user_email.as_deref(),
+                    connect_as: DatatableConnectAs::from_job_perms(
+                        job.datatable_as_viewer.unwrap_or(false),
+                        job.permissioned_as_end_user_email.as_deref(),
+                    ),
                 },
             )
             .await?

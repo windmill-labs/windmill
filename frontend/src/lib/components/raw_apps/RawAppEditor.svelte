@@ -897,6 +897,7 @@ addEventListener('message', function (e) {
 					content: runnable.inlineScript.content ?? ''
 				}
 			}
+			if (runnable.datatable_as_viewer) backendRunnable.datatableAsViewer = true
 		} else if (isRunnableByPath(runnable)) {
 			// Determine type based on runType
 			if (runnable.runType === 'flow') {
@@ -1200,6 +1201,7 @@ addEventListener('message', function (e) {
 							content: runnable.inlineScript.content,
 							language: runnable.inlineScript.language
 						},
+						...(runnable.datatableAsViewer && { datatable_as_viewer: true }),
 						fields: runnable.staticInputs
 							? Object.fromEntries(
 									Object.entries(runnable.staticInputs).map(([k, v]) => [

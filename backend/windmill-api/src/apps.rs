@@ -481,6 +481,11 @@ pub struct PolicyTriggerableInputs {
     sensitive_inputs: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tag: Option<String>,
+    /// The runnable's data table connections that name no role are made as the app's viewer
+    /// rather than as the app's identity. Honored for inline runnables only: their code is
+    /// deployed with the app, so it is the publisher who chose to read with the viewer's roles.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    datatable_as_viewer: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -4501,6 +4506,7 @@ async fn execute_component(
     // on the inline script is honored. In any other case we must read the
     // tag from the deployed policy and ignore the request body.
     let is_preview = payload.force_viewer_static_fields.is_some();
+    let is_inline = payload.raw_code.is_some();
 
     // Preview mode runs request-supplied code as a `Viewer`-mode job (the
     // app-editor equivalent of `/jobs/run/preview`), so it enforces the same
@@ -4595,6 +4601,8 @@ async fn execute_component(
                 delete_after_secs: force_viewer_delete_after_secs,
                 sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
                 tag: None,
+                // A preview runs as the caller, whose roles these are either way.
+                datatable_as_viewer: false,
             },
             None,
         ),
@@ -4960,6 +4968,15 @@ async fn execute_component(
         scope_ceiling.as_deref(),
     )
     .await?;
+
+    if policy_triggerables.datatable_as_viewer && is_inline {
+        sqlx::query!(
+            "UPDATE job_perms SET datatable_as_viewer = true WHERE job_id = $1",
+            uuid
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     // Apply runnable query parameters if provided
     if let Some(ref run_query) = payload.run_query_params {

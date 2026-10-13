@@ -1726,9 +1726,13 @@ pub async fn cached_result_path(
         hasher.update(b"wac_step:");
         hasher.update(step_key.as_bytes());
     }
-    // What a run returns can depend on who it ran for (`WM_END_USER_EMAIL`, a data table used
-    // as the viewer), so a result cached for one viewer is never served to another. Read from
-    // `job_perms`: a flow job re-fetched between steps does not carry it.
+    // What a run returns depends on whose roles its data table connections hold, its own
+    // identity's or its viewer's, and `WM_END_USER_EMAIL` names the viewer: a result cached for
+    // one of either is never served to another. Length-prefixed, like the viewer below.
+    hasher.update(b"permissioned_as:");
+    hasher.update((job.permissioned_as.len() as u64).to_le_bytes());
+    hasher.update(job.permissioned_as.as_bytes());
+    // Read from `job_perms`: a flow job re-fetched between steps does not carry it.
     let end_user: Option<Option<String>> = sqlx::query_scalar(
         "SELECT end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
     )
@@ -2487,32 +2491,36 @@ mod tests {
             trigger_kind: None,
             visible_to_owner: false,
             permissioned_as_end_user_email: None,
+            datatable_as_viewer: None,
             runnable_settings_handle: None,
             job_token_scopes: None,
         }
     }
 
     // A cache hit returns before the job runs, so the key is all that keeps a result computed
-    // for one viewer (a data table used as the viewer, `WM_END_USER_EMAIL`) from another.
+    // for one identity or viewer (whose data table roles it read with, `WM_END_USER_EMAIL`)
+    // from another.
     #[sqlx::test(migrations = "../migrations")]
-    async fn a_cached_result_is_keyed_by_the_recorded_viewer(pool: sqlx::PgPool) {
+    async fn a_cached_result_is_keyed_by_the_identity_and_the_recorded_viewer(pool: sqlx::PgPool) {
         let client = test_client();
 
         // The last two differ only in where the viewer's address ends and the first argument
         // name starts.
         let mut paths = vec![];
-        for (viewer, arg) in [
-            (Some("a@windmill.dev"), "mode"),
-            (Some("a@windmill.dev"), "mode"),
-            (Some("b@windmill.dev"), "mode"),
-            (None, "mode"),
-            (Some("a@windmill.co"), "mode"),
-            (Some("a@windmill.com"), "ode"),
+        for (owner, viewer, arg) in [
+            ("u/publisher", Some("a@windmill.dev"), "mode"),
+            ("u/publisher", Some("a@windmill.dev"), "mode"),
+            ("u/publisher", Some("b@windmill.dev"), "mode"),
+            ("u/publisher", None, "mode"),
+            ("u/publisher", Some("a@windmill.co"), "mode"),
+            ("u/publisher", Some("a@windmill.com"), "ode"),
+            ("u/other", None, "mode"),
         ] {
             let args = HashMap::from([(arg.to_string(), to_raw_value(&"all"))]);
             let job = MiniPulledJob {
                 id: uuid::Uuid::new_v4(),
                 args: Some(sqlx::types::Json(args)),
+                permissioned_as: owner.to_string(),
                 ..test_job()
             };
             sqlx::query(
@@ -2526,7 +2534,11 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-            paths.push(cached_result_path(&pool, &client, &job, None).await.unwrap());
+            paths.push(
+                cached_result_path(&pool, &client, &job, None)
+                    .await
+                    .unwrap(),
+            );
         }
         assert_eq!(
             paths[0], paths[1],
@@ -2535,7 +2547,11 @@ mod tests {
         assert_ne!(paths[0], paths[2], "two viewers share a cached result");
         assert_ne!(paths[0], paths[3]);
         assert_ne!(paths[2], paths[3]);
-        assert_ne!(paths[4], paths[5], "an address runs into the argument names");
+        assert_ne!(
+            paths[4], paths[5],
+            "an address runs into the argument names"
+        );
+        assert_ne!(paths[3], paths[6], "two owners share a cached result");
     }
 
     #[tokio::test]

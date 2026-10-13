@@ -2162,17 +2162,36 @@ pub enum DatatableAccess<'a> {
     PermissionedAs {
         permissioned_as: &'a str,
         email: &'a str,
-        /// The job's viewer: MUST be what the server recorded in `job_perms.end_user_email`,
-        /// never an argument or anything else the job or its caller can set.
-        end_user_email: Option<&'a str>,
+        connect_as: DatatableConnectAs<'a>,
     },
-    /// A job identified by id; its owner is read from `v2_job` and its viewer from `job_perms`.
-    /// For agent workers and anything else that authenticates as infrastructure rather than as
-    /// the job's user.
+    /// A job identified by id; its owner is read from `v2_job` and how it connects from
+    /// `job_perms`. For agent workers and anything else that authenticates as infrastructure
+    /// rather than as the job's user.
     Job(uuid::Uuid),
     /// No identity established. Unpermissioned data tables resolve as before; permissioned ones
     /// are refused, so a caller predating this feature fails closed.
     NoIdentity,
+}
+
+/// Whose roles a job's connection that names no role holds.
+#[derive(Clone, Copy, Debug)]
+pub enum DatatableConnectAs<'a> {
+    /// The job's own identity, `permissioned_as`.
+    Job,
+    /// The job's viewer, for a job whose `job_perms.datatable_as_viewer` is set. MUST be what
+    /// the server recorded in `job_perms.end_user_email`, never anything the job or its caller
+    /// can set; `None` when it recorded none, which refuses the connection.
+    Viewer(Option<&'a str>),
+}
+
+impl<'a> DatatableConnectAs<'a> {
+    pub fn from_job_perms(as_viewer: bool, end_user_email: Option<&'a str>) -> Self {
+        if as_viewer {
+            Self::Viewer(end_user_email)
+        } else {
+            Self::Job
+        }
+    }
 }
 
 /// Does one tenant list cover this identity? Admins of the governing workspace pass everything —
@@ -2218,11 +2237,11 @@ pub async fn can_use_datatable_role_in_governing_workspace(
 /// back to admin.
 ///
 /// A default role other than `admin` is a floor rather than the whole connection: a resolution
-/// naming no role holds it when the job's own identity may use it, plus the roles whose tenant
-/// lists name the job's viewer, as one login that is a member of each. With no role at all it is
-/// refused. Being an admin adds none of the viewer's and `admin` is never among them, so a viewer
-/// cannot be handed the connection that owns the tables and bypasses row-level security. A named
-/// role is that role alone.
+/// naming no role holds it when its identity may use it, plus the roles whose tenant lists name
+/// that identity, as one login that is a member of each. The identity is the job's own unless
+/// it connects as its viewer ([`DatatableConnectAs`]). With no role at all it is refused. Being
+/// an admin adds no role and `admin` is never among them, so nobody is handed the connection that
+/// owns the tables and bypasses row-level security. A named role is that role alone.
 pub async fn get_datatable_resource_from_db(
     db: &DB,
     w_id: &str,

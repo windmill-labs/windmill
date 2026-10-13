@@ -1052,6 +1052,12 @@ const backendRunnableSchema = z
 			.optional()
 			.describe(
 				'Required when type is "script", "flow", or "hubscript". Workspace path of the runnable.'
+			),
+		datatableAsViewer: z
+			.boolean()
+			.optional()
+			.describe(
+				"Inline only. When true, data table connections that name no role hold the roles of the person viewing the app instead of the app identity's, so row-level security answers per viewer. Anonymous viewers are refused. Omit to keep the current setting."
 			)
 	})
 	.describe(
@@ -1845,6 +1851,7 @@ function convertPersistedToBackendRunnable(
 				content: persisted.inlineScript.content ?? ''
 			}
 		}
+		if (persisted.datatable_as_viewer === true) out.datatableAsViewer = true
 	} else if (persisted.type === 'path' || persisted.type === 'runnableByPath') {
 		if (persisted.runType === 'flow') out.type = 'flow'
 		else if (persisted.runType === 'hubscript') out.type = 'hubscript'
@@ -1882,7 +1889,14 @@ function buildPersistedRunnable(
 	// `type` (isRunnableByName / isRunnableByPath), so a leftover does not change which code
 	// runs — it contradicts it: a runnable reported back as inline still names a flow in
 	// `path`, and that is what the model reads on its next turn.
-	const { runType: _runType, path: _path, inlineScript: _inlineScript, ...carried } = existing ?? {}
+	const {
+		runType: _runType,
+		path: _path,
+		inlineScript: _inlineScript,
+		datatable_as_viewer: carriedAsViewer,
+		...carried
+	}: Partial<PersistedRunnable> = existing ?? {}
+	const datatableAsViewer = input.datatableAsViewer ?? carriedAsViewer === true
 
 	// `schema` describes the item a path runnable points at, so it only survives while that
 	// target is unchanged. Carried across a retarget it types `backend.<key>(args)` from the
@@ -1904,6 +1918,7 @@ function buildPersistedRunnable(
 				content: input.inlineScript.content,
 				language: input.inlineScript.language
 			},
+			...(datatableAsViewer && { datatable_as_viewer: true }),
 			fields
 		}
 	}

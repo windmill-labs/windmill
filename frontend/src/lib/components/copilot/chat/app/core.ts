@@ -37,6 +37,8 @@ export interface BackendRunnable {
 	inlineScript?: InlineScript
 	// For workspace scripts/flows and hub scripts
 	path?: string
+	// Inline only: data table connections naming no role hold the viewer's roles
+	datatableAsViewer?: boolean
 }
 
 export interface AppFiles {
@@ -327,6 +329,12 @@ const getSetBackendRunnableSchema = memo(() =>
 			.optional()
 			.describe(
 				'Required when type is "script", "flow", or "hubscript". The fully qualified path to the workspace script/flow or hub script.'
+			),
+		datatableAsViewer: z
+			.boolean()
+			.optional()
+			.describe(
+				"Inline only. When true, data table connections that name no role hold the roles of the person viewing the app instead of the app identity's, so row-level security answers per viewer. Anonymous viewers are refused."
 			)
 	})
 )
@@ -710,7 +718,8 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				...args,
 				staticInputs: args.staticInputs === null ? undefined : args.staticInputs,
 				inlineScript: args.inlineScript === null ? undefined : args.inlineScript,
-				path: args.path === null ? undefined : args.path
+				path: args.path === null ? undefined : args.path,
+				datatableAsViewer: args.datatableAsViewer === null ? undefined : args.datatableAsViewer
 			}
 
 			const parsedArgs = getSetBackendRunnableSchema().parse(cleanedArgs)
@@ -723,7 +732,8 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				type: parsedArgs.type,
 				...(parsedArgs.staticInputs && { staticInputs: parsedArgs.staticInputs }),
 				...(parsedArgs.inlineScript && { inlineScript: parsedArgs.inlineScript }),
-				...(parsedArgs.path && { path: parsedArgs.path })
+				...(parsedArgs.path && { path: parsedArgs.path }),
+				...(parsedArgs.datatableAsViewer && { datatableAsViewer: true })
 			}
 
 			toolCallbacks.setToolStatus(toolId, {

@@ -10,6 +10,7 @@ import { appSourceToDraftValue, normalizeRawAppData } from './rawAppDraftValue'
 
 type RunnableWithInlineScript = RunnableWithFields & {
 	inlineScript?: InlineScript & { language: ScriptLang }
+	datatable_as_viewer?: boolean
 }
 export type Runnable = RunnableWithInlineScript | undefined
 

@@ -147,6 +147,8 @@ fields:
     value: "default_user"
 ```
 
+`datatable_as_viewer: true` makes an inline runnable's data table connections that name no role hold the roles of the person using the app instead of the app's identity (see "Per-viewer rows" under Data Tables).
+
 ### Referencing existing scripts
 
 To use an existing Windmill script instead of inline code:
@@ -183,7 +185,7 @@ data:
 - `<datatable>/<table>` — Specific table in public schema
 - `<datatable>/<schema>:<table>` — Table in specific schema
 
-**Roles:** when a datatable is under roles, its queries run as a role, which only reaches what it was granted. `roles` records the role the app uses each datatable through; the app's code must pass the same role: `wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python. A datatable without an entry is used as its default role, if it has one, plus the roles of whoever is using the app unless that default is `admin`.
+**Roles:** when a datatable is under roles, its queries run as a role, which only reaches what it was granted. `roles` records the role the app uses each datatable through; the app's code must pass the same role: `wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python. A datatable without an entry is used as its default role, if it has one, plus the roles of the app's identity, or of whoever is using the app for a runnable with `datatable_as_viewer: true`, unless that default is `admin`.
 
 ## SQL Migrations (sql_to_apply/)
 

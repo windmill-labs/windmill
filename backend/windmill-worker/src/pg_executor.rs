@@ -26,7 +26,7 @@ use windmill_common::worker::{
     to_raw_value, Connection, SqlAnnotations, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db, parse_datatable_ref, parse_datatable_ref_for, DatatableAccess,
+    get_datatable_resource_from_db, parse_datatable_ref, parse_datatable_ref_for, DatatableAccess, DatatableConnectAs,
 };
 use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
 use windmill_parser::{Arg, Typ};
@@ -1229,7 +1229,10 @@ pub async fn do_postgresql(
                             DatatableAccess::PermissionedAs {
                                 permissioned_as: &job.permissioned_as,
                                 email: &job.permissioned_as_email,
-                                end_user_email: job.permissioned_as_end_user_email.as_deref(),
+                                connect_as: DatatableConnectAs::from_job_perms(
+                                    job.datatable_as_viewer.unwrap_or(false),
+                                    job.permissioned_as_end_user_email.as_deref(),
+                                ),
                             },
                         )
                         .await?

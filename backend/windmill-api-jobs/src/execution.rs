@@ -266,6 +266,22 @@ pub async fn run_end_user_email(
     }
 }
 
+/// [`run_end_user_email`] of an inline run of the caller's own code, and whether its data table
+/// connections are made as that end user: they are when the calling job's are, since the code is
+/// that job's own.
+pub async fn run_inline_preview_end_user(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+) -> error::Result<(Option<String>, bool)> {
+    match authed.job_id {
+        Some(job_id) => Ok(windmill_common::auth::get_job_perms(db, &job_id, w_id)
+            .await?
+            .map_or((None, false), |p| (p.end_user_email, p.datatable_as_viewer))),
+        None => Ok((Some(authed.email.clone()), false)),
+    }
+}
+
 #[cfg(feature = "enterprise")]
 pub async fn check_license_key_valid() -> error::Result<()> {
     use windmill_common::ee_oss::LICENSE_KEY_VALID;
