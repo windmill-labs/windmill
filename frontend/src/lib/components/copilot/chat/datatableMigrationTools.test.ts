@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { statusMock, createMock, runMock, deleteMock } = vi.hoisted(() => ({
+const { statusMock, createMock, upsertMock, runMock } = vi.hoisted(() => ({
+	upsertMock: vi.fn(),
 	statusMock: vi.fn(),
 	createMock: vi.fn(),
-	runMock: vi.fn(),
-	deleteMock: vi.fn()
+	runMock: vi.fn()
 }))
 
 vi.mock('./shared', () => ({
@@ -18,8 +18,8 @@ vi.mock('$lib/gen', () => ({
 	WorkspaceService: {
 		getDatatableMigrationsStatus: statusMock,
 		createDatatableMigration: createMock,
-		runDatatableMigrations: runMock,
-		deleteDatatableMigration: deleteMock
+		upsertDatatableMigration: upsertMock,
+		runDatatableMigrations: runMock
 	}
 }))
 
@@ -47,7 +47,7 @@ const applied = { timestamp: 10, name: 'init', code_up: '', status: 'ran' }
 const created = { timestamp: 30, name: 'add_refunds', code_up: '', status: 'not_run' }
 
 beforeEach(() => {
-	for (const mock of [statusMock, createMock, runMock, deleteMock]) mock.mockReset()
+	for (const mock of [statusMock, createMock, upsertMock, runMock]) mock.mockReset()
 	createMock.mockResolvedValue({ timestamp: 30 })
 	statusMock.mockResolvedValue({ enabled: true, migrations: [applied, created] })
 	runMock.mockResolvedValue({ applied: [{ version: 30, name: 'add_refunds' }] })
@@ -61,8 +61,7 @@ describe('create_datatable_migration', () => {
 			datatableName: 'main',
 			only: 30
 		})
-		expect(deleteMock).not.toHaveBeenCalled()
-		expect(result).toContain('Created and applied migration 30 (add_refunds)')
+		expect(result).toContain('Applied migration 30 (add_refunds)')
 	})
 
 	it('leaves it pending when an earlier migration is not applied', async () => {
@@ -76,27 +75,31 @@ describe('create_datatable_migration', () => {
 		})
 		const result = await create({})
 		expect(runMock).not.toHaveBeenCalled()
-		expect(deleteMock).not.toHaveBeenCalled()
 		expect(result).toContain('20 (earlier)')
 	})
 
-	it('discards a migration that fails to apply', async () => {
-		runMock.mockRejectedValue({ body: 'relation "refunds" already exists' })
-		const result = await create({})
-		expect(deleteMock).toHaveBeenCalledWith({
+	it('keeps a migration that fails to apply and rewrites it on request', async () => {
+		runMock.mockRejectedValueOnce({ body: 'relation "refunds" already exists' })
+		const failed = await create({})
+		expect(failed).toContain('relation "refunds" already exists')
+		expect(failed).toContain('with version 30')
+
+		await create({ version: 30, code_up: 'BEGIN;\nCREATE TABLE refunds2 ();\nEND;' })
+		expect(createMock).toHaveBeenCalledTimes(1)
+		expect(upsertMock).toHaveBeenCalledWith({
 			workspace: 'test-workspace',
 			datatableName: 'main',
-			timestamp: 30
+			requestBody: {
+				timestamp: 30,
+				name: 'add_refunds',
+				code_up: 'BEGIN;\nCREATE TABLE refunds2 ();\nEND;'
+			}
 		})
-		expect(result).toContain('relation "refunds" already exists')
-		expect(result).toContain('discarded')
-	})
-
-	it('keeps a failed migration that ran outside a transaction', async () => {
-		runMock.mockRejectedValue({ body: 'relation "idx" already exists' })
-		const result = await create({ code_up: 'CREATE INDEX CONCURRENTLY idx ON refunds (id);' })
-		expect(deleteMock).not.toHaveBeenCalled()
-		expect(result).toContain('kept as pending')
+		expect(runMock).toHaveBeenLastCalledWith({
+			workspace: 'test-workspace',
+			datatableName: 'main',
+			only: 30
+		})
 	})
 
 	it('does not call unreadable earlier migrations pending', async () => {

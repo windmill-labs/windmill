@@ -81,6 +81,12 @@ const getCreateMigrationSchema = memo(() =>
 			.describe(
 				'The datatable role the migration runs as, on a datatable that has roles. Omit to run as admin, which only the datatable admins may do.'
 			),
+		version: z
+			.number()
+			.optional()
+			.describe(
+				'Rewrite this migration instead of adding one: only for a pending migration, typically the one that just failed to apply.'
+			),
 		apply: z
 			.boolean()
 			.optional()
@@ -91,7 +97,7 @@ const getCreateMigrationToolDef = memo(() =>
 	createToolDef(
 		getCreateMigrationSchema(),
 		'create_datatable_migration',
-		'Change the schema of a datatable that has migrations enabled: saves the change as a new migration and applies it. One that fails inside its transaction is discarded, so fix the SQL and call this again.'
+		'Change the schema of a datatable that has migrations enabled: saves the change as a new migration and applies it. One that fails to apply stays saved as pending: call this again with its `version` to fix it.'
 	)
 )
 
@@ -195,35 +201,44 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 			def: getCreateMigrationToolDef(),
 			requiresConfirmation: true,
 			confirmationMessage: (args) =>
-				args?.apply === false
-					? 'Save data table migration'
-					: 'Create and apply data table migration',
-			queuedLabel: (args) => `Create migration "${args?.name ?? ''}"`,
+				`${args?.version === undefined ? 'Create' : 'Rewrite'}${args?.apply === false ? '' : ' and apply'} data table migration`,
+			queuedLabel: (args) => `Write migration "${args?.name ?? ''}"`,
 			showDetails: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				const parsed = getCreateMigrationSchema().parse(args)
 				const datatableName = parsed.datatable_name
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Creating migration "${parsed.name}" on "${datatableName}"...`
+					content: `Saving migration "${parsed.name}" on "${datatableName}"...`
 				})
+				// The role is an annotation in the SQL, read from above everything else, and a rollback
+				// has to run as the role that created what it drops.
+				const definition = {
+					name: parsed.name,
+					code_up: withRole(parsed.code_up, parsed.role),
+					...(parsed.code_down !== undefined && {
+						code_down: withRole(parsed.code_down, parsed.role)
+					})
+				}
 				let version: number
 				try {
-					const created = await WorkspaceService.createDatatableMigration({
-						workspace,
-						datatableName,
-						requestBody: {
-							name: parsed.name,
-							// The role is an annotation in the SQL, read from above everything else, and a
-							// rollback has to run as the role that created what it drops.
-							code_up: withRole(parsed.code_up, parsed.role),
-							...(parsed.code_down !== undefined && {
-								code_down: withRole(parsed.code_down, parsed.role)
-							})
-						}
-					})
-					version = created.timestamp
+					if (parsed.version === undefined) {
+						const created = await WorkspaceService.createDatatableMigration({
+							workspace,
+							datatableName,
+							requestBody: definition
+						})
+						version = created.timestamp
+					} else {
+						// The server refuses rewriting one that is applied.
+						version = parsed.version
+						await WorkspaceService.upsertDatatableMigration({
+							workspace,
+							datatableName,
+							requestBody: { timestamp: version, ...definition }
+						})
+					}
 				} catch (e) {
-					return fail(toolCallbacks, toolId, `Error creating migration: ${apiErrorMessage(e)}`)
+					return fail(toolCallbacks, toolId, `Error saving migration: ${apiErrorMessage(e)}`)
 				}
 				const label = migrationLabel({ version, name: parsed.name })
 				if (parsed.apply === false) {
@@ -270,38 +285,16 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 						only: version
 					})
 				} catch (e) {
-					const applyError = apiErrorMessage(e)
-					// Outside a transaction the statements before the failing one are committed, and the
-					// definition, with its down, is the only record of them.
-					if (!isTransactional(parsed.code_up)) {
-						return fail(
-							toolCallbacks,
-							toolId,
-							`Migration ${label} failed to apply: ${applyError}. It does not run in a transaction, so part of it may be applied: it is kept as pending and blocks later migrations. Tell the user, who can fix or delete it in Workspace settings → Data Tables.`
-						)
-					}
-					// Nothing of it is applied, and a definition that cannot apply blocks every later run.
-					try {
-						await WorkspaceService.deleteDatatableMigration({
-							workspace,
-							datatableName,
-							timestamp: version
-						})
-					} catch (deleteError) {
-						return fail(
-							toolCallbacks,
-							toolId,
-							`Migration ${label} failed to apply: ${applyError}. It is still saved as pending and could not be removed (${apiErrorMessage(deleteError)}), so tell the user: it has to be deleted or fixed in Workspace settings → Data Tables before any other migration can run.`
-						)
-					}
+					// Kept whatever failed: part of it may be applied, or all of it with only the record
+					// missing, and the definition with its down is then the one trace of that.
 					return fail(
 						toolCallbacks,
 						toolId,
-						`Migration "${parsed.name}" failed to apply and was discarded: ${applyError}`
+						`Migration ${label} is saved but failed to apply: ${apiErrorMessage(e)}. It stays pending and blocks later migrations. If nothing of it was applied, fix it by calling this tool again with version ${version}; otherwise, or to drop it, tell the user, who can edit or delete it in Workspace settings → Data Tables.`
 					)
 				}
 				toolCallbacks.setToolStatus(toolId, { content: `Applied migration ${label}` })
-				return `Created and applied migration ${label} on datatable "${datatableName}".`
+				return `Applied migration ${label} on datatable "${datatableName}".`
 			}
 		},
 		{
@@ -374,17 +367,6 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 
 function migrationStatus(status: 'ran' | 'not_run' | 'unknown'): 'applied' | 'pending' | 'unknown' {
 	return status === 'ran' ? 'applied' : status === 'not_run' ? 'pending' : 'unknown'
-}
-
-/** Whether the whole of `sql` is one `BEGIN; ... END;` frame, so that a failure leaves nothing of
- * it applied. */
-function isTransactional(sql: string): boolean {
-	const body = sql
-		.split('\n')
-		.filter((line) => !line.trim().startsWith('--'))
-		.join('\n')
-		.trim()
-	return /^begin\s*;/i.test(body) && /;\s*(end|commit)\s*;?$/i.test(body)
 }
 
 function withRole(sql: string, role: string | undefined): string {

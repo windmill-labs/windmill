@@ -755,6 +755,28 @@ export function createBenchmarkDatatableMigration(input: {
 	return { datatable: input.datatableName, timestamp, ...input.requestBody }
 }
 
+export function upsertBenchmarkDatatableMigration(input: {
+	workspace: string
+	datatableName: string
+	requestBody: { timestamp: number; name: string; code_up: string; code_down?: string }
+}): string {
+	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
+	const migrations = (datatable.migrations ??= [])
+	const existing = migrations.find((m) => m.timestamp === input.requestBody.timestamp)
+	if (existing?.applied) {
+		throw new Error(
+			`Migration ${existing.timestamp} on data table '${input.datatableName}' has already been applied and cannot be modified`
+		)
+	}
+	if (existing) {
+		Object.assign(existing, input.requestBody)
+	} else {
+		migrations.push({ ...input.requestBody })
+		migrations.sort((a, b) => a.timestamp - b.timestamp)
+	}
+	return `Upserted migration ${input.requestBody.timestamp} in ${input.datatableName}`
+}
+
 export function runBenchmarkDatatableMigrations(input: {
 	workspace: string
 	datatableName: string
@@ -781,9 +803,12 @@ export function runBenchmarkDatatableMigrations(input: {
 export function rollbackBenchmarkDatatableMigration(input: {
 	workspace: string
 	datatableName: string
+	only?: number
 }) {
 	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
-	const last = (datatable.migrations ?? []).filter((m) => m.applied).at(-1)
+	const last = (datatable.migrations ?? [])
+		.filter((m) => m.applied && (input.only === undefined || m.timestamp === input.only))
+		.at(-1)
 	if (!last) {
 		return { rolled_back: [] }
 	}
@@ -795,18 +820,6 @@ export function rollbackBenchmarkDatatableMigration(input: {
 	applyBenchmarkMigrationSql(datatable, last.code_down)
 	last.applied = false
 	return { rolled_back: [{ version: last.timestamp, name: last.name }] }
-}
-
-export function deleteBenchmarkDatatableMigration(input: {
-	workspace: string
-	datatableName: string
-	timestamp: number
-}): string {
-	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
-	datatable.migrations = (datatable.migrations ?? []).filter(
-		(m) => m.timestamp !== input.timestamp
-	)
-	return `Deleted migration ${input.timestamp} from ${input.datatableName}`
 }
 
 // ============= DuckLake catalogs and declared metrics =============

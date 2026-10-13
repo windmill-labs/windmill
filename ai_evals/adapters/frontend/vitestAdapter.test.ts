@@ -94,9 +94,9 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkDatatableSchema,
 		getBenchmarkDatatableMigrationsStatus,
 		createBenchmarkDatatableMigration,
+		upsertBenchmarkDatatableMigration,
 		runBenchmarkDatatableMigrations,
 		rollbackBenchmarkDatatableMigration,
-		deleteBenchmarkDatatableMigration,
 		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
 		getBenchmarkFlowAllResults,
@@ -414,6 +414,10 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? createBenchmarkDatatableMigration(data)
 					: actual.WorkspaceService.createDatatableMigration(data),
+			upsertDatatableMigration: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? upsertBenchmarkDatatableMigration(data)
+					: actual.WorkspaceService.upsertDatatableMigration(data),
 			runDatatableMigrations: async (data: any) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? runBenchmarkDatatableMigrations(data)
@@ -421,11 +425,7 @@ vi.mock('$lib/gen', async () => {
 			rollbackDatatableMigrations: async (data: any) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? rollbackBenchmarkDatatableMigration(data)
-					: actual.WorkspaceService.rollbackDatatableMigrations(data),
-			deleteDatatableMigration: async (data: any) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? deleteBenchmarkDatatableMigration(data)
-					: actual.WorkspaceService.deleteDatatableMigration(data)
+					: actual.WorkspaceService.rollbackDatatableMigrations(data)
 		}),
 		DataMetricService: wrapService(actual.DataMetricService, {
 			listDataMetrics: async (data: { workspace: string }) =>
