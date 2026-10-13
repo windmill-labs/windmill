@@ -9,7 +9,6 @@
 	import { canWrite, displayDate, getLocalSetting, pluralize, storeLocalSetting } from '$lib/utils'
 	import { useEditRights, useScheduleLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
-	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -56,7 +55,7 @@
 	import JobPreview from '$lib/components/jobs/JobPreview.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { page } from '$app/stores'
 	import { useHostedPage } from '$lib/components/hostedPage'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -99,7 +98,15 @@
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
+	// Bumped by every load and on destroy: a load that resumes from an await under an older
+	// value was superseded or outlived the page, and must not fetch or write anything more.
+	let loadGeneration = 0
+	onDestroy(() => {
+		loadGeneration++
+	})
+
 	async function loadSchedules(): Promise<void> {
+		const generation = ++loadGeneration
 		const currentFilters = filters.val
 
 		// Build API parameters from filters.
@@ -140,6 +147,7 @@
 		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, operatingUser.current), ...x }
 		})
+		if (generation !== loadGeneration) return
 
 		// Extract unique values for autocomplete
 		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
@@ -153,23 +161,27 @@
 		// after the schedule core data has been loaded, load all the job stats
 		// TODO: we could potentially not reload the job stats on every call to loadSchedules, but for now it's
 		// simpler to always call it. Update if performance becomes an issue.
-		loadSchedulesWithJobStats()
+		loadSchedulesWithJobStats(generation)
 	}
 
-	// Reload schedules when filters change
+	// One effect for every reason to reload (filters, workspace, user), so that mounting
+	// issues a single load rather than one per reason. Waits for the user lookup to settle,
+	// not for a user: a failed lookup still lists, read-only.
 	$effect(() => {
 		filters.val
-		if ($operatingWorkspace) {
+		operatingUser.current
+		if ($operatingWorkspace && operatingUser.resolved($operatingWorkspace)) {
 			untrack(() => loadSchedules())
 		}
 	})
 
-	async function loadSchedulesWithJobStats(): Promise<void> {
+	async function loadSchedulesWithJobStats(generation: number): Promise<void> {
 		loadingSchedulesWithJobStats = true
 		let schedulesWithJobsByPath = new Map<string, ScheduleW>()
 		let schedulesWithJobsList = await ScheduleService.listSchedulesWithJobs({
 			workspace: $operatingWorkspace!
 		})
+		if (generation !== loadGeneration) return
 		schedulesWithJobsList.map((x) => {
 			schedulesWithJobsByPath[x.path] = x
 		})
@@ -223,13 +235,6 @@
 		}
 	}
 
-	$effect(() => {
-		if ($operatingWorkspace && operatingUser.current) {
-			untrack(() => {
-				loadSchedules()
-			})
-		}
-	})
 	let scheduleEditor: ScheduleEditor | undefined = $state()
 
 	// Deep link: #<path> opens that schedule's edit drawer. Tracks the last
@@ -563,7 +568,7 @@
 			</div>
 			<div class="flex gap-2 items-center justify-end">
 				<Button
-					href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+					href={`/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
 					disabled={draft_only}
 					unifiedSize="md"
 					startIcon={{ icon: List }}
@@ -586,7 +591,7 @@
 							displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
 							icon: Eye,
 							action: () => {
-								if (hosted) hosted.openLink(`${base}${href}`)
+								if (hosted) hosted.openLink(href)
 								else goto(href)
 							}
 						},
@@ -638,12 +643,12 @@
 						{
 							displayName: 'View runs',
 							icon: List,
-							href: `${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
+							href: `/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
 						},
 						{
 							displayName: 'Audit logs',
 							icon: Eye,
-							href: `${base}/audit_logs?resource=${path}`
+							href: `/audit_logs?resource=${path}`
 						},
 						{
 							displayName: 'Run now',
@@ -676,7 +681,7 @@
 					{/if}
 					{#each jobs ?? [] as job}
 						{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
-						<a href="{base}/run/{job.id}?workspace={$operatingWorkspace}">
+						<a href="/run/{job.id}?workspace={$operatingWorkspace}">
 							<JobPreview id={job.id} class="p-4">
 								<div>
 									<div

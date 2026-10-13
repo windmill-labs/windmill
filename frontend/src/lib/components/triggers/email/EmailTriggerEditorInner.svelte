@@ -140,12 +140,17 @@
 		is_flow = itemKind === 'flow'
 	})
 
+	// Set by `openNew(…, { onSaveDraft })`: the caller keeps the trigger as its own
+	// draft, so Save hands it the config instead of writing it.
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
+
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
 		defaultConfig?: Partial<NewEmailTrigger>,
 		fixedScriptPath_?: string
 	) {
+		saveDraftHandler = undefined
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
 		editRights.forgetFailures()
@@ -190,8 +195,14 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Partial<EmailTrigger>
+		defaultValues?: Partial<EmailTrigger>,
+		opts: {
+			onSaveDraft?: (cfg: Record<string, any>) => boolean
+			/** A config this editor saved before, re-applied over the defaults. */
+			draftConfig?: Record<string, any>
+		} = {}
 	) {
+		saveDraftHandler = opts.onSaveDraft
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -220,6 +231,7 @@
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
 			originalConfig = undefined
+			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig as Partial<EmailTrigger>)
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -278,6 +290,11 @@
 	}
 
 	async function triggerScript(): Promise<void> {
+		if (saveDraftHandler) {
+			if (!saveDraftHandler($state.snapshot(getEmailTriggerConfig()))) return
+			drawer?.closeDrawer()
+			return
+		}
 		if (customSaveBehavior) {
 			customSaveBehavior(emailConfig)
 			drawer?.closeDrawer()
@@ -504,6 +521,7 @@
 			{edit}
 			isLoading={deploymentLoading}
 			onUpdate={triggerScript}
+			saveLabel={saveDraftHandler ? 'Save draft' : undefined}
 			{onReset}
 			{onDelete}
 			{isDeployed}
@@ -523,7 +541,9 @@
 			? can_write
 				? `Edit email trigger ${initialPath}`
 				: `Email trigger ${initialPath}`
-			: 'New email trigger'}
+			: saveDraftHandler
+				? 'Draft email trigger'
+				: 'New email trigger'}
 		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet actions()}

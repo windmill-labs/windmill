@@ -20,7 +20,6 @@ writes whichever of the two changed, including the tab that is not on screen.
 	import { userStore, type UserExt } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$lib/base'
 	import { Building2, ExternalLink, User } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
@@ -50,7 +49,7 @@ writes whichever of the two changed, including the tab that is not on screen.
 	const aiChatManager = getAiChatManager()
 	// The section acts on `ws`, which in a session is not the nav workspace, so the link
 	// has to name it or it opens settings the user may not administer.
-	let aiSettingsHref = $derived(`${base}/workspace_settings?workspace=${ws}&tab=ai`)
+	let aiSettingsHref = $derived(`/workspace_settings?workspace=${ws}&tab=ai`)
 
 	let mode = $derived(aiChatManager.mode)
 	let tab = $state<'workspace' | 'user'>('workspace')

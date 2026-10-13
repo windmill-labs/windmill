@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { Button } from '$lib/components/common'
 	import { classes as alertClasses, icons as alertIcons } from '$lib/components/common/alert/model'
 	import { clearSessionsBetaOptOut } from '$lib/components/copilot/chat/global/gate'
@@ -22,7 +21,7 @@
 		<Button
 			variant="subtle"
 			unifiedSize="xs"
-			onclick={() => clearSessionsBetaOptOut(`${base}/sessions`)}
+			onclick={() => clearSessionsBetaOptOut('/sessions')}
 		>
 			Activate
 		</Button>

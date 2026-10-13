@@ -66,7 +66,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
 	import { page } from '$app/state'
-	import { base } from '$app/paths'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import {
 		dateBucket,
@@ -119,7 +118,7 @@
 
 	// Only highlight the active session while the sessions page is open — elsewhere
 	// `currentSessionId` lingers but no row should appear selected.
-	const onSessionsPage = $derived(page.url.pathname.startsWith(`${base}/sessions`))
+	const onSessionsPage = $derived(page.url.pathname.startsWith('/sessions'))
 	const sessionActive = $derived(onSessionsPage)
 
 	interface Props {
@@ -1338,8 +1337,8 @@
 	bind:open={seedOfferOpen}
 	kind="X"
 	enterConfirms={false}
-	title="Keep this {seedOffer?.route.kind ?? 'item'} in the new session?"
-	description="You came here from {seedOffer?.route.itemPath ?? ''}."
+	title="Keep this {seedOffer?.kind ?? 'item'} in the new session?"
+	description="You came here from {seedOffer?.path ?? ''}."
 >
 	<p class="text-sm text-secondary">
 		Keeping it opens it in the preview, so the chat starts with it as context.

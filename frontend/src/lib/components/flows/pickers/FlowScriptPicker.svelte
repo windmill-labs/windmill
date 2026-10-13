@@ -8,7 +8,7 @@
 	interface Props {
 		disabled?: boolean
 		label: string
-		lang?: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | undefined
+		lang?: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | 'pisandbox' | undefined
 		id?: string | undefined
 	}
 

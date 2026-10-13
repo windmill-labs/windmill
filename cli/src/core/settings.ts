@@ -413,7 +413,7 @@ export async function pushWorkspaceSettings(
   const localOperatorSettings = localSettings.operator_settings && {
     ...localSettings.operator_settings,
   };
-  for (const key of ["builder_flows", "manage_schedules", "manage_triggers"] as const) {
+  for (const key of ["builder_flows", "builder_apps", "manage_schedules", "manage_triggers"] as const) {
     const remote = settings.operator_settings?.[key];
     if (localOperatorSettings && localOperatorSettings[key] === undefined && remote !== undefined) {
       localOperatorSettings[key] = remote;

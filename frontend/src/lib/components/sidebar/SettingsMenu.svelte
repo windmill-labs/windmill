@@ -21,7 +21,6 @@
 		KeyRound,
 		GraduationCap
 	} from 'lucide-svelte'
-	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
@@ -192,12 +191,12 @@
 								icon: Building,
 								// The `workspace` query param switches the app to the target
 								// workspace on arrival (full loads and client-side navs alike).
-								href: `${base}/workspace_settings?workspace=${workspaceSettingsTarget}`
+								href: `/workspace_settings?workspace=${workspaceSettingsTarget}`
 							}
 						: {
 								displayName: `${currentWs?.name ?? $workspaceStore ?? 'Workspace'} settings`,
 								icon: Building,
-								href: `${base}/workspace_settings`
+								href: '/workspace_settings'
 							}
 				]
 			: []),
@@ -256,7 +255,7 @@
 							{
 								displayName: 'Take the tour',
 								icon: GraduationCap,
-								action: () => goto(`${base}/?${TOUR_PARAM}=${TOUR_PARAM_VALUE}`)
+								action: () => goto(`/?${TOUR_PARAM}=${TOUR_PARAM_VALUE}`)
 							}
 						]
 					: []),
@@ -277,9 +276,9 @@
 	])
 
 	const logsItems = $derived<Item[]>([
-		{ displayName: 'Audit logs', icon: Eye, href: `${base}/audit_logs` },
+		{ displayName: 'Audit logs', icon: Eye, href: '/audit_logs' },
 		...($devopsRole
-			? [{ displayName: 'Service logs', icon: Logs, href: `${base}/service_logs` }]
+			? [{ displayName: 'Service logs', icon: Logs, href: '/service_logs' }]
 			: []),
 		...($enterpriseLicense
 			? [
@@ -317,7 +316,7 @@
 	<MenuLink
 		class="!text-xs"
 		label="Workers"
-		href="{base}/workers"
+		href="/workers"
 		icon={ServerCog}
 		disabled={!sidebarPageAllowed($userStore?.operator, currentWs, 'workers')}
 		{isCollapsed}
@@ -363,7 +362,7 @@
 		<MenuLink
 			class="!text-xs"
 			label="Audit logs"
-			href="{base}/audit_logs"
+			href="/audit_logs"
 			icon={Eye}
 			disabled={!sidebarPageAllowed($userStore?.operator, currentWs, 'audit_logs')}
 			{isCollapsed}

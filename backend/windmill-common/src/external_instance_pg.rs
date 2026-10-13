@@ -198,7 +198,8 @@ pub async fn external_instance_database_usages<'c>(
 /// would be a login nothing can drop any more. Allowed on every edition, so a
 /// downgraded instance can still clear a setting it no longer uses.
 async fn ensure_external_instance_pg_removable(conn: &mut sqlx::PgConnection) -> Result<()> {
-    ensure_external_instance_pg_unused(conn, &format!("removing {EXTERNAL_INSTANCE_PG_SETTING}")).await
+    ensure_external_instance_pg_unused(conn, &format!("removing {EXTERNAL_INSTANCE_PG_SETTING}"))
+        .await
 }
 
 /// Refuse while Windmill has databases or data table roles on the cluster, or a workspace points
@@ -394,16 +395,21 @@ pub async fn write_external_instance_pg_setting(
 }
 
 /// [`write_external_instance_pg_setting`] for a settings diff: writes the key if the diff touches
-/// it, and takes it out of the diff so the generic apply does not write it again.
+/// it, and takes it out of the diff so the generic apply does not write it again. `observer` is
+/// told of the write here, since the generic apply no longer sees the key.
 ///
 /// Authorization: checks nothing. Callers MUST be superadmin, or the declarative instance config
 /// sync, which applies what the operator deployed.
 pub async fn write_external_instance_pg_from_diff(
     db: &DB,
     diff: &mut crate::instance_config::SettingsDiff,
+    observer: &impl crate::instance_config::ConfigWriteObserver,
 ) -> Result<()> {
     if let Some(value) = diff.upserts.remove(EXTERNAL_INSTANCE_PG_SETTING) {
         write_external_instance_pg_setting(db, Some(&value)).await?;
+        observer
+            .setting_written(EXTERNAL_INSTANCE_PG_SETTING, Some(&value))
+            .await?;
     }
     if let Some(i) = diff
         .deletes
@@ -412,6 +418,9 @@ pub async fn write_external_instance_pg_from_diff(
     {
         diff.deletes.remove(i);
         write_external_instance_pg_setting(db, None).await?;
+        observer
+            .setting_written(EXTERNAL_INSTANCE_PG_SETTING, None)
+            .await?;
     }
     Ok(())
 }

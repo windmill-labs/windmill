@@ -18,16 +18,19 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
   publish_chat_sdk:
-    runs-on: ubicloud-standard-8
+    # Published by npm trusted publishing (OIDC), which npm accepts only from
+    # GitHub-hosted runners and npm >= 11.5.1: keep both, there is no token to fall back on.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v7
         with:
-          node-version: "20.x"
+          node-version: "24.x"
           registry-url: "https://registry.npmjs.org"
       - run: cd chat-sdk && npm ci && npm run build && npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
   publish_cli:
     runs-on: ubicloud-standard-8
     steps:

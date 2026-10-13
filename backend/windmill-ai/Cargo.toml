@@ -28,6 +28,7 @@ eventsource-stream.workspace = true
 futures.workspace = true
 http.workspace = true
 mime_guess.workspace = true
+rand.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

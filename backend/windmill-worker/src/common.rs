@@ -643,6 +643,7 @@ pub async fn update_worker_ping_for_failed_init_script(
                         wm_memory_usage: None,
                         job_isolation: None,
                         native_mode: None,
+                        draining: None,
                         ping_type: PingType::InitScript,
                     },
                 )
@@ -1961,6 +1962,18 @@ pub async fn save_in_cache(
     CACHED_RESULTS.insert(cached_path, Arc::new(store_cache_resource));
 }
 
+pub(crate) fn deno_not_installed_error() -> Error {
+    Error::ExecutionErr(format!(
+        "Deno is not installed on this worker (looked for it at {}). The standard Windmill images \
+         no longer ship Deno: official support for it on those images was discontinued after Deno \
+         announced the end of development of the Deno runtime (https://deno.com/blog/cloudflare). \
+         We recommend migrating this script to Bun. To keep running Deno scripts, use the \
+         windmill-full or windmill-ee-full image on every worker that accepts the deno tag, or \
+         install Deno on them and point DENO_PATH at it.",
+        crate::DENO_PATH.as_str()
+    ))
+}
+
 fn tentatively_improve_error(err: Error, executable: &str) -> Error {
     #[cfg(unix)]
     let err_msgs = vec!["os error 2", "os error 3", "No such file or directory"];
@@ -1969,6 +1982,11 @@ fn tentatively_improve_error(err: Error, executable: &str) -> Error {
     let err_msgs = vec!["program not found", "os error 2", "os error 3"];
 
     if err_msgs.iter().any(|msg| err.to_string().contains(msg)) {
+        // An absolute DENO_PATH is checked before spawning, where a missing job dir
+        // cannot be mistaken for a missing binary.
+        if executable == crate::DENO_PATH.as_str() && !Path::new(executable).is_absolute() {
+            return deno_not_installed_error();
+        }
         return Error::internal_err(format!(
             "Executable {executable} not found on worker. PATH: {}",
             *PATH_ENV

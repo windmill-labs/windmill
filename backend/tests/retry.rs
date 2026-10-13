@@ -70,12 +70,20 @@ mod retry {
 
     fn inner_step() -> &'static str {
         r#"
+import { connect } from "node:net";
+
 export async function main(index, port) {
-    const buf = new Uint8Array([0]);
-    const sock = await Deno.connect({ port });
-    await sock.write(new Uint8Array([index]));
-    if (await sock.read(buf) != 1) throw Error("read");
-    return buf[0];
+    return await new Promise((resolve, reject) => {
+        const sock = connect({ port, host: "127.0.0.1" }, () => {
+            sock.write(new Uint8Array([index]));
+        });
+        sock.on("data", (data) => {
+            resolve(data[0]);
+            sock.destroy();
+        });
+        sock.on("error", reject);
+        sock.on("close", () => reject(Error("read")));
+    });
 }
             "#
     }
@@ -105,7 +113,7 @@ def main(last, port):
                                 "port": { "type": "javascript", "expr": "flow_input.port" },
                             },
                             "type": "rawscript",
-                            "language": "deno",
+                            "language": "bun",
                             "content": inner_step(),
                         },
                     }],
@@ -281,7 +289,7 @@ def main(last, port):
                 "value": {
                     "input_transforms": {},
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return \"ok\" }",
                 },
             }, {
@@ -293,7 +301,7 @@ def main(last, port):
                         "port": { "type": "javascript", "expr": "flow_input.port" },
                     },
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": inner_step(),
                 },
                 "retry": { "constant": { "attempts": 1, "seconds": 0 } },

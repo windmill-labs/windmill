@@ -2,7 +2,6 @@
 	import { untrack } from 'svelte'
 	import { UserService } from '$lib/gen'
 	import { page } from '$app/state'
-	import { base } from '$lib/base'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -35,7 +34,7 @@
 		Token will be posted to {host == 'localhost' ? 'your local machine' : host} to port {port}
 	</p>
 	<div class="flex flex-row justify-around pt-4 gap-x-1">
-		<Button variant="default" destructive size="lg" href={base}>Decline</Button>
+		<Button variant="default" destructive size="lg" href="/">Decline</Button>
 		<Button variant="accent" size="lg" on:click={authorizeToken}>Authorize</Button>
 	</div>
 </CenteredModal>

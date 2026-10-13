@@ -35,7 +35,7 @@ app related commands
 - `app dev [app_folder:string]` - Start a development server for building apps with live reload and hot module replacement
   - `--port <port:number>` - Port to run the dev server on (will find next available port if occupied)
   - `--host <host:string>` - Host to bind the dev server to
-  - `--entry <entry:string>` - Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)
+  - `--entry <entry:string>` - Entry point file (default: index.ts for Svelte, index.tsx otherwise)
   - `--no-open` - Don't automatically open the browser
   - `--recording` - Frame the app in a shell with a Record button, to capture a replayable session recording of the app under development
 - `app lint [app_folder:string]` - Lint a raw app folder to validate structure and buildability
@@ -46,7 +46,7 @@ app related commands
 - `app new` - create a new raw app from a template
   - `--summary <summary:string>` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
   - `--path <path:string>` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
-  - `--framework <framework:string>` - Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode.
+  - `--framework <framework:string>` - Framework template: react19 | react18 | svelte5. Skips the prompt when provided. Triggers non-interactive mode.
   - `--datatable <datatable:string>` - Datatable to wire up. Without this flag in non-interactive mode, no datatable is configured.
   - `--schema <schema:string>` - Schema to use with --datatable. If it doesn't exist yet, a sql_to_apply/ migration (CREATE SCHEMA IF NOT EXISTS) is written for it.
   - `--overwrite` - Overwrite the target directory if it already exists, without prompting.

@@ -7,7 +7,15 @@ import { NODE } from '$lib/components/graph/util'
 // breathing room.
 const NODE_WIDTH = NODE.width
 const NODE_HEIGHT = NODE.height + 30
-const LAYER_GAP = NODE.gap.vertical
+/** Rendered height of a pipeline node: a kind label over a title. Fits inside
+ * the `NODE_HEIGHT` row the layout reserves. */
+export const PIPELINE_NODE_HEIGHT = 48
+// A step more than the flow editor's gap: the + on a node's bottom edge sits in it.
+const LAYER_GAP = NODE.gap.vertical + 16
+/** Height of the "Add data source" pill the anchor draws, and its gap to the
+ * graph: tighter than LAYER_GAP, since no edge runs through it. */
+const ANCHOR_HEIGHT = 32
+const ANCHOR_GAP = 40
 const SIBLING_GAP = NODE.gap.horizontal
 // Horizontal gutter between two disjoint subgraphs. Wider than the
 // within-subgraph sibling gap so visually-unrelated components (e.g. two
@@ -15,10 +23,16 @@ const SIBLING_GAP = NODE.gap.horizontal
 // into each other's columns — but only ~2×, so they don't drift far apart.
 const COMPONENT_GAP = SIBLING_GAP * 2
 
-const LAYER_H = NODE_HEIGHT + LAYER_GAP
+/** Extra height of an assets-only node: the trigger chip under its title. */
+export const PIPELINE_NODE_EXTRA_ROW = 20
+/** Height of the header strip naming an assets-only node's producing script. */
+export const PIPELINE_NODE_HEADER = 22
+/** Extra vertical padding of a card under a header, top plus bottom. */
+export const PIPELINE_NODE_HEADER_CARD_PAD = 12
 
 interface GraphInput {
-	nodes: Array<{ id: string; data: AssetGraphNodeData }>
+	/** `width` defaults to `NODE.width`. */
+	nodes: Array<{ id: string; data: AssetGraphNodeData; width?: number }>
 	edges: Array<{ source: string; target: string }>
 }
 
@@ -52,15 +66,18 @@ interface Band {
 // intersects theirs.
 //
 // y comes from longest-path layering (same top-down orientation as before:
-// producers above, assets in the middle, consumers below). Returns positions
-// (band centers) normalized so the component's min x,y = 0. Cyclic input is
-// handled by dropping feedback edges (see the Kahn step below).
+// producers above, assets in the middle, consumers below). Returns node
+// centers, normalized so the component's leftmost edge and top are at 0.
+// Cyclic input is handled by dropping feedback edges (see the Kahn step below).
 function layoutComponent(
 	nodes: GraphInput['nodes'],
-	edges: GraphInput['edges']
+	edges: GraphInput['edges'],
+	rowH: number
 ): Map<string, Positioned> {
+	const layerH = rowH + LAYER_GAP
 	const out = new Map<string, Positioned>()
 	const ids = new Set(nodes.map((n) => n.id))
+	const nodeW = new Map(nodes.map((n) => [n.id, n.width ?? NODE_WIDTH]))
 
 	const parents = new Map<string, string[]>()
 	const children = new Map<string, string[]>()
@@ -137,7 +154,7 @@ function layoutComponent(
 		const kids = treeChildren.get(id)!
 		const kidsW =
 			kids.reduce((acc, k) => acc + W.get(k)!, 0) + SIBLING_GAP * Math.max(0, kids.length - 1)
-		W.set(id, Math.max(NODE_WIDTH, kidsW))
+		W.set(id, Math.max(nodeW.get(id)!, kidsW))
 	}
 
 	// Vertical (pixel) extent of a subtree, for band collision checks.
@@ -152,14 +169,14 @@ function layoutComponent(
 			if (l > hi) hi = l
 			for (const k of treeChildren.get(cur)!) stack.push(k)
 		}
-		return { top: lo * LAYER_H, bottom: hi * LAYER_H + NODE_HEIGHT }
+		return { top: lo * layerH, bottom: hi * layerH + rowH }
 	}
 
 	// Recursive placement: node centered over its band, children packed
 	// side-by-side and centered within it.
 	function placeTree(id: string, left: number) {
 		const w = W.get(id)!
-		out.set(id, { x: left + w / 2, y: layer.get(id)! * LAYER_H })
+		out.set(id, { x: left + w / 2, y: layer.get(id)! * layerH })
 		const kids = treeChildren.get(id)!
 		if (kids.length === 0) return
 		const kidsW = kids.reduce((acc, k) => acc + W.get(k)!, 0) + SIBLING_GAP * (kids.length - 1)
@@ -211,11 +228,11 @@ function layoutComponent(
 		placeAndRecord(id, center - w / 2)
 	}
 
-	// Normalize so the component's min x,y = 0.
+	// Normalize so the component's leftmost edge and top are at 0.
 	let minX = Infinity
 	let minY = Infinity
-	for (const p of out.values()) {
-		if (p.x < minX) minX = p.x
+	for (const [id, p] of out) {
+		if (p.x - nodeW.get(id)! / 2 < minX) minX = p.x - nodeW.get(id)! / 2
 		if (p.y < minY) minY = p.y
 	}
 	if (isFinite(minX) && isFinite(minY)) {
@@ -243,7 +260,13 @@ function layoutComponent(
 //
 // Falls back to a stable grid if the component layout throws (defensive —
 // cycles are already absorbed by feedback-edge dropping in layoutComponent).
-export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<string, Positioned> {
+export function layoutAssetGraph(
+	graph: GraphInput,
+	anchorId?: string,
+	extraRowHeight = 0
+): Map<string, Positioned> {
+	const rowH = NODE_HEIGHT + extraRowHeight
+	const layerH = rowH + LAYER_GAP
 	const byId = new Map<string, Positioned>()
 	if (graph.nodes.length === 0) return byId
 
@@ -297,19 +320,20 @@ export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<stri
 		// 3. Lay out each component and pack side-by-side. xOffset advances by
 		// the laid-out width of each component (max node center + a node width,
 		// since positions are node centers) plus the gutter.
+		const widthOf = new Map(nodes.map((n) => [n.id, n.width ?? NODE_WIDTH]))
 		let xOffset = 0
 		for (let c = 0; c < nComp; c++) {
-			const positions = layoutComponent(compNodes[c], compEdges[c])
-			let maxX = 0
-			for (const p of positions.values()) if (p.x > maxX) maxX = p.x
+			const positions = layoutComponent(compNodes[c], compEdges[c], rowH)
+			let maxRight = 0
 			for (const [id, p] of positions) {
+				maxRight = Math.max(maxRight, p.x + widthOf.get(id)! / 2)
 				byId.set(id, { x: p.x + xOffset, y: p.y })
 			}
-			xOffset += maxX + NODE_WIDTH + COMPONENT_GAP
+			xOffset += maxRight + COMPONENT_GAP
 		}
 
 		// 4. Re-place the anchor centered horizontally over the whole packed
-		// graph, one layer above it; then renormalize so the anchor sits at the
+		// graph, just above it; then renormalize so the anchor sits at the
 		// top (y = 0), pushing the components down a layer to make room (mirrors
 		// the previous "anchor is the parent of every root" behaviour).
 		if (anchorId && graph.nodes.some((n) => n.id === anchorId)) {
@@ -324,7 +348,9 @@ export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<stri
 					if (p.x > maxX) maxX = p.x
 					if (p.y < minY) minY = p.y
 				}
-				byId.set(anchorId, { x: (minX + maxX) / 2, y: minY - LAYER_H })
+				// One gap above the graph, sized to the pill rather than a full node row:
+				// a row tall enough for an assets-only card leaves it floating high.
+				byId.set(anchorId, { x: (minX + maxX) / 2, y: minY - ANCHOR_HEIGHT - ANCHOR_GAP })
 				let nMinY = Infinity
 				for (const p of byId.values()) if (p.y < nMinY) nMinY = p.y
 				for (const p of byId.values()) p.y -= nMinY
@@ -336,7 +362,7 @@ export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<stri
 		graph.nodes.forEach((n, i) => {
 			byId.set(n.id, {
 				x: (i % cols) * (NODE_WIDTH + SIBLING_GAP),
-				y: Math.floor(i / cols) * LAYER_H
+				y: Math.floor(i / cols) * layerH
 			})
 		})
 		return byId

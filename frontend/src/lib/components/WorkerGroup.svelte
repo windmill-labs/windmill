@@ -55,6 +55,7 @@
 	import TagList from './TagList.svelte'
 	import DedicatedWorkersSelector from './DedicatedWorkersSelector.svelte'
 	import { computeHashedTag } from './dedicated_worker'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import ObjectStoreConfigSettings, {
 		type ObjectStoreConfig
 	} from './ObjectStoreConfigSettings.svelte'
@@ -1238,7 +1239,7 @@
 				<p class="text-xs text-tertiary">Requires a superadmin token.</p>
 				<pre
 					class="mt-1 p-2 bg-surface-secondary rounded text-xs overflow-x-auto whitespace-pre-wrap break-all"
-					>curl -X POST '{window.location.origin}/api/configs/update/worker__{name}' \
+					>curl -X POST '{apiBaseUrl()}/api/configs/update/worker__{name}' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer &lt;token&gt;' \
   -d '{JSON.stringify(cleanWorkerGroupConfig(nconfig ?? {}), null, 2)}'</pre

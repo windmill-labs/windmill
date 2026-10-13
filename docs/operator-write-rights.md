@@ -58,9 +58,9 @@ app rather than telling them why. Both integration tests assert the status for t
 
 An operator may save a draft of a kind they could deploy, and no other: a schedule draft while
 they hold `manage_schedules`, a trigger draft (every trigger kind, native ones included) while
-they hold `manage_triggers`, a flow draft under `builder_flows`. drafts.rs `require_can_write_path`
-asks `operator_can_draft`, which reads the same cached rights as the router gate, and
-`UserDraftItemKind::manage_kind` maps each draft kind to its right. Resource and variable drafts
+they hold `manage_triggers`, a flow or full-code app draft under `builder_flows` / `builder_apps`.
+drafts.rs `require_can_write_path` asks `operator_can_draft`, which reads the same cached rights
+as the router gate, and `UserDraftItemKind::manage_kind` maps each draft kind to its right. Resource and variable drafts
 stay refused even though operators edit those items directly. The AI session chat writes
 schedules and triggers only as drafts and then deploys them, so without this rule an operator who
 may create a schedule on its page could not ask the chat for one.

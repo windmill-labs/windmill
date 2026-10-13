@@ -6,9 +6,9 @@ import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import { previewPageAllowed, type PreviewPage } from './previewRouter'
 
 /**
- * What the session UI may offer in `workspace`, from the same `roleCanAuthor` / `canEditItem`
- * the rest of the app and the chat's toolset read, so a control and the tool behind it never
- * disagree. An unknown user's role reads as able to author, as the toolset does before access
+ * What the session UI may offer in `workspace`. Its editors save drafts, so it reads
+ * `roleCanDraft` / `canDraftItem` — the rule the chat's draft tools and `open_preview` follow — so
+ * a control and the tool behind it never disagree. An unknown user reads as able to draft, as the toolset does before access
  * resolves: hiding every editor from a developer while `whoami` is in flight is the worse
  * mistake, and the server refuses an operator anyway. Reads context and registers an effect:
  * call during component initialisation.

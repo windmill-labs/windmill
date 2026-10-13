@@ -8,7 +8,6 @@
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { pageHref } from '$lib/components/sessions/previewPaths'
 
 	interface Props {
 		/** Unset for a viewer who cannot edit the item: the card then offers no way to the editor. */
@@ -45,7 +44,7 @@
 	const sessionSource = $derived(
 		path
 			? {
-					page: () => pageHref(`/${runnableType}s/get/${path}`),
+					page: () => `/${runnableType}s/get/${path}`,
 					workspaceId: $operatingWorkspace ?? undefined,
 					beforeOpen: logAsked
 				}

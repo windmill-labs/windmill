@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import {
 		JobService,
 		type Job,
@@ -124,6 +123,7 @@
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { useEditRights } from '$lib/operatorWriteRights'
+	import { AGENT_STEP_ID } from '$lib/components/flows/conversations/agentEditorChat'
 	const editRights = useEditRights()
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
@@ -243,7 +243,7 @@
 			// key, and the logged layout only switches `$workspaceStore` when the URL
 			// carries `workspace=`. Without it a recipient whose active workspace
 			// differs would open the run (and validate the token) against the wrong one.
-			const url = `${window.location.origin}${base}/run/${id}?workspace=${encodeURIComponent(
+			const url = `${window.location.origin}/run/${id}?workspace=${encodeURIComponent(
 				workspace
 			)}&view_token=${encodeURIComponent(token)}`
 			copyToClipboard(url)
@@ -259,7 +259,7 @@
 			const token = (await JobService.getJobPublicViewToken({ workspace, id })).trim()
 			// The workspace is a path segment here: the public run page is outside the
 			// logged layout and has no workspace store to fall back on.
-			const url = `${window.location.origin}${base}/public_run/${encodeURIComponent(
+			const url = `${window.location.origin}/public_run/${encodeURIComponent(
 				workspace
 			)}/${id}?view_token=${encodeURIComponent(token)}`
 			copyToClipboard(url)
@@ -756,7 +756,7 @@
 				</div>
 			</Alert>
 			<div class="mt-4">
-				<Button href="{base}/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
+				<Button href="/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
 			</div>
 		</div>
 	</div>
@@ -804,7 +804,7 @@
 		{/if}
 
 		<div class="mt-6 flex justify-center">
-			<Button href="{base}/runs" unifiedSize="md" variant="default">Go to runs page</Button>
+			<Button href="/runs" unifiedSize="md" variant="default">Go to runs page</Button>
 		</div>
 	</div>
 {:else}
@@ -1145,7 +1145,8 @@
 					showStepId
 				>
 					{#snippet errorAction()}
-						{#if failedTopLevelStep}
+						<!-- A saved agent's run is its one step: naming it adds nothing. -->
+						{#if failedTopLevelStep && failedTopLevelStep !== AGENT_STEP_ID}
 							<span>at step {failedTopLevelStep}</span>
 							{#if $enterpriseLicense && canRestart(failedRestart)}
 								<span>·</span>

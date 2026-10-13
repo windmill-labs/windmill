@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import type { Job } from '$lib/gen'
 	import {
@@ -166,12 +165,12 @@
 							{/if}
 							{#if job && job.is_flow_step && job.parent_job}
 								<br /> Step of flow
-								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+								<a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 									{truncateRev(job.parent_job, 10)}
 								</a>
 							{:else if job && job.parent_job}
 								<br /> Parent
-								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+								<a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 									{truncateRev(job.parent_job, 10)}
 								</a>
 							{/if}
@@ -322,7 +321,7 @@
 		<div class="flex justify-end pr-2">
 			<a
 				target="_blank"
-				href="{base}/run/{job.id}?workspace={job.workspace_id}"
+				href="/run/{job.id}?workspace={job.workspace_id}"
 				class={twMerge(
 					'text-right float-right  px-2',
 					selected ? 'text-accent' : 'text-secondary hover:text-accent'

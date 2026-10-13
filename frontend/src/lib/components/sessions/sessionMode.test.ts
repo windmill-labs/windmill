@@ -13,9 +13,13 @@ describe('sessionTargetHref', () => {
 		expect(sessionTargetHref({ kind: 'raw_app', path: 'u/me/app' })).toBe('/apps_raw/edit/u/me/app')
 	})
 
-	it('returns undefined for no target or a kind without a full-page route', () => {
+	it('maps a pipeline to its folder page, whichever form the folder is given in', () => {
+		expect(sessionTargetHref({ kind: 'pipeline', path: 'crm' })).toBe('/pipeline/crm')
+		expect(sessionTargetHref({ kind: 'pipeline', path: 'f/crm' })).toBe('/pipeline/crm')
+	})
+
+	it('returns undefined for no target', () => {
 		expect(sessionTargetHref(undefined)).toBeUndefined()
-		expect(sessionTargetHref({ kind: 'pipeline', path: 'u/me/pipe' })).toBeUndefined()
 	})
 })
 

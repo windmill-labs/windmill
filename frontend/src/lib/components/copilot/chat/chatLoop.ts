@@ -453,7 +453,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const parseOptions = {
 			workspace,
 			provider: modelProvider.provider,
-			onTokenUsage: reportUsage
+			onTokenUsage: reportUsage,
+			live: () => ({ tools: config.tools, helpers: config.helpers })
 		}
 
 		if (isOpenAI) {

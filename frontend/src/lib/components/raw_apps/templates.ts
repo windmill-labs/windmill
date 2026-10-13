@@ -1,5 +1,5 @@
 // The starter app is a tour of what a raw app can do: each card calls one of the
-// STARTER_RUNNABLES below through a different `./wmill` export. The three framework
+// STARTER_RUNNABLES below through a different `./wmill` export. The framework
 // variants share `indexCss` and must stay in step with each other and with the runnables.
 
 const reactIndex = `
@@ -13,7 +13,7 @@ root.render(<App/>);
 `
 
 const STATS_SAMPLE_TEXT =
-	'Windmill turns scripts into apps. Write the frontend in React, Svelte or Vue, and the backend in TypeScript, Python or any other supported language. Scripts run on workers, and the app calls them like functions.'
+	'Windmill turns scripts into apps. Write the frontend in React or Svelte, and the backend in TypeScript, Python or any other supported language. Scripts run on workers, and the app calls them like functions.'
 
 const appTsx = `import React, { useState } from 'react'
 import { backend, backendAsync, getJob, streamJob } from './wmill'
@@ -516,230 +516,6 @@ const app = mount(App, { target: document.getElementById("root")! });
 export default app;
 `
 
-const appVue = `<template>
-  <main class="app">
-    <header class="hero">
-      <span class="eyebrow">Windmill app{{ ctx.workspace ? ' · ' + ctx.workspace : '' }}</span>
-      <h1>{{ firstName ? 'Welcome, ' + firstName : 'Welcome' }}</h1>
-      <p class="muted">
-        A Vue frontend wired to backend runnables. Each card shows one thing an app can do.
-        Edit App.vue and the runnables to make it yours, or ask the AI to build on it.
-      </p>
-    </header>
-
-    <div class="grid">
-      <section class="card">
-        <div class="card-header">
-          <span class="card-step">1</span>
-          <div>
-            <h2>Call a backend runnable</h2>
-            <p class="muted">Runnables are scripts that run on Windmill workers. Call them like async functions; context fields add who is calling.</p>
-          </div>
-        </div>
-        <div class="card-body">
-          <form class="row" @submit.prevent="greet">
-            <input v-model="name" placeholder="Your name" />
-            <button type="submit" :disabled="greetLoading">{{ greetLoading ? 'Running...' : 'Run' }}</button>
-          </form>
-          <div class="output">
-            <span v-if="greetError" class="error">{{ greetError }}</span>
-            <template v-else-if="greeting">
-              <strong>{{ greeting.message }}</strong>
-              <span class="muted"> Ran at {{ new Date(greeting.ran_at).toLocaleTimeString() }}</span>
-            </template>
-            <span v-else class="muted">The result shows up here.</span>
-          </div>
-        </div>
-        <pre class="snippet"><code>const res = await backend.greet({ name })</code></pre>
-      </section>
-
-      <section class="card">
-        <div class="card-header">
-          <span class="card-step">2</span>
-          <div>
-            <h2>Use any language</h2>
-            <p class="muted">Each runnable picks its own language. This one is Python, called the same way.</p>
-          </div>
-        </div>
-        <div class="card-body">
-          <textarea rows="4" v-model="text"></textarea>
-          <div class="row">
-            <button @click="analyze" :disabled="statsLoading">
-              {{ statsLoading ? 'Analyzing...' : 'Analyze with Python' }}
-            </button>
-          </div>
-          <div v-if="statsError" class="output error">{{ statsError }}</div>
-          <div v-if="stats" class="stats">
-            <div><strong>{{ stats.words }}</strong><span class="muted">words</span></div>
-            <div><strong>{{ stats.sentences }}</strong><span class="muted">sentences</span></div>
-            <div><strong>{{ stats.characters }}</strong><span class="muted">characters</span></div>
-            <div class="tags">
-              <span v-for="word in stats.top_words" :key="word" class="tag">{{ word }}</span>
-            </div>
-          </div>
-        </div>
-        <pre class="snippet"><code>const stats = await backend.word_stats({ text })</code></pre>
-      </section>
-
-      <section class="card">
-        <div class="card-header">
-          <span class="card-step">3</span>
-          <div>
-            <h2>Run jobs in the background</h2>
-            <p class="muted">Start long jobs without blocking the UI, then poll their status. Start several at once.</p>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="row">
-            <button @click="startJob">Start a job</button>
-          </div>
-          <div v-if="jobsError" class="output error">{{ jobsError }}</div>
-          <ul class="jobs">
-            <li v-if="jobs.length === 0" class="muted">No jobs yet.</li>
-            <li v-for="job in jobs" :key="job.id">
-              <span :class="['pill', job.status]">{{ job.status }}</span>
-              <code :title="job.id">{{ job.id.slice(-8) }}</code>
-              <span class="muted">{{ job.seconds }}s</span>
-              <div class="bar">
-                <div :class="['bar-fill', job.status]" :style="{ animationDuration: job.seconds + 's' }"></div>
-              </div>
-            </li>
-          </ul>
-        </div>
-        <pre class="snippet"><code>const id = await backendAsync.slow_task({ seconds })
-const job = await getJob(id)</code></pre>
-      </section>
-
-      <section class="card">
-        <div class="card-header">
-          <span class="card-step">4</span>
-          <div>
-            <h2>Stream results</h2>
-            <p class="muted">A runnable can yield its output bit by bit. Render it as it arrives, like an LLM answer.</p>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="row">
-            <button @click="stream" :disabled="streaming">{{ streaming ? 'Streaming...' : 'Start streaming' }}</button>
-          </div>
-          <div class="output stream">
-            <span v-if="streamError" class="error">{{ streamError }}</span>
-            <template v-else-if="streamed || streaming">
-              {{ streamed }}<span v-if="streaming" class="caret"></span>
-            </template>
-            <span v-else class="muted">Streamed text shows up here.</span>
-          </div>
-        </div>
-        <pre class="snippet"><code>await streamJob(id, (u) => append(u.new_result_stream))</code></pre>
-      </section>
-    </div>
-  </main>
-</template>
-
-<script setup>
-import { ref } from 'vue'
-import { backend, backendAsync, getJob, streamJob } from './wmill'
-
-// Windmill injects the viewer (absent for anonymous visitors) and the workspace.
-const ctx = window.ctx ?? {}
-const firstName = (ctx.ctx?.name || ctx.ctx?.username || '').split(' ')[0]
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-
-function errorMessage(e) {
-  return e?.message ?? (typeof e === 'string' ? e : JSON.stringify(e))
-}
-
-// 1. Call a backend runnable
-const name = ref(firstName || 'world')
-const greeting = ref()
-const greetError = ref()
-const greetLoading = ref(false)
-
-async function greet() {
-  greetLoading.value = true
-  greetError.value = undefined
-  try {
-    greeting.value = await backend.greet({ name: name.value })
-  } catch (e) {
-    greetError.value = errorMessage(e)
-  }
-  greetLoading.value = false
-}
-
-// 2. Use any language
-const text = ref(${JSON.stringify(STATS_SAMPLE_TEXT)})
-const stats = ref()
-const statsError = ref()
-const statsLoading = ref(false)
-
-async function analyze() {
-  statsLoading.value = true
-  statsError.value = undefined
-  try {
-    stats.value = await backend.word_stats({ text: text.value })
-  } catch (e) {
-    statsError.value = errorMessage(e)
-  }
-  statsLoading.value = false
-}
-
-// 3. Run jobs in the background
-const jobs = ref([])
-const jobsError = ref()
-
-function setStatus(id, status) {
-  const row = jobs.value.find((r) => r.id === id)
-  if (row) row.status = status
-}
-
-async function startJob() {
-  jobsError.value = undefined
-  try {
-    const seconds = 2 + Math.floor(Math.random() * 4)
-    const id = await backendAsync.slow_task({ seconds })
-    jobs.value = [{ id, seconds, status: 'queued' }, ...jobs.value].slice(0, 4)
-    while (true) {
-      await sleep(500)
-      const job = await getJob(id)
-      if (job.type === 'CompletedJob') {
-        setStatus(id, job.success ? 'success' : 'failure')
-        return
-      }
-      setStatus(id, job.started_at ? 'running' : 'queued')
-    }
-  } catch (e) {
-    jobsError.value = errorMessage(e)
-  }
-}
-
-// 4. Stream results
-const streamed = ref('')
-const streamError = ref()
-const streaming = ref(false)
-
-async function stream() {
-  streamed.value = ''
-  streamError.value = undefined
-  streaming.value = true
-  try {
-    const id = await backendAsync.stream_text({})
-    await streamJob(id, (update) => {
-      if (update.new_result_stream) streamed.value += update.new_result_stream
-    })
-  } catch (e) {
-    streamError.value = errorMessage(e)
-  }
-  streaming.value = false
-}
-</script>`
-
-const indexVue = `import { createApp } from 'vue'
-import App from './App.vue'
-import "./index.css";
-
-createApp(App).mount('#root')`
-
 const indexCss = `/* The app renders inside an iframe whose host page has its own theme the
    iframe cannot read, so paint an opaque surface here: without one the host's
    background shows through and dark text lands on it unreadable. */
@@ -1158,26 +934,278 @@ export const svelte5Template = {
 }`
 }
 
-export const vueTemplate = {
-	'/index.ts': indexVue,
-	'/App.vue': appVue,
-	'/index.css': indexCss,
-	'/package.json': `{
-    "dependencies": {
-        "core-js": "3.26.1",
-        "vue": "3.5.13"
-    }
-}`
-}
-
 export const FRAMEWORK_TEMPLATES = {
 	react19: react19Template,
 	react18: react18Template,
-	svelte5: svelte5Template,
-	vue: vueTemplate
+	svelte5: svelte5Template
 }
 
 export type FrameworkKey = keyof typeof FRAMEWORK_TEMPLATES
+
+// An operator with builder rights gets no STARTER_RUNNABLES (they are inline code), so their
+// starter calls nothing and explains how to wire runnables already deployed in the workspace.
+const BUILDER_USES = [
+	{
+		title: 'Forms for your scripts',
+		text: 'Give a script a simple form, so anyone can run it without learning Windmill.'
+	},
+	{
+		title: 'Dashboards',
+		text: 'Show what a script or flow returns as a table or a chart, fresh every time the app opens.'
+	},
+	{
+		title: 'Self-service tools',
+		text: 'Share the app with your team or by link. It runs its scripts as you, so viewers need no access to them.'
+	}
+]
+
+const BUILDER_SAFETY =
+	'Your app can only run scripts and flows already deployed in this workspace, and it runs isolated from each viewer’s session.'
+
+const BUILDER_STEPS = [
+	{
+		title: 'Pick what it runs',
+		description: 'Choose a script or flow already deployed in this workspace.',
+		path: ['Backend panel', '+', 'Select a script or flow'],
+		note: 'You only see the ones you can read. Each one gets an id, such as a.'
+	},
+	{
+		title: 'Show it on the page',
+		description: 'Each runnable becomes a function the page can call by its id.',
+		note: 'Working with an AI assistant? Tell it the id and what to show. This is the line it writes.',
+		code: "import { backend } from './wmill'\n\nconst res = await backend.a({ name: 'world' })"
+	},
+	{
+		title: 'Run long jobs in the background',
+		description: 'backendAsync starts a job without making the page wait.',
+		note: 'Check on it with getJob, or follow its output as it runs with streamJob.',
+		code: "import { backendAsync, getJob } from './wmill'\n\nconst id = await backendAsync.a({ name: 'world' })\nconst job = await getJob(id)"
+	}
+]
+
+const BUILDER_CONTEXT_CODE = 'const ctx = (window as any).ctx\n\nctx.workspace, ctx.ctx?.username'
+
+const builderAppTsx = `import React from 'react'
+import './index.css'
+
+// Windmill injects the viewer (absent for anonymous visitors) and the workspace.
+const ctx = (window as any).ctx ?? {}
+const viewer: { name?: string; username?: string } | undefined = ctx.ctx
+const firstName = (viewer?.name || viewer?.username || '').split(' ')[0]
+
+type Step = { title: string; description: string; note: string; path?: string[]; code?: string }
+
+const uses: { title: string; text: string }[] = ${JSON.stringify(BUILDER_USES, null, 2)}
+
+const steps: Step[] = ${JSON.stringify(BUILDER_STEPS, null, 2)}
+
+const sectionTitle: React.CSSProperties = {
+  margin: '32px 0 12px',
+  fontSize: 12,
+  fontWeight: 600,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  color: 'var(--muted)'
+}
+
+function Card(props: { step: number; title: string; description: string; code?: string; children: React.ReactNode }) {
+  return (
+    <section className="card">
+      <div className="card-header">
+        <span className="card-step">{props.step}</span>
+        <div>
+          <h2>{props.title}</h2>
+          <p className="muted">{props.description}</p>
+        </div>
+      </div>
+      <div className="card-body">{props.children}</div>
+      {props.code && (
+        <pre className="snippet">
+          <code>{props.code}</code>
+        </pre>
+      )}
+    </section>
+  )
+}
+
+const App = () => {
+  return (
+    <main className="app">
+      <header className="hero">
+        <span className="eyebrow">Windmill app{ctx.workspace ? ' · ' + ctx.workspace : ''}</span>
+        <h1>{firstName ? 'Welcome, ' + firstName : 'Welcome'}</h1>
+        <p className="muted">
+          Turn the scripts and flows deployed in this workspace into a tool anyone can use. Edit
+          App.tsx to make it yours.
+        </p>
+      </header>
+      <h2 style={sectionTitle}>What you can build</h2>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))' }}>
+        {uses.map((use) => (
+          <section className="card" key={use.title} style={{ padding: 18, gap: 4 }}>
+            <h2 style={{ fontSize: 15 }}>{use.title}</h2>
+            <p className="muted" style={{ margin: 0 }}>{use.text}</p>
+          </section>
+        ))}
+      </div>
+      <p style={{ margin: '12px 0 0', padding: '10px 14px', borderRadius: 8, background: 'var(--accent-soft)', color: 'var(--fg-strong)' }}>
+        {${JSON.stringify(BUILDER_SAFETY)}}
+      </p>
+      <h2 style={sectionTitle}>How it works</h2>
+      <div className="grid">
+        {steps.map((step, i) => (
+          <Card key={step.title} step={i + 1} title={step.title} description={step.description} code={step.code}>
+            {step.path && (
+              <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                {step.path.map((label, j) => (
+                  <React.Fragment key={label}>
+                    {j > 0 && <span className="muted">→</span>}
+                    <span className="eyebrow">{label}</span>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+            <span className="muted">{step.note}</span>
+          </Card>
+        ))}
+        <Card
+          step={steps.length + 1}
+          title="Know who is viewing"
+          description="Windmill passes the workspace and the viewer to the app."
+          code={${JSON.stringify(BUILDER_CONTEXT_CODE)}}
+        >
+          {ctx.workspace ? (
+            <>
+              <div>
+                <span className="muted">Workspace </span>
+                <strong>{ctx.workspace}</strong>
+              </div>
+              <div>
+                <span className="muted">Viewer </span>
+                <strong>{viewer ? viewer.name || viewer.username : 'Anonymous visitor'}</strong>
+              </div>
+            </>
+          ) : (
+            <span className="muted">The editor preview has no viewer. Deploy the app to see yours here.</span>
+          )}
+        </Card>
+      </div>
+    </main>
+  )
+}
+
+export default App
+`
+
+const builderAppSvelte = `<script lang="ts">
+  // Windmill injects the viewer (absent for anonymous visitors) and the workspace.
+  const ctx = (window as any).ctx ?? {}
+  const viewer: { name?: string; username?: string } | undefined = ctx.ctx
+  const firstName = (viewer?.name || viewer?.username || '').split(' ')[0]
+
+  type Step = { title: string; description: string; note: string; path?: string[]; code?: string }
+
+  const uses: { title: string; text: string }[] = ${JSON.stringify(BUILDER_USES, null, 2)}
+  const steps: Step[] = ${JSON.stringify(BUILDER_STEPS, null, 2)}
+  const contextCode = ${JSON.stringify(BUILDER_CONTEXT_CODE)}
+</script>
+
+{#snippet header(step: number, title: string, description: string)}
+  <div class="card-header">
+    <span class="card-step">{step}</span>
+    <div>
+      <h2>{title}</h2>
+      <p class="muted">{description}</p>
+    </div>
+  </div>
+{/snippet}
+
+<main class="app">
+  <header class="hero">
+    <span class="eyebrow">Windmill app{ctx.workspace ? ' · ' + ctx.workspace : ''}</span>
+    <h1>{firstName ? 'Welcome, ' + firstName : 'Welcome'}</h1>
+    <p class="muted">
+      Turn the scripts and flows deployed in this workspace into a tool anyone can use. Edit
+      App.svelte to make it yours.
+    </p>
+  </header>
+
+  <h2 class="section-title">What you can build</h2>
+  <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr))">
+    {#each uses as use (use.title)}
+      <section class="card" style="padding: 18px; gap: 4px">
+        <h2 style="font-size: 15px">{use.title}</h2>
+        <p class="muted" style="margin: 0">{use.text}</p>
+      </section>
+    {/each}
+  </div>
+  <p class="safety">{${JSON.stringify(BUILDER_SAFETY)}}</p>
+
+  <h2 class="section-title">How it works</h2>
+  <div class="grid">
+    {#each steps as step, i (step.title)}
+      <section class="card">
+        {@render header(i + 1, step.title, step.description)}
+        <div class="card-body">
+          {#if step.path}
+            <div class="row" style="align-items: center; flex-wrap: wrap">
+              {#each step.path as label, j (label)}
+                {#if j > 0}<span class="muted">→</span>{/if}
+                <span class="eyebrow">{label}</span>
+              {/each}
+            </div>
+          {/if}
+          <span class="muted">{step.note}</span>
+        </div>
+        {#if step.code}
+          <pre class="snippet"><code>{step.code}</code></pre>
+        {/if}
+      </section>
+    {/each}
+
+    <section class="card">
+      {@render header(steps.length + 1, 'Know who is viewing', 'Windmill passes the workspace and the viewer to the app.')}
+      <div class="card-body">
+        {#if ctx.workspace}
+          <div><span class="muted">Workspace </span><strong>{ctx.workspace}</strong></div>
+          <div>
+            <span class="muted">Viewer </span>
+            <strong>{viewer ? viewer.name || viewer.username : 'Anonymous visitor'}</strong>
+          </div>
+        {:else}
+          <span class="muted">The editor preview has no viewer. Deploy the app to see yours here.</span>
+        {/if}
+      </div>
+      <pre class="snippet"><code>{contextCode}</code></pre>
+    </section>
+  </div>
+</main>
+
+<style>
+  .section-title {
+    margin: 32px 0 12px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .safety {
+    margin: 12px 0 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--fg-strong);
+  }
+</style>
+`
+
+export const BUILDER_FRAMEWORK_TEMPLATES = {
+	react19: { ...react19Template, '/App.tsx': builderAppTsx },
+	react18: { ...react18Template, '/App.tsx': builderAppTsx },
+	svelte5: { ...svelte5Template, '/App.svelte': builderAppSvelte }
+}
 
 type StarterArg = { type: 'string' | 'number' }
 
@@ -1285,171 +1313,6 @@ export async function main() {
 		)
 	}
 }
-
-export const appVueRouter = `
-<template>
-  <div class="container">
-    <!-- Navigation tabs -->
-    <nav class="tabs">
-      <button 
-        v-for="tab in tabs" 
-        :key="tab.id"
-        :class="{ active: currentTab === tab.id }"
-        @click="changeTab(tab.id)"
-      >
-        {{ tab.name }}
-      </button>
-    </nav>
-
-    <!-- Content sections -->
-    <div class="content">
-      <div v-if="currentTab === 'home'" class="tab-content">
-        <h2>Home</h2>
-        <p>Welcome to the home tab!</p>
-        <!-- Nested navigation example -->
-        <div class="sub-nav">
-          <button 
-            v-for="subItem in ['latest', 'popular']" 
-            :key="subItem"
-            :class="{ active: currentSort === subItem }"
-            @click="changeSort(subItem)"
-          >
-            {{ subItem }}
-          </button>
-        </div>
-      </div>
-
-      <div v-else-if="currentTab === 'about'" class="tab-content">
-        <h2>About</h2>
-        <p>This is the about section</p>
-      </div>
-
-      <div v-else-if="currentTab === 'contact'" class="tab-content">
-        <h2>Contact</h2>
-        <p>Contact information here</p>
-      </div>
-    </div>
-
-    <!-- Debug info -->
-    <div class="debug">
-      <p>Current Tab: {{ currentTab }}</p>
-      <p>Current Sort: {{ currentSort }}</p>
-      <p>Current Hash: {{ currentHash }}</p>
-    </div>
-  </div>
-</template>
-
-<script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
-
-// Available tabs
-const tabs = [
-  { id: 'home', name: 'Home' },
-  { id: 'about', name: 'About' },
-  { id: 'contact', name: 'Contact' }
-];
-
-const currentTab = ref('home');
-const currentSort = ref('latest');
-const currentHash = ref('');
-
-// Navigation functions
-function changeTab(tabId) {
-  currentTab.value = tabId;
-  updateHash();
-}
-
-function changeSort(sort) {
-  currentSort.value = sort;
-  updateHash();
-}
-
-function updateHash() {
-  const params = new URLSearchParams();
-  params.set('tab', currentTab.value);
-  if (currentSort.value !== 'latest') {
-    params.set('sort', currentSort.value);
-  }
-  window.location.hash = params.toString();
-  currentHash.value = window.location.hash;
-}
-
-function parseHash() {
-  const params = new URLSearchParams(window.location.hash.slice(1));
-  currentTab.value = params.get('tab') || 'home';
-  currentSort.value = params.get('sort') || 'latest';
-  currentHash.value = window.location.hash;
-}
-
-// Hash change handler
-function handleHashChange() {
-  parseHash();
-}
-
-onMounted(() => {
-  if (window.location.hash) {
-    parseHash();
-  } else {
-    updateHash();
-  }
-  window.addEventListener('hashchange', handleHashChange);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('hashchange', handleHashChange);
-});
-</script>
-
-<style scoped>
-.container {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 20px;
-}
-
-.tabs {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-button {
-  padding: 8px 16px;
-  border: 1px solid #ddd;
-  background: #fff;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-button.active {
-  background: #4CAF50;
-  color: white;
-  border-color: #4CAF50;
-}
-
-.content {
-  padding: 20px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-}
-
-.tab-content {
-  margin-bottom: 20px;
-}
-
-.sub-nav {
-  margin-top: 10px;
-}
-
-.debug {
-  margin-top: 20px;
-  padding: 10px;
-  background: #f5f5f5;
-  border-radius: 4px;
-  font-size: 0.9em;
-  color: #666;
-}
-</style>`
 
 export const appSvelteRouter = `
 <script>
