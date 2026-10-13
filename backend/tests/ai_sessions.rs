@@ -1580,3 +1580,144 @@ async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> a
 
     Ok(())
 }
+
+/// Runs its closure when dropped, so process-wide state is put back even when an assertion
+/// fails.
+struct OnDrop<F: FnMut()>(F);
+impl<F: FnMut()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        (self.0)()
+    }
+}
+
+/// Once every worker reads AES-256-GCM, objects are written in it: a session backed up as
+/// CBC before the switch still restores whole with the GCM pieces added after it, a head at
+/// its cap and a push token still read back under the larger ciphertext, and relocated GCM
+/// ciphertext does not decrypt for another user.
+#[sqlx::test(fixtures("base"))]
+async fn test_backups_switch_to_gcm_once_every_worker_reads_it(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::min_version::{
+        MIN_VERSION, MIN_VERSION_SUPPORTS_AEAD_SECRETS, MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES,
+    };
+    use windmill_common::workspace_crypt::V2_MAGIC;
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace",
+        server.addr.port()
+    );
+    let storage_dir = tempfile::tempdir()?;
+    configure_primary_lfs(&db, &storage_dir.path().to_string_lossy()).await?;
+    let before = MIN_VERSION.load_full();
+    let _restore = OnDrop(move || MIN_VERSION.store(before.clone()));
+    let is_gcm = |b: &[u8]| b.starts_with(&V2_MAGIC);
+    let object = |path: &str| -> Vec<u8> {
+        std::fs::read(user_root(storage_dir.path(), "test@windmill.dev").join(path)).unwrap()
+    };
+
+    MIN_VERSION.store(std::sync::Arc::new(
+        MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES.version().clone(),
+    ));
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{
+                "id": "s1",
+                "whole": true,
+                "head": { "id": "s1", "workspace_id": "test-workspace", "createdAt": 1, "chatId": "c1" },
+                "chats": [{ "id": "c1", "record": { "id": "c1", "title": "BEFORE" } }]
+            }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let cbc_chat = object("sessions/s1/chats/c1.json");
+    assert!(!cbc_chat.is_empty() && !is_gcm(&cbc_chat));
+
+    MIN_VERSION.store(std::sync::Arc::new(
+        MIN_VERSION_SUPPORTS_AEAD_SECRETS.version().clone(),
+    ));
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{
+                "id": "s1",
+                "chats": [{ "id": "c2", "record": { "id": "c2", "title": "AFTER" } }],
+                "images": [{ "chat_id": "c2", "id": "i1", "data_url": "data:image/png;base64,AAAA" }]
+            }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(
+        object("sessions/s1/chats/c1.json"),
+        cbc_chat,
+        "not rewritten"
+    );
+    assert!(is_gcm(&object("sessions/s1/chats/c2.json")));
+    assert!(is_gcm(&object("images/s1/c2/i1")));
+
+    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
+    let mut titles: Vec<String> = pulled["sessions"][0]["chats"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["record"]["title"].as_str().unwrap().to_string())
+        .collect();
+    titles.sort();
+    assert_eq!(titles, ["AFTER", "BEFORE"], "{pulled}");
+    assert_eq!(
+        pulled["sessions"][0]["images"][0]["data_url"],
+        "data:image/png;base64,AAAA"
+    );
+
+    // A head at its cap, pushed in two parts: the second reads back the push token.
+    let mut head = json!({ "id": "s2", "workspace_id": "test-workspace", "createdAt": 2, "chatId": "c", "pad": "" });
+    let pad = 1024 * 1024 - head.to_string().len();
+    head["pad"] = json!("x".repeat(pad));
+    assert_eq!(head.to_string().len(), 1024 * 1024);
+    for part in [
+        json!({ "id": "s2", "whole": true, "push": "p2", "opens": true, "partial": true, "head": head }),
+        json!({ "id": "s2", "whole": true, "push": "p2", "chats": [{ "id": "c", "record": { "id": "c" } }] }),
+    ] {
+        let resp = push(
+            &base,
+            "SECRET_TOKEN",
+            json!({ "owner": "test@windmill.dev", "sessions": [part] }),
+        )
+        .await?;
+        assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+        let pushed: Value = resp.json().await?;
+        assert_eq!(pushed["results"], json!([{ "id": "s2" }]), "{pushed}");
+    }
+    assert!(is_gcm(&object("sessions/s2/head.json")));
+    let pulled = pull(&base, "SECRET_TOKEN", &["s2"]).await?;
+    assert_eq!(
+        pulled["sessions"][0]["head"]["pad"].as_str().map(str::len),
+        Some(pad)
+    );
+    assert_eq!(pulled["sessions"][0]["chats"][0]["id"], "c", "{pulled}");
+
+    let first = user_root(storage_dir.path(), "test@windmill.dev");
+    copy_dir(
+        &first,
+        &first
+            .parent()
+            .unwrap()
+            .join(calculate_hash("test2@windmill.dev")),
+    )?;
+    assert_eq!(
+        pull(&base, "SECRET_TOKEN_2", &["s1", "s2"]).await?["sessions"],
+        json!([]),
+        "relocated ciphertext must not decrypt for another user"
+    );
+
+    Ok(())
+}
