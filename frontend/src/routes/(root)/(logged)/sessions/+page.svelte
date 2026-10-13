@@ -80,7 +80,7 @@
 		tabsToReload,
 		viewerTabsToReload
 	} from '$lib/components/sessions/previewReload'
-	import { isPageItemListPath, barePath } from '$lib/components/sessions/previewPaths'
+	import { isPreviewListPath, barePath } from '$lib/components/sessions/previewPaths'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -928,7 +928,7 @@
 			// A preview frame navigating to a list page: re-point the active tab to the list
 			// mounted in process, whose rows open as tabs of their own.
 			if (d.type === 'wm.session.openList') {
-				if (typeof d.href !== 'string' || !isPageItemListPath(barePath(d.href))) return
+				if (typeof d.href !== 'string' || !isPreviewListPath(barePath(d.href))) return
 				owner?.navigate({ type: 'page', href: d.href, label: previewLocationLabel(d.href) })
 				return
 			}

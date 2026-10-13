@@ -313,7 +313,7 @@ describe('itemDisplayName', () => {
 
 describe('resolvePreviewTab', () => {
 	it('routes a static page to the iframe fallback', () => {
-		expect(resolvePreviewTab('/runs')).toEqual({ kind: 'iframe' })
+		expect(resolvePreviewTab('/audit_logs')).toEqual({ kind: 'iframe' })
 	})
 
 	it('mounts a run in process, in the workspace its URL names', () => {
@@ -324,8 +324,19 @@ describe('resolvePreviewTab', () => {
 		})
 		expect(resolvePreviewTab('/run/01a0')).toEqual({ kind: 'run', jobId: '01a0' })
 		expect(resolvePreviewTab('/run/01a0?workspace=fork&view_token=t')).toEqual({ kind: 'iframe' })
-		// The runs of one item are a list page, not a run.
-		expect(resolvePreviewTab('/runs/f/a/b')).toEqual({ kind: 'iframe' })
+	})
+
+	it('mounts the runs list in process, for every run or for one item', () => {
+		expect(resolvePreviewTab('/runs?status=failure')).toEqual({ kind: 'pagelist', path: '/runs' })
+		expect(resolvePreviewTab('/runs/f/a/b')).toEqual({ kind: 'pagelist', path: '/runs/f/a/b' })
+		expect(resolvePreviewTab('/runsheet')).toEqual({ kind: 'iframe' })
+	})
+
+	it('tells two runs lists apart by their filters, trailing slash or not', () => {
+		expect(resolvePreviewTab('/runs/?status=failure')).toEqual({ kind: 'pagelist', path: '/runs' })
+		expect(showsView('/runs/?schedule_path=a', '/runs/?schedule_path=b')).toBe(false)
+		expect(showsView('/runs?schedule_path=a', '/runs/?schedule_path=a')).toBe(true)
+		expect(showsView('/runs/f/a/b?status=failure', '/runs/f/a/b')).toBe(false)
 	})
 
 	it('mounts the list page of a page item kind in process, whatever its filters', () => {
