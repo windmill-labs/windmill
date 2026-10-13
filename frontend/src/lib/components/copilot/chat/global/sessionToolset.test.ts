@@ -248,4 +248,31 @@ describe('session tool policies', () => {
 			expect(full).toBe(ungated)
 		}
 	})
+
+	// The operator's own rights outrun the chat's tools: what they build or schedule in the UI
+	// must not be sent to an admin.
+	it("sends an operator to the UI for what their role allows and the chat's tools do not", () => {
+		const prompt = (
+			operatorSettings: { manage_schedules?: boolean },
+			builder_apps = false
+		): string =>
+			prepareGlobalSystemMessage(undefined, {
+				user: { username: 'op', builder_apps },
+				access: capabilitiesForRole({
+					isAdmin: false,
+					operator: true,
+					deployRulesPass: true,
+					operatorSettings
+				})
+			}).content as string
+
+		expect(prompt({})).toContain('refused scripts, flows, and apps outside this chat')
+		expect(prompt({})).toContain('schedule a deployed script or flow themselves')
+
+		const appBuilder = prompt({}, true)
+		expect(appBuilder).toContain('refused scripts and flows outside this chat')
+		expect(appBuilder).toContain('Full-code apps are different')
+
+		expect(prompt({ manage_schedules: false })).not.toContain('schedule a deployed script')
+	})
 })
