@@ -217,8 +217,7 @@
 								Slack refused the workspace's bot token or couldn't be reached, so agents can't
 								answer there.
 								{#if isAdmin}
-									<a href="/workspace_settings?tab=slack&agents=true">Reconnect Slack</a> to fix
-									it.
+									<a href="/workspace_settings?tab=slack&agents=true">Reconnect Slack</a> to fix it.
 								{:else}
 									A workspace admin can reconnect Slack to fix it.
 								{/if}
@@ -228,8 +227,8 @@
 							<Alert type="warning" title="Slack was connected without AI agents" size="xs">
 								The connection lacks {missingScopes.join(', ')}, so agents can't tell who is asking.
 								{#if isAdmin}
-									<a href="/workspace_settings?tab=slack&agents=true">Disconnect Slack</a>,
-									then connect it again with AI agents enabled. Disconnecting clears the channel
+									<a href="/workspace_settings?tab=slack&agents=true">Disconnect Slack</a>, then
+									connect it again with AI agents enabled. Disconnecting clears the channel
 									defaults.
 								{:else}
 									A workspace admin can reconnect Slack with AI agents enabled.
@@ -258,7 +257,8 @@
 						<div class="flex flex-col gap-2">
 							<span class="text-xs font-semibold text-emphasis">Default in these channels</span>
 							<span class="text-xs text-secondary">
-								Mentions of the bot in these channels go to this agent without its name.
+								Mentions of the bot and <code>/windmill</code> commands in these channels go to this
+								agent without its name. They no longer reach the workspace's Slack command script there.
 							</span>
 							{#if channels.length === 0}
 								<span class="text-xs text-hint">No channel yet.</span>
@@ -371,8 +371,8 @@
 						{#snippet content()}
 							<TabContent value="sdk" class="flex flex-col gap-2 mt-2">
 								<span class="text-xs text-secondary">
-									React with <code>@windmill-labs/chat-sdk</code>: streaming, tool calls and conversations
-									handled. It also plugs into the Vercel AI SDK and assistant-ui.
+									React with <code>@windmill-labs/chat-sdk</code>: streaming, tool calls and
+									conversations handled. It also plugs into the Vercel AI SDK and assistant-ui.
 								</span>
 								<CopyableCodeBlock code={sdkExample(target)} language={typescript} />
 							</TabContent>
