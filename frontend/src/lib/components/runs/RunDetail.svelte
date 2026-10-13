@@ -1086,7 +1086,7 @@
 		{/if}
 		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 			<Button
-				on:click|once={async () => {
+				on:click={async () => {
 					// The form this lands on rebuilds the whole project. When resuming
 					// THIS run is the cheaper thing to do, name it so the form can
 					// offer that in one click rather than leaving the reader to know.

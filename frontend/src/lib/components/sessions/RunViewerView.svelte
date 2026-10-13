@@ -54,19 +54,20 @@
 		}
 		const route = parsePreviewItemRoute(href)
 		// Legacy drag-and-drop apps and historical script edits have no in-panel host, so they
-		// fall through to a page tab. So does `Run again`: the run's args ride in the fragment,
-		// which an item target has no place for and a page tab's URL keeps.
+		// fall through to a page tab. So does `Run again`, whose args ride in the fragment, and
+		// a link to one version: opening an item focuses a tab already on it as it stands,
+		// where a page tab's URL is written whole, pin and fragment included.
 		if (
 			route &&
 			(route.kind !== 'app' || route.raw_app) &&
 			!parseHistoricalScriptEdit(href) &&
-			!parsed.hash
+			!parsed.hash &&
+			!parsed.searchParams.has('version')
 		) {
 			runtime.previewTabs.open({
 				type: 'item',
 				item: { path: route.itemPath, summary: '', kind: route.kind, raw_app: route.raw_app },
-				mode: route.mode,
-				version: parsed.searchParams.get('version') ?? undefined
+				mode: route.mode
 			})
 			return
 		}
