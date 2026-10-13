@@ -23,6 +23,11 @@ pub const MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2: VC = vc(1, 794, 0, "Bun v2 lockf
 // them, so a restriction set while one is live is silently ignored on the jobs it runs. Must
 // name the release this ships in.
 pub const MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES: VC = vc(1, 822, 0, "Restricted job tokens");
+// Gates writing AES-256-GCM workspace ciphertext and the background pass that rewrites the
+// stored secret variables. Reading it ships one release earlier (1.831), so a rollback to
+// that release still reads every secret; below it, secrets written after the switch stay
+// unreadable until rolled forward. Only worker versions are seen here, not servers.
+pub const MIN_VERSION_SUPPORTS_AEAD_SECRETS: VC = vc(1, 832, 0, "AES-GCM secret encryption");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");

@@ -149,7 +149,7 @@ import {
   extractCurrentMapping,
 } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
-import { markAccessFromPolicy } from "../app/app.ts";
+import { markAccessFromPolicy, markIsolationFromPolicy } from "../app/app.ts";
 import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
@@ -1359,6 +1359,7 @@ export function ZipFSElement(
             }
 
             markAccessFromPolicy(app);
+            markIsolationFromPolicy(app, false);
             app.policy = undefined;
             yield {
               isDirectory: false,
@@ -1377,6 +1378,7 @@ export function ZipFSElement(
               throw error;
             }
             markAccessFromPolicy(rawApp);
+            markIsolationFromPolicy(rawApp, true);
             // console.log("rawApp", rawApp);
             rawApp.policy = undefined;
             // custom_path is derived from the file path, don't store it

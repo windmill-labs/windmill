@@ -235,7 +235,7 @@ lazy_static::lazy_static! {
     // -- $name (type) = default
     static ref RE_ARG_DUCKDB: Regex = Regex::new(r#"(?m)^-- \$(\w+) \(([A-Za-z0-9_\[\]]+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
-    static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+    static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
 
     static ref RE_ARG_MSSQL: Regex = Regex::new(r#"(?m)^-- @(?:P|p)\d+ (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
@@ -254,6 +254,12 @@ fn parsed_default(parsed_typ: &Typ, default: String) -> Option<serde_json::Value
         Typ::Str(_) if default.len() >= 2 && default.starts_with("'") && default.ends_with("'") => {
             Some(json!(&default[1..default.len() - 1]))
         }
+        Typ::List(_) => Some(
+            serde_json::from_str::<serde_json::Value>(&default)
+                .ok()
+                .filter(|v| v.is_array())
+                .unwrap_or_else(|| json!(default)),
+        ),
         _ => Some(json!(default)),
     }
 }
@@ -1039,7 +1045,11 @@ pub fn parse_duckdb_typ(typ: &str) -> Typ {
 }
 
 pub fn parse_snowflake_typ(typ: &str) -> Typ {
+    if let Some(base_typ) = typ.strip_suffix("[]") {
+        return Typ::List(Box::new(parse_snowflake_typ(base_typ)));
+    }
     match typ {
+        "array" => Typ::List(Box::new(Typ::Unknown)),
         "varchar" | "text" | "string" | "char" | "character" => Typ::Str(None),
         "binary" | "varbinary" => Typ::Bytes,
         "date" | "time" | "datetime" | "timestamp" | "timestamp_ntz" | "timestamp_ltz"
@@ -1588,6 +1598,39 @@ SELECT ?;
             }
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_snowflake_array_types() -> anyhow::Result<()> {
+        let code = r#"
+-- ? groups (varchar[])
+-- ? ids (int[]) = [1, 2]
+-- ? anything (ARRAY)
+SELECT 1;
+"#;
+        let args = parse_snowflake_sig(code)?.args;
+        assert_eq!(args[1].default, Some(json!([1, 2])));
+        let got = args
+            .iter()
+            .map(|a| (a.name.as_str(), a.otyp.as_deref(), &a.typ))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            got,
+            vec![
+                (
+                    "groups",
+                    Some("varchar[]"),
+                    &Typ::List(Box::new(Typ::Str(None)))
+                ),
+                ("ids", Some("int[]"), &Typ::List(Box::new(Typ::Int))),
+                (
+                    "anything",
+                    Some("array"),
+                    &Typ::List(Box::new(Typ::Unknown))
+                ),
+            ]
+        );
         Ok(())
     }
 

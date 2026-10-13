@@ -4393,8 +4393,53 @@ lazy_static! {
     ///   change or deletion, which don't bump the version — see
     ///   `invalidate_app_policy_cache` and `process_notify_event`);
     /// - the entry is within its TTL (backstop for a missed event or a restart).
-    static ref APP_POLICY_CACHE: cache::Cache<(String, String), (Option<i64>, Arc<Policy>, std::time::Instant)> =
+    static ref APP_POLICY_CACHE: cache::Cache<(String, String), (Option<i64>, Arc<DeployedPolicy>, std::time::Instant)> =
         cache::Cache::new(1000);
+}
+
+/// What `execute_component` runs a deployed app against.
+struct DeployedPolicy {
+    policy: Policy,
+    /// Runnable id -> argument -> context property (`username`, `email`, `groups`,
+    /// `workspace`, `author`), for every `ctx` field the app's runnables declare. Read
+    /// from the deployed app rather than taken from the request, which only says what
+    /// the browser chose to send: a runnable filters rows on these. A deploy that
+    /// changes them under an unchanged policy evicts nothing, so a caller still naming
+    /// the replaced version keeps the previous declarations until the entry's TTL.
+    ctx_inputs: HashMap<String, HashMap<String, String>>,
+}
+
+async fn deployed_ctx_inputs(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+) -> Result<HashMap<String, HashMap<String, String>>> {
+    let runnables = sqlx::query_scalar::<_, Option<sqlx::types::Json<serde_json::Value>>>(
+        "SELECT app_version.value -> 'runnables' FROM app
+        JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
+        WHERE app.path = $1 AND app.workspace_id = $2",
+    )
+    .bind(path)
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    let Some(serde_json::Value::Object(runnables)) = runnables.map(|r| r.0) else {
+        return Ok(HashMap::new());
+    };
+    Ok(runnables
+        .into_iter()
+        .filter_map(|(id, runnable)| {
+            let ctx_inputs: HashMap<String, String> = runnable
+                .get("fields")?
+                .as_object()?
+                .iter()
+                .filter(|(_, f)| f.get("type").and_then(|t| t.as_str()) == Some("ctx"))
+                .filter_map(|(arg, f)| Some((arg.clone(), f.get("ctx")?.as_str()?.to_string())))
+                .collect();
+            (!ctx_inputs.is_empty()).then_some((id, ctx_inputs))
+        })
+        .collect())
 }
 
 /// Backstop time-to-live for an [`APP_POLICY_CACHE`] entry — the maximum a policy
@@ -4449,7 +4494,7 @@ async fn execute_component(
         _ => {}
     };
 
-    let arc_policy: Arc<Policy>;
+    let arc_policy: Arc<DeployedPolicy>;
     let policy_triggerables_default = Default::default();
     // Preview mode means the request was issued from the editor; the editing
     // user is already trusted by the policy check, so client-supplied `tag`
@@ -4532,7 +4577,7 @@ async fn execute_component(
     //    - The policy and triggerables are fetched from the database.
     //    - In case of inline script, if an entry exists in the `app_script` table, push
     //      an `AppScript` job payload, as in (.1) otherwise.
-    let (policy, policy_triggerables) = match payload {
+    let (policy, policy_triggerables, ctx_inputs) = match payload {
         // 1. "preview" mode.
         ExecuteApp {
             force_viewer_static_fields: Some(static_inputs),
@@ -4551,6 +4596,7 @@ async fn execute_component(
                 sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
                 tag: None,
             },
+            None,
         ),
         // 2. "run" mode.
         _ => {
@@ -4580,9 +4626,12 @@ async fn execute_component(
                 .map(|(_, p, _)| p);
             let policy = if let Some(p) = fresh {
                 arc_policy = p;
-                &*arc_policy
+                &arc_policy.policy
             } else {
-                arc_policy = Arc::new(policy_fut.await?);
+                arc_policy = Arc::new(DeployedPolicy {
+                    policy: policy_fut.await?,
+                    ctx_inputs: deployed_ctx_inputs(&db, &w_id, path).await?,
+                });
                 APP_POLICY_CACHE.insert(
                     cache_key,
                     (
@@ -4591,7 +4640,7 @@ async fn execute_component(
                         std::time::Instant::now(),
                     ),
                 );
-                &*arc_policy
+                &arc_policy.policy
             };
 
             // Caller-supplied inline code (`raw_code`), with or without an
@@ -4653,7 +4702,11 @@ async fn execute_component(
                 })
                 .ok_or_else(|| Error::BadRequest(format!("Path {path} forbidden by policy")))?;
 
-            (policy, policy_triggerables)
+            (
+                policy,
+                policy_triggerables,
+                arc_policy.ctx_inputs.get(&payload.component),
+            )
         }
     };
 
@@ -4731,6 +4784,7 @@ async fn execute_component(
     let (mut args, job_id) = build_args(
         policy,
         policy_triggerables,
+        ctx_inputs,
         payload.args,
         opt_authed.as_ref(),
         &user_db,
@@ -6161,6 +6215,54 @@ fn policy_granted_viewer(authed: &ApiAuthed) -> ApiAuthed {
     ApiAuthed { scopes: None, ..authed.clone() }
 }
 
+/// The value of an app context property for this run. Everything about the viewer comes
+/// from `authed`, the session the request authenticated with; an anonymous run has none
+/// and gets `null`.
+async fn ctx_value(
+    prop: &str,
+    policy: &Policy,
+    authed: Option<&ApiAuthed>,
+    w_id: &str,
+    db: &DB,
+) -> Result<Box<RawValue>> {
+    let value = match prop {
+        "username" => authed.map(|a| serde_json::to_value(a.display_username())),
+        "email" => authed.map(|a| serde_json::to_value(&a.email)),
+        "workspace" => Some(serde_json::to_value(w_id)),
+        "groups" => authed.map(|a| serde_json::to_value(&a.groups)),
+        // Same rule as `get_on_behalf_of`: the stored address, derived only when absent.
+        "author" => {
+            let author = match (
+                policy.on_behalf_of_email.as_deref(),
+                policy.on_behalf_of.as_deref(),
+            ) {
+                (Some(email), _) => Some(email.to_string()),
+                (None, Some(permissioned_as)) => Some(
+                    windmill_common::users::get_email_from_permissioned_as(
+                        permissioned_as,
+                        w_id,
+                        db,
+                    )
+                    .await?,
+                ),
+                (None, None) => None,
+            };
+            Some(serde_json::to_value(&author))
+        }
+        _ => {
+            return Err(Error::BadRequest(format!(
+                "context variable {} not allowed",
+                prop
+            )))
+        }
+    };
+    Ok(to_raw_value(
+        &value.unwrap_or(Ok(serde_json::Value::Null)).map_err(|e| {
+            Error::internal_err(format!("failed to serialize ctx variable {}: {}", prop, e))
+        })?,
+    ))
+}
+
 async fn build_args(
     policy: &Policy,
     PolicyTriggerableInputs {
@@ -6170,6 +6272,7 @@ async fn build_args(
         sensitive_inputs,
         ..
     }: &PolicyTriggerableInputs,
+    ctx_inputs: Option<&HashMap<String, String>>,
     mut args: HashMap<String, Box<RawValue>>,
     authed: Option<&ApiAuthed>,
     user_db: &UserDB,
@@ -6178,6 +6281,16 @@ async fn build_args(
 ) -> Result<(PushArgsOwned, Option<Uuid>)> {
     let mut job_id: Option<Uuid> = None;
     let mut safe_args = HashMap::<String, Box<RawValue>>::new();
+
+    // Before anything reads `args`: a context input the runnable declares is never taken
+    // from the request, or a viewer could name someone else as themselves.
+    for (k, prop) in ctx_inputs.into_iter().flatten() {
+        args.remove(k);
+        safe_args.insert(
+            k.to_string(),
+            ctx_value(prop, policy, authed, w_id, db).await?,
+        );
+    }
 
     // tracing::error!("{:?}", allow_user_resources);
     for k in allow_user_resources.iter() {
@@ -6270,47 +6383,9 @@ async fn build_args(
 
         if arg_str.starts_with("\"$ctx:") {
             let prop = arg_str.trim_start_matches("\"$ctx:").trim_end_matches("\"");
-            let value = match prop {
-                "username" => authed
-                    .as_ref()
-                    .map(|a| serde_json::to_value(a.display_username())),
-                "email" => authed.as_ref().map(|a| serde_json::to_value(&a.email)),
-                "workspace" => Some(serde_json::to_value(&w_id)),
-                "groups" => authed.as_ref().map(|a| serde_json::to_value(&a.groups)),
-                // Same rule as `get_on_behalf_of`: the stored address, derived only when absent.
-                "author" => {
-                    let author = match (
-                        policy.on_behalf_of_email.as_deref(),
-                        policy.on_behalf_of.as_deref(),
-                    ) {
-                        (Some(email), _) => Some(email.to_string()),
-                        (None, Some(permissioned_as)) => Some(
-                            windmill_common::users::get_email_from_permissioned_as(
-                                permissioned_as,
-                                w_id,
-                                db,
-                            )
-                            .await?,
-                        ),
-                        (None, None) => None,
-                    };
-                    Some(serde_json::to_value(&author))
-                }
-                _ => {
-                    return Err(Error::BadRequest(format!(
-                        "context variable {} not allowed",
-                        prop
-                    )))
-                }
-            };
             safe_args.insert(
                 k.to_string(),
-                to_raw_value(&value.unwrap_or(Ok(serde_json::Value::Null)).map_err(|e| {
-                    Error::internal_err(format!(
-                        "failed to serialize ctx variable for {}: {}",
-                        k, e
-                    ))
-                })?),
+                ctx_value(prop, policy, authed, w_id, db).await?,
             );
         } else if !arg_str.contains("\"$var:") && !arg_str.contains("\"$res:") {
             safe_args.insert(k.to_string(), v);

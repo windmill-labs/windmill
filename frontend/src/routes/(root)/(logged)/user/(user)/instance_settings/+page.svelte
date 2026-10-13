@@ -11,12 +11,14 @@
 		tabToAuthSubTab,
 		categoryToTabMap,
 		buildSearchableSettingItems,
+		listedNavigationGroups,
+		usesExternalOidcSigner,
 		type SearchableSettingItem
 	} from '$lib/components/instanceSettings'
 	import SettingsSearchInput from '$lib/components/instanceSettings/SettingsSearchInput.svelte'
 	import Breadcrumb from '$lib/components/common/breadcrumb/Breadcrumb.svelte'
 	import { ChevronRight, ArrowLeft } from 'lucide-svelte'
-	import { superadmin } from '$lib/stores'
+	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { onDestroy, tick } from 'svelte'
 	import { SettingService, UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -178,7 +180,14 @@
 	}
 
 	// --- Settings search (full mode) ---
-	const searchableItems = buildSearchableSettingItems(setupNavigationGroups)
+	let externalOidcSigner = $state(false)
+	$effect(() => {
+		if ($enterpriseLicense) usesExternalOidcSigner().then((v) => (externalOidcSigner = v))
+	})
+	const navigationGroups = $derived(
+		listedNavigationGroups(setupNavigationGroups, externalOidcSigner)
+	)
+	const searchableItems = $derived(buildSearchableSettingItems(navigationGroups))
 
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined
 	let highlightTimeout: ReturnType<typeof setTimeout> | undefined
@@ -487,7 +496,7 @@
 						<div class="w-44 shrink-0 h-full overflow-auto pb-4 pr-4">
 							<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
 							<SidebarNavigation
-								groups={setupNavigationGroups}
+								groups={navigationGroups}
 								selectedId={fullTab}
 								onNavigate={handleNavigate}
 							/>
