@@ -2326,6 +2326,9 @@ struct DataTableTables {
     /// What the role the listing connected as may create.
     can_create_schema: bool,
     creatable_schemas: Vec<String>,
+    /// Whether its schema is kept as versioned migrations, which a change made with plain SQL
+    /// would bypass.
+    migrations_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -2571,8 +2574,17 @@ async fn list_one_datatable_tables(
         default_role: windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE.to_string(),
         can_create_schema: false,
         creatable_schemas: vec![],
+        migrations_enabled: false,
     };
     let result: Result<()> = async {
+        // Read from the workspace settings alone, so it is known even when the database is not
+        // reachable.
+        entry.migrations_enabled = crate::datatable_migrations::datatable_migrations_enabled(
+            db,
+            w_id,
+            &entry.datatable_name,
+        )
+        .await?;
         let governing = resolve_governing_datatable(db, w_id, &entry.datatable_name).await?;
         entry.instance = governing.role_cluster().is_some();
         let usable =
@@ -6318,8 +6330,8 @@ async fn set_encryption_key(
 async fn reencrypt_git_sync_secrets(
     conn: &mut sqlx::PgConnection,
     w_id: &str,
-    old: &magic_crypt::MagicCrypt256,
-    new: &magic_crypt::MagicCrypt256,
+    old: &windmill_common::variables::WorkspaceCrypt,
+    new: &windmill_common::variables::WorkspaceCrypt,
 ) -> Result<()> {
     let Some((mut credentials, mut git_sync)) =
         sqlx::query_as::<_, (serde_json::Value, Option<serde_json::Value>)>(
@@ -11608,9 +11620,12 @@ struct ChangeOperatorSettings {
     /// withdraw or grant the right on every push.
     ///
     /// `builder_flows` lets every operator of this workspace compose flows out of already-deployed
-    /// runnables, and makes each of them consume a full author seat instead of half of one.
+    /// runnables, `builder_apps` full-code apps. Either makes each operator consume a full author
+    /// seat instead of half of one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     builder_flows: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    builder_apps: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     manage_schedules: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -11626,9 +11641,10 @@ async fn update_operator_settings(
     require_admin(authed.is_admin, &authed.username)?;
 
     // Every operator of the workspace turns into a full seat, which an offline license may not
-    // cover. It is a no-op delta when the right is already on.
+    // cover. Either right costs the same seat, so this prices "any", and it is a no-op delta when
+    // one of them is already on.
     #[cfg(feature = "enterprise")]
-    if settings.builder_flows == Some(true) {
+    if settings.builder_flows == Some(true) || settings.builder_apps == Some(true) {
         if let Some(msg) =
             windmill_common::ee_oss::check_seat_cap_for_operator_builder(&db, &w_id).await?
         {

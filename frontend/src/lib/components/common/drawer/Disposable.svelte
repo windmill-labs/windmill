@@ -32,6 +32,9 @@
 		children?: import('svelte').Snippet<[any]>
 		onOpen?: () => void
 		onClose?: () => void
+		/** Asked before a click away or Escape closes it; resolving false keeps it open, e.g. to
+		 *  confirm discarding unsaved changes. */
+		confirmClose?: () => boolean | Promise<boolean>
 	}
 
 	let {
@@ -42,8 +45,24 @@
 		minZIndex = 0,
 		children,
 		onOpen,
-		onClose
+		onClose,
+		confirmClose
 	}: Props = $props()
+
+	// While the question is on screen, the keys and clicks are its own.
+	let confirming = false
+	async function requestClose() {
+		if (confirming) return
+		if (confirmClose) {
+			confirming = true
+			try {
+				if (!(await confirmClose())) return
+			} finally {
+				confirming = false
+			}
+		}
+		closeDrawer()
+	}
 
 	let offset = $state(untrack(() => initialOffset))
 	// Note: when a Modal with minZIndex is open, all disposables (including
@@ -115,7 +134,7 @@
 		const last = stack.val[stack.val.length - 1]
 		if (last === id) {
 			e.stopPropagation()
-			closeDrawer()
+			requestClose()
 		}
 	}
 
@@ -125,7 +144,16 @@
 		if (open) {
 			switch (event.key) {
 				case 'Escape':
+					// The confirmation on screen answers this Escape itself, as its Cancel.
+					if (confirming) break
 					if ((id == stack.val[stack.val.length - 1] || stack.val.length == 0) && !preventEscape) {
+						if (confirmClose) {
+							event.preventDefault()
+							event.stopPropagation()
+							event.stopImmediatePropagation()
+							requestClose()
+							break
+						}
 						stack.val.pop()
 						event.preventDefault()
 						event.stopPropagation()

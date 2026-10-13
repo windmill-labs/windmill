@@ -23,13 +23,12 @@
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -131,7 +130,7 @@
 	// A ⌘-click opens these in a new tab, which only the query names the workspace for.
 	const operatingHref = useOperatingWorkspaceHref()
 	const actingUser = $derived(operatingUser.current)
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const editRights = useEditRights()
 
 	let flow: Flow | undefined = $state()
 	// Derived, not assigned during the load: in a fork the acting user is looked up
@@ -345,9 +344,7 @@
 		}
 	}
 
-	// Operators with the builder right author flows out of deployed runnables; every other
-	// operator is read-only here.
-	let canAuthorFlow = $derived(!actingUser?.operator || $operatorBuilderFlows)
+	let canAuthorFlow = $derived(editRights.roleCanAuthor('flow'))
 
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
@@ -374,7 +371,7 @@
 				description: `Start a new flow from a copy of this one`,
 				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: operatingHref(`${base}/flows/add?template=${flow.path}`),
+					href: operatingHref(`/flows/add?template=${flow.path}`),
 					onClick: interceptNav(onNavigate, `/flows/add?template=${flow.path}`),
 					variant: 'subtle',
 					unifiedSize: 'md',
@@ -411,7 +408,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: operatingHref(`${base}/runs/${flow.path}`),
+				href: operatingHref(`/runs/${flow.path}`),
 				onClick: interceptNav(onNavigate, `/runs/${flow.path}`),
 				unifiedSize: 'md',
 				variant: 'subtle',
@@ -434,7 +431,7 @@
 			return buttons
 		}
 
-		// The builder right covers flows only; building an app is still refused to operators.
+		// Build app makes a low-code app, which no builder right covers.
 		if (!actingUser?.operator) {
 			buttons.push({
 				label: 'Build app',
@@ -457,7 +454,7 @@
 		buttons.push({
 			label: 'Edit',
 			buttonProps: {
-				href: operatingHref(`${base}/flows/edit/${path}`),
+				href: operatingHref(`/flows/edit/${path}`),
 				onClick: interceptNav(onNavigate, `/flows/edit/${path}`),
 				variant: 'accent',
 				unifiedSize: 'md',
@@ -656,6 +653,7 @@
 	{#snippet header({ wide }: { wide: boolean })}
 		<DetailPageHeader
 			{wide}
+			ownsPageHeader={!embedded}
 			on:seeTriggers={() => {
 				detailLayout?.showTriggers()
 			}}

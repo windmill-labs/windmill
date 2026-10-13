@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { type UserExt } from '$lib/stores'
-	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
+	import type { UserExt } from '$lib/stores'
+	import type RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import type { Runnable } from './rawAppPolicy'
 	import { getContext, onMount, untrack } from 'svelte'
 	import {
@@ -33,8 +33,7 @@
 		syncHashToUrl?: boolean
 	}
 
-	let { workspace, user, secret, path, runnables, oniframe, syncHashToUrl = true }: Props =
-		$props()
+	let { workspace, user, secret, path, runnables, oniframe, syncHashToUrl = true }: Props = $props()
 	const pageHash = () => (syncHashToUrl ? window.location.hash : '')
 
 	$effect(() => {
@@ -46,6 +45,48 @@
 	})
 
 	let iframe = $state() as HTMLIFrameElement | undefined
+	// White behind apps that set no background of their own, but only once the document
+	// has loaded: before that it would flash under a dark app.
+	let loadedSrc: string | undefined = $state(undefined)
+
+	// The job bridge reaches the generated client and the app shell's stores, which the
+	// bundle's first paint does not need, so it loads alongside the bundle. Requests the
+	// bundle sends before it mounts are queued and handed over in order.
+	const runnerModule = import('./RawAppBackgroundRunner.svelte')
+	let runner: ReturnType<typeof RawAppBackgroundRunner> | undefined = $state()
+	let queuedForRunner: MessageEvent[] = []
+	$effect(() => {
+		if (!runner) return
+		const queued = queuedForRunner
+		queuedForRunner = []
+		for (const event of queued) runner.handleMessage(event)
+	})
+
+	// If the job bridge cannot load (offline, or a chunk a redeploy removed), the bundle
+	// still paints, so its requests are answered with an error rather than left pending.
+	let runnerFailed = false
+	let requestRefused = $state(false)
+	function refuseRequest(event: MessageEvent) {
+		const data = event.data
+		if (typeof data?.type !== 'string' || data.reqId === undefined) return
+		requestRefused = true
+		;(event.source as Window | null)?.postMessage(
+			{
+				type: data.type + 'Res',
+				reqId: data.reqId,
+				error: true,
+				result: { message: 'Could not load the app runtime, reload the page to try again' }
+			},
+			'*'
+		)
+	}
+	runnerModule.catch((e) => {
+		console.error('Could not load the raw app job bridge', e)
+		runnerFailed = true
+		const queued = queuedForRunner
+		queuedForRunner = []
+		for (const event of queued) refuseRequest(event)
+	})
 
 	// Get initial hash from parent URL to pass to the iframe
 	let initialHash = ''
@@ -240,12 +281,16 @@
 						)
 					} catch (_) {}
 				}
-			} else if (data?.type === 'windmill:hashchange' && syncHashToUrl) {
+			} else if (data?.type === 'windmill:hashchange') {
 				// Keep the parent URL hash in sync for shareable URLs.
 				const newHash = data.hash || ''
-				if (window.location.hash !== newHash) {
+				if (syncHashToUrl && window.location.hash !== newHash) {
 					history.replaceState(null, '', newHash || window.location.pathname)
 				}
+			} else if (runnerFailed) {
+				refuseRequest(event)
+			} else if (!runner) {
+				queuedForRunner.push(event)
 			}
 		}
 
@@ -254,14 +299,27 @@
 	})
 </script>
 
-<RawAppBackgroundRunner
-	{workspace}
-	editor={false}
-	{iframe}
-	{runnables}
-	{path}
-	gateJobIds={!unsandboxed}
-/>
+{#await runnerModule then { default: Runner }}
+	<Runner
+		bind:this={runner}
+		{workspace}
+		editor={false}
+		{iframe}
+		{runnables}
+		{path}
+		gateJobIds={!unsandboxed}
+	/>
+{:catch}
+	{#if requestRefused}
+		<!-- Styled inline: neither app.css nor another chunk can be counted on here. -->
+		<div
+			role="alert"
+			style="position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1000; padding: 8px 12px; border: 1px solid #fca5a5; border-radius: 6px; background: #fef2f2; color: #991b1b; font: 13px/1.4 system-ui, sans-serif"
+		>
+			Could not load the app runtime. Reload the page to try again.
+		</div>
+	{/if}
+{/await}
 
 {#if iframeSrc}
 	<!-- `unsandboxed` (the default — publisher did not opt into isolation) adds
@@ -271,12 +329,15 @@
 	<!-- referrerpolicy (sandboxed only, for exact legacy parity): the hosting page
 	     URL can carry a viewer credential (the JWT path segment of share links);
 	     without this, the bundle document would see it via document.referrer. -->
+	<!-- Styled inline: on the public app routes it renders before app.css, if ever, loads. -->
 	<iframe
 		bind:this={iframe}
 		title="raw-app"
 		src={iframeSrc}
 		sandbox={sandboxAttr}
 		referrerpolicy={unsandboxed ? undefined : 'no-referrer'}
-		class="w-full h-full min-h-screen bg-white border-none"
+		onload={() => (loadedSrc = iframeSrc)}
+		style="display: block; width: 100%; height: 100%; border: none"
+		style:background={loadedSrc === iframeSrc ? 'white' : 'transparent'}
 	></iframe>
 {/if}

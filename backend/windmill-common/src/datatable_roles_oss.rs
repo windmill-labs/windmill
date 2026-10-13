@@ -29,7 +29,8 @@ pub(crate) use crate::datatable_roles_ee::{
     ensure_instance_db_grant_options_unchecked, forget_datatable_role_everywhere,
     insert_role_catalog_entry, read_role_catalog, read_role_catalog_tx,
     registered_instance_databases, rename_datatable_role, resolve_datatable_role_connection,
-    role_cluster, set_datatable_role_login, update_role_catalog_entry,
+    role_cluster, set_datatable_role_login, sweep_unused_role_set_logins,
+    update_role_catalog_entry,
 };
 
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
@@ -125,7 +126,8 @@ mod ce {
         _cluster: DatatableRoleCluster,
         _name: &str,
         _password: &str,
-    ) -> Result<()> {
+        _take_over: bool,
+    ) -> Result<bool> {
         Err(unavailable())
     }
 
@@ -232,6 +234,11 @@ mod ce {
         } else {
             Err(unavailable())
         }
+    }
+
+    /// No roles, so no set login to sweep.
+    pub(crate) async fn sweep_unused_role_set_logins(_db: &DB) -> Result<()> {
+        Ok(())
     }
 
     pub(crate) async fn forget_datatable_role_everywhere(

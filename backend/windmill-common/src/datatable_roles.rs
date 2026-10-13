@@ -72,6 +72,11 @@ impl DatatableRoleCluster {
 /// created, renamed or dropped.
 pub const ADMIN_DATATABLE_ROLE: &str = "admin";
 
+/// Stands in a data table's `default_role` for "none": a connection that names no role then holds
+/// its viewer's roles only, and is refused without any. `$` is outside both the role-name charset
+/// and the catalog ids, and a server predating it refuses it as a role the data table lacks.
+pub const NO_DEFAULT_DATATABLE_ROLE: &str = "$none";
+
 /// The login the admin connection uses, and the role every created role is granted to — that
 /// membership is what later lets it `ALTER ... OWNER TO` a role and drop it.
 pub const CUSTOM_INSTANCE_USER: &str = "custom_instance_user";
@@ -121,7 +126,12 @@ fn is_reserved_role_name(name: &str) -> bool {
         || lower.starts_with("pg_")
         || lower.starts_with("windmill_")
         || lower.starts_with("custom_instance_")
+        || lower.starts_with(ROLE_SET_LOGIN_PREFIX)
 }
+
+/// Prefix of the logins Windmill creates for a connection made as several roles at once. Reserved,
+/// so no data table role can be created under, renamed to or taken over at such a name.
+pub const ROLE_SET_LOGIN_PREFIX: &str = "wm_set_";
 
 /// The charset is what makes every downstream interpolation safe: the name reaches Postgres as a
 /// quoted identifier, a `-- role <name>` annotation, and a `?role=` query parameter.
@@ -331,6 +341,12 @@ pub async fn converge_connect_grants_with(
 /// `CREATE ROLE <name> LOGIN PASSWORD ...; GRANT <name> TO custom_instance_user` on `cluster`. No
 /// privileges beyond that — an admin grants them through SQL or the ACL editor.
 ///
+/// A role of that name that already exists is refused with a 409, unless `take_over`: then its
+/// password is replaced and it is managed from here on like one created here. A role holding
+/// cluster-wide privileges, or inheriting another role's, is refused either way, since every tenant
+/// would get them. Returns whether an existing role was taken over: undoing a failed take-over
+/// must not drop a role that was there before.
+///
 /// On Windmill's own cluster the DDL runs on `tx`, so it commits with the catalog row. The external
 /// cluster is another server: the role is created there before `tx` commits, and callers MUST drop
 /// it again ([`drop_datatable_role`]) if `tx` then fails to commit.
@@ -343,8 +359,10 @@ pub async fn create_datatable_role(
     cluster: DatatableRoleCluster,
     name: &str,
     password: &str,
-) -> Result<()> {
-    crate::datatable_roles_oss::create_datatable_role(db, tx, cluster, name, password).await
+    take_over: bool,
+) -> Result<bool> {
+    crate::datatable_roles_oss::create_datatable_role(db, tx, cluster, name, password, take_over)
+        .await
 }
 
 /// Authorization: alters a cluster-wide Postgres login. Callers MUST restrict this to superadmin
@@ -404,6 +422,13 @@ pub async fn drop_datatable_role(
     name: &str,
 ) -> Result<()> {
     crate::datatable_roles_oss::drop_datatable_role(db, tx, cluster, name).await
+}
+
+/// Drop the logins made for a connection as several roles at once that nobody has connected with
+/// for a month, on every cluster. They are made again on demand, so this only bounds how many
+/// exist. Safe to call from any server at any time: it serializes on the role catalog lock.
+pub async fn sweep_unused_role_set_logins(db: &DB) -> Result<()> {
+    crate::datatable_roles_oss::sweep_unused_role_set_logins(db).await
 }
 
 #[cfg(test)]

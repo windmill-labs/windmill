@@ -13,6 +13,15 @@ export function agentChatPath(agentPath: string): string {
 	return `${agentPath}.chat`
 }
 
+/** The id of the one step a saved agent's run is made of, as the server names it too: job-read
+ *  scoping and the run's agent detection match on it, so it is only ever relabeled for display. */
+export const AGENT_STEP_ID = '__wm_agent_root'
+
+/** What a run shows for that step: the agent it ran, read off the run's path. */
+export function agentStepLabel(runPath: string | undefined): string {
+	return runPath?.replace(/\.chat$/, '') || 'AI Agent'
+}
+
 /**
  * The inputs of the flow a saved agent is chatted with: the message, and the files the composer's
  * paperclip uploads. `user_message` is the name the server requires of a chat-mode run.

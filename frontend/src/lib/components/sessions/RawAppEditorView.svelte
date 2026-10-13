@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte'
-	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -16,7 +15,11 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import { removeSession, type SessionRuntime } from './sessionRuntime.svelte'
-	import { FRAMEWORK_TEMPLATES, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
+	import {
+		BUILDER_FRAMEWORK_TEMPLATES,
+		FRAMEWORK_TEMPLATES,
+		STARTER_RUNNABLES
+	} from '$lib/components/raw_apps/templates'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -33,6 +36,7 @@
 		path,
 		workspaceId,
 		onNavigate,
+		onSeeDetails,
 		isActiveSession = true,
 		active = true,
 		newRawApp = false
@@ -41,6 +45,9 @@
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
+		/** `Exit & see details` — flips this tab to the item's deployed view rather than
+		 * navigating out of the session. */
+		onSeeDetails?: (e: { path: string }) => void
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
@@ -59,7 +66,10 @@
 		const files = cell.store.val?.files
 		if (!newRawApp || (cell.saved.val && !cell.saved.val.no_deployed) || !files) return false
 		const count = Object.keys(files).length
-		return Object.values(FRAMEWORK_TEMPLATES).some((template: Record<string, string>) => {
+		return [
+			...Object.values(FRAMEWORK_TEMPLATES),
+			...Object.values(BUILDER_FRAMEWORK_TEMPLATES)
+		].some((template: Record<string, string>) => {
 			const keys = Object.keys(template)
 			return count === keys.length && keys.every((k) => files[k] === template[k])
 		})
@@ -106,7 +116,7 @@
 		if (mode === 'code') {
 			// The session was opened for this app alone; with nothing said in it, it goes.
 			const unused = runtime.manager.displayMessages.length === 0
-			await goto(withWorkspaceParam(`${base}/apps_raw/edit/${path}`, workspaceId))
+			await goto(withWorkspaceParam(`/apps_raw/edit/${path}`, workspaceId))
 			if (unused) removeSession(runtime.sessionId)
 			return
 		}
@@ -357,6 +367,7 @@
 				newApp={!cell.saved.val || cell.saved.val.no_deployed === true}
 				{diffDrawer}
 				{onNavigate}
+				onDetails={onSeeDetails}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', path, e.path)}

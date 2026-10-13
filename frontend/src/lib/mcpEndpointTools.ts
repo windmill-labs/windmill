@@ -2028,7 +2028,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "description": "Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",
@@ -2041,7 +2041,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                                 "seconds": {
                                                         "type": "integer",
                                                         "minimum": 1,
-                                                        "description": "Initial delay in seconds"
+                                                        "description": "Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too"
                                                 },
                                                 "random_factor": {
                                                         "type": "integer",
@@ -2232,7 +2232,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "description": "Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",
@@ -2245,7 +2245,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                                 "seconds": {
                                                         "type": "integer",
                                                         "minimum": 1,
-                                                        "description": "Initial delay in seconds"
+                                                        "description": "Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too"
                                                 },
                                                 "random_factor": {
                                                         "type": "integer",

@@ -2097,7 +2097,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             )
             .await?;
             let duration = if success {
-                let (_, duration) = add_completed_job(
+                let (_, span) = add_completed_job(
                     db,
                     &cflow_job,
                     true,
@@ -2111,9 +2111,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                span.duration_ms
             } else {
-                let (_, duration) = add_completed_job(
+                let (_, span) = add_completed_job(
                     db,
                     &cflow_job,
                     false,
@@ -2131,7 +2131,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                span.duration_ms
             };
             flow_job_duration = flow_job
                 .started_at

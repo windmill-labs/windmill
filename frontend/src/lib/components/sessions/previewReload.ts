@@ -5,13 +5,13 @@ import {
 	pageItemUrl,
 	parsePageItemRoute,
 	parsePreviewItemRoute,
-	stripBase,
+	barePath,
 	TRIGGER_PAGES,
 	type PageItemRef,
 	type TriggerKind
 } from './previewPaths'
 
-// Which list pages a completed chat tool can change, as base-stripped paths
+// Which list pages a completed chat tool can change, as paths
 // (e.g. `/schedules`). This allowlist is the single source of truth for "does
 // this tool change a list page a preview tab might show". A new mutating tool
 // that surfaces on one of these pages must be added here or that tab silently
@@ -128,7 +128,7 @@ export function tabsToReload(
 	if (pages.size === 0) return []
 	return tabs.filter((t) => {
 		const pageItem = parsePageItemRoute(t.url)
-		if (!pageItem) return pages.has(stripBase(whereIs(t)))
+		if (!pageItem) return pages.has(barePath(whereIs(t)))
 		const listPath = pageItemListPath(pageItem)
 		if (!pages.has(listPath)) return false
 		const named = [...items].some((u) => pageItemListPath(parsePageItemRoute(u)!) === listPath)

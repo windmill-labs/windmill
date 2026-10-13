@@ -52,6 +52,11 @@
 	// Job ids launched by this app instance — see `gateJobIds`.
 	const launchedJobs = new Set<string>()
 
+	/** For a host that loads this component after the bundle may already have sent requests. */
+	export function handleMessage(event: MessageEvent) {
+		return listener(event)
+	}
+
 	let listener = async (event) => {
 		// Only accept messages from the bundle iframe (opaque origin) or the
 		// detached preview window we opened, so other frames/extensions can't

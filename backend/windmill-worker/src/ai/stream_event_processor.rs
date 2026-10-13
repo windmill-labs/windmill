@@ -1,3 +1,8 @@
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
+
 use async_trait::async_trait;
 use windmill_ai::{query_builder::StreamEventSink, types::*};
 use windmill_common::{error::Error, worker::Connection};
@@ -10,11 +15,13 @@ use crate::job_logger::append_result_stream;
 pub struct StreamEventProcessor {
     tx: Option<tokio::sync::mpsc::Sender<String>>,
     pub handle: Option<tokio::task::JoinHandle<()>>,
+    /// Shared by every clone, so a sink lent to a parser counts into its owner.
+    streamed: Arc<AtomicUsize>,
 }
 
 impl Clone for StreamEventProcessor {
     fn clone(&self) -> Self {
-        Self { tx: self.tx.clone(), handle: None }
+        Self { tx: self.tx.clone(), handle: None, streamed: self.streamed.clone() }
     }
 }
 
@@ -48,13 +55,19 @@ impl StreamEventProcessor {
             }
         });
 
-        Self { tx: Some(tx), handle: Some(handle) }
+        Self { tx: Some(tx), handle: Some(handle), streamed: Arc::default() }
     }
 
     /// Create a silent StreamEventProcessor that only accumulates events locally
     /// without persisting them to the database. Used when streaming is disabled.
     pub fn new_silent() -> Self {
-        Self { tx: None, handle: None }
+        Self { tx: None, handle: None, streamed: Arc::default() }
+    }
+
+    /// How many events have been streamed to the job's readers. A silent processor
+    /// streams none.
+    pub fn streamed_events(&self) -> usize {
+        self.streamed.load(Ordering::Relaxed)
     }
 
     pub fn to_handle(self) -> Option<tokio::task::JoinHandle<()>> {
@@ -79,6 +92,7 @@ impl StreamEventSink for StreamEventProcessor {
             Ok(event_json) => {
                 let event_json = format!("{}\n", event_json);
                 events_str.push_str(&event_json);
+                self.streamed.fetch_add(1, Ordering::Relaxed);
 
                 if let Err(err) = tx
                     .send(event_json.clone())

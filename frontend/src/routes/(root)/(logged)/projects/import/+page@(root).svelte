@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { Button } from '$lib/components/common'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -282,7 +281,7 @@
 					·
 					<a
 						class="text-accent hover:underline"
-						href="{base}/user/logout?rd={encodeURIComponent(logoutReturnTo)}"
+						href="/user/logout?rd={encodeURIComponent(logoutReturnTo)}"
 					>
 						Switch account
 					</a>

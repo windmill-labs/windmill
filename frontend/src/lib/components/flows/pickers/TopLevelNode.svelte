@@ -52,6 +52,7 @@
 		'AI Decision': { icon: Scale, iconClass: 'text-ai' },
 		'AI Sandbox': { icon: BotIcon, showChevron: true, iconClass: 'text-ai' },
 		'Claude Code': { icon: BotIcon, iconClass: 'text-ai' },
+		Pi: { icon: BotIcon, iconClass: 'text-ai' },
 		MCP: { icon: Plug },
 		'Web Search': { icon: Globe }
 	}

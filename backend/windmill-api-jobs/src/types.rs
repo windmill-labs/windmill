@@ -52,6 +52,8 @@ pub struct RunJobQuery {
     pub trigger_external_id: Option<String>,
     pub service_name: Option<String>,
     pub suspended_mode: Option<bool>,
+    /// A JSON-encoded `Retry` policy for a script run; see `with_run_retry`.
+    pub retry: Option<String>,
 }
 
 impl RunJobQuery {

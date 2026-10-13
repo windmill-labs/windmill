@@ -311,6 +311,7 @@
 	function refreshRoles() {
 		datatables.refetch()
 		usableRoles.refetch()
+		dbManagerContent?.dbManager()?.refreshAcl()
 	}
 
 	async function handleExportSchema(explicitSource?: string) {

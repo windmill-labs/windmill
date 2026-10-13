@@ -1,17 +1,18 @@
 <script lang="ts">
 	import type { AclTarget } from '$lib/gen'
+	import type { Snippet } from 'svelte'
 	import { Plus } from 'lucide-svelte'
 	import { Button } from '../common'
 	import Select from '../select/Select.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
-	import { privilegesOf, scopeSql, scopesOf, type AclScope } from './aclScopes'
+	import { privilegesOf, scopesOf, type AclScope } from './aclScopes'
 
 	let {
 		target,
 		roles,
 		supportsMaintain = false,
-		dbname,
 		disabled = false,
+		manageRoles,
 		onAdd
 	}: {
 		target: AclTarget
@@ -19,9 +20,9 @@
 		roles: string[]
 		/** Postgres 17+, which has one more table privilege to offer. */
 		supportsMaintain?: boolean
-		/** Names the database in the statement a database target builds. */
-		dbname?: string
 		disabled?: boolean
+		/** Rendered at the bottom of the role picker, to reach the data table's roles. */
+		manageRoles?: Snippet<[{ close: () => void }]>
 		onAdd: (grant: { role: string; privileges: string[]; scope: AclScope }) => void
 	} = $props()
 
@@ -29,26 +30,24 @@
 	let scope = $state<AclScope>('target')
 	let privileges = $state<string[]>([])
 
+	const scopes = $derived(scopesOf(target.kind))
 	const available = $derived(privilegesOf(scope, target.kind, supportsMaintain))
-	const statement = $derived(
-		privileges.length && role
-			? `GRANT ${privileges.join(', ')} ON ${scopeSql(scope, target, dbname)} TO ${role}`
-			: undefined
-	)
 </script>
 
-<div class="flex flex-col gap-2 border rounded-md p-3">
-	<div class="flex flex-wrap items-center gap-2 text-xs text-secondary">
-		<span class="font-mono text-primary">GRANT</span>
-		<MultiSelect
-			bind:value={privileges}
-			items={available.map((p) => ({ value: p, label: p }))}
-			placeholder="privileges"
-			{disabled}
-			size="sm"
-			class="min-w-48"
-		/>
-		<span class="font-mono text-primary">ON</span>
+<!-- Laid out like the grants above it, so it reads as the statement it will run. -->
+<div class="flex items-center gap-2 text-xs text-secondary">
+	<span class="font-mono shrink-0">GRANT</span>
+	<MultiSelect
+		bind:value={privileges}
+		items={available.map((p) => ({ value: p, label: p }))}
+		placeholder="privileges"
+		{disabled}
+		size="md"
+		class="min-w-0 flex-[4]"
+	/>
+	<!-- A database or a table has only itself to grant on. -->
+	{#if scopes.length > 1}
+		<span class="font-mono shrink-0">ON</span>
 		<Select
 			bind:value={
 				() => scope,
@@ -61,35 +60,34 @@
 					privileges = privileges.filter((p) => allowed.includes(p))
 				}
 			}
-			items={scopesOf(target.kind)}
+			items={scopes}
 			{disabled}
-			size="sm"
-			class="w-52"
+			size="md"
+			class="min-w-0 flex-[3]"
 		/>
-		<span class="font-mono text-primary">TO</span>
-		<Select
-			bind:value={role}
-			items={roles.map((r) => ({ value: r, label: r }))}
-			placeholder="role"
-			{disabled}
-			size="sm"
-			class="w-40"
-		/>
-		<Button
-			unifiedSize="sm"
-			variant="default"
-			startIcon={{ icon: Plus }}
-			disabled={disabled || !role || privileges.length === 0}
-			onClick={() => {
-				if (!role) return
-				onAdd({ role, privileges: [...privileges], scope })
-				privileges = []
-			}}
-		>
-			Add
-		</Button>
-	</div>
-	{#if statement}
-		<pre class="text-2xs text-tertiary overflow-x-auto">{statement}</pre>
 	{/if}
+	<span class="font-mono shrink-0">TO</span>
+	<Select
+		bind:value={role}
+		items={roles.map((r) => ({ value: r, label: r }))}
+		placeholder="role"
+		{disabled}
+		size="md"
+		class="min-w-0 flex-[2]"
+		bottomSnippet={manageRoles}
+	/>
+	<Button
+		unifiedSize="md"
+		variant="default"
+		wrapperClasses="shrink-0"
+		startIcon={{ icon: Plus }}
+		disabled={disabled || !role || privileges.length === 0}
+		onClick={() => {
+			if (!role) return
+			onAdd({ role, privileges: [...privileges], scope })
+			privileges = []
+		}}
+	>
+		Create
+	</Button>
 </div>

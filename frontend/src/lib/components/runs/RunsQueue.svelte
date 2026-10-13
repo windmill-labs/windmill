@@ -28,7 +28,9 @@
 	{#if small}
 		<Popover contentClasses="p-4" openOnHover debounceDelay={100}>
 			{#snippet trigger()}
-				<div class="relative">
+				<!-- mr-2: the count badge hangs half outside this box, so the margin — not the row's
+				     gap — is what keeps it off whatever sits to the right. -->
+				<div class="relative mr-2">
 					<ServerCog size={16} />
 					{#if queue_count && ($queue_count ?? 0) > 0}
 						<div
@@ -49,14 +51,11 @@
 	{/if}
 
 	{#if small}
-		<Popover
-			contentClasses="p-4"
-			openOnHover
-			debounceDelay={100}
-			disablePopup={!suspended_count || ($suspended_count ?? 0) <= 0}
-		>
+		<!-- The icon is on the bar whatever the count, so it answers a hover whatever the count —
+		     a disabled trigger takes no pointer events and reads as a dead icon. -->
+		<Popover contentClasses="p-4" openOnHover debounceDelay={100}>
 			{#snippet trigger()}
-				<div class="relative">
+				<div class="relative mr-2">
 					<Hourglass size={16} />
 					<div
 						class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-surface-secondary-inverse rounded-full text-primary-inverse text-2xs h-4 min-w-4 px-1"
@@ -69,7 +68,7 @@
 				{@render suspendedContent()}
 			{/snippet}
 		</Popover>
-	{:else}
+	{:else if suspended_count && ($suspended_count ?? 0) > 0}
 		{@render suspendedContent()}
 	{/if}
 </div>
@@ -103,28 +102,28 @@
 {/snippet}
 
 {#snippet suspendedContent()}
-	{#if suspended_count && ($suspended_count ?? 0) > 0}
-		<RunOption label="Suspended">
-			{#snippet tooltip()}
-				Jobs waiting for an event or approval before being resumed
-			{/snippet}
-			<div
-				class={suspended_count && ($suspended_count ?? 0) > 0
-					? 'bg-surface-secondary-inverse text-primary-inverse rounded-full min-w-6 h-6 flex center-center'
-					: ''}>{suspended_count ? ($suspended_count ?? 0).toFixed(0) : '...'}</div
-			>
-			<div class="truncate text-2xs !text-secondary">
-				<Button unifiedSize="md" variant="subtle" on:click={() => onJobsSuspended?.()}>
-					{#if success == 'suspended'}
-						<div class="flex flex-row items-center gap-1">
-							Reset filter
-							<X size={12} />
-						</div>
-					{:else}
-						<ListFilterPlus size={14} />
-					{/if}
-				</Button>
-			</div>
-		</RunOption>
-	{/if}
+	<RunOption label="Suspended">
+		{#snippet tooltip()}
+			Jobs waiting for an event or approval before being resumed
+		{/snippet}
+		<div
+			class={suspended_count && ($suspended_count ?? 0) > 0
+				? 'bg-surface-secondary-inverse text-primary-inverse rounded-full min-w-6 h-6 flex center-center'
+				: ''}
+		>
+			{suspended_count ? ($suspended_count ?? 0).toFixed(0) : '...'}
+		</div>
+		<div class="truncate text-2xs !text-secondary">
+			<Button unifiedSize="md" variant="subtle" on:click={() => onJobsSuspended?.()}>
+				{#if success == 'suspended'}
+					<div class="flex flex-row items-center gap-1">
+						Reset filter
+						<X size={12} />
+					</div>
+				{:else}
+					<ListFilterPlus size={14} />
+				{/if}
+			</Button>
+		</div>
+	</RunOption>
 {/snippet}

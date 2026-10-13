@@ -643,6 +643,7 @@ pub async fn update_worker_ping_for_failed_init_script(
                         wm_memory_usage: None,
                         job_isolation: None,
                         native_mode: None,
+                        draining: None,
                         ping_type: PingType::InitScript,
                     },
                 )
@@ -1725,6 +1726,23 @@ pub async fn cached_result_path(
         hasher.update(b"wac_step:");
         hasher.update(step_key.as_bytes());
     }
+    // What a run returns can depend on who it ran for (`WM_END_USER_EMAIL`, a data table used
+    // as the viewer), so a result cached for one viewer is never served to another. Read from
+    // `job_perms`: a flow job re-fetched between steps does not carry it.
+    let end_user: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+    )
+    .bind(job.id)
+    .bind(&job.workspace_id)
+    .fetch_optional(db)
+    .await?;
+    // Length-prefixed: the arguments follow undelimited, and the end of one viewer's address
+    // must not read as the start of another run's first argument name.
+    if let Some(end_user) = end_user.flatten() {
+        hasher.update(b"end_user:");
+        hasher.update((end_user.len() as u64).to_le_bytes());
+        hasher.update(end_user.as_bytes());
+    }
     hash_args(
         db,
         client,
@@ -1961,6 +1979,18 @@ pub async fn save_in_cache(
     CACHED_RESULTS.insert(cached_path, Arc::new(store_cache_resource));
 }
 
+pub(crate) fn deno_not_installed_error() -> Error {
+    Error::ExecutionErr(format!(
+        "Deno is not installed on this worker (looked for it at {}). The standard Windmill images \
+         no longer ship Deno: official support for it on those images was discontinued after Deno \
+         announced the end of development of the Deno runtime (https://deno.com/blog/cloudflare). \
+         We recommend migrating this script to Bun. To keep running Deno scripts, use the \
+         windmill-full or windmill-ee-full image on every worker that accepts the deno tag, or \
+         install Deno on them and point DENO_PATH at it.",
+        crate::DENO_PATH.as_str()
+    ))
+}
+
 fn tentatively_improve_error(err: Error, executable: &str) -> Error {
     #[cfg(unix)]
     let err_msgs = vec!["os error 2", "os error 3", "No such file or directory"];
@@ -1969,6 +1999,11 @@ fn tentatively_improve_error(err: Error, executable: &str) -> Error {
     let err_msgs = vec!["program not found", "os error 2", "os error 3"];
 
     if err_msgs.iter().any(|msg| err.to_string().contains(msg)) {
+        // An absolute DENO_PATH is checked before spawning, where a missing job dir
+        // cannot be mistaken for a missing binary.
+        if executable == crate::DENO_PATH.as_str() && !Path::new(executable).is_absolute() {
+            return deno_not_installed_error();
+        }
         return Error::internal_err(format!(
             "Executable {executable} not found on worker. PATH: {}",
             *PATH_ENV
@@ -2455,6 +2490,52 @@ mod tests {
             runnable_settings_handle: None,
             job_token_scopes: None,
         }
+    }
+
+    // A cache hit returns before the job runs, so the key is all that keeps a result computed
+    // for one viewer (a data table used as the viewer, `WM_END_USER_EMAIL`) from another.
+    #[sqlx::test(migrations = "../migrations")]
+    async fn a_cached_result_is_keyed_by_the_recorded_viewer(pool: sqlx::PgPool) {
+        let client = test_client();
+
+        // The last two differ only in where the viewer's address ends and the first argument
+        // name starts.
+        let mut paths = vec![];
+        for (viewer, arg) in [
+            (Some("a@windmill.dev"), "mode"),
+            (Some("a@windmill.dev"), "mode"),
+            (Some("b@windmill.dev"), "mode"),
+            (None, "mode"),
+            (Some("a@windmill.co"), "mode"),
+            (Some("a@windmill.com"), "ode"),
+        ] {
+            let args = HashMap::from([(arg.to_string(), to_raw_value(&"all"))]);
+            let job = MiniPulledJob {
+                id: uuid::Uuid::new_v4(),
+                args: Some(sqlx::types::Json(args)),
+                ..test_job()
+            };
+            sqlx::query(
+                "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator,
+                     workspace_id, groups, folders, end_user_email)
+                 VALUES ($1, 'publisher@windmill.dev', 'publisher', false, false, 'test', '{}',
+                     '{}', $2)",
+            )
+            .bind(job.id)
+            .bind(viewer)
+            .execute(&pool)
+            .await
+            .unwrap();
+            paths.push(cached_result_path(&pool, &client, &job, None).await.unwrap());
+        }
+        assert_eq!(
+            paths[0], paths[1],
+            "one viewer shares their own cached result"
+        );
+        assert_ne!(paths[0], paths[2], "two viewers share a cached result");
+        assert_ne!(paths[0], paths[3]);
+        assert_ne!(paths[2], paths[3]);
+        assert_ne!(paths[4], paths[5], "an address runs into the argument names");
     }
 
     #[tokio::test]

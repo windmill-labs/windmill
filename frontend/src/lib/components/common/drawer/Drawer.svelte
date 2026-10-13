@@ -28,6 +28,8 @@
 		positionClass?: string | undefined
 		name?: string
 		children?: import('svelte').Snippet<[any]>
+		/** Asked before a click away or Escape closes it; resolving false keeps it open. */
+		confirmClose?: () => boolean | Promise<boolean>
 	}
 
 	let {
@@ -43,7 +45,8 @@
 		class: clazz = '',
 		positionClass = undefined,
 		name = undefined,
-		children: children_render
+		children: children_render,
+		confirmClose
 	}: Props = $props()
 
 	if (open === undefined) {
@@ -146,6 +149,7 @@
 		onOpen={() => dispatch('open')}
 		onClose={() => dispatch('close')}
 		{preventEscape}
+		{confirmClose}
 	>
 		{#snippet children({ handleClickAway, zIndex, isTop })}
 			<aside

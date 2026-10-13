@@ -19,6 +19,7 @@ import { applyReasoningToConfig } from '../reasoningRegistry'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	type LiveToolSet,
 	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks,
@@ -197,7 +198,11 @@ export async function parseAnthropicCompletion(
 	tools: Tool<any>[],
 	helpers: any,
 	abortController?: AbortController,
-	options?: { workspace?: string; onTokenUsage?: (usage: ChatTokenUsage) => void }
+	options?: {
+		workspace?: string
+		onTokenUsage?: (usage: ChatTokenUsage) => void
+		live?: LiveToolSet
+	}
 ): Promise<ParsedCompletionResult> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error = null
@@ -447,7 +452,8 @@ export async function parseAnthropicCompletion(
 				helpers,
 				toolCallbacks: callbacks,
 				workspace: options?.workspace,
-				messages
+				messages,
+				live: options?.live
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)

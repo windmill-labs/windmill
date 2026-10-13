@@ -108,25 +108,34 @@ const isClientBuild = (bundle) =>
 	Object.keys(bundle).some((file) => file.startsWith('_app/immutable/'))
 
 /**
- * Fail the build if a public app URL statically loads the low-code runtime or monaco.
+ * Fail the build if a public app URL statically loads more than a raw app needs.
  *
  * These pages also serve raw apps, which only need a small shell around their bundle's
- * iframe. One static import of AppPreview (or of anything reaching monaco) makes every
- * public app page preload ~650 chunks instead of ~55. See loadAppPreview.ts.
+ * iframe, and the page shows nothing until its static imports have loaded. One static
+ * import of AppPreview (or of anything reaching monaco) makes every public app page
+ * preload ~650 chunks; one of the generated client, `$lib/stores` or `$lib/utils` drags
+ * in most of the app shell. The root layout wraps these pages, so it must not import
+ * app.css either. See loadAppPreview.ts and publicAppApi.ts.
  */
 function assertLeanPublicAppRoutes() {
 	// Route directories, so +page.js counts as well as +page.svelte.
 	const routes = ['/src/routes/public/[workspace]/[...secret]/', '/src/routes/a/[...path]/']
 	const forbidden = [
 		'/src/lib/components/apps/editor/AppPreview.svelte',
-		'/node_modules/monaco-editor/'
+		'/node_modules/monaco-editor/',
+		'/src/lib/assets/app.css',
+		'/src/lib/gen/services.gen.ts',
+		'/src/lib/stores.ts',
+		'/src/lib/utils.ts',
+		'/src/lib/components/Login.svelte',
+		'/node_modules/@melt-ui/'
 	]
 	return {
 		name: 'wm-assert-lean-public-app-routes',
 		generateBundle(_options, bundle) {
 			if (!isClientBuild(bundle)) return
-			for (const route of routes) {
-				assertStaticClosureExcludes(this, bundle, route, forbidden, 'loadAppPreview.ts')
+			for (const route of [...routes, '/src/routes/+layout.svelte']) {
+				assertStaticClosureExcludes(this, bundle, route, forbidden, 'publicAppApi.ts')
 			}
 		}
 	}
@@ -372,7 +381,19 @@ const config = {
 				// which makes the *chunk* graph cyclic where the module graph is not, and
 				// modules then evaluate against uninitialized bindings. See
 				// docs/frontend-import-cycles.md.
-				advancedChunks: { groups: [{ name: 'gen', test: /[\\/]src[\\/]lib[\\/]gen[\\/]/ }] }
+				// The client's config is split out for the public app routes, which set the
+				// credential without loading the client. It imports nothing at runtime, so
+				// its chunk cannot be part of a cycle.
+				advancedChunks: {
+					groups: [
+						{
+							name: 'gen-config',
+							test: /[\\/]src[\\/]lib[\\/]gen[\\/]core[\\/]OpenAPI\.ts$/,
+							priority: 1
+						},
+						{ name: 'gen', test: /[\\/]src[\\/]lib[\\/]gen[\\/]/ }
+					]
+				}
 			}
 		}
 	},

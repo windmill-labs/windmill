@@ -1299,6 +1299,13 @@ pub(crate) async fn delete_workspace(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query!(
+        "DELETE FROM runnable_job_stats WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     // If this workspace is itself a dev workspace, deleting it dissolves the pairing, so also drop
     // the parent prod's reserved dev_workspace_lock (mirrors detach_dev_workspace) — otherwise prod
     // stays locked against direct deploy/forking with no dev workspace left to make changes in.
