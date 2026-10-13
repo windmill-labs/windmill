@@ -495,6 +495,9 @@
       { "value": "conversations.write", "label": "Send messages and update threads" },
       { "value": "scheduler.meetings.meeting-link.read", "label": "Read meeting links and their availability" }
     ],
+    "extra_params": {
+      "optional_scope": "tickets crm.objects.line_items.read crm.objects.line_items.write e-commerce crm.objects.quotes.read crm.objects.quotes.write crm.objects.leads.read crm.objects.leads.write crm.objects.custom.read crm.objects.custom.write crm.schemas.custom.read crm.lists.read crm.lists.write sales-email-read forms files content crm.objects.marketing_events.read marketing.campaigns.read communication_preferences.read_write automation automation.sequences.read automation.sequences.enrollments.write conversations.read conversations.write scheduler.meetings.meeting-link.read"
+    },
     "req_body_auth": true
   }
 }
