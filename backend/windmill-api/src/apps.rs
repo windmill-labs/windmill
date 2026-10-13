@@ -481,9 +481,10 @@ pub struct PolicyTriggerableInputs {
     sensitive_inputs: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tag: Option<String>,
-    /// The runnable's data table connections that name no role are made as the app's viewer
-    /// rather than as the app's identity. Honored for inline runnables only: their code is
-    /// deployed with the app, so it is the publisher who chose to read with the viewer's roles.
+    /// The runnable reads data as the app's viewer rather than as the app's identity: data table
+    /// connections that name no role, and object storage advanced permission rules. Honored for
+    /// inline runnables only: their code is deployed with the app, so it is the publisher who
+    /// chose to read with the viewer's rights.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     viewer_data_access: bool,
 }
@@ -6059,11 +6060,10 @@ async fn app_load_table_count(
     let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
-    let resp =
-        crate::job_helpers_oss::load_table_count_internal(
-            job_authed, &db, None, &w_id, file_key, inner,
-        )
-            .await?;
+    let resp = crate::job_helpers_oss::load_table_count_internal(
+        job_authed, &db, None, &w_id, file_key, inner,
+    )
+    .await?;
     Ok(Json(resp).into_response())
 }
 

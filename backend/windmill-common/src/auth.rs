@@ -366,7 +366,8 @@ pub struct JobPerms {
     /// token.
     #[serde(default)]
     pub job_token_scopes: Option<Vec<String>>,
-    /// Whether the job's data table connections that name no role are made as `end_user_email`.
+    /// Whether the job reads data as `end_user_email`: its data table connections that name no
+    /// role, and the object storage advanced permission rules it is checked against.
     #[serde(default)]
     pub viewer_data_access: bool,
 }
