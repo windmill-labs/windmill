@@ -6317,8 +6317,8 @@ async fn set_encryption_key(
 async fn reencrypt_git_sync_secrets(
     conn: &mut sqlx::PgConnection,
     w_id: &str,
-    old: &magic_crypt::MagicCrypt256,
-    new: &magic_crypt::MagicCrypt256,
+    old: &windmill_common::variables::WorkspaceCrypt,
+    new: &windmill_common::variables::WorkspaceCrypt,
 ) -> Result<()> {
     let Some((mut credentials, mut git_sync)) =
         sqlx::query_as::<_, (serde_json::Value, Option<serde_json::Value>)>(

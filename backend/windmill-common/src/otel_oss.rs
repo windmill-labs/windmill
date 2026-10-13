@@ -54,6 +54,19 @@ pub(crate) fn init_logs_bridge(_mode: &Mode, _hostname: &str, _env: &str) -> Opt
     None
 }
 
+#[cfg(not(feature = "private"))]
+pub(crate) fn init_logs_bridge_for_service(
+    _service: &str,
+    _hostname: &str,
+    _env: &str,
+) -> Option<EnvFilter> {
+    None
+}
+
+/// Export the log records still batched, for a process about to exit.
+#[cfg(not(feature = "private"))]
+pub async fn flush_otel_logs() {}
+
 #[cfg(all(feature = "otel", feature = "enterprise", not(feature = "private")))]
 pub(crate) fn init_otlp_tracer(
     _mode: &Mode,

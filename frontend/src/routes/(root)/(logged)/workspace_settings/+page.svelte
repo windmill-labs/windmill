@@ -1133,10 +1133,14 @@
 	}
 
 	// Strip keys from extraArgs that are auto-managed by child components:
-	// - 'slack': computed by ErrorOrRecoveryHandler's $effect based on handler type
+	// - 'slack' while the Slack built-in is selected: set by ErrorOrRecoveryHandler's $effect
 	// - 'channel_name': display metadata stripped by SchemaForm's removeExtraKey()
-	function normalizeHandlerExtraArgs(args: Record<string, any>): Record<string, any> {
-		const { slack: _, channel_name: __, ...rest } = args
+	function normalizeHandlerExtraArgs(
+		args: Record<string, any>,
+		handlerSelected: ErrorHandler
+	): Record<string, any> {
+		const { channel_name: _, ...rest } = args
+		if (handlerSelected === 'slack') delete rest.slack
 		return rest
 	}
 
@@ -1146,7 +1150,10 @@
 			errorHandlerSelected: initialErrorHandlerSelected,
 			errorHandlerScriptPath: initialErrorHandlerScriptPath,
 			errorHandlerItemKind: initialErrorHandlerItemKind,
-			errorHandlerExtraArgs: normalizeHandlerExtraArgs(initialErrorHandlerExtraArgs),
+			errorHandlerExtraArgs: normalizeHandlerExtraArgs(
+				initialErrorHandlerExtraArgs,
+				initialErrorHandlerSelected
+			),
 			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
 			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath
 		}
@@ -1155,7 +1162,7 @@
 			errorHandlerSelected: errorHandlerSelected,
 			errorHandlerScriptPath: errorHandlerScriptPath,
 			errorHandlerItemKind: errorHandlerItemKind,
-			errorHandlerExtraArgs: normalizeHandlerExtraArgs(errorHandlerExtraArgs),
+			errorHandlerExtraArgs: normalizeHandlerExtraArgs(errorHandlerExtraArgs, errorHandlerSelected),
 			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
 			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath
 		}
