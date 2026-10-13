@@ -64,79 +64,6 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
 //   resource          `{path, description, args, labels, wsSpecific, resource_type}`
 //   variable          `{path, variable: {value, is_secret, description}, labels,
 //                     wsSpecific, account?, is_oauth?, expires_at?}`
-//
-// Paths and routes
-//   path_enc(path)                      percent-encode a workspace path for a URL, keeping `/`.
-//   draft_kind(type, trigger_kind)      the draft kind of an item type; None for a trigger
-//                                       without a (known) kind.
-//   exists_route / get_route(ctx, type, trigger_kind, path)
-//                                       the API path that probes / fetches the DEPLOYED item.
-//                                       Err when type is `trigger` and no kind was given.
-//   item_exists(..) / get_deployed(..)  call them. `get_deployed` returns the raw API object
-//                                       (variables are fetched without their secret).
-//   deployed_item_exists(..)            `item_exists`, counting an archived script as deployed.
-//   service(type, trigger_kind)         the API root an item type's routes hang off. Err for an
-//                                       unknown type, or a trigger without a known kind.
-//   item_type_arg(args)                 a tool's `type` argument, validated.
-//
-// Draft store (kind-addressed, the caller's own drafts only)
-//   get_draft(ctx, kind, path)          Ok(None) when there is no draft. `Draft.created_at` is
-//                                       the baseline to hand back as `last_sync`.
-//   save_draft(ctx, kind, path, value, last_sync, force)
-//                                       upsert, or delete with `value: None`. Ok(true) saved,
-//                                       Ok(false) the server refused because the row moved past
-//                                       `last_sync`. `force` skips that check.
-//   delete_draft(ctx, kind, path, last_sync)
-//                                       delete, with the session's error messages on failure
-//                                       or conflict.
-//   list_drafts(ctx)                    every draft a tool can address, as value-less items.
-//
-// Items
-//   draft_item(kind, path, value)       a stored draft value as an item (`isDraft: true`).
-//   get_draft_item(ctx, type, path, trigger_kind)
-//                                       the caller's draft as `(item, Draft)`, or None.
-//   serialize_for_read(item, execution_mode)
-//                                       what `read_workspace_item` prints for an item: flows in
-//                                       the compact view, apps summarized, variables redacted.
-//   load_script(ctx, path) / load_flow(ctx, path)
-//                                       the draft when one exists, else the deployed item
-//                                       (Err when neither). `LoadedFlow.is_draft` says which.
-//
-// Writing a draft (what every `write_*` tool does)
-//   write_base(ctx, type, path, trigger_kind)
-//                                       the value to build on: the caller's draft, else the
-//                                       deployed item's raw API object, else None (a create).
-//                                       `from_draft` tells the first two apart: a deployed base
-//                                       still needs shaping into the stored draft value.
-//   persist_draft(ctx, type, path, trigger_kind, value, last_sync, force)
-//                                       save and report: `Persist::Saved(item)`, or
-//                                       `Persist::Failed(text)` where `text` is the JSON the tool
-//                                       returns as its (Ok) result for a conflict or a failed save.
-//   finish_draft_write(item, existed)   the success JSON of a write tool.
-//
-// Flows and apps
-//   compact_flow(value, schema)         the compact flow view and the inline script bodies it
-//                                       replaced with `inline_script.<id>`, by module id.
-//   normalize_app_draft(value)          the stored raw-app draft shape of an app value.
-//   app_source_to_draft_value(app, fallback)
-//                                       a deployed app (or app version) as a draft value.
-//   summarize_app_value(value)          file and runnable metadata of an app draft value.
-//   describe_app_exposure(ctx, mode)    an app's execution mode, flagged when `guest` is inert.
-//
-// Text
-//   find_and_replace(content, old, new, replace_all, label)
-//                                       exact replace; Err when `old` is absent or ambiguous.
-//   unified_patch(old_name, new_name, old, new, context)
-//                                       a unified diff in the format of jsdiff's
-//                                       `createTwoFilesPatch` (which defaults to 4 context lines).
-//   empty_schema() / infer_script_schema(language, content, previous, entrypoint)
-//                                       a script's input schema from its code. None when this
-//                                       build has no parser for the language or the code does
-//                                       not parse.
-//   api_message(error)                  a `Ctx` error without its leading status code.
-//
-// The JSON and JS-semantics helpers every group shares (`truthy`, `non_null`, `put`,
-// `js_len`, ...) are in `mod.rs`; the job helpers are in `runs.rs`.
 // ============================================================================
 
 pub(super) const TRIGGER_KINDS: &[&str] = &[
@@ -1174,7 +1101,7 @@ fn diff_lines<'a>(old: &[&'a str], new: &[&'a str]) -> Vec<(char, &'a str)> {
     let (n, m) = (a.len(), b.len());
     // ponytail: quadratic LCS table. Past the cap the changed region is reported as
     // replaced wholesale, still a valid patch; switch to Myers if that ever shows.
-    const MAX_CELLS: usize = 16_000_000;
+    const MAX_CELLS: usize = 4_000_000;
     if (n + 1).saturating_mul(m + 1) > MAX_CELLS {
         ops.extend(a.iter().map(|l| ('-', *l)));
         ops.extend(b.iter().map(|l| ('+', *l)));

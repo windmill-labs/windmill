@@ -20,6 +20,15 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::sync::Arc;
 
+/// `mcp:all` and nothing that narrows it: the tools call the API with the caller's full
+/// rights, so a token also confined to some paths (`variables:read:f/x/*`) would lose
+/// that confinement here.
+fn admits(scopes: &[String], all: bool) -> bool {
+    all && scopes
+        .iter()
+        .all(|s| s.starts_with("mcp:") || s.starts_with("if_jobs:filter_tags:"))
+}
+
 pub struct SessionRunner<B: McpBackend> {
     backend: Arc<B>,
 }
@@ -42,9 +51,9 @@ impl<B: McpBackend> SessionRunner<B> {
         let McpContext { auth, mode, .. } = Runner::<B>::extract_context(context)?;
         let scope_config = parse_mcp_scopes(auth.scopes().unwrap_or(&[]))
             .map_err(|e| ErrorData::internal_error(e, None))?;
-        if !scope_config.all {
+        if !admits(auth.scopes().unwrap_or(&[]), scope_config.all) {
             return Err(ErrorData::invalid_request(
-                "This server needs a token with the `mcp:all` scope",
+                "This server needs a token whose only scope is `mcp:all`",
                 None,
             ));
         }
@@ -144,5 +153,25 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
             }
         }
         Ok(result.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_an_unnarrowed_mcp_all_token_is_admitted() {
+        let admitted = |scopes: &[&str]| {
+            let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+            let all = parse_mcp_scopes(&scopes).is_ok_and(|c| c.all);
+            admits(&scopes, all)
+        };
+        assert!(admitted(&["mcp:all"]));
+        assert!(admitted(&["mcp:all", "if_jobs:filter_tags:gpu"]));
+        assert!(!admitted(&["mcp:all", "variables:read:u/a/safe/*"]));
+        assert!(!admitted(&["mcp:all:f/x/*"]));
+        assert!(!admitted(&["mcp:favorites"]));
+        assert!(!admitted(&[]));
     }
 }

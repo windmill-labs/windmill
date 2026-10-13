@@ -154,9 +154,15 @@ pub(super) struct Ctx<'a> {
 impl Ctx<'_> {
     /// Call the API as the caller. `path` follows `/api`; a non-2xx answer is the error.
     pub async fn request(&self, method: &str, path: &str, body: Option<Value>) -> ToolResult {
-        let url = format!("{}/api{}", self.base_internal_url, path);
-        // Unscoped: this server only admits `mcp:all`, the routes are chosen by its own
-        // handlers, and several of them (hub, embeddings) map to no route scope at all.
+        let url = guarded_url(
+            self.base_internal_url,
+            self.w_id,
+            method,
+            path,
+            self.auth.read_only,
+        )?;
+        // Unscoped: this server only admits `mcp:all`, several routes (hub, embeddings) map
+        // to no route scope at all, and `guarded_url` is what keeps a call on its route.
         let response = send_as_caller(method, &url, self.w_id, self.auth, body, None)
             .await
             .map_err(|e| e.message.to_string())?;
@@ -190,6 +196,58 @@ impl Ctx<'_> {
     pub fn ws(&self, rest: &str) -> String {
         format!("/w/{}/{}", self.w_id, rest)
     }
+}
+
+/// Routes outside the workspace that a tool reads.
+const INSTANCE_ROUTES: &[&str] = &[
+    "/docs/",
+    "/embeddings/",
+    "/integrations/hub/",
+    "/scripts/hub/",
+    "/users/whoami",
+    "/workers/list",
+    "/workspaces/users",
+];
+
+/// The URL of an API call, refused unless it lands on the route its handler wrote.
+///
+/// The JWT behind a call carries the caller's full rights, and paths embed arguments a
+/// model chose: a `..` segment, or an id carrying `#`, would otherwise turn a read of
+/// one job into a run of any script. A read-only token is held to the read-only rule
+/// here too, since that JWT does not carry the flag.
+fn guarded_url(
+    base: &str,
+    w_id: &str,
+    method: &str,
+    path: &str,
+    read_only: bool,
+) -> Result<String, String> {
+    let refused = || format!("Refusing to call `{path}`: not a route of this tool");
+    let route = path.split('?').next().unwrap_or_default();
+    let in_workspace = route
+        .strip_prefix("/w/")
+        .and_then(|rest| rest.strip_prefix(w_id))
+        .is_some_and(|rest| rest.starts_with('/'));
+    let workspace_is_plain = w_id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if path.contains('#')
+        || !workspace_is_plain
+        || !(in_workspace || INSTANCE_ROUTES.iter().any(|r| route.starts_with(r)))
+    {
+        return Err(refused());
+    }
+    let url = format!("{base}/api{path}");
+    let parsed = reqwest::Url::parse(&url).map_err(|_| refused())?;
+    // Parsing resolves dot segments, encoded or not: a path that changed went elsewhere.
+    if !parsed.path().ends_with(&format!("/api{route}")) {
+        return Err(refused());
+    }
+    if read_only {
+        windmill_api_auth::scopes::check_read_only_for_route(parsed.path(), method)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(url)
 }
 
 /// A string argument, or the error the model gets for leaving it out.
@@ -360,6 +418,28 @@ pub(super) async fn call_session_tool(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_call_stays_on_the_route_its_handler_wrote() {
+        let url = |method, path, read_only| guarded_url("http://h", "ws", method, path, read_only);
+        assert!(url("GET", "/w/ws/jobs_u/get/0191?no_logs=true", false).is_ok());
+        assert!(url("GET", "/docs/search?query=a%2Fb", true).is_ok());
+        for path in [
+            "/w/ws/jobs_u/get/../../jobs/run_wait_result/p/u/a/b",
+            "/w/ws/jobs_u/get/%2e%2e/%2E%2E/variables/get_value/u/a/b",
+            "/w/ws/jobs_u/get/x#",
+            "/w/other/scripts/list",
+            "/w/ws",
+            "/settings/global/x",
+            "/docs/../users/tokens/list",
+        ] {
+            assert!(url("GET", path, false).is_err(), "{path} should be refused");
+        }
+        assert!(guarded_url("http://h", "a/../b", "GET", "/w/a/../b/scripts/list", false).is_err());
+        // A read-only token neither writes nor runs, whatever the tool.
+        assert!(url("POST", "/w/ws/drafts/update", true).is_err());
+        assert!(url("GET", "/w/ws/jobs/run_wait_result/p/u/a/b", true).is_err());
+    }
 
     #[test]
     fn every_session_tool_is_implemented_or_editor_only() {

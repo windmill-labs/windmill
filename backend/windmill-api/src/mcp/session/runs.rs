@@ -128,7 +128,12 @@ pub(super) fn wait_budget(tool_args: &Value) -> u64 {
 /// with its logs when `logs` is set, or `None` when it is still running by then. A
 /// failed poll is retried on the next tick.
 pub(super) async fn wait_job(ctx: &Ctx<'_>, id: &str, seconds: u64, logs: bool) -> Option<Value> {
-    let path = |no_logs: bool| ctx.ws(&format!("jobs_u/get/{id}?no_logs={no_logs}&no_code=true"));
+    let path = |no_logs: bool| {
+        ctx.ws(&format!(
+            "jobs_u/get/{}?no_logs={no_logs}&no_code=true",
+            enc(id)
+        ))
+    };
     for _ in 0..seconds {
         tokio::time::sleep(Duration::from_secs(1)).await;
         if let Ok(job) = ctx.get(&path(true)).await {
@@ -1044,7 +1049,9 @@ async fn test_run_step(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             // A draft of the script runs even where the step pins a hash.
             let loaded = match hash {
                 Some(hash) if get_draft(ctx, "script", &target).await?.is_none() => {
-                    let deployed = ctx.get(&ctx.ws(&format!("scripts/get/h/{hash}"))).await?;
+                    let deployed = ctx
+                        .get(&ctx.ws(&format!("scripts/get/h/{}", enc(hash))))
+                        .await?;
                     (
                         deployed["content"].as_str().unwrap_or_default().to_string(),
                         deployed["language"]
@@ -1296,7 +1303,10 @@ async fn cancel_job(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let id = str_arg(args, "id")?;
     Ok(
         match ctx
-            .post(&ctx.ws(&format!("jobs_u/queue/cancel/{id}")), json!({}))
+            .post(
+                &ctx.ws(&format!("jobs_u/queue/cancel/{}", enc(id))),
+                json!({}),
+            )
             .await
         {
             Ok(_) => format!("Job {id} was canceled."),
@@ -1649,7 +1659,8 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let id = str_arg(args, "id")?;
     let results_route = |max: usize| {
         ctx.ws(&format!(
-            "jobs_u/get_flow_all_results/{id}?max_result_len={max}"
+            "jobs_u/get_flow_all_results/{}?max_result_len={max}",
+            enc(id)
         ))
     };
     if let Some(step) = opt_str_arg(args, "step").filter(|s| !s.is_empty()) {
@@ -1663,8 +1674,11 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
     // Only the job read is load-bearing: logs and the step tree each answer part of
     // the question, so neither failing costs the rest.
-    let job_route = ctx.ws(&format!("jobs_u/get/{id}?no_logs=true&no_code=true"));
-    let logs_route = ctx.ws(&format!("jobs_u/get_logs/{id}?remove_ansi_warnings=true"));
+    let job_route = ctx.ws(&format!("jobs_u/get/{}?no_logs=true&no_code=true", enc(id)));
+    let logs_route = ctx.ws(&format!(
+        "jobs_u/get_logs/{}?remove_ansi_warnings=true",
+        enc(id)
+    ));
     let tree_route = results_route(TREE_RESULT_HEAD_CHARS);
     let (job, logs, results) = tokio::join!(
         ctx.get(&job_route),

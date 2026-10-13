@@ -6,6 +6,7 @@ use regex::Regex;
 use serde_json::{json, Map, Value};
 
 use super::runs::{backgrounded_summary, run_script_preview, wait_budget, wait_job};
+use super::workspace::path_enc;
 use super::{array, enc, js_str, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult};
 
 pub(super) const TOOLS: &[&str] = &[
@@ -325,7 +326,9 @@ async fn get_db_schema(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let path = opt_str_arg(args, "resourcePath")
         .filter(|p| !p.is_empty())
         .ok_or("Database path not provided")?;
-    let resource = ctx.get(&ctx.ws(&format!("resources/get/{path}"))).await?;
+    let resource = ctx
+        .get(&ctx.ws(&format!("resources/get/{}", path_enc(path))))
+        .await?;
     let resource_type = resource["resource_type"].as_str().unwrap_or_default();
     let not_found = || "Database not found".to_string();
     let (language, content, arg_name) = match resource_type {
