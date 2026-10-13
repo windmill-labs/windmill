@@ -23,7 +23,7 @@
 	import { superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
-	import { ADMIN_DATATABLE_ROLE, isDatatableRoleName } from '../dbTypes'
+	import { ADMIN_DATATABLE_ROLE, NO_DEFAULT_DATATABLE_ROLE, isDatatableRoleName } from '../dbTypes'
 	import PgAclEditor from '../datatableAcl/PgAclEditor.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
@@ -222,18 +222,19 @@
 		if (defaultRoleId === role.id) {
 			const confirmed = await confirmationModal.ask({
 				title: 'Remove the default role?',
-				children: `Jobs that name no role connect as ${role.name ?? role.id}. Without it they connect as admin, which reads every row and ignores grants and row-level security.`,
-				confirmationText: 'Remove and default to admin',
+				children: `Jobs that name no role connect as ${role.name ?? role.id}. Without it the data table has no default role: they connect with the roles of the person running them, and are refused when that person has none.`,
+				confirmationText: 'Remove',
 				type: 'danger'
 			})
 			if (!confirmed) return
-			defaultRoleId = ADMIN_DATATABLE_ROLE
+			defaultRoleId = NO_DEFAULT_DATATABLE_ROLE
 		}
 		roles = roles.filter((r) => r.id !== role.id)
 	}
 
 	const defaultRoleName = $derived(roles.find((r) => r.id === defaultRoleId)?.name ?? defaultRoleId)
 	const defaultsToAdmin = $derived(defaultRoleId === ADMIN_DATATABLE_ROLE)
+	const hasNoDefault = $derived(defaultRoleId === NO_DEFAULT_DATATABLE_ROLE)
 	const hasOtherRoles = $derived(roles.some((r) => r.id !== ADMIN_DATATABLE_ROLE))
 
 	async function save() {
@@ -405,8 +406,9 @@
 									Default
 									<Tooltip>
 										The role a job gets when it names none: no `-- role` annotation, no `?role=` in
-										the reference. Callers still have to be one of its tenants. Unless it is admin,
-										the other roles the person running the job is a tenant of are added to it.
+										the reference. There is always one choice: admin until changed, another role, or
+										none. Unless it is admin, the roles the person running the job is a tenant of
+										are added to it.
 									</Tooltip>
 								</Cell>
 								<Cell head last />
@@ -454,6 +456,29 @@
 									</Cell>
 								</Row>
 							{/each}
+							<Row>
+								<Cell first class="w-56 align-top">
+									<span class="text-xs text-secondary italic">No default role</span>
+								</Cell>
+								<Cell class="align-top">
+									<span class="text-xs text-secondary">
+										Jobs that name no role get only the roles of the person running them.
+									</span>
+								</Cell>
+								<Cell class="w-20 align-top">
+									<div class="flex justify-center">
+										<Checkbox
+											checked={hasNoDefault}
+											disabled={!editable}
+											title="Use no role when a job names none"
+											onChange={() => {
+												defaultRoleId = NO_DEFAULT_DATATABLE_ROLE
+											}}
+										/>
+									</div>
+								</Cell>
+								<Cell last class="w-10 align-top" />
+							</Row>
 							{#if editable}
 								<Row>
 									<Cell colspan={4} class="pt-2 pb-2">
@@ -482,17 +507,35 @@
 					</DataTable>
 
 					{#if defaultsToAdmin && hasOtherRoles}
-						<Alert type="warning" title="Jobs that name no role connect as admin" size="xs">
-							admin owns every table, so it reads every row and ignores grants and row-level
-							security. The roles above only apply to jobs that name one. Make another role the
-							default to have them apply to every job.
+						<Alert type="warning" title="The default role is admin" size="xs">
+							A job that names no role connects as admin when it runs as a workspace admin or as one
+							of admin's tenants, which covers every viewer of an app an admin published. admin owns
+							every table: it reads every row and ignores grants and row-level security. Everyone
+							else's jobs that name no role are refused. Choose another default, or none, to have
+							the roles above apply to them.
 						</Alert>
 					{:else if !defaultsToAdmin}
-						<span class="text-xs text-secondary">
-							A job that names no role connects as
-							<span class="font-mono">{defaultRoleName}</span>, plus every other role here that the
-							person running it is a tenant of. A job that names a role connects as that role alone.
-						</span>
+						<div class="flex flex-col gap-1 text-xs text-secondary">
+							{#if hasNoDefault}
+								<span>
+									A job that names no role connects with the roles here that the person running it
+									is a tenant of. It is refused when they have none, and so is a job with nobody
+									behind it: a schedule, a trigger, an anonymous app viewer.
+								</span>
+							{:else}
+								<span>
+									A job that names no role connects as
+									<span class="font-mono">{defaultRoleName}</span> when it may use it, plus every other
+									role here that the person running it is a tenant of. With neither, it is refused.
+								</span>
+							{/if}
+							<span>A job that names a role connects as that role alone.</span>
+							<span>
+								A table created over a connection that holds several roles belongs to that
+								combination of roles alone. Run <span class="font-mono">SET ROLE</span> to one role before
+								creating it, or name a role.
+							</span>
+						</div>
 					{/if}
 				{/if}
 			</div>

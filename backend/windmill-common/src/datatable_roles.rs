@@ -72,6 +72,11 @@ impl DatatableRoleCluster {
 /// created, renamed or dropped.
 pub const ADMIN_DATATABLE_ROLE: &str = "admin";
 
+/// Stands in a data table's `default_role` for "none": a connection that names no role then holds
+/// its viewer's roles only, and is refused without any. `$` is outside both the role-name charset
+/// and the catalog ids, and a server predating it refuses it as a role the data table lacks.
+pub const NO_DEFAULT_DATATABLE_ROLE: &str = "$none";
+
 /// The login the admin connection uses, and the role every created role is granted to — that
 /// membership is what later lets it `ALTER ... OWNER TO` a role and drop it.
 pub const CUSTOM_INSTANCE_USER: &str = "custom_instance_user";

@@ -1969,6 +1969,38 @@ async fn a_connection_naming_no_role_holds_the_default_one_and_the_viewers(
         let admin = connect(None, Some("test2@windmill.dev")).await?;
         assert_eq!(admin, connect(Some("admin"), None).await?);
         assert!(!admin["user"].as_str().unwrap().starts_with("wm_"));
+
+        // With no default role the viewer's roles are all there is, the one open to everyone
+        // included, and a connection left with none is refused rather than resolved as anything.
+        set_permissions("$none".to_string(), roles.clone()).await?;
+        assert_eq!(
+            connect(None, Some("test3@windmill.dev")).await?,
+            two,
+            "no default changes nothing for a viewer the roles name"
+        );
+        assert!(connect(None, None).await.is_err());
+        // The same holds for a default the job's own identity is not a tenant of.
+        let mut closed = roles.clone();
+        closed[ids[0].as_str()] = json!({"tenants": []});
+        set_permissions(ids[0].clone(), closed).await?;
+        let as_member = |viewer: Option<&'static str>| {
+            get_datatable_resource_from_db(
+                &db,
+                "test-workspace",
+                "main",
+                None,
+                DatatableAccess::PermissionedAs {
+                    permissioned_as: "u/test-user-3",
+                    email: "test3@windmill.dev",
+                    end_user_email: viewer,
+                },
+            )
+        };
+        assert_eq!(
+            as_member(Some("test3@windmill.dev")).await?["user"],
+            names[1].as_str()
+        );
+        assert!(as_member(None).await.is_err());
         set_permissions(ids[0].clone(), roles).await?;
 
         // A set login nobody connects with any more is dropped, a recent one is kept, and a

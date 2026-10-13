@@ -1564,7 +1564,8 @@ pub struct DataTableReference {
 /// The access decision for one data table: which role a caller gets, and who may ask for each.
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct DataTablePermissions {
-    /// A role id from the instance catalog, or `admin`. Absent = `admin`.
+    /// A role id from the instance catalog, `admin`, or
+    /// [`crate::datatable_roles::NO_DEFAULT_DATATABLE_ROLE`]. Absent = `admin`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_role: Option<String>,
     /// Keyed by instance role id, plus the reserved `admin` key. A role absent from this map
@@ -2217,8 +2218,9 @@ pub async fn can_use_datatable_role_in_governing_workspace(
 /// back to admin.
 ///
 /// A default role other than `admin` is a floor rather than the whole connection: a resolution
-/// naming no role also holds the roles whose tenant lists name the job's viewer, as one login that
-/// is a member of each. Being an admin adds none and `admin` is never among them, so a viewer
+/// naming no role holds it when the job's own identity may use it, plus the roles whose tenant
+/// lists name the job's viewer, as one login that is a member of each. With no role at all it is
+/// refused. Being an admin adds none of the viewer's and `admin` is never among them, so a viewer
 /// cannot be handed the connection that owns the tables and bypasses row-level security. A named
 /// role is that role alone.
 pub async fn get_datatable_resource_from_db(
