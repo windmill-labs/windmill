@@ -901,6 +901,57 @@
     - treats creating the table as a normal SQL statement and does not claim a separate registration step is needed
     - does not write a script to create the table
 
+# The same request on a data table that keeps its schema as migrations: the table is
+# created by a migration, since plain SQL would leave it out of the history.
+- id: global-datatable-schema-change-uses-migration
+  prompt: |-
+    Add a new table called refunds to our workspace data table, with an order id and a refund amount.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_migrations_seed.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - create_datatable_migration
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: create_datatable_migration
+        field: code_up
+        stringIncludesAnyOf:
+          - create table
+  skipJudge: true
+  judgeChecklist:
+    - notices that the data table keeps its schema as migrations
+    - creates the refunds table through a migration rather than a plain CREATE TABLE statement
+    - includes an order id and a refund amount column
+    - gives the migration a down that drops the table
+
+# Row data is not schema: it is written with plain SQL even where migrations are enabled.
+- id: global-datatable-row-change-skips-migration
+  prompt: |-
+    Mark order number 2 as shipped in our workspace data table.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_migrations_seed.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - exec_datatable_sql
+    forbiddenToolsUsed:
+      - create_datatable_migration
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - runs an UPDATE on the orders table setting the status of order id 2 to shipped
+    - does not create a migration for a change to row data
+
 - id: global-test25-datatable-mutate-rows
   prompt: |-
     Mark order number 2 as shipped in our workspace data table.

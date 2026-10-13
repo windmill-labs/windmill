@@ -1492,7 +1492,8 @@ async fn set_default_error_handler(
     } else {
         windmill_api_settings::delete_global_setting(&db, key.as_str()).await?;
     }
-    windmill_api_settings::audit_setting_write(&db, &authed, &key, value.as_ref()).await?;
+    windmill_audit::instance_config::audit_setting_write(&db, &authed, &key, value.as_ref(), None)
+        .await?;
 
     if payload.override_existing {
         // The rewrite and its history rows go in one transaction: on separate

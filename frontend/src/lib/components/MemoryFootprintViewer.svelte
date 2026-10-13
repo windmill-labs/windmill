@@ -3,7 +3,7 @@
 
 	import { type MetricDataPoint, MetricsService } from '$lib/gen'
 	import { displayTime } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from './operatingWorkspace.svelte'
 	import {
 		CategoryScale,
 		Chart as ChartJS,
@@ -26,6 +26,8 @@
 
 	let { jobId, jobUpdateLastFetch }: Props = $props();
 
+	const operatingWorkspace = useOperatingWorkspace()
+
 	let jobMetricsLastFetch: Date | undefined = undefined
 	let jobMemoryStats: MetricDataPoint[] | undefined = $state(undefined)
 
@@ -38,7 +40,7 @@
 	async function loadMetricsData() {
 		try {
 			let jobStatsPromise = MetricsService.getJobMetrics({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				id: jobId,
 				requestBody: {
 					from_timestamp: jobMetricsLastFetch?.toISOString(),

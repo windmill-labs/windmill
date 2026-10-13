@@ -5568,6 +5568,9 @@ paths:
                   type: boolean
                 default_role:
                   type: string
+                  description: >-
+                    The id of one of `roles`, `admin` (the default), or `$none` for no default
+                    role: a connection that names no role then holds its viewer's roles only.
                 roles:
                   type: array
                   items:
@@ -7435,6 +7438,72 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
+
+  /oidc/signing_status:
+    get:
+      summary: what signs OIDC tokens and the keys the JWKS serves (ee only, superadmin)
+      operationId: getOidcSigningStatus
+      tags:
+        - oidc
+      responses:
+        "200":
+          description: OIDC signing status
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - mode
+                  - keys
+                properties:
+                  mode:
+                    type: string
+                    enum: [database, file, external]
+                  keys:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - alg
+                        - state
+                        - source
+                      properties:
+                        kid:
+                          type: string
+                        alg:
+                          type: string
+                        state:
+                          type: string
+                          enum: [pending, active, retired, published]
+                        source:
+                          type: string
+                          enum: [signer, database, file, publish_dir]
+                  signer:
+                    type: object
+                    description: set when an external signer is configured
+                    required:
+                      - breaker
+                      - max_rps
+                      - current_rps
+                    properties:
+                      last_refresh_success:
+                        type: string
+                        format: date-time
+                      last_refresh_error:
+                        type: string
+                      breaker:
+                        type: string
+                        enum: [closed, open, half_open]
+                      max_rps:
+                        type: number
+                      current_rps:
+                        type: number
+                      keys_from_store:
+                        type: boolean
+                        description: the keys served are those stored by the last accepted listing, the signer has not answered this server yet
+                      tls_files_error:
+                        type: string
+                        description: why the mTLS files on disk are not the ones in use
 
   /w/{workspace}/oidc/token/{audience}:
     post:
@@ -34716,6 +34785,7 @@ components:
           type: boolean
         default_role:
           type: string
+          description: A role id, `admin`, or `$none` when the data table has no default role.
         roles:
           type: array
           items:
@@ -37266,6 +37336,7 @@ components:
           default_role,
           can_create_schema,
           creatable_schemas,
+          migrations_enabled,
         ]
       properties:
         datatable_name:
@@ -37299,6 +37370,9 @@ components:
           description: the schemas the role the listing connected as may create in
           items:
             type: string
+        migrations_enabled:
+          type: boolean
+          description: whether its schema is kept as versioned migrations, which a change made with plain SQL would bypass
 
     DataTableTableSchema:
       type: object
