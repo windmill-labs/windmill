@@ -8288,13 +8288,16 @@ read or change it.
 - A dry run reports the changes, as \`before\` / \`after\` per key, without writing anything.
 - \`name\` is never applied: rename a workspace on the settings page. \`color\` is applied only when
   set to a value, so \`null\` does not clear it.
-- A key the server does not know is ignored, so a typo reads as "nothing to change".
+- A key the server does not know is ignored and named in the warnings: check them, since a typo
+  otherwise reads as "nothing to change".
+- A setting this edition does not offer (Enterprise only) is refused, by the dry run too.
 
 ## Secrets
 
 \`slack_oauth_client_secret\` is the one secret. A read shows \`__SENSITIVE_AND_UNCHANGED__\` in place
 of a set secret; sending that placeholder back keeps the stored value. A value starting with
-\`$encrypted:\` is decrypted with the workspace key; any other value is taken as plaintext. Never
+\`$encrypted:\` is decrypted with the workspace key, and one encrypted with another workspace's key
+is left unchanged with a warning; any other value is taken as plaintext. Never
 write a secret you were not given: keep the placeholder.
 
 ## Keys
