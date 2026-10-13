@@ -570,21 +570,21 @@ export async function pushRawApp(
 }
 
 /**
- * `@windmill-labs/shared-utils` up to 1.0.13 derives the policy without `datatable_as_viewer`,
+ * `@windmill-labs/shared-utils` up to 1.0.13 derives the policy without `viewer_data_access`,
  * which would silently deploy an inline runnable that asks to connect as its viewer as one
  * connecting as the app. The server honors the flag on inline runnables only.
  */
-export function carryDatatableAsViewer(
+export function carryViewerDataAccess(
   runnables: Record<string, any> | undefined,
   policy: Policy | undefined,
 ) {
   const triggerables = policy?.triggerables_v2 as Record<string, any> | undefined;
   if (!runnables || !triggerables) return;
   for (const [id, runnable] of Object.entries(runnables)) {
-    if (runnable?.datatable_as_viewer !== true) continue;
+    if (runnable?.viewer_data_access !== true) continue;
     if (runnable.type !== "inline" && runnable.type !== "runnableByName") continue;
     for (const [key, triggerable] of Object.entries(triggerables)) {
-      if (key.startsWith(`${id}:rawscript/`)) triggerable.datatable_as_viewer = true;
+      if (key.startsWith(`${id}:rawscript/`)) triggerable.viewer_data_access = true;
     }
   }
 }
@@ -599,7 +599,7 @@ export async function generatingPolicy(
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updateRawAppPolicy(app.runnables, base);
-    carryDatatableAsViewer(app.runnables, app.policy);
+    carryViewerDataAccess(app.runnables, app.policy);
     finalizeDerivedPolicy(app.policy, executionMode, isolation, true);
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));

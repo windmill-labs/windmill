@@ -29,7 +29,7 @@ export async function updateRawAppPolicy(
 type RunnableWithInlineScript = RunnableWithFields & {
 	inlineScript?: InlineScript & { language: ScriptLang }
 	delete_after_secs?: number
-	datatable_as_viewer?: boolean
+	viewer_data_access?: boolean
 }
 export type Runnable = RunnableWithInlineScript | undefined
 
@@ -46,8 +46,8 @@ function extraFields(
 	if (sensitive_inputs.length > 0) out.sensitive_inputs = sensitive_inputs
 	if (runnable.inlineScript?.tag) out.tag = runnable.inlineScript.tag
 	// The server honors it on inline runnables only, whose code is deployed with the app.
-	if (runnable.datatable_as_viewer === true && isRunnableByName(runnable))
-		out.datatable_as_viewer = true
+	if (runnable.viewer_data_access === true && isRunnableByName(runnable))
+		out.viewer_data_access = true
 	return out
 }
 

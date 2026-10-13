@@ -485,7 +485,7 @@ pub struct PolicyTriggerableInputs {
     /// rather than as the app's identity. Honored for inline runnables only: their code is
     /// deployed with the app, so it is the publisher who chose to read with the viewer's roles.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    datatable_as_viewer: bool,
+    viewer_data_access: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -4602,7 +4602,7 @@ async fn execute_component(
                 sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
                 tag: None,
                 // A preview runs as the caller, whose roles these are either way.
-                datatable_as_viewer: false,
+                viewer_data_access: false,
             },
             None,
         ),
@@ -4969,9 +4969,9 @@ async fn execute_component(
     )
     .await?;
 
-    if policy_triggerables.datatable_as_viewer && is_inline {
+    if policy_triggerables.viewer_data_access && is_inline {
         sqlx::query!(
-            "UPDATE job_perms SET datatable_as_viewer = true WHERE job_id = $1",
+            "UPDATE job_perms SET viewer_data_access = true WHERE job_id = $1",
             uuid
         )
         .execute(&mut *tx)

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email,\n            job_token_scopes, datatable_as_viewer\n        FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+  "query": "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email,\n            job_token_scopes, viewer_data_access\n        FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -45,7 +45,7 @@
       },
       {
         "ordinal": 8,
-        "name": "datatable_as_viewer",
+        "name": "viewer_data_access",
         "type_info": "Bool"
       }
     ],
@@ -67,5 +67,5 @@
       false
     ]
   },
-  "hash": "d85f3ad9b1de2b7187fcc39865ab9b2c9e95548425e1e9b2726b4e25bce3dcdc"
+  "hash": "fd04f65015069792f23edbfce320af6e69ee32b27a8f0a020e251eb2c79e43cd"
 }

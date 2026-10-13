@@ -13,7 +13,7 @@ roles of one **identity**:
 The identity is the job's own, `permissioned_as`, like everything else a job reaches: the
 publisher for a publisher-mode app, the owner of a schedule or trigger, whoever ran a script. It
 is the job's **viewer** only for an inline runnable of a full-code app whose policy entry sets
-`datatable_as_viewer` (`DatatableConnectAs::Viewer`). Postgres row-level security then answers per
+`viewer_data_access` (`DatatableConnectAs::Viewer`). Postgres row-level security then answers per
 viewer from a runnable that runs as the publisher, with nothing written in the code.
 
 A connection left with no role at all is refused. Policies test membership, which is true for a
@@ -32,9 +32,9 @@ A policy names its role as text, so renaming the role breaks it.
 |---|---|
 | `windmill-common/src/workspaces.rs` | `DatatableAccess`, `DatatableConnectAs`, `get_datatable_resource_from_db` |
 | `windmill-common/src/datatable_roles_ee.rs` | `resolve_datatable_role_connection`, `resolve_unnamed_login`, `governing_identity`, `ensure_role_set_login`, `retire_role_set_logins_of`, `sweep_unused_role_set_logins` |
-| `windmill-api/src/apps.rs` | `execute_component`, which sets `job_perms.datatable_as_viewer` for a flagged inline runnable |
+| `windmill-api/src/apps.rs` | `execute_component`, which sets `job_perms.viewer_data_access` for a flagged inline runnable |
 | `windmill-api-jobs/src/execution.rs` | `run_end_user_email`, where a run's viewer is recorded, and `run_inline_preview_end_user` |
-| `frontend/.../raw_apps/DatatableIdentityPopup.svelte` | the runnable setting, shown when the code uses a data table |
+| `frontend/.../raw_apps/ViewerDataAccessPopup.svelte` | the runnable setting, shown when the code reads a data table or object storage |
 | `frontend/.../workspaceSettings/DataTablePermissionsButton.svelte` | the roles drawer, which warns while the default is `admin` |
 
 ## What holds it together
@@ -49,7 +49,7 @@ A policy names its role as text, so renaming the role breaks it.
 - **Connecting as the viewer is the publisher's choice, made per runnable and stored in the
   policy.** It is honored on inline runnables only, whose code is deployed with the app: a path
   runnable is someone else's script, which would read with the viewer's roles without its author
-  choosing to. The server stamps `job_perms.datatable_as_viewer` in the transaction that pushes
+  choosing to. The server stamps `job_perms.viewer_data_access` in the transaction that pushes
   the job. Nested jobs do not inherit it; an inline preview run with the job's token
   (`run_inline/preview`, what `wmill.datatable()` uses) does, since that code is the job's own.
 - **A job that connects as its viewer and has none is refused**, never resolved as the job: that
@@ -66,7 +66,7 @@ A policy names its role as text, so renaming the role breaks it.
   run starts: the session behind an app request, the caller of a direct run or preview, and for a
   job started with another job's token, that job's viewer. No argument reaches it.
 - **A cached result belongs to one identity, one viewer and one mode.** `cached_result_path`
-  hashes the job's `permissioned_as`, its recorded viewer and `datatable_as_viewer` into the key,
+  hashes the job's `permissioned_as`, its recorded viewer and `viewer_data_access` into the key,
   since a cache hit returns before any connection is resolved. Turning the setting on changes no
   code, so without the mode a result read with the app's roles would be served to the viewer.
 - **Only a tenant list naming the identity counts.** A workspace admin may *use* every role,

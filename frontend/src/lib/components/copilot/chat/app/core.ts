@@ -38,7 +38,7 @@ export interface BackendRunnable {
 	// For workspace scripts/flows and hub scripts
 	path?: string
 	// Inline only: data table connections naming no role hold the viewer's roles
-	datatableAsViewer?: boolean
+	viewerDataAccess?: boolean
 }
 
 export interface AppFiles {
@@ -330,11 +330,11 @@ const getSetBackendRunnableSchema = memo(() =>
 			.describe(
 				'Required when type is "script", "flow", or "hubscript". The fully qualified path to the workspace script/flow or hub script.'
 			),
-		datatableAsViewer: z
+		viewerDataAccess: z
 			.boolean()
 			.optional()
 			.describe(
-				"Inline only. When true, data table connections that name no role hold the roles of the person viewing the app instead of the app identity's, so row-level security answers per viewer. Anonymous viewers are refused. Omit to keep the current setting."
+				"Inline only. When true, the runnable reads data as the person viewing the app instead of as the app's identity: data table connections that name no role hold the viewer's roles, and object storage permission rules are checked against the viewer, so row-level security and per-user storage paths answer per viewer. Resources and variables stay the app's. Anonymous viewers are refused. Omit to keep the current setting."
 			)
 	})
 )
@@ -719,7 +719,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				staticInputs: args.staticInputs === null ? undefined : args.staticInputs,
 				inlineScript: args.inlineScript === null ? undefined : args.inlineScript,
 				path: args.path === null ? undefined : args.path,
-				datatableAsViewer: args.datatableAsViewer === null ? undefined : args.datatableAsViewer
+				viewerDataAccess: args.viewerDataAccess === null ? undefined : args.viewerDataAccess
 			}
 
 			const parsedArgs = getSetBackendRunnableSchema().parse(cleanedArgs)
@@ -733,8 +733,8 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				...(parsedArgs.staticInputs && { staticInputs: parsedArgs.staticInputs }),
 				...(parsedArgs.inlineScript && { inlineScript: parsedArgs.inlineScript }),
 				...(parsedArgs.path && { path: parsedArgs.path }),
-				...(parsedArgs.datatableAsViewer !== undefined && {
-					datatableAsViewer: parsedArgs.datatableAsViewer
+				...(parsedArgs.viewerDataAccess !== undefined && {
+					viewerDataAccess: parsedArgs.viewerDataAccess
 				})
 			}
 

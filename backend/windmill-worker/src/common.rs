@@ -1736,7 +1736,7 @@ pub async fn cached_result_path(
     hasher.update(job.permissioned_as.as_bytes());
     // Read from `job_perms`: a flow job re-fetched between steps does not carry them.
     let perms: Option<(Option<String>, bool)> = sqlx::query_as(
-        "SELECT end_user_email, datatable_as_viewer FROM job_perms
+        "SELECT end_user_email, viewer_data_access FROM job_perms
          WHERE job_id = $1 AND workspace_id = $2",
     )
     .bind(job.id)
@@ -2493,7 +2493,7 @@ mod tests {
             trigger_kind: None,
             visible_to_owner: false,
             permissioned_as_end_user_email: None,
-            datatable_as_viewer: None,
+            viewer_data_access: None,
             runnable_settings_handle: None,
             job_token_scopes: None,
         }
@@ -2518,7 +2518,7 @@ mod tests {
             ("u/publisher", Some("a@windmill.com"), false, "ode"),
             ("u/other", None, false, "mode"),
             ("u/publisher", Some("a@windmill.dev"), true, "mode"),
-            ("u/publisher", None, false, "datatable_as_viewer;mode"),
+            ("u/publisher", None, false, "viewer_data_access;mode"),
             ("u/publisher", None, true, "mode"),
         ] {
             let args = HashMap::from([(arg.to_string(), to_raw_value(&"all"))]);
@@ -2530,7 +2530,7 @@ mod tests {
             };
             sqlx::query(
                 "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator,
-                     workspace_id, groups, folders, end_user_email, datatable_as_viewer)
+                     workspace_id, groups, folders, end_user_email, viewer_data_access)
                  VALUES ($1, 'publisher@windmill.dev', 'publisher', false, false, 'test', '{}',
                      '{}', $2, $3)",
             )

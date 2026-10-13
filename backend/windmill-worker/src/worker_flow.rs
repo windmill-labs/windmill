@@ -2440,7 +2440,7 @@ async fn advance_flow_status(
             v2_job.trigger_kind as \"trigger_kind: TriggerKindLabel\",
             v2_job.visible_to_owner,
             NULL as permissioned_as_end_user_email,
-            NULL::boolean as datatable_as_viewer,
+            NULL::boolean as viewer_data_access,
             job_perms.job_token_scopes",
         flow,
         &step_path as &[&str],

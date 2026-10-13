@@ -2178,7 +2178,7 @@ pub enum DatatableAccess<'a> {
 pub enum DatatableConnectAs<'a> {
     /// The job's own identity, `permissioned_as`.
     Job,
-    /// The job's viewer, for a job whose `job_perms.datatable_as_viewer` is set. MUST be what
+    /// The job's viewer, for a job whose `job_perms.viewer_data_access` is set. MUST be what
     /// the server recorded in `job_perms.end_user_email`, never anything the job or its caller
     /// can set; `None` when it recorded none, which refuses the connection.
     Viewer(Option<&'a str>),

@@ -514,14 +514,14 @@ async fn test_raw_app_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()
 /// is someone else's script, which must not read with the viewer's roles because the app's
 /// policy entry for it says so.
 #[sqlx::test(fixtures("base", "end_user_email"))]
-async fn test_app_datatable_as_viewer_is_stamped_on_inline_runnables_only(
+async fn test_app_viewer_data_access_is_stamped_on_inline_runnables_only(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
     set_jwt_secret().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
-    let app_path = "f/test/datatable_as_viewer_app";
+    let app_path = "f/test/viewer_data_access_app";
     let script_path = "script/f/test/get_end_user_email";
 
     let resp = authed(
@@ -540,10 +540,10 @@ async fn test_app_datatable_as_viewer_is_stamped_on_inline_runnables_only(
             "on_behalf_of_email": null,
             "triggerables_v2": {
                 "rawscript/894d2f85ea2411e777e7d5787366c9fec4c1a7a5f83482748f1d129196c9f54f": {
-                    "static_inputs": {}, "one_of_inputs": {}, "datatable_as_viewer": true
+                    "static_inputs": {}, "one_of_inputs": {}, "viewer_data_access": true
                 },
                 (script_path): {
-                    "static_inputs": {}, "one_of_inputs": {}, "datatable_as_viewer": true
+                    "static_inputs": {}, "one_of_inputs": {}, "viewer_data_access": true
                 }
             }
         }
@@ -569,7 +569,7 @@ async fn test_app_datatable_as_viewer_is_stamped_on_inline_runnables_only(
         let db = db.clone();
         async move {
             sqlx::query_scalar::<_, bool>(
-                "SELECT datatable_as_viewer FROM job_perms WHERE job_id = $1",
+                "SELECT viewer_data_access FROM job_perms WHERE job_id = $1",
             )
             .bind(job_id)
             .fetch_one(&db)

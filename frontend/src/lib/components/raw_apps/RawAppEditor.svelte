@@ -897,7 +897,7 @@ addEventListener('message', function (e) {
 					content: runnable.inlineScript.content ?? ''
 				}
 			}
-			if (runnable.datatable_as_viewer) backendRunnable.datatableAsViewer = true
+			if (runnable.viewer_data_access) backendRunnable.viewerDataAccess = true
 		} else if (isRunnableByPath(runnable)) {
 			// Determine type based on runType
 			if (runnable.runType === 'flow') {
@@ -1201,8 +1201,8 @@ addEventListener('message', function (e) {
 							content: runnable.inlineScript.content,
 							language: runnable.inlineScript.language
 						},
-						...((runnable.datatableAsViewer ?? runnables[key]?.datatable_as_viewer) && {
-							datatable_as_viewer: true
+						...((runnable.viewerDataAccess ?? runnables[key]?.viewer_data_access) && {
+							viewer_data_access: true
 						}),
 						fields: runnable.staticInputs
 							? Object.fromEntries(

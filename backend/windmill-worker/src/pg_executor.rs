@@ -1230,7 +1230,7 @@ pub async fn do_postgresql(
                                 permissioned_as: &job.permissioned_as,
                                 email: &job.permissioned_as_email,
                                 connect_as: DatatableConnectAs::from_job_perms(
-                                    job.datatable_as_viewer.unwrap_or(false),
+                                    job.viewer_data_access.unwrap_or(false),
                                     job.permissioned_as_end_user_email.as_deref(),
                                 ),
                             },

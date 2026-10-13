@@ -277,7 +277,7 @@ pub async fn run_inline_preview_end_user(
     match authed.job_id {
         Some(job_id) => Ok(windmill_common::auth::get_job_perms(db, &job_id, w_id)
             .await?
-            .map_or((None, false), |p| (p.end_user_email, p.datatable_as_viewer))),
+            .map_or((None, false), |p| (p.end_user_email, p.viewer_data_access))),
         None => Ok((Some(authed.email.clone()), false)),
     }
 }

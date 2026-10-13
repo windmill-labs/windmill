@@ -17,7 +17,7 @@
 	import CacheTtlPopup from '../apps/editor/inlineScriptsPanel/CacheTtlPopup.svelte'
 	import TagPopup from '../apps/editor/inlineScriptsPanel/TagPopup.svelte'
 	import DeleteAfterUsePopup from './DeleteAfterUsePopup.svelte'
-	import DatatableIdentityPopup from './DatatableIdentityPopup.svelte'
+	import ViewerDataAccessPopup from './ViewerDataAccessPopup.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
 	import EditorBar, { EDITOR_BAR_HELPERS_INLINE_THRESHOLD } from '../EditorBar.svelte'
 	import { LanguageIcon } from '../common/languageIcons'
@@ -53,7 +53,7 @@
 		editor?: any | undefined
 		lastDeployedCode?: string | undefined
 		delete_after_secs?: number | undefined
-		datatable_as_viewer?: boolean | undefined
+		viewer_data_access?: boolean | undefined
 		/** Called when code is selected in the editor */
 		onSelectionChange?: (
 			selection: {
@@ -77,13 +77,14 @@
 		lastDeployedCode,
 		onSelectionChange,
 		delete_after_secs = $bindable(),
-		datatable_as_viewer = $bindable()
+		viewer_data_access = $bindable()
 	}: Props = $props()
 
 	// The asset parser misses a chained `wmill.datatable('x')`...``, so the source is matched too.
-	const usesDatatable = $derived(
-		(inlineScript?.assets?.some((a) => a.kind === 'datatable') ?? false) ||
-			/datatable\s*\(|datatable:\/\//.test(inlineScript?.content ?? '')
+	const readsData = $derived(
+		(inlineScript?.assets?.some((a) => ['datatable', 'ducklake', 's3object'].includes(a.kind)) ??
+			false) ||
+			/datatable\s*\(|datatable:\/\/|s3:\/\/|s3_?file|S3Object/i.test(inlineScript?.content ?? '')
 	)
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -629,8 +630,8 @@
 				/>
 			{/if}
 			<div class="flex w-full flex-row gap-2 items-center justify-end">
-				{#if usesDatatable || datatable_as_viewer}
-					<DatatableIdentityPopup bind:datatable_as_viewer />
+				{#if readsData || viewer_data_access}
+					<ViewerDataAccessPopup bind:viewer_data_access />
 				{/if}
 				{#if inlineScript}
 					<TagPopup bind:tag={inlineScript.tag} />

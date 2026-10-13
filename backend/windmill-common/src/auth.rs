@@ -368,7 +368,7 @@ pub struct JobPerms {
     pub job_token_scopes: Option<Vec<String>>,
     /// Whether the job's data table connections that name no role are made as `end_user_email`.
     #[serde(default)]
-    pub datatable_as_viewer: bool,
+    pub viewer_data_access: bool,
 }
 
 impl From<JobPerms> for Authed {
@@ -662,7 +662,7 @@ pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
     sqlx::query_as!(
         JobPerms,
         "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email,
-            job_token_scopes, datatable_as_viewer
+            job_token_scopes, viewer_data_access
         FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
         job_id,
         w_id
