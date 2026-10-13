@@ -323,6 +323,7 @@ describe('resolvePreviewTab', () => {
 			workspace: 'fork'
 		})
 		expect(resolvePreviewTab('/run/01a0')).toEqual({ kind: 'run', jobId: '01a0' })
+		expect(resolvePreviewTab('/run/01a0?workspace=fork&view_token=t')).toEqual({ kind: 'iframe' })
 		// The runs of one item are a list page, not a run.
 		expect(resolvePreviewTab('/runs/f/a/b')).toEqual({ kind: 'iframe' })
 	})

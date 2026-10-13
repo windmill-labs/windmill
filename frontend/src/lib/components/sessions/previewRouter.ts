@@ -552,13 +552,17 @@ export function parseRunFormRoute(url: string): { toolCallId: string; label: str
 
 /** The run a `/run/<id>` location shows, in the workspace its query names (the opener's,
  * when it names none). */
-export function parseRunRoute(url: string): { jobId: string; workspace?: string } | null {
+export function parseRunRoute(
+	url: string
+): { jobId: string; workspace?: string; viewToken: boolean } | null {
 	const m = barePath(url).match(/^\/run\/([^/?#]+)$/)
 	if (!m) return null
 	try {
+		const query = new URL(url, 'http://_').searchParams
 		return {
 			jobId: decodeURIComponent(m[1]),
-			workspace: new URL(url, 'http://_').searchParams.get('workspace') || undefined
+			workspace: query.get('workspace') || undefined,
+			viewToken: query.has('view_token')
 		}
 	} catch {
 		return null
@@ -590,7 +594,7 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // flow, raw app) mounts its per-(kind,path) cell editor on `/edit/` and its viewer
 // on `/get/`; a `/pipeline/<folder>` route mounts the data-pipeline graph editor of
 // that folder (`path` is the folder); the list page of a page item kind mounts that
-// list; a `/run/<id>` route mounts that run's page; everything
+// list; a `/run/<id>` route without a share token mounts that run's page; everything
 // else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
@@ -612,7 +616,11 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	const route = barePath(url)
 	if (isPageItemListPath(route)) return { kind: 'pagelist', path: route }
 	const run = parseRunRoute(url)
-	if (run) return { kind: 'run', ...run }
+	// A share link's token authorizes every request of the window that installs it, so a run
+	// opened through one keeps a frame of its own rather than lending the token to the session.
+	if (run && !run.viewToken) {
+		return { kind: 'run', jobId: run.jobId, ...(run.workspace && { workspace: run.workspace }) }
+	}
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
