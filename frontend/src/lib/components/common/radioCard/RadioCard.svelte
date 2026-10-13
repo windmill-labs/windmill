@@ -10,6 +10,7 @@
 		onSelect,
 		disabled = false,
 		icon = undefined,
+		badge = undefined,
 		showRadio = true,
 		class: className = ''
 	}: {
@@ -25,6 +26,8 @@
 		disabled?: boolean
 		/** Optional leading icon, rendered after the radio */
 		icon?: Snippet
+		/** Optional badge rendered right after the label */
+		badge?: Snippet
 		/** Draw the radio glyph. Turn it off where the card itself is the only
 		 * control and the border and tint already say which one is picked — the dot
 		 * is then a second, redundant answer to the same question. The group still
@@ -70,7 +73,10 @@
 			<div class="shrink-0 mt-0.5">{@render icon()}</div>
 		{/if}
 		<div class="flex-1 min-w-0">
-			<div class="text-xs font-semibold text-emphasis">{label}</div>
+			<div class="flex items-center gap-2 text-xs font-semibold text-emphasis">
+				{label}
+				{@render badge?.()}
+			</div>
 			{#if describedBySnippet}
 				<div class="text-xs font-normal text-secondary mt-0.5">
 					{@render (description as Snippet)()}
