@@ -111,8 +111,8 @@ rule added for deploys must hold for drafts too. Where the two differ, `write` d
 fills in an omitted sandbox or mode, since it stores the policy it checked, while a draft skips
 `triggerables_v2` and must not name another user's run identity. Every frontend writer of a
 builder draft must conform the policy first with `conformBuilderAppPolicy`, since a policy loaded
-from someone else's app breaks these rules: the editor and the AI chat do. The AI Sessions raw-app
-editor, open to operators only behind a per-browser opt-in, does not, so its autosaves are refused.
+from someone else's app breaks these rules: the raw-app editor component does, which covers both
+the standalone editor and the AI Sessions one, and so does the AI chat.
 
 The raw-app editor previews an app isolated only when its policy has `sandbox`, and otherwise runs
 the bundle same-origin with the session of whoever opens it. A builder's draft is therefore

@@ -1063,6 +1063,7 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "rsa_keys",
     "jwt_secret",
     "min_keep_alive_version",
+    "instance_python_version",
     // Deleting it would let a worker sign OIDC tokens with a local key again.
     "oidc_external_signer",
 ];

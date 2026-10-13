@@ -28,6 +28,8 @@
 		kind,
 		path,
 		version,
+		locationHash = '',
+		dbtRetryFrom,
 		workspaceId,
 		tabId,
 		container,
@@ -42,6 +44,10 @@
 		path: string
 		/** Deployed version this tab is pinned to, from its URL's `?version=`. */
 		version?: string
+		/** `#`-fragment of the tab's URL: the args a run's `Run again` prefills the form with. */
+		locationHash?: string
+		/** The failed dbt run that `Run again` offers to resume, from `?dbt_retry_from=`. */
+		dbtRetryFrom?: string
 		workspaceId: string
 		/** Whether this side is the one on screen. Hidden sides stay mounted, so this gates
 		 * the window-level keyboard handler — several instances listen on the window. */
@@ -83,10 +89,20 @@
 		reloadKey++
 	}
 
-	const searchParams = $derived(version ? new URLSearchParams({ version }) : undefined)
+	const searchParams = $derived(
+		version || dbtRetryFrom
+			? new URLSearchParams({
+					...(version ? { version } : {}),
+					...(dbtRetryFrom ? { dbt_retry_from: dbtRetryFrom } : {})
+				})
+			: undefined
+	)
 
 	// Remounts the detail page below, which loads on mount.
-	const loadKey = $derived(`${workspaceId}/${kind}/${path}/${version ?? ''}/${reloadKey}`)
+	// The fragment is part of it: the detail pages seed their form from it once, on mount.
+	const loadKey = $derived(
+		`${workspaceId}/${kind}/${path}/${version ?? ''}/${locationHash}/${reloadKey}`
+	)
 	// Nothing deployed at this path. Stamped with the load it answers, so a refetch or a
 	// re-pointed tab is never answered from an earlier load's verdict.
 	let notFoundFor: string | undefined = $state(undefined)
@@ -214,6 +230,7 @@
 			hash={path}
 			workspace={workspaceId}
 			{searchParams}
+			{locationHash}
 			{onNavigate}
 			{active}
 			embedded
@@ -224,6 +241,7 @@
 			{path}
 			workspace={workspaceId}
 			{searchParams}
+			{locationHash}
 			{onNavigate}
 			{active}
 			embedded

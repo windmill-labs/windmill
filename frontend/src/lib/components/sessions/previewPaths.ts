@@ -84,6 +84,17 @@ export function isPageItemListPath(path: string): boolean {
 	return pageItemForListPath(path, '') !== undefined
 }
 
+/** Whether a path is the runs list: every run, or `/runs/<item path>` for one item's. */
+export function isRunsListPath(path: string): boolean {
+	const clean = barePath(path)
+	return clean === RUNS_PATH || clean.startsWith(`${RUNS_PATH}/`)
+}
+
+/** Whether a path is a list page a session preview mounts in process rather than frames. */
+export function isPreviewListPath(path: string): boolean {
+	return isPageItemListPath(path) || isRunsListPath(path)
+}
+
 /** The page item a list page's row names, or undefined for a page that lists none. */
 export function pageItemForListPath(pagePath: string, path: string): PageItemRef | undefined {
 	const clean = barePath(pagePath)
@@ -146,7 +157,13 @@ export const isPageKey = (key: string) => key.startsWith('page:')
 /** Strip the query and hash from a preview path so it can be matched against
  * `PREVIEW_PAGES` / parsed as an item route. */
 export function barePath(path: string): string {
-	return path.split('?')[0].split('#')[0] || '/'
+	// The router serves `/runs/` as `/runs`, and links are written both ways.
+	return (
+		path
+			.split('?')[0]
+			.split('#')[0]
+			.replace(/(.)\/+$/, '$1') || '/'
+	)
 }
 
 /** Which side of an item a route addresses: `/edit/` builds it, `/get/` shows the

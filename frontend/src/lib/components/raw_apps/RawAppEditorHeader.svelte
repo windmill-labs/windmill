@@ -80,7 +80,7 @@
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
-	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -318,20 +318,15 @@
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
-	// In the page header the buttons share the row with the breadcrumb, so they collapse sooner:
-	// the trail and the summary take ~430px of the same row, and the whole group — the menu, Diff,
-	// Jobs, Export, AI and Deploy — is ~560px.
-	const compactBelow = $derived(ownsPageHeader ? 1350 : 720)
-	const compactTopbar = $derived.by(() => {
-		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
-		return w > 0 && w < compactBelow
-	})
-	// A phone's bar keeps the trail, the file sidebar's toggle, Diff and Deploy. AI stands down —
-	// the sidebar's own Ask AI is the way in at that width — while Jobs and the export are already
-	// in the menu, Jobs from `compactTopbar` (true at any phone width) and the export always.
-	const phoneTopbar = $derived(
-		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
+	// In the page header the bar folds the buttons (`actionFolds` below), once its breadcrumb has
+	// given all it can; anywhere else this editor's own top bar is theirs alone.
+	const compactTopbar = $derived(
+		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 720
 	)
+	// The second fold keeps the trail, the file sidebar's toggle, Diff and Deploy. AI stands down —
+	// the sidebar's own Ask AI is the way in at that width — while Jobs and the export are already
+	// in the menu, Jobs from `compactTopbar` (true at the second fold too) and the export always.
+	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
@@ -914,8 +909,8 @@
 					</a>
 					— a public page that needs no login and can be embedded in an iframe. Host the JSON anywhere
 					it can be fetched (S3, GitHub raw, your docs site) and link
-					<span class="font-mono">/replay?src=&lt;url&gt;</span> to have it load itself. Windmill
-					keeps no copy.
+					<span class="font-mono">/replay?src=&lt;url&gt;</span> to have it load itself. Windmill keeps
+					no copy.
 				</span>
 			</div>
 			<div class="flex-1 min-h-0">
@@ -960,6 +955,7 @@
 			pathTrigger: rawAppPathTrigger
 		}}
 		actions={rawAppHeaderActions}
+		actionFolds={2}
 		contexts={headerContexts}
 		separator="none"
 	/>
