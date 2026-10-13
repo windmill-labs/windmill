@@ -57,6 +57,14 @@ export type PageHeaderContent = {
 	 *  all it can, and the page reads it back as `pageHeader.actionFold`. Without it the actions
 	 *  never fold and the breadcrumb gives up width around them. */
 	actionFolds?: number
+	/** A second row of the band, under the breadcrumb and the actions: where a control too wide
+	 *  for one row goes at a fold that has no room for it beside them, rather than being squeezed
+	 *  until it is useless. The band is taller while it is there. */
+	belowBar?: Snippet
+	/** The fold from which the bar shows `belowBar`. The bar decides rather than the page passing
+	 *  the row in only at that fold: the fold is derived from this registration, so a registration
+	 *  that read it would be a cycle. */
+	belowBarFold?: number
 	/** Rendered right after the page's name in the breadcrumb: a mark that belongs to the name,
 	 *  like a documentation tooltip, or a control that acts on the thing named — an app's Edit,
 	 *  which at the far end of the bar would be a journey away from what it edits. */
@@ -159,6 +167,8 @@ export const pageHeader = {
 			if (c.actionsFlexible !== undefined) merged.actionsFlexible = c.actionsFlexible
 			if (c.actionsFill !== undefined) merged.actionsFill = c.actionsFill
 			if (c.actionFolds !== undefined) merged.actionFolds = c.actionFolds
+			if (c.belowBar !== undefined) merged.belowBar = c.belowBar
+			if (c.belowBarFold !== undefined) merged.belowBarFold = c.belowBarFold
 			if (c.separator !== undefined) merged.separator = c.separator
 		}
 		return merged
