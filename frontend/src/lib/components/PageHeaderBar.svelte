@@ -74,7 +74,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			barWidth: pageHeader.barWidth,
 			chrome: padLeft + padRight + (handleShown ? handleWidth + GAP : 0),
 			trail: trailMeasures.trail,
-			summary: BAR_STAGES.map((s) => (hasSummary && s.summary ? GAP + summaryFloorWidth : 0)),
+			summary: BAR_STAGES.map(() => (hasSummary ? GAP + summaryFloorWidth : 0)),
 			actions:
 				actions.length === 0 ? [0] : actionsRigid ? actionWidths : [GAP + FLEXIBLE_ACTIONS_RESERVE],
 			folds: actions.length > 0 && actionsRigid ? (content?.actionFolds ?? 0) : 0,
@@ -236,13 +236,16 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			</svelte:boundary>
 		</div>
 
-		{#if item && hasSummary && stage.summary}
+		{#if item && hasSummary}
 			<!-- No kind icon: the page below is the item, and saying "this is a flow" above a flow
 		     editor tells the reader what they can already see. -->
 			<div class="flex items-center gap-1 shrink-0">
-				<!-- A dot rather than a slash: the summary names the same item the path just located, it
-			     is not another level of it. -->
-				<span class="shrink-0 text-hint/40 text-xs px-0.5" aria-hidden="true">·</span>
+				<!-- A dot after the path: the summary names the same item the path just located, it is not
+			     another level of it. With the path dropped it follows the workspace, and the slash is
+			     the trail's own separator. Fixed width, so either fits the width measured below. -->
+				<span class="shrink-0 w-2 text-center text-hint/40 text-xs" aria-hidden="true"
+					>{stage.path ? '·' : '/'}</span
+				>
 				{#if item.summaryContent}
 					<!-- Read only while uncapped: capped, the box says how wide the bar let it be, not how
 				     wide the page's control wants to be. -->
@@ -315,7 +318,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		     what the bar caps it from. A page's own control stands in at the width last seen. -->
 			<div class="absolute -left-[99999px] top-0 invisible" aria-hidden="true" inert>
 				<div class="flex items-center gap-1 w-max" bind:clientWidth={summaryFloorWidth}>
-					<span class="shrink-0 text-hint/40 text-xs px-0.5">·</span>
+					<span class="shrink-0 w-2 text-center text-hint/40 text-xs">·</span>
 					{#if item.summaryContent}
 						<span style="width: {Math.min(summaryContentWidth, FLOOR.summary)}px"></span>
 					{:else}

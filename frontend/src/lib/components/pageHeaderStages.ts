@@ -2,8 +2,8 @@
  * How the page header gives up width. Whole parts drop in a fixed order, and the bar shows the
  * first stage whose parts, each held at its floor width, fit beside the page's actions. Which
  * stage that is depends on the names in the bar rather than on a pixel breakpoint. Past the last
- * stage the page's actions fold, one level at a time; past their last level the item's name
- * truncates, then the folders above it.
+ * stage the page's actions fold, one level at a time; past their last level the item's name and
+ * its summary truncate, then the folders above it.
  */
 
 /** What the breadcrumb itself drops. */
@@ -11,6 +11,10 @@ export type TrailStage = {
 	/** Inside a fork, the family's name before the fork's. Outside one it is the workspace's own
 	 *  name and stays until `wsButton`. */
 	familyName: boolean
+	/** The item's path. Dropped only for an item that has a summary: the summary is what a
+	 *  person calls the thing, while its path is where it is filed. Without one, the path is the
+	 *  item's only name and stays. */
+	path: boolean
 	forkName: boolean
 	/** The workspace part as its disc alone, still leading home, beside its picker's chevron. */
 	wsButton: boolean
@@ -18,13 +22,13 @@ export type TrailStage = {
 	middleLevels: boolean
 }
 
-export type BarStage = TrailStage & { summary: boolean; label: string }
+export type BarStage = TrailStage & { label: string }
 
 export const BAR_STAGES: BarStage[] = [
 	{
 		label: 'Full',
 		familyName: true,
-		summary: true,
+		path: true,
 		forkName: true,
 		wsButton: false,
 		middleLevels: true
@@ -32,15 +36,15 @@ export const BAR_STAGES: BarStage[] = [
 	{
 		label: 'Family name dropped',
 		familyName: false,
-		summary: true,
+		path: true,
 		forkName: true,
 		wsButton: false,
 		middleLevels: true
 	},
 	{
-		label: 'Summary dropped',
+		label: 'Path dropped for the summary',
 		familyName: false,
-		summary: false,
+		path: false,
 		forkName: true,
 		wsButton: false,
 		middleLevels: true
@@ -48,7 +52,7 @@ export const BAR_STAGES: BarStage[] = [
 	{
 		label: 'Fork name dropped',
 		familyName: false,
-		summary: false,
+		path: false,
 		forkName: false,
 		wsButton: false,
 		middleLevels: true
@@ -56,7 +60,7 @@ export const BAR_STAGES: BarStage[] = [
 	{
 		label: 'Workspace as its disc',
 		familyName: false,
-		summary: false,
+		path: false,
 		forkName: false,
 		wsButton: true,
 		middleLevels: true
@@ -64,7 +68,7 @@ export const BAR_STAGES: BarStage[] = [
 	{
 		label: 'Middle folders collapsed',
 		familyName: false,
-		summary: false,
+		path: false,
 		forkName: false,
 		wsButton: true,
 		middleLevels: false
@@ -78,8 +82,9 @@ export type TrailMeasures = { trail: number[]; family: number; fork: number; nam
 
 /** The width a part may truncate to before the next stage drops something whole. */
 export const FLOOR: Record<Part, number> = { family: 56, fork: 56, summary: 96, name: 160 }
-/** Past the last stage and fold, the name keeps this much before the folders give any. */
-export const SQUEEZED_NAME_FLOOR = 40
+/** Past the last stage and fold, the item's name and then its summary keep this much before the
+ *  folders give any. */
+export const SQUEEZED_FLOOR = 40
 
 /** Middle folders collapsed to one `…`; the first folder and the name always stay. */
 export function shownPathLevels(levels: string[], stage: TrailStage): string[] {
@@ -93,14 +98,14 @@ export function partVisible(part: Part, stage: BarStage, natural: Record<Part, n
 	if (natural[part] <= 0) return false
 	switch (part) {
 		case 'summary':
-			return stage.summary
+			return true
 		case 'family':
 			// Outside a fork the family's name is the workspace's: it goes only with the whole part.
 			return !stage.wsButton && (stage.familyName || natural.fork <= 0)
 		case 'fork':
 			return !stage.wsButton && stage.forkName
 		case 'name':
-			return true
+			return stage.path || natural.summary <= 0
 	}
 }
 
@@ -110,7 +115,7 @@ export type BarMeasure = {
 	chrome: number
 	/** Per stage: the breadcrumb with each name at its floor. */
 	trail: number[]
-	/** Per stage: the summary at its floor with the gap before it, 0 where it is dropped. */
+	/** Per stage: the summary at its floor with the separator before it, 0 where there is none. */
 	summary: number[]
 	/** Per fold level: the actions with the gap before them, undefined for a level not yet seen. */
 	actions: (number | undefined)[]
@@ -166,7 +171,8 @@ export function fitBar(m: BarMeasure): BarFit {
 	}
 
 	const at = BAR_STAGES[stage]
-	const parts = (['summary', 'family', 'fork', 'name'] as Part[]).filter((p) =>
+	// The summary gives last: it is what a person calls the item, so the path's name goes first.
+	const parts = (['family', 'fork', 'name', 'summary'] as Part[]).filter((p) =>
 		partVisible(p, at, m.natural)
 	)
 	const slack = (p: Part) => Math.max(0, m.natural[p] - Math.min(m.natural[p], FLOOR[p]))
@@ -181,6 +187,7 @@ export function fitBar(m: BarMeasure): BarFit {
 		deficit -= give
 	}
 	for (const p of parts) take(p, FLOOR[p])
-	take('name', SQUEEZED_NAME_FLOOR)
+	take('name', SQUEEZED_FLOOR)
+	take('summary', SQUEEZED_FLOOR)
 	return { stage, fold, caps, scopesGive: deficit > 0 }
 }

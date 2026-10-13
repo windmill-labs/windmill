@@ -34,18 +34,26 @@ describe('fitBar', () => {
 		expect(fitBar({ ...unseen, actions: [300, undefined, 100] }).fold).toBe(1)
 	})
 
-	it('takes the squeeze from the summary first, then the names, the item name last', () => {
+	it("takes the squeeze from the path's name before the summary", () => {
 		const fit = fitBar({
 			...base,
 			barWidth: 400,
 			actions: [0],
 			folds: 0,
 			trail: trail.map((w) => w - 400),
-			summary: BAR_STAGES.map((s) => (s.summary ? 100 : 0)),
+			summary: BAR_STAGES.map(() => 100),
 			natural: { family: 0, fork: 0, summary: 300, name: 300 }
 		})
-		// Stage 0 at its floors is 300px; whole, the summary and the name add 204 and 140, so 244
-		// has to go: all 204 the summary has above its floor, then 40 from the name.
-		expect(fit).toMatchObject({ stage: 0, caps: { summary: 96, name: 260 }, scopesGive: false })
+		// Stage 0 at its floors is 300px; whole, the name and the summary add 140 and 204, so 244
+		// has to go: all 140 the name has above its floor, then 104 from the summary.
+		expect(fit).toMatchObject({ stage: 0, caps: { name: 160, summary: 196 }, scopesGive: false })
+	})
+
+	it('keeps the summary and drops the path when only one of them fits', () => {
+		const natural = { family: 0, fork: 0, summary: 300, name: 300 }
+		// Stage 2 is the first without the path: the name is no longer a part the bar sizes.
+		const fit = fitBar({ ...base, barWidth: 520, natural, actions: [0], folds: 0 })
+		expect(fit.stage).toBe(2)
+		expect(fit.caps.name).toBeUndefined()
 	})
 })
