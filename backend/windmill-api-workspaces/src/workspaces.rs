@@ -2325,6 +2325,9 @@ struct DataTableTables {
     /// What the role the listing connected as may create.
     can_create_schema: bool,
     creatable_schemas: Vec<String>,
+    /// Whether its schema is kept as versioned migrations, which a change made with plain SQL
+    /// would bypass.
+    migrations_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -2570,8 +2573,17 @@ async fn list_one_datatable_tables(
         default_role: windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE.to_string(),
         can_create_schema: false,
         creatable_schemas: vec![],
+        migrations_enabled: false,
     };
     let result: Result<()> = async {
+        // Read from the workspace settings alone, so it is known even when the database is not
+        // reachable.
+        entry.migrations_enabled = crate::datatable_migrations::datatable_migrations_enabled(
+            db,
+            w_id,
+            &entry.datatable_name,
+        )
+        .await?;
         let governing = resolve_governing_datatable(db, w_id, &entry.datatable_name).await?;
         entry.instance = governing.role_cluster().is_some();
         let usable =
