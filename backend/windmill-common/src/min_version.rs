@@ -27,6 +27,8 @@ pub const MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES: VC = vc(1, 822, 0, "Restricted 
 // stored secret variables. Reading it ships one release earlier (1.831), so a rollback to
 // that release still reads every secret; below it, secrets written after the switch stay
 // unreadable until rolled forward. Only worker versions are seen here, not servers.
+// Also gates widening `variable.value`, which needs every process to retire the connections
+// the widening poisons (`db::retire_connections_opened_before_now`): that also ships in 1.832.
 pub const MIN_VERSION_SUPPORTS_AEAD_SECRETS: VC = vc(1, 832, 0, "AES-GCM secret encryption");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");

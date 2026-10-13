@@ -290,3 +290,45 @@ impl<'b> DbExecutor<'b> for &'b mut PgConnection {
         &mut **self
     }
 }
+
+lazy_static::lazy_static! {
+    static ref PROCESS_START: std::time::Instant = std::time::Instant::now();
+}
+
+/// Milliseconds after [`PROCESS_START`] before which every pooled connection is retired;
+/// 0 retires none.
+static RETIRE_CONNECTIONS_OPENED_BEFORE_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Postgres refuses a statement prepared before its result columns changed type (even a
+/// varchar length) with this error, on every execution, for as long as the connection lives.
+/// The routine is matched as well as the message, which `lc_messages` may translate.
+pub fn is_stale_cached_plan(e: &sqlx::Error) -> bool {
+    let sqlx::Error::Database(d) = e else {
+        return false;
+    };
+    d.code().as_deref() == Some("0A000")
+        && (d
+            .try_downcast_ref::<sqlx::postgres::PgDatabaseError>()
+            .is_some_and(|pg| pg.routine() == Some("RevalidateCachedQuery"))
+            || d.message()
+                .contains("cached plan must not change result type"))
+}
+
+/// Retire every pooled connection opened up to now, so a schema change that poisoned their
+/// prepared statements costs one failed query instead of failing until they expire.
+pub fn retire_connections_opened_before_now() {
+    let now = PROCESS_START.elapsed().as_millis() as u64 + 1;
+    RETIRE_CONNECTIONS_OPENED_BEFORE_MS.fetch_max(now, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// For the pool's `before_acquire`: whether a connection of this age must be closed.
+pub fn connection_is_retired(age: std::time::Duration) -> bool {
+    let cutoff = RETIRE_CONNECTIONS_OPENED_BEFORE_MS.load(std::sync::atomic::Ordering::Relaxed);
+    cutoff != 0 && (PROCESS_START.elapsed().saturating_sub(age).as_millis() as u64) < cutoff
+}
+
+/// Time since this process first used its database pool.
+pub fn process_uptime() -> std::time::Duration {
+    PROCESS_START.elapsed()
+}
