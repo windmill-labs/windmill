@@ -1908,7 +1908,7 @@ async fn require_job_access(
     // are immutable after creation, and every mutable caller-side input
     // (is_admin / username / username_override / groups / folders) is folded into
     // the key — so a permission change yields a new key rather than a stale hit, and
-    // no TTL is needed (size-bounded LRU; mirrors apps' PERMIT_CACHE).
+    // no TTL is needed (size-bounded LRU).
     let cache_key = job_read_access_cache_key(authed, w_id, job_id);
     let visible = if let Some(visible) = JOB_READ_ACCESS_CACHE.get(&cache_key) {
         visible
