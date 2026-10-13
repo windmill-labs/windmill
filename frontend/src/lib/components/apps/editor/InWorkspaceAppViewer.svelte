@@ -67,15 +67,16 @@
 	let appPerms = $state<{ path: string; extraPerms: Record<string, boolean> } | undefined>(
 		undefined
 	)
-	const editRights = useEditRights()
-	const canWriteApp = $derived(
-		!!appPerms && editRights.canEditItem('app', appPerms.path, appPerms.extraPerms)
-	)
 	/** Raw vs low-code, read from the app itself rather than from the route:
 	 * both kinds render here and either route serves either kind (links to a raw
 	 * app point at /apps/get all over the app), so only the app can say which
 	 * editor the Edit button must open. */
 	let isRawApp = $state(false)
+	const editRights = useEditRights()
+	const canWriteApp = $derived(
+		!!appPerms &&
+			editRights.canEditItem(isRawApp ? 'raw_app' : 'app', appPerms.path, appPerms.extraPerms)
+	)
 	/** The app's execution mode, from the same lite read as the permissions and for the same
 	 * reason: a sandboxed low-code app loads inside the opaque iframe, so `app` here stays
 	 * undefined and cannot say whether the app answers at a public url. `policy.execution_mode` is

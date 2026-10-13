@@ -3,7 +3,8 @@ import {
 	AUDIT_LOGS_PATH,
 	FOLDERS_PATH,
 	GROUPS_PATH,
-	isPageItemListPath,
+	isPreviewListPath,
+	isRunsListPath,
 	pageItemForListPath,
 	pageItemListPath,
 	pageItemPageHref,
@@ -247,9 +248,14 @@ function pageRequestParamTable(): Record<string, readonly string[]> {
 	})
 }
 
+// The page whose filters a path takes: one item's runs filter as every run does.
+function filterPageOf(path: string): string {
+	return isRunsListPath(path) ? RUNS_PATH : path
+}
+
 /** The query params a request can set on `path` — empty for a page that takes none. */
 export function pageRequestParams(path: string): readonly string[] {
-	return pageRequestParamTable()[barePath(path)] ?? []
+	return pageRequestParamTable()[filterPageOf(barePath(path))] ?? []
 }
 
 /** What a preview location means, read against the page it points at. */
@@ -286,7 +292,7 @@ export function describeLocation(loc: string): PreviewLocation {
 	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
 	return {
 		identity: path,
-		view: requestedParams(query, pageRequestParamTable()[path]),
+		view: requestedParams(query, pageRequestParamTable()[filterPageOf(path)]),
 		anchor: drawerAnchorFor(canonical) ?? ''
 	}
 }
@@ -319,7 +325,7 @@ export function showsView(observed: string, commanded: string): boolean {
 	const y = describeLocation(commanded)
 	if (x.identity !== y.identity || x.anchor !== y.anchor) return false
 	if (x.view === y.view) return true
-	const seeded = PAGE_SEEDED_PARAMS[x.identity]
+	const seeded = PAGE_SEEDED_PARAMS[filterPageOf(x.identity)]
 	if (!seeded?.length) return false
 	// Both views come out of `requestedParams` already sorted and encoded, so they compare
 	// as strings once the seeded params are dropped. One direction only: the page may add
@@ -594,7 +600,8 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // flow, raw app) mounts its per-(kind,path) cell editor on `/edit/` and its viewer
 // on `/get/`; a `/pipeline/<folder>` route mounts the data-pipeline graph editor of
 // that folder (`path` is the folder); the list page of a page item kind mounts that
-// list; a `/run/<id>` route without a share token mounts that run's page; everything
+// list, and so does the runs list; a `/run/<id>` route without a share token mounts that
+// run's page; everything
 // else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
@@ -606,6 +613,18 @@ export type PreviewSlot =
 	| { kind: 'run'; jobId: string; workspace?: string }
 	| { kind: 'iframe' }
 
+/** Whether a tab on this slot shows a page, framed or mounted in process, and so has a
+ * location to stamp as the chat's ACTIVE PREVIEW. Editors register as the ACTIVE EDITOR. */
+export function slotShowsPage(kind: PreviewSlot['kind']): boolean {
+	return (
+		kind === 'iframe' ||
+		kind === 'pageitem' ||
+		kind === 'pagelist' ||
+		kind === 'run' ||
+		kind === 'viewer'
+	)
+}
+
 export function resolvePreviewTab(url: string): PreviewSlot {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return { kind: 'artifact', id: artifact.id, version: artifact.version }
@@ -614,7 +633,7 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	const pageItem = parsePageItemRoute(url)
 	if (pageItem) return { kind: 'pageitem', ref: pageItem }
 	const route = barePath(url)
-	if (isPageItemListPath(route)) return { kind: 'pagelist', path: route }
+	if (isPreviewListPath(route)) return { kind: 'pagelist', path: route }
 	const run = parseRunRoute(url)
 	// A share link's token authorizes every request of the window that installs it, so a run
 	// opened through one keeps a frame of its own rather than lending the token to the session.
