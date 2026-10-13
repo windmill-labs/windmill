@@ -15,7 +15,9 @@
 <!-- The form is reachable by URL whatever the pickers show. Only operators are refused here: the
      server refuses their fork unless a ruleset carries `AllowOperatorForking`, and a developer
      blocked by `DisableWorkspaceForking` gets the server's ruleset message instead. -->
-{#if $userStore?.operator && !canCreateFork($userStore)}
+{#if $userStore?.operator && !protectionRulesState.rulesets}
+	<!-- Until the rulesets arrive, `AllowOperatorForking` reads as off. -->
+{:else if $userStore?.operator && !canCreateFork($userStore)}
 	<div class="p-4 mt-12">
 		<Alert type="error" title="Unauthorized">Page not available for operators</Alert>
 	</div>
