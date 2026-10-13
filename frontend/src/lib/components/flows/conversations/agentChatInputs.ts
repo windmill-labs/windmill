@@ -329,15 +329,19 @@ export function resolveAgentModelWiring(
 		if (supply.kind === 'wired') fields[field] = supply.name
 		else if (supply.kind === 'fixed') fixed[field] = supply.value
 	}
-	// An empty input means one thing only where every agent falls back to the same saved pair,
-	// and a saved value must not stand in for a field the agents disagree about.
-	const saved = new Set(wirings.map((w) => JSON.stringify(w.saved)))
-	const agreed = saved.size === 1 && !disagreed.has('model') ? wirings[0].saved : undefined
+	// An empty input means one thing only where every agent falls back to the same saved value,
+	// and a saved value must not stand in for a field the agents disagree about. The saved effort
+	// belongs to the saved model, so it is only kept alongside one.
+	const common = (field: 'model' | 'reasoning_effort') => {
+		const values = new Set(wirings.map((w) => w.saved?.[field]))
+		return values.size === 1 && !disagreed.has(field) ? [...values][0] : undefined
+	}
+	const model = common('model')
 	return {
 		fields,
 		fixed,
 		someAgentCannotRun,
-		saved: agreed && disagreed.has('reasoning_effort') ? { model: agreed.model } : agreed
+		saved: model === undefined ? undefined : { model, reasoning_effort: common('reasoning_effort') }
 	}
 }
 

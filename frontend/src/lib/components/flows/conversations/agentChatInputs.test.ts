@@ -560,6 +560,15 @@ describe('a step linked to a saved agent', () => {
 		const wiring = resolveAgentModelWiring([effort('low'), effort('medium')], saved)!
 		expect(wiredFieldValue(wiring, {}, 'reasoning_effort')).toBeUndefined()
 		expect(wiredFieldValue(wiring, {}, 'model')).toBe('claude-sonnet-4-5')
+
+		// Two agents that share a model and saved different efforts are in the same position.
+		const other = { ...wired, value: { ...wired.value, agent: '$res:u/a/other' } } as FlowModule
+		const two = resolveAgentModelWiring([wired, other], {
+			...saved,
+			'u/a/other': { ...saved['u/a/agent'], reasoning_effort: 'low' }
+		})!
+		expect(wiredFieldValue(two, {}, 'model')).toBe('claude-sonnet-4-5')
+		expect(two.saved?.reasoning_effort).toBeUndefined()
 	})
 
 	it('cannot be read until the agent has loaded, or with an expression it cannot place', () => {
