@@ -248,13 +248,9 @@ pub use windmill_oauth::OAUTH_CLIENTS;
 
 #[cfg(feature = "oauth2")]
 lazy_static::lazy_static! {
-    static ref SLACK_SIGNING_SECRET_ENV: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
+    pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
-
-    /// The `signing_secret` of the instance settings' Slack OAuth entry.
-    static ref SLACK_SIGNING_SECRET_SETTING: std::sync::RwLock<Option<SlackVerifier>> =
-        std::sync::RwLock::new(None);
 
     // Comma-separated Slack v2 OAuth bot scopes requested when connecting a workspace.
     // Must be a subset of the bot scopes declared in the Slack app manifest. Default matches
@@ -267,24 +263,6 @@ lazy_static::lazy_static! {
 /// message (by email) and the channel picker. Opt-in, as a Slack app must declare every scope
 /// it is asked for.
 pub const SLACK_AGENT_SCOPES: &[&str] = &["users:read", "users:read.email", "channels:read"];
-
-/// The env var wins over the instance setting.
-#[cfg(feature = "oauth2")]
-pub fn slack_signing_secret() -> Option<SlackVerifier> {
-    SLACK_SIGNING_SECRET_ENV
-        .clone()
-        .or_else(|| SLACK_SIGNING_SECRET_SETTING.read().ok()?.clone())
-}
-
-#[cfg(feature = "oauth2")]
-pub fn set_slack_signing_secret_setting(secret: Option<&str>) {
-    let verifier = secret
-        .filter(|s| !s.is_empty())
-        .and_then(|s| SlackVerifier::new(s).ok());
-    if let Ok(mut current) = SLACK_SIGNING_SECRET_SETTING.write() {
-        *current = verifier;
-    }
-}
 
 // Compliance with cloud events spec.
 pub async fn add_webhook_allowed_origin(

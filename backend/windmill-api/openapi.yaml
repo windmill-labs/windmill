@@ -13546,6 +13546,28 @@ paths:
                 required:
                   - channels
 
+  /w/{workspace}/slack_agents/status:
+    get:
+      summary: whether agents can answer in Slack on this instance
+      operationId: getSlackAgentsStatus
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the instance's readiness for agents in Slack
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signing_secret_set:
+                    type: boolean
+                    description: agents answer in Slack only when the server has the Slack app's signing secret (SLACK_SIGNING_SECRET)
+                required:
+                  - signing_secret_set
+
   /w/{workspace}/slack_agents/agent_channels/{path}:
     get:
       summary: the Slack channels where an agent is the default, and whether Slack is connected
@@ -13568,7 +13590,7 @@ paths:
                     description: the connected Slack workspace; absent when Slack is not connected
                   signing_secret_set:
                     type: boolean
-                    description: agents answer in Slack only when the instance has the Slack app's signing secret (SLACK_SIGNING_SECRET or the Slack OAuth instance setting)
+                    description: agents answer in Slack only when the server has the Slack app's signing secret (SLACK_SIGNING_SECRET)
                   bot_name:
                     type: string
                     description: the bot's Slack handle; absent when Slack can't be reached

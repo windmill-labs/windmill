@@ -23,6 +23,7 @@
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import {
 		OauthService,
+		SlackAgentsService,
 		WorkspaceService,
 		SettingService,
 		type AIConfig,
@@ -69,6 +70,7 @@
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
+	import { resource } from 'runed'
 	import { getHandlerType } from '$lib/components/triggers/utils'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
@@ -169,6 +171,14 @@
 	// links here with `agents=true`.
 	let slackAgents = $state($page.url.searchParams.get('agents') === 'true')
 	let slackAppType: 'instance' | 'workspace' = $state('instance')
+	// Agents verify Slack's requests with the server's signing secret, which only the instance's
+	// Slack app is signed with, so the opt-in is offered for that app alone.
+	let slackAgentsScopes = $derived(slackAgents && slackAppType === 'instance')
+	const slackAgentsStatus = resource(
+		() => (slackAgentsScopes ? $workspaceStore : undefined),
+		async (workspace) =>
+			workspace ? await SlackAgentsService.getSlackAgentsStatus({ workspace }) : undefined
+	)
 
 	// Keep slackAppType and useCustomSlackApp in sync
 	$effect(() => {
@@ -831,7 +841,7 @@
 			})
 
 			// Redirect to OAuth flow
-			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}${slackAgents ? '&agents=true' : ''}`
+			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}`
 		} catch (e) {
 			sendUserToast('Failed to save Slack OAuth configuration', true)
 			console.error(e)
@@ -1655,7 +1665,7 @@
 											}
 										}}
 										onSelect={editSlackCommand}
-										connectHref="/api/oauth/connect_slack{slackAgents ? '?agents=true' : ''}"
+										connectHref="/api/oauth/connect_slack{slackAgentsScopes ? '?agents=true' : ''}"
 										createScriptHref="/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 										createFlowHref="/flows/add?hub=28"
 										documentationLink="https://www.windmill.dev/docs/integrations/slack"
@@ -1690,22 +1700,26 @@
 														you want to use a specific Slack app for this workspace.</div
 													>
 												</div>
-												<div class="flex flex-col gap-1">
-													<Toggle
-														size="xs"
-														bind:checked={slackAgents}
-														options={{ right: 'Let AI agents answer in Slack' }}
-													/>
-													<div class="text-2xs text-hint">
-														Also asks Slack for {SLACK_AGENT_SCOPES.join(', ')}, to know who is
-														asking and to list channels. The Slack app must declare them, subscribe
-														to the <code>app_mention</code> and
-														<code>message.im</code> bot events at
-														<code>{window.location.origin}/api/oauth/slack_events</code>, and its
-														signing secret must be set in the instance settings. Without these
-														scopes Slack refuses the connection.
+												{#if slackAppType === 'instance'}
+													<div class="flex flex-col gap-1">
+														<Toggle
+															size="xs"
+															bind:checked={slackAgents}
+															options={{ right: 'Let AI agents answer in Slack' }}
+														/>
+														<div class="text-2xs text-hint">
+															Also asks Slack who is asking and for its channels
+															({SLACK_AGENT_SCOPES.join(', ')}), which the instance's Slack app must
+															declare: its manifest is in the instance settings.
+														</div>
+														{#if slackAgentsStatus.current?.signing_secret_set === false}
+															<Alert type="warning" size="xs" title="Agents won't answer yet">
+																An instance admin needs to set the Slack app's signing secret as the
+																<code>SLACK_SIGNING_SECRET</code> environment variable.
+															</Alert>
+														{/if}
 													</div>
-												</div>
+												{/if}
 											{/if}
 											{#if slackOAuthConfigLoaded}
 												<!-- Show saved config with delete button -->

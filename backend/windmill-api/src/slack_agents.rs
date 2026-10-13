@@ -49,6 +49,28 @@ pub fn workspaced_service() -> Router {
         .route("/channels/{channel_id}", delete(remove_channel_agent))
         .route("/available_channels", get(list_available_channels))
         .route("/agent_channels/{*path}", get(list_agent_channels))
+        .route("/status", get(status))
+}
+
+#[derive(Serialize)]
+struct SlackAgentsStatus {
+    signing_secret_set: bool,
+}
+
+async fn status(_authed: ApiAuthed) -> Json<SlackAgentsStatus> {
+    Json(SlackAgentsStatus { signing_secret_set: signing_secret_set() })
+}
+
+/// Agents answer only when the server verifies Slack's request signatures.
+fn signing_secret_set() -> bool {
+    #[cfg(feature = "oauth2")]
+    {
+        crate::SLACK_SIGNING_SECRET.is_some()
+    }
+    #[cfg(not(feature = "oauth2"))]
+    {
+        false
+    }
 }
 
 #[derive(Serialize)]
@@ -117,17 +139,13 @@ async fn list_agent_channels(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    #[cfg(feature = "oauth2")]
-    let signing_secret_set = crate::slack_signing_secret().is_some();
-    #[cfg(not(feature = "oauth2"))]
-    let signing_secret_set = false;
     let (bot_name, missing_scopes) = match slack_team_name {
         Some(_) => bot_identity(&db, &w_id).await.unzip(),
         None => (None, None),
     };
     Ok(Json(AgentSlack {
         slack_team_name,
-        signing_secret_set,
+        signing_secret_set: signing_secret_set(),
         bot_name,
         missing_scopes: missing_scopes.unwrap_or_default(),
         channels,

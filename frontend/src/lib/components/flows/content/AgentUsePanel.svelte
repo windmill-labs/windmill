@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { X } from 'lucide-svelte'
 	import { resource } from 'runed'
-	import { bash, typescript } from 'svelte-highlight/languages'
+	import { bash, markdown, typescript } from 'svelte-highlight/languages'
 	import { Alert, Button, CopyButton, Tab, TabContent, Tabs } from '$lib/components/common'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
@@ -13,9 +13,8 @@
 	import { SlackAgentsService, type SlackChannelAgent } from '$lib/gen'
 	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { copyToClipboard, generateRandomString } from '$lib/utils'
+	import { generateRandomString } from '$lib/utils'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
-	import { Sparkles } from 'lucide-svelte'
 	import {
 		curlExample,
 		fetchExample,
@@ -208,8 +207,9 @@
 					{:else}
 						{#if !signingSecretSet}
 							<Alert type="warning" title="Agents can't answer in Slack yet" size="xs">
-								The instance needs the Slack app's signing secret, so Windmill can tell who sent a
-								message. A superadmin sets it in the instance settings, under OAuth, Slack.
+								The server needs the Slack app's signing secret, so Windmill can tell who sent a
+								message. An instance admin sets it as the <code>SLACK_SIGNING_SECRET</code> environment
+								variable.
 							</Alert>
 						{/if}
 						{#if !botName}
@@ -319,26 +319,6 @@
 						answer streams as it is written.{#if chat}{' '}Calls that share a
 							<code>memory_id</code>, any string you choose, are one conversation.{/if}
 					</span>
-					<div class="flex items-center gap-4 rounded-md border p-3">
-						<div class="flex flex-col gap-1 grow">
-							<span class="text-xs font-semibold text-emphasis">Integrate with an AI assistant</span
-							>
-							<span class="text-2xs text-secondary">
-								A prompt with the endpoints and streaming{chat
-									? ', conversations and the chat SDK'
-									: ''}, for your coding assistant to write the integration. The token stays a
-								placeholder.
-							</span>
-						</div>
-						<Button
-							variant="accent-secondary"
-							unifiedSize="sm"
-							startIcon={{ icon: Sparkles }}
-							onClick={() => copyToClipboard(integrationPrompt(target))}
-						>
-							Copy prompt
-						</Button>
-					</div>
 					<Label label="Token">
 						<div class="flex flex-col gap-2">
 							<TextInput
@@ -368,6 +348,7 @@
 						<Tab value="rest" label="REST" />
 						<Tab value="curl" label="Curl" />
 						<Tab value="fetch" label="Fetch" />
+						<Tab value="prompt" label="AI prompt" />
 						{#snippet content()}
 							<TabContent value="sdk" class="flex flex-col gap-2 mt-2">
 								<span class="text-xs text-secondary">
@@ -394,6 +375,14 @@
 							</TabContent>
 							<TabContent value="fetch" class="mt-2">
 								<CopyableCodeBlock code={fetchExample(target)} language={typescript} />
+							</TabContent>
+							<TabContent value="prompt" class="flex flex-col gap-2 mt-2">
+								<span class="text-xs text-secondary">
+									For your coding assistant to write the integration: the endpoints and streaming{chat
+										? ', conversations and the chat SDK'
+										: ''}. The token stays a placeholder.
+								</span>
+								<CopyableCodeBlock code={integrationPrompt(target)} language={markdown} wrap />
 							</TabContent>
 						{/snippet}
 					</Tabs>

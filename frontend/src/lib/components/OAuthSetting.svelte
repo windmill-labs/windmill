@@ -133,22 +133,6 @@
 					bind:password={value['secret']}
 				/>
 			</label>
-			{#if name == 'slack'}
-				<label for="slack_signing_secret" class="flex flex-col gap-1">
-					<span class="text-emphasis font-semibold text-xs">Signing Secret</span>
-					<span class="text-2xs text-secondary">
-						Under Basic Information in the Slack app. Windmill checks with it that requests come
-						from Slack, and AI agents answer in Slack only once it is set. The SLACK_SIGNING_SECRET
-						environment variable takes precedence. A workspace that uses its own Slack app is
-						checked against this secret too, so its Slack requests fail unless it is the same app.
-					</span>
-					<Password
-						id="slack_signing_secret"
-						placeholder="Signing Secret"
-						bind:password={value['signing_secret']}
-					/>
-				</label>
-			{/if}
 			{#if name == 'microsoft' || name == 'teams'}
 				<label class="flex flex-col gap-1">
 					<span class="text-emphasis font-semibold text-xs">Tenant Id</span>
@@ -227,8 +211,9 @@
 							Create a Slack app <a href="https://api.slack.com/apps?new_app=1" target="_blank"
 								>in the Slack API console <ExternalLink size={12} class="inline-block" /></a
 							>: pick "From a manifest", then YAML, and paste the manifest below. Then copy the
-							Client ID, Client Secret and Signing Secret here. Socket Mode and token rotation must
-							stay off. More in the
+							Client ID and Client Secret here. Socket Mode and token rotation must stay off. For AI
+							agents to answer in Slack, set the app's Signing Secret as the server's
+							<code>SLACK_SIGNING_SECRET</code> environment variable. More in the
 							<a href="https://www.windmill.dev/docs/misc/setup_oauth#slack" target="_blank"
 								>Windmill docs <ExternalLink size={12} class="inline-block" /></a
 							>.
