@@ -912,7 +912,7 @@
 						{#if !hideHelpButton && propertyType === 'javascript' && argKind === 'javascript' && arg.expr != undefined}
 							<DynamicInputHelpBox {hint} />
 						{:else if hint}
-							<p class="mt-1 text-2xs text-hint">{hint}</p>
+							<p class="text-2xs text-hint">{hint}</p>
 						{/if}
 
 						{#snippet innerInput()}
