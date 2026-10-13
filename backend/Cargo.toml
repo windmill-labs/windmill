@@ -599,6 +599,7 @@ p256 = "0.13"
 spki = { version = "0.7", features = ["pem"] }
 pkcs1 = "0.7"
 aes-gcm = "0.10.3"
+hkdf = "0.12.4"
 async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
 dashmap = "6.1.0"
