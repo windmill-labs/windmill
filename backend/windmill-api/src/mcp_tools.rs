@@ -125,22 +125,13 @@ async fn connect_mcp_client(
         None
     };
 
-    // Some MCP servers carry their key in the url, so it can be a variable too,
-    // resolved through the same permissioned path as the token.
-    if let Some(var_path) = mcp_resource.url.strip_prefix("$var:").map(str::to_string) {
-        check_scopes(authed, || format!("variables:read:{}", var_path))?;
-        let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
-        mcp_resource.url = get_value_internal(&db_authed, w_id, &var_path, false).await?;
-    }
-
-    // Header secrets go through the same permissioned path as the token.
-    for value in mcp_resource.headers.iter_mut().flatten().map(|(_, v)| v) {
-        if let Some(var_path) = value.strip_prefix("$var:") {
+    mcp_resource
+        .resolve_variables(|var_path| async move {
             check_scopes(authed, || format!("variables:read:{}", var_path))?;
             let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
-            *value = get_value_internal(&db_authed, w_id, var_path, false).await?;
-        }
-    }
+            get_value_internal(&db_authed, w_id, &var_path, false).await
+        })
+        .await?;
 
     windmill_mcp::McpClient::from_resource(mcp_resource, token)
         .await

@@ -615,28 +615,17 @@ pub async fn load_mcp_tools(
             None
         };
 
-        // Some MCP servers carry their key in the url, so it can be a variable
-        // too, resolved through the same permissioned path as the token.
-        if let Some(var_path) = mcp_resource.url.strip_prefix("$var:").map(str::to_string) {
-            mcp_resource.url = client.get_variable_value(&var_path).await.map_err(|e| {
-                Error::internal_err(format!(
-                    "Failed to resolve variable {} for url of MCP resource {}: {}",
-                    var_path, resource_name, e
-                ))
-            })?;
-        }
-
-        // Header secrets go through the same permissioned path as the token.
-        for (name, value) in mcp_resource.headers.iter_mut().flatten() {
-            if let Some(var_path) = value.strip_prefix("$var:") {
-                *value = client.get_variable_value(var_path).await.map_err(|e| {
+        let name = &resource_name;
+        mcp_resource
+            .resolve_variables(|var_path| async move {
+                client.get_variable_value(&var_path).await.map_err(|e| {
                     Error::internal_err(format!(
-                        "Failed to resolve variable {} for header {} of MCP resource {}: {}",
-                        var_path, name, resource_name, e
+                        "Failed to resolve variable {} for MCP resource {}: {}",
+                        var_path, name, e
                     ))
-                })?;
-            }
-        }
+                })
+            })
+            .await?;
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);
