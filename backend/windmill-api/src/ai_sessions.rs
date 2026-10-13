@@ -32,10 +32,11 @@ use windmill_api_workspaces::ai_session_backups::{
     fallback_store, generation_prefix, primary_store, storage_id, MAX_OBJECT_BYTES,
 };
 use windmill_api_workspaces::workspaces::sessions_retention_days;
+use windmill_common::db::{process_uptime, PREVIOUS_RELEASE_ROLLOUT_UPTIME};
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
 use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key, WorkspaceCrypt};
-use windmill_common::workspace_crypt::MAX_BYTES_OVERHEAD;
+use windmill_common::workspace_crypt::{CipherFormat, MAX_BYTES_OVERHEAD};
 use windmill_object_store::object_store_reexports::{
     ObjectStore, ObjectStoreError, Path as ObjectPath, PutPayload,
 };
@@ -118,6 +119,15 @@ pub fn workspaced_service() -> Router {
             "/push",
             post(push).layer(DefaultBodyLimit::max(PUSH_BODY_LIMIT)),
         )
+}
+
+fn backup_format(current: CipherFormat, uptime: std::time::Duration) -> CipherFormat {
+    // A previous-release server reads only CBC here: GCM waits for it to be rolled out.
+    if current == CipherFormat::V2 && uptime >= PREVIOUS_RELEASE_ROLLOUT_UPTIME {
+        CipherFormat::V2
+    } else {
+        CipherFormat::LegacyCbc
+    }
 }
 
 /// What reading an object yields. `Gone`: not there (deleted since the listing, or never
@@ -214,8 +224,8 @@ impl Backend {
     }
 
     fn seal(&self, plaintext: &[u8]) -> Vec<u8> {
-        // Servers before 1.833 read only CBC here: rolled back, they skip GCM objects as foreign.
-        self.mc.encrypt_bytes(plaintext)
+        let format = backup_format(CipherFormat::current(), process_uptime());
+        self.mc.encrypt_bytes_in(plaintext, format)
     }
 
     /// Bytes written.
@@ -1632,4 +1642,33 @@ async fn push(
         fallback: backend.fallback,
         results,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backups_are_written_in_gcm_only_once_the_previous_release_is_rolled_out() {
+        let just_short = PREVIOUS_RELEASE_ROLLOUT_UPTIME - std::time::Duration::from_secs(1);
+        for (current, uptime, expected) in [
+            (
+                CipherFormat::V2,
+                PREVIOUS_RELEASE_ROLLOUT_UPTIME,
+                CipherFormat::V2,
+            ),
+            (CipherFormat::V2, just_short, CipherFormat::LegacyCbc),
+            (
+                CipherFormat::LegacyCbc,
+                PREVIOUS_RELEASE_ROLLOUT_UPTIME * 4,
+                CipherFormat::LegacyCbc,
+            ),
+        ] {
+            assert_eq!(
+                backup_format(current, uptime),
+                expected,
+                "{current:?} {uptime:?}"
+            );
+        }
+    }
 }

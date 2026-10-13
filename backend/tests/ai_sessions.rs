@@ -1590,9 +1590,10 @@ impl<F: FnMut()> Drop for OnDrop<F> {
     }
 }
 
-/// Once every worker reads AES-256-GCM, objects are written in it: a session backed up as
-/// CBC before the switch still restores whole with the GCM pieces added after it, a head at
-/// its cap and a push token still read back under the larger ciphertext, and relocated GCM
+/// Once every worker reads AES-256-GCM and this server has been up long enough for any server
+/// of the previous release to be gone, objects are written in it: a session backed up as CBC
+/// before the switch still restores whole with the GCM pieces added after it, a head at its
+/// cap and a push token still read back under the larger ciphertext, and relocated GCM
 /// ciphertext does not decrypt for another user.
 #[sqlx::test(fixtures("base"))]
 async fn test_backups_switch_to_gcm_once_every_worker_reads_it(
@@ -1613,6 +1614,7 @@ async fn test_backups_switch_to_gcm_once_every_worker_reads_it(
     configure_primary_lfs(&db, &storage_dir.path().to_string_lossy()).await?;
     let before = MIN_VERSION.load_full();
     let _restore = OnDrop(move || MIN_VERSION.store(before.clone()));
+    let _uptime = OnDrop(|| windmill_common::db::set_process_uptime_offset(Default::default()));
     let is_gcm = |b: &[u8]| b.starts_with(&V2_MAGIC);
     let object = |path: &str| -> Vec<u8> {
         std::fs::read(user_root(storage_dir.path(), "test@windmill.dev").join(path)).unwrap()
@@ -1642,6 +1644,23 @@ async fn test_backups_switch_to_gcm_once_every_worker_reads_it(
     MIN_VERSION.store(std::sync::Arc::new(
         MIN_VERSION_SUPPORTS_AEAD_SECRETS.version().clone(),
     ));
+    // Every worker reads it, but this server was only just started: still CBC.
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s1", "chats": [{ "id": "c0", "record": { "id": "c0", "title": "FRESH" } }] }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let fresh_chat = object("sessions/s1/chats/c0.json");
+    assert!(!fresh_chat.is_empty() && !is_gcm(&fresh_chat));
+
+    windmill_common::db::set_process_uptime_offset(
+        windmill_common::db::PREVIOUS_RELEASE_ROLLOUT_UPTIME,
+    );
     let resp = push(
         &base,
         "SECRET_TOKEN",
@@ -1672,7 +1691,7 @@ async fn test_backups_switch_to_gcm_once_every_worker_reads_it(
         .map(|c| c["record"]["title"].as_str().unwrap().to_string())
         .collect();
     titles.sort();
-    assert_eq!(titles, ["AFTER", "BEFORE"], "{pulled}");
+    assert_eq!(titles, ["AFTER", "BEFORE", "FRESH"], "{pulled}");
     assert_eq!(
         pulled["sessions"][0]["images"][0]["data_url"],
         "data:image/png;base64,AAAA"

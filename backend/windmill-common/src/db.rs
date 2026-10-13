@@ -328,7 +328,24 @@ pub fn connection_is_retired(age: std::time::Duration) -> bool {
     cutoff != 0 && (PROCESS_START.elapsed().saturating_sub(age).as_millis() as u64) < cutoff
 }
 
+/// Servers report no version, so the worker version gate alone cannot see a server of the
+/// previous release; its rollout is assumed done once this server has been up this long.
+pub const PREVIOUS_RELEASE_ROLLOUT_UPTIME: std::time::Duration =
+    std::time::Duration::from_secs(30 * 60);
+
+static PROCESS_UPTIME_OFFSET_SECS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 /// Time since this process first used its database pool.
 pub fn process_uptime() -> std::time::Duration {
     PROCESS_START.elapsed()
+        + std::time::Duration::from_secs(
+            PROCESS_UPTIME_OFFSET_SECS.load(std::sync::atomic::Ordering::Relaxed),
+        )
+}
+
+/// For tests of what waits on [`process_uptime`]: adds `offset` to it.
+#[doc(hidden)]
+pub fn set_process_uptime_offset(offset: std::time::Duration) {
+    PROCESS_UPTIME_OFFSET_SECS.store(offset.as_secs(), std::sync::atomic::Ordering::Relaxed);
 }

@@ -32,7 +32,7 @@ const TAG_LEN: usize = 16;
 const BLOCK: usize = 16;
 const NARROW_VARIABLE_VALUE_WIDTH: usize = 15000;
 
-/// The most `encrypt_bytes` adds to a plaintext, in either format.
+/// The most `encrypt_bytes_in` adds to a plaintext, in either format.
 pub const MAX_BYTES_OVERHEAD: usize = V2_MAGIC.len() + NONCE_LEN + BLOCK + TAG_LEN;
 
 const AEAD_KEY_INFO: &[u8] = b"windmill workspace secret aes-256-gcm v1";
@@ -156,9 +156,8 @@ impl WorkspaceCrypt {
         (self.decrypt_str(&upgraded).ok()? == plaintext).then_some(upgraded)
     }
 
-    /// For bytes stored outside `variable.value`, so without the narrow-column fallback.
-    pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Vec<u8> {
-        match CipherFormat::current() {
+    pub fn encrypt_bytes_in(&self, plaintext: &[u8], format: CipherFormat) -> Vec<u8> {
+        match format {
             CipherFormat::V2 => self.seal(plaintext),
             CipherFormat::LegacyCbc => self.legacy.encrypt_bytes_to_bytes(plaintext),
         }
@@ -275,7 +274,9 @@ mod tests {
         let wc = WorkspaceCrypt::new(KEY);
         for len in 0..64 {
             let plain = vec![b'x'; len];
-            for sealed in [wc.seal(&plain), wc.legacy.encrypt_bytes_to_bytes(&plain)] {
+            for format in [CipherFormat::V2, CipherFormat::LegacyCbc] {
+                let sealed = wc.encrypt_bytes_in(&plain, format);
+                assert_eq!(wc.open(&sealed).is_some(), format == CipherFormat::V2);
                 assert!(sealed.len() <= len + MAX_BYTES_OVERHEAD, "len {len}");
                 assert_eq!(wc.decrypt_bytes(&sealed).unwrap(), plain);
             }

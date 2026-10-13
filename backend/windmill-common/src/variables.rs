@@ -416,11 +416,6 @@ pub fn variable_value_widen_pending() -> bool {
     CipherFormat::current() == CipherFormat::V2 && !VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed)
 }
 
-/// Servers report no version, so the worker version gate alone cannot see a server of the
-/// previous release; its rollout is assumed done once this server has been up this long.
-const VARIABLE_VALUE_WIDEN_MIN_UPTIME: std::time::Duration =
-    std::time::Duration::from_secs(30 * 60);
-
 /// Widen `variable.value` to [`VARIABLE_VALUE_WIDTH`], or `false` when it is too early to.
 /// Not a migration: changing a column's type, even its length, fails every statement a live
 /// process prepared on it until its connection closes. It waits for v2 writes, gated on a
@@ -437,7 +432,7 @@ async fn widen_variable_value(db: &DB) -> error::Result<bool> {
     .fetch_one(db)
     .await?;
     if typmod >= 0 && typmod - 4 < VARIABLE_VALUE_WIDTH {
-        if crate::db::process_uptime() < VARIABLE_VALUE_WIDEN_MIN_UPTIME {
+        if crate::db::process_uptime() < crate::db::PREVIOUS_RELEASE_ROLLOUT_UPTIME {
             return Ok(false);
         }
         tracing::info!("widening variable.value to VARCHAR({VARIABLE_VALUE_WIDTH})");
