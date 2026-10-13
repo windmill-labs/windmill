@@ -316,6 +316,18 @@ describe('resolvePreviewTab', () => {
 		expect(resolvePreviewTab('/runs')).toEqual({ kind: 'iframe' })
 	})
 
+	it('mounts a run in process, in the workspace its URL names', () => {
+		expect(resolvePreviewTab('/run/01a0?workspace=fork')).toEqual({
+			kind: 'run',
+			jobId: '01a0',
+			workspace: 'fork'
+		})
+		expect(resolvePreviewTab('/run/01a0')).toEqual({ kind: 'run', jobId: '01a0' })
+		expect(resolvePreviewTab('/run/01a0?workspace=fork&view_token=t')).toEqual({ kind: 'iframe' })
+		// The runs of one item are a list page, not a run.
+		expect(resolvePreviewTab('/runs/f/a/b')).toEqual({ kind: 'iframe' })
+	})
+
 	it('mounts the list page of a page item kind in process, whatever its filters', () => {
 		expect(resolvePreviewTab('/variables?path_start=f%2Fa%2F')).toEqual({
 			kind: 'pagelist',
