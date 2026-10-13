@@ -8,7 +8,7 @@ edition.workspace = true
 default = []
 enterprise = ["dep:aws-config"]
 instance_config_schema = ["dep:schemars"]
-local_reports = ["dep:rsa", "dep:aes-gcm"]
+local_reports = ["dep:rsa"]
 private = ["dep:aws-sdk-rds", "dep:aws-sdk-secretsmanager", "dep:aws-config"]
 jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
@@ -22,7 +22,7 @@ smtp = ["dep:mail-send", "dep:rustls", "dep:tokio-rustls", "dep:rustls-native-ce
 scoped_cache = []
 cloud = []
 dev_override = []
-openidconnect = ["dep:openidconnect", "dep:rsa"]
+openidconnect = ["dep:openidconnect", "dep:rsa", "dep:p256"]
 python = ["dep:windmill-parser-py"]
 
 [lib]
@@ -116,9 +116,11 @@ pep440_rs.workspace = true
 systemstat.workspace = true
 size.workspace = true
 rsa = { workspace = true, optional = true }
+p256 = { workspace = true, optional = true }
 spki = { workspace = true }
 pkcs1 = { workspace = true }
-aes-gcm = { workspace = true, optional = true }
+aes-gcm.workspace = true
+hkdf.workspace = true
 
 semver.workspace = true
 croner.workspace = true

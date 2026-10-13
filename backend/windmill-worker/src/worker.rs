@@ -711,7 +711,7 @@ lazy_static::lazy_static! {
     /// registry configuration.
     pub static ref TRUSTED_HOST: Option<String> = non_empty_env("PY_TRUSTED_HOST").or_else(|| non_empty_env("PIP_TRUSTED_HOST"));
     pub static ref INDEX_CERT: Option<String> = non_empty_env("PY_INDEX_CERT").or_else(|| non_empty_env("PIP_INDEX_CERT"));
-    pub static ref NATIVE_CERT: bool = non_empty_env("PY_NATIVE_CERT").or_else(|| non_empty_env("UV_NATIVE_TLS")).map(|flag| flag == "true").unwrap_or(false);
+    pub static ref NATIVE_CERT: bool = non_empty_env("PY_NATIVE_CERT").or_else(|| non_empty_env("UV_SYSTEM_CERTS")).or_else(|| non_empty_env("UV_NATIVE_TLS")).map(|flag| flag == "true").unwrap_or(false);
     /// uv's HTTP request timeout (seconds). The uv invocations use env_clear(), so a
     /// UV_HTTP_TIMEOUT set on the worker is dropped unless forwarded explicitly.
     /// Only forwarded when set; otherwise uv keeps its own default. Lets operators
@@ -7253,7 +7253,7 @@ pub fn init_worker_internal_server_inline_utils(
         base_internal_url,
         killpill_rx: Arc::new(killpill_rx),
         run_inline_preview_script: Arc::new(|params| {
-            let job = MiniPulledJob::new_inline(
+            let mut job = MiniPulledJob::new_inline(
                 params.workspace_id,
                 params.args,
                 params.created_by,
@@ -7265,6 +7265,7 @@ pub fn init_worker_internal_server_inline_utils(
                 "inline_preview".to_string(),
                 Some(params.lang),
             );
+            job.permissioned_as_end_user_email = params.end_user_email;
             Box::pin(async move {
                 let mut mem_peak: i32 = -1;
                 let mut canceled_by: Option<CanceledBy> = None;
@@ -7314,7 +7315,7 @@ pub fn init_worker_internal_server_inline_utils(
                 let content_info =
                     get_script_content_by_hash(&script_hash, &params.workspace_id, &params.conn)
                         .await?;
-                let job = MiniPulledJob::new_inline(
+                let mut job = MiniPulledJob::new_inline(
                     params.workspace_id,
                     params.args,
                     params.created_by,
@@ -7326,6 +7327,7 @@ pub fn init_worker_internal_server_inline_utils(
                     "inline_run".to_string(),
                     content_info.language,
                 );
+                job.permissioned_as_end_user_email = params.end_user_email;
                 let mut mem_peak: i32 = -1;
                 let mut canceled_by: Option<CanceledBy> = None;
                 let mut column_order: Option<Vec<String>> = None;

@@ -1,6 +1,5 @@
 /** The files a user message carried, as the lanes its bubble renders: image thumbnails and file chips. */
 import type { ChatAttachment } from 'windmill-chat'
-import { base } from '$lib/base'
 import {
 	createAttachedFileContextElement,
 	type ContextElement
@@ -24,7 +23,7 @@ function looksLikeImage(attachment: ChatAttachment): boolean {
 function downloadUrl(workspace: string, attachment: ChatAttachment): string {
 	const params = new URLSearchParams({ file_key: attachment.s3 })
 	if (attachment.storage) params.set('storage', attachment.storage)
-	return `${base}/api/w/${workspace}/job_helpers/download_s3_file?${params.toString()}`
+	return `/api/w/${workspace}/job_helpers/download_s3_file?${params.toString()}`
 }
 
 /** Without a workspace there is no link to build, so an image falls back to a file chip. */

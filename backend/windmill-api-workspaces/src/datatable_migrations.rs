@@ -880,7 +880,11 @@ struct DatatableMigrationsStatusResult {
 /// Whether the SQL-migrations feature is enabled for a data table. Honors the
 /// explicit `migrations_enabled` flag; when unset (data tables predating the
 /// feature) it is considered enabled only if migrations already exist.
-async fn datatable_migrations_enabled(db: &DB, w_id: &str, datatable_name: &str) -> Result<bool> {
+pub(crate) async fn datatable_migrations_enabled(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<bool> {
     let flag: Option<bool> = sqlx::query_scalar!(
         "SELECT (ws.datatable->'datatables'->$2->>'migrations_enabled')::boolean \
          FROM workspace_settings ws WHERE ws.workspace_id = $1",

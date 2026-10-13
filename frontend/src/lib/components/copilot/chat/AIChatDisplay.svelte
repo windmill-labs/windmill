@@ -71,7 +71,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import { base } from '$lib/base'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const chatHost = getChatViewHost()
@@ -713,7 +712,7 @@
 					unifiedSize="2xs"
 					variant="accent"
 					startIcon={{ icon: KeyRound }}
-					href="{base}/workspace_settings?tab=ai"
+					href="/workspace_settings?tab=ai"
 				>
 					Add your own API key
 				</Button>
@@ -733,7 +732,7 @@
 			unifiedSize="2xs"
 			variant="default"
 			startIcon={{ icon: KeyRound }}
-			href="{base}/workspace_settings?tab=ai"
+			href="/workspace_settings?tab=ai"
 		>
 			Configure your API key
 		</Button>

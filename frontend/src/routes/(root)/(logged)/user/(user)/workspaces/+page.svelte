@@ -3,7 +3,6 @@
 	import { run } from 'svelte/legacy'
 
 	import { goto } from '$lib/navigation'
-	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logoutKit'
@@ -379,7 +378,7 @@
 					>
 						<Button
 							unifiedSize="md"
-							href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
+							href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
 							variant={onlyAdminsWorkspace || noWorkspaces ? 'accent' : 'default'}
 							wrapperClasses="w-full"
 							>+&nbsp;Create a new workspace
@@ -423,7 +422,7 @@
 							<Button
 								variant="accent"
 								size="xs2"
-								href="{base}/user/accept_invite?workspace={encodeURIComponent(
+								href="/user/accept_invite?workspace={encodeURIComponent(
 									invite.workspace_id
 								)}{rd ? `&rd=${encodeURIComponent(rd)}` : ''}"
 							>
@@ -491,7 +490,7 @@
 								<Button
 									variant="accent"
 									unifiedSize="xs"
-									href="{base}/user/accept_invite?workspace={encodeURIComponent(
+									href="/user/accept_invite?workspace={encodeURIComponent(
 										invite.workspace_id
 									)}{rd ? `&rd=${encodeURIComponent(rd)}` : ''}"
 								>

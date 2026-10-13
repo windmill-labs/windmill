@@ -890,7 +890,7 @@ def main(db: postgresql):
 
 export const RAW_APP_BASE = `# Windmill Raw Apps
 
-Raw apps let you build custom frontends with React, Svelte, or Vue that connect to Windmill backend runnables and datatables.
+Raw apps let you build custom frontends with React or Svelte that connect to Windmill backend runnables and datatables.
 
 ## App shape
 
@@ -906,7 +906,7 @@ A new app gets the setup Windmill's own new-app dialog gives one: a framework, t
 
 ### Framework
 
-Use the framework the user named. When they named none, follow what there is to follow: the app being edited, or the apps the request points at. With nothing to follow, use **React 19**, the recommended default, **without asking**. React 18, Svelte 5 and Vue are for when they are asked for.
+Use the framework the user named. When they named none, follow what there is to follow: the app being edited, or the apps the request points at. With nothing to follow, use **React 19**, the recommended default, **without asking**. React 18 and Svelte 5 are for when they are asked for. These three are the only frameworks the raw app bundler builds. When the user asks to build or convert an app in another framework, write no code in it: say it is not available and offer these three instead.
 
 ### Data setup
 
@@ -939,7 +939,7 @@ An app the user just started from the new-app dialog is already set up: its file
 
 ### Entrypoint
 
-The entrypoint is \`index.tsx\` for React and \`index.ts\` for Svelte and Vue. It is both the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint: the preview executes the bundle against an empty \`<div id="root">\` and auto-renders nothing, so the entrypoint must mount a top-level \`App\` itself. Keep the UI in \`App.tsx\` / \`App.svelte\` / \`App.vue\` and keep the entrypoint as the mount shim.
+The entrypoint is \`index.tsx\` for React and \`index.ts\` for Svelte. It is both the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint: the preview executes the bundle against an empty \`<div id="root">\` and auto-renders nothing, so the entrypoint must mount a top-level \`App\` itself. Keep the UI in \`App.tsx\` / \`App.svelte\` and keep the entrypoint as the mount shim.
 
 React (\`index.tsx\`):
 
@@ -951,7 +951,7 @@ import App from './App'
 createRoot(document.getElementById('root')!).render(<App />)
 \`\`\`
 
-Svelte (\`index.ts\`): \`mount(App, { target: document.getElementById('root')! })\`. Vue (\`index.ts\`): \`createApp(App).mount('#root')\`.
+Svelte (\`index.ts\`): \`mount(App, { target: document.getElementById('root')! })\`.
 
 **Never replace the entrypoint with a bare component** (\`export default function App() { ... }\` and no mount call). A component that is defined but never mounted renders a blank screen with **no error thrown** — it never executes, so nothing reaches the console or the error overlay. If an app renders blank, check that the entrypoint still mounts \`App\` into \`#root\`.
 
@@ -1024,16 +1024,16 @@ Apply it to customer data, internal notes and anything else a viewer of the demo
 
 ### Chat UIs over a flow in chat mode
 
-A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add \`windmill-chat\` to \`package.json\` and use it directly, it detects the app's Windmill and credential.
+A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add \`@windmill-labs/chat-sdk\` to \`package.json\` and use it directly, it detects the app's Windmill and credential.
 
 \`\`\`tsx
-import { useWindmillChat } from 'windmill-chat/react'
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
 
 const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 // chat.messages ({ role, content, pending, success, tool? }), chat.status, chat.sendMessage(text), chat.stop()
 \`\`\`
 
-\`windmill-chat/ai-sdk\` gives a \`ChatTransport\` for the Vercel AI SDK's \`useChat\`, \`windmill-chat/assistant-ui\` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs \`jobs:run\` in its frontend SDK scopes, plus \`flow_conversations:write\` for the conversation sidebar; without them the chat keeps history in the browser.
+\`@windmill-labs/chat-sdk/ai-sdk\` gives a \`ChatTransport\` for the Vercel AI SDK's \`useChat\`, \`@windmill-labs/chat-sdk/assistant-ui\` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs \`jobs:run\` in its frontend SDK scopes, plus \`flow_conversations:write\` for the conversation sidebar; without them the chat keeps history in the browser.
 
 ## Backend runnables
 
@@ -1116,6 +1116,10 @@ A draft app is reachable by nobody; deploying is what exposes it, and its backen
 Either one lets those people run the app's backend runnables, so never open an app up unless the user asks.
 When a deploy widens who may open the app, tell the user in plain words.
 
+## Sandbox isolation and frontend API access
+
+By default a deployed app's frontend runs with the viewer's own Windmill session. A sandboxed app is isolated from it: the frontend reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. The scopes are \`jobs:run\`, \`jobs:read\`, \`users:read\`, \`resources:read\`, \`variables:read\`, \`flow_conversations:read\` and \`flow_conversations:write\`; grant only the ones the frontend calls.
+
 ## Data Tables
 
 Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the \`wmill\` client; the frontend never queries them directly. **When the app needs to store or persist data** (user data, settings, application state, records, logs), use a data table.
@@ -1127,6 +1131,7 @@ Data tables are PostgreSQL databases managed by Windmill. Backend runnables quer
 3. **No DDL inside runnables**: runnables only read and write rows (SELECT, INSERT, UPDATE, DELETE) on existing tables. Never CREATE, ALTER or DROP a table from a runnable.
 4. **Qualify table names**: an unqualified name means the \`public\` schema, so write every other table as \`schema.table\`, in table creation and queries alike. The app's \`data\` config sets the default datatable and schema its tables go in; use them consistently across runnables.
 5. **Pass the role**: when the app's \`data.roles\` gives a data table a role, every \`wmill.datatable\` call on it passes that role (\`wmill.datatable('main', { role: 'analyst' })\` in TypeScript, \`wmill.datatable('main', role='analyst')\` in Python). The role only reaches what it was granted, so a query outside it fails with \`permission denied\`.
+6. **Per-viewer rows**: a data table with no entry in \`data.roles\` is called with no role. Unless its default role is \`admin\`, the connection then holds the default role, if it has one, plus every role the person using the app is a tenant of, and is refused when that is none. Row-level security policies written as \`pg_has_role(current_user, '<role>', 'member')\` return that viewer's rows with nothing added to the runnable. A role pins the connection to that one role for every viewer, so where rows should differ per viewer give the data table no \`data.roles\` entry.
 
 ### Querying in TypeScript (Bun/Deno)
 
@@ -1178,7 +1183,7 @@ def main(user_id: str):
 7. **Mark sensitive UI with \`data-wm-no-record\`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
 8. **Reach for \`backendAsync\` + \`waitJob\`** for long work — never a hand-written job-polling runnable.
 9. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
-10. **Use \`windmill-chat\` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
+10. **Use \`@windmill-labs/chat-sdk\` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
 `;
 
 export const PIPELINE_BASE = `# Data pipeline authoring
@@ -1333,6 +1338,47 @@ FROM ducklake.main.orders GROUP BY 1
 \`\`\`
 `;
 
+export const DATATABLE_BASE = `# Data tables: schema changes, migrations and permissions
+
+A data table is a PostgreSQL database managed by Windmill and shared by the whole workspace: scripts, flows and apps reach it by name, \`main\` being the default. It is configured in the workspace settings (Data Tables), never created by SQL.
+
+## Changing the schema
+
+A data table with migrations enabled keeps its schema as an ordered list of versioned SQL migrations, each an \`up\` and an optional \`down\`. That list is what git sync and a workspace merge carry, and what rebuilds the schema in another workspace. So first find out whether migrations are enabled on the data table:
+
+- **Enabled**: make every schema change (CREATE, ALTER, DROP, anything but row data) as a new migration. A change made with plain SQL exists in that one database only, and the history no longer describes it.
+- **Not enabled**: schema changes are plain SQL. Enabling migrations is a workspace admin's decision, made in the Data Tables settings, not a step to take on the way to something else.
+
+Writing a migration:
+
+- Wrap the statements in \`BEGIN; ... END;\` so it applies atomically. Leave the frame out only for a statement that cannot run in a transaction, such as \`CREATE INDEX CONCURRENTLY\`: such a migration can fail half applied.
+- Give it a \`down\` that undoes the \`up\` whenever the change is reversible. Without one it cannot be rolled back.
+- Migrations apply oldest first. One that is applied is not edited: correct it with a new migration.
+- Row data is not schema. Insert, update and delete rows with plain SQL, migrations or not.
+
+## A migration is not a draft
+
+A migration is saved to the workspace and changes the database as soon as it is applied, for everything that reads those tables. To try a schema out without touching tables already in use:
+
+- put the new tables in a schema of their own, created by the same migration (\`CREATE SCHEMA IF NOT EXISTS\`), and point what you are building at it. A raw app names its schema in its \`data\` config, which is why a new app gets a new schema by default;
+- or work in a workspace fork whose data table was cloned when the fork was created ("Clone schema only" or "Clone schema and data"): migrations applied there change that copy alone, and reach the parent workspace when the fork is merged. A fork that kept the original data table points at the parent's database, so a migration applied in it changes the parent's tables at once.
+
+Altering or dropping a table other scripts or apps use is neither of those: say what depends on it before doing it.
+
+## Roles and permissions
+
+Data table roles are a self-hosted Enterprise Edition feature, for data tables on managed Postgres (the instance database or the external managed instance). Without them, and always on a data table backed by a Postgres resource, everyone who can use the data table reaches all of it: there is no per-user, per-schema or per-row access to promise.
+
+A data table under roles is reached as a Postgres role, and Postgres enforces what that role was granted:
+
+- roles are assigned, per data table, to users, groups or folders. \`admin\` is the connection the data table had before roles: it owns the existing objects and ignores grants;
+- a connection either names a role (\`wmill.datatable('main', { role: 'analyst' })\`, \`role='analyst'\` in Python, \`datatable://main?role=analyst\`) and holds that role alone, or names none and is resolved from the data table's default role;
+- \`permission denied\` means the role in use lacks a grant. Say which role and which object: the grant is a data table admin's to give, in the roles drawer of the Database Manager. Do not switch to \`admin\` to get past it;
+- a migration runs as the role its SQL declares on its first line, \`-- role <name>\`, the same one in its \`down\`. One that declares none runs as \`admin\`, which only those who may use \`admin\` can do.
+
+Read the Permissions section of https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables before designing who reaches what: it covers tenants, grants, the default role and the roles a connection that names none ends up holding, rows that differ per viewer through row-level security, and how forks and raw apps behave under roles.
+`;
+
 export const WORKFLOW_AS_CODE_BASE = `# Windmill Workflow-as-Code Writing Guide
 
 ## Scope
@@ -1426,6 +1472,8 @@ async def enrich(customer_id: str):
 \`\`\`
 
 In TypeScript, prefer assigning each task to a named top-level const. In Python, prefer top-level async functions decorated with \`@task()\` or \`@task\`.
+
+Only the workflow body dispatches steps. A task runs as a single job, so a task or \`step()\` called from inside a task body runs in place in that job, as a plain function call: no child job, no checkpoint, and its task options (retry, timeout, tag) do not apply. \`sleep()\` there waits in the job, and \`taskScript()\` / \`taskFlow()\` / \`waitForApproval()\` (\`task_script()\` / \`task_flow()\` / \`wait_for_approval()\`) throw. To get separate jobs, call the tasks one after another from the workflow body and pass results between them.
 
 For existing scripts:
 
@@ -2029,6 +2077,9 @@ async sleep(seconds: number): Promise<void>
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
  * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, \`fn\` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -2871,7 +2922,9 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 # - **v2 (inside @workflow)**: dispatches as a checkpoint step.
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-# - **Standalone**: executes the function body directly.
+# - **Standalone, or called from inside another v2 task**: executes the
+#   function body directly. A task runs as a single job, so the tasks it
+#   calls run in that same job, without their own options.
 # 
 # A task runs as its own job, so its result is always encoded as JSON and
 # decoded back before the caller sees it: a \`\`datetime\`\` comes back as a
@@ -2957,12 +3010,15 @@ def workflow(func)
 # \`\`fn\`\`'s result is encoded as JSON and decoded back before it is returned,
 # so the round that runs the body sees the same types every replay sees:
 # a \`\`datetime\`\` comes back as a string, a tuple as a list.
+# 
+# Called from inside a task body, \`\`fn\`\` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 # 
 # Inside a @workflow, the parent job suspends and auto-resumes after \`\`seconds\`\`.
-# Outside a workflow, falls back to \`\`asyncio.sleep\`\`.
+# Outside a workflow, or inside a task body, falls back to \`\`asyncio.sleep\`\`.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
@@ -3084,8 +3140,9 @@ export async function getResumeUrls(approver?: string, flowLevel?: boolean): Pro
  * const call_api = task(fetchOrders, { retry: { attempts: 3, delay: 30, multiplier: 2 } });
  *
  * Inside a \`workflow()\`, calling a task dispatches it as a step.
- * Outside a workflow, the function body executes directly and
- * {@link TaskOptions} — retry included — does not apply.
+ * Outside a workflow, or called from inside another task, the function body
+ * executes directly and {@link TaskOptions} — retry included — does not apply:
+ * a task runs as a single job, so the tasks it calls run in that same job.
  *
  * A task runs as its own job, so its result is always encoded as JSON and
  * decoded back before the caller sees it: a \`Date\` comes back as a string, a
@@ -3129,6 +3186,9 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>)
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
  * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ *
+ * Called from inside a task body, \`fn\` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 export async function step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -3227,7 +3287,9 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 #
 # - **v2 (inside @workflow)**: dispatches as a checkpoint step.
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-# - **Standalone**: executes the function body directly.
+# - **Standalone, or called from inside another v2 task**: executes the
+#   function body directly. A task runs as a single job, so the tasks it
+#   calls run in that same job, without their own options.
 #
 # A task runs as its own job, so its result is always encoded as JSON and
 # decoded back before the caller sees it: a \`\`datetime\`\` comes back as a
@@ -3313,12 +3375,15 @@ def workflow(func)
 # \`\`fn\`\`'s result is encoded as JSON and decoded back before it is returned,
 # so the round that runs the body sees the same types every replay sees:
 # a \`\`datetime\`\` comes back as a string, a tuple as a list.
+#
+# Called from inside a task body, \`\`fn\`\` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 #
 # Inside a @workflow, the parent job suspends and auto-resumes after \`\`seconds\`\`.
-# Outside a workflow, falls back to \`\`asyncio.sleep\`\`.
+# Outside a workflow, or inside a task body, falls back to \`\`asyncio.sleep\`\`.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
@@ -3577,7 +3642,7 @@ app related commands
 - \`app dev [app_folder:string]\` - Start a development server for building apps with live reload and hot module replacement
   - \`--port <port:number>\` - Port to run the dev server on (will find next available port if occupied)
   - \`--host <host:string>\` - Host to bind the dev server to
-  - \`--entry <entry:string>\` - Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)
+  - \`--entry <entry:string>\` - Entry point file (default: index.ts for Svelte, index.tsx otherwise)
   - \`--no-open\` - Don't automatically open the browser
   - \`--recording\` - Frame the app in a shell with a Record button, to capture a replayable session recording of the app under development
 - \`app lint [app_folder:string]\` - Lint a raw app folder to validate structure and buildability
@@ -3588,7 +3653,7 @@ app related commands
 - \`app new\` - create a new raw app from a template
   - \`--summary <summary:string>\` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
   - \`--path <path:string>\` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
-  - \`--framework <framework:string>\` - Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--framework <framework:string>\` - Framework template: react19 | react18 | svelte5. Skips the prompt when provided. Triggers non-interactive mode.
   - \`--datatable <datatable:string>\` - Datatable to wire up. Without this flag in non-interactive mode, no datatable is configured.
   - \`--schema <schema:string>\` - Schema to use with --datatable. If it doesn't exist yet, a sql_to_apply/ migration (CREATE SCHEMA IF NOT EXISTS) is written for it.
   - \`--overwrite\` - Overwrite the target directory if it already exists, without prompting.
@@ -5794,6 +5859,27 @@ Name the parameters by adding comments before the statement:
 -- ? name1 (text)
 -- ? name2 (number) = 0
 SELECT * FROM users WHERE name = ? AND age > ?;
+\`\`\`
+
+## Array parameters
+
+Declare a list with a \`[]\` suffix on the element type (\`(varchar[])\`,
+\`(int[])\`), or \`(array)\` for an untyped one. Snowflake cannot bind an array
+directly, so Windmill binds the list as JSON text: wrap the placeholder with
+\`PARSE_JSON(?)\`, and cast to \`ARRAY\` where a function expects one.
+
+\`\`\`sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+WHERE ARRAY_CONTAINS(o.owner_group::VARIANT, PARSE_JSON(?)::ARRAY);
+\`\`\`
+
+Or join on the elements with \`FLATTEN\`:
+
+\`\`\`sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+JOIN TABLE(FLATTEN(input => PARSE_JSON(?))) g ON g.value::STRING = o.owner_group;
 \`\`\`
 
 ## Receiving an S3Object as a script parameter

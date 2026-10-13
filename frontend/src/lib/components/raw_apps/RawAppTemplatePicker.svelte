@@ -14,7 +14,6 @@
 	import MissingWorkerTagAlert from '$lib/components/jobs/MissingWorkerTagAlert.svelte'
 	import { hasWorkerForTag, queuedWithoutWorkerMessage } from '$lib/components/jobs/missingWorker'
 	import { superadmin, userStore } from '$lib/stores'
-	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -634,7 +633,7 @@
 					{#if $userStore?.is_admin}
 						Configure AI in
 						<a
-							href="{base}/workspace_settings?tab=ai"
+							href="/workspace_settings?tab=ai"
 							target="_blank"
 							class="inline-flex items-center gap-1 font-semibold"
 							>workspace settings <ExternalLinkIcon size={16} />
@@ -642,7 +641,7 @@
 						{#if $superadmin}
 							or
 							<a
-								href="{base}/?workspace=admins#superadmin-settings"
+								href="/?workspace=admins#superadmin-settings"
 								target="_blank"
 								class="inline-flex items-center gap-1 font-semibold"
 								>instance settings <ExternalLinkIcon size={16} />
@@ -651,7 +650,7 @@
 					{:else if $superadmin}
 						Configure AI in
 						<a
-							href="{base}/?workspace=admins#superadmin-settings"
+							href="/?workspace=admins#superadmin-settings"
 							target="_blank"
 							class="inline-flex items-center gap-1 font-semibold"
 							>instance settings <ExternalLinkIcon size={16} />

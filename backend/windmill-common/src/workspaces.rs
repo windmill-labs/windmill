@@ -184,7 +184,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28994/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/29151/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -192,7 +192,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28994/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28993/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/29150/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -1564,7 +1564,8 @@ pub struct DataTableReference {
 /// The access decision for one data table: which role a caller gets, and who may ask for each.
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct DataTablePermissions {
-    /// A role id from the instance catalog, or `admin`. Absent = `admin`.
+    /// A role id from the instance catalog, `admin`, or
+    /// [`crate::datatable_roles::NO_DEFAULT_DATATABLE_ROLE`]. Absent = `admin`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_role: Option<String>,
     /// Keyed by instance role id, plus the reserved `admin` key. A role absent from this map
@@ -2161,9 +2162,13 @@ pub enum DatatableAccess<'a> {
     PermissionedAs {
         permissioned_as: &'a str,
         email: &'a str,
+        /// The job's viewer: MUST be what the server recorded in `job_perms.end_user_email`,
+        /// never an argument or anything else the job or its caller can set.
+        end_user_email: Option<&'a str>,
     },
-    /// A job identified by id; its owner is read from `v2_job`. For agent workers and anything
-    /// else that authenticates as infrastructure rather than as the job's user.
+    /// A job identified by id; its owner is read from `v2_job` and its viewer from `job_perms`.
+    /// For agent workers and anything else that authenticates as infrastructure rather than as
+    /// the job's user.
     Job(uuid::Uuid),
     /// No identity established. Unpermissioned data tables resolve as before; permissioned ones
     /// are refused, so a caller predating this feature fails closed.
@@ -2211,6 +2216,13 @@ pub async fn can_use_datatable_role_in_governing_workspace(
 ///
 /// The resolved role **logs in as itself**. Never `SET ROLE`: a script could `RESET ROLE` its way
 /// back to admin.
+///
+/// A default role other than `admin` is a floor rather than the whole connection: a resolution
+/// naming no role holds it when the job's own identity may use it, plus the roles whose tenant
+/// lists name the job's viewer, as one login that is a member of each. With no role at all it is
+/// refused. Being an admin adds none of the viewer's and `admin` is never among them, so a viewer
+/// cannot be handed the connection that owns the tables and bypasses row-level security. A named
+/// role is that role alone.
 pub async fn get_datatable_resource_from_db(
     db: &DB,
     w_id: &str,

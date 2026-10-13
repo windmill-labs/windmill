@@ -7,7 +7,6 @@
  */
 
 import { DEFAULT_SSLMODE } from '$lib/utils/postgresConnectionString'
-import { base } from '$lib/base'
 import { oauthStore } from '$lib/stores'
 import { get } from 'svelte/store'
 
@@ -90,19 +89,19 @@ export function supabaseErrorMessage(body: string): string {
 }
 
 export async function listSupabaseOrgs(token: string): Promise<SupabaseOrg[]> {
-	const res = await fetch(`${base}/api/oauth/list_supabase_orgs`, { headers: headers(token) })
+	const res = await fetch('/api/oauth/list_supabase_orgs', { headers: headers(token) })
 	return unwrap(res, 'Could not list your Supabase organizations')
 }
 
 export async function listSupabaseProjects(token: string): Promise<SupabaseProject[]> {
-	const res = await fetch(`${base}/api/oauth/list_supabase`, { headers: headers(token) })
+	const res = await fetch('/api/oauth/list_supabase', { headers: headers(token) })
 	return unwrap(res, 'Could not list your Supabase projects')
 }
 
 /** Plan of one organization, which the list endpoint does not carry. */
 export async function getSupabaseOrgPlan(token: string, slug: string): Promise<string | undefined> {
 	try {
-		const res = await fetch(`${base}/api/oauth/get_supabase_org/${slug}`, {
+		const res = await fetch(`/api/oauth/get_supabase_org/${slug}`, {
 			headers: headers(token)
 		})
 		if (!res.ok) return undefined
@@ -132,7 +131,7 @@ export async function createSupabaseProject(
 	token: string,
 	args: { name: string; organizationSlug: string; region: string; dbPass: string }
 ): Promise<SupabaseProject> {
-	const res = await fetch(`${base}/api/oauth/create_supabase_project`, {
+	const res = await fetch('/api/oauth/create_supabase_project', {
 		method: 'POST',
 		headers: headers(token),
 		body: JSON.stringify({
@@ -185,7 +184,7 @@ export async function waitUntilSupabaseHealthy(
  * that landed on another one, and the resulting resource never connects.
  */
 export async function getSupabasePooler(token: string, projectId: string): Promise<SupabasePooler> {
-	const res = await fetch(`${base}/api/oauth/get_supabase_pooler/${projectId}`, {
+	const res = await fetch(`/api/oauth/get_supabase_pooler/${projectId}`, {
 		headers: headers(token)
 	})
 	const configs: SupabasePooler[] = await unwrap(res, 'Could not read the connection details')

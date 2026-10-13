@@ -21,6 +21,7 @@
 		genWmillTs,
 		normalizeRawAppRuntimeLogs,
 		createRawAppBuildTracker,
+		RAW_APP_BUILD_WAIT_MS,
 		type Runnable,
 		type RawAppRuntimeLogEntry,
 		type RawAppRuntimeLogRequester,
@@ -87,8 +88,11 @@
 	import { randomSecret, randomUUID } from '$lib/utils/uuid'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { conformBuilderAppPolicy } from './builderAppPolicy'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderApps = useOperatorBuilderApps()
 
 	interface Props {
 		files?: Record<string, string>
@@ -412,6 +416,11 @@
 			if (url) URL.revokeObjectURL(url)
 		}
 	})
+	// The deploy panel cannot switch Viewer mode off, nor drop the identity an app another user
+	// deployed carries, so the editor conforms the policy as soon as it opens.
+	$effect(() => {
+		if ($operatorBuilderApps && policy) conformBuilderAppPolicy(policy, $userStore)
+	})
 	// An app with sandbox isolation previews the way it runs once deployed: in the
 	// served, opaque-origin shell, framed with the deployed wrapper's flags. The nonce
 	// in its URL authenticates its `windmill:ready`, as in `RawAppPreview`.
@@ -488,6 +497,17 @@ addEventListener('message', function (e) {
 	// Latest UI Builder error; cleared on next successful build.
 	let buildError = $state<string | undefined>(undefined)
 	const buildTracker = createRawAppBuildTracker()
+	// The preview shell can be ready before the UI Builder has the files, so a fresh
+	// editor counts as building: reads made then would see an empty page.
+	buildTracker.start()
+	const BUILD_PENDING_TEXT = `The app is still building (or its build never started, e.g. no index entrypoint file): no build result arrived within ${RAW_APP_BUILD_WAIT_MS / 1000} seconds, so the preview shows an older build or nothing yet. Call get_app_runtime_logs to check the build, then retry.`
+	// A failed build never reaches the preview, which keeps the last good one, if any.
+	const buildFailedText = (error: string) =>
+		`The latest build failed, so the preview does not include the latest edits (it shows the last build that succeeded, or nothing if none has). Fix the build first. Build error:\n${error}`
+	const SDK_CONSENT_PENDING_TEXT =
+		'The preview is waiting for the user to approve the permissions the app declares in policy.frontend_sdk_scopes, so the app code is not running and the page is empty. This is not a bug in the app: do not change the code. Ask the user to approve the permissions in the preview, then retry.'
+	const SDK_STARTING_TEXT =
+		'The preview is still loading the permissions the app declares in policy.frontend_sdk_scopes, so the app code has not started yet. Retry in a moment.'
 	const PREVIEW_SETTLE_MS = 1000
 	let editorDestroyed = false
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
@@ -496,7 +516,7 @@ addEventListener('message', function (e) {
 	// entrypoint defines a component without ever mounting it. Cleared on next build.
 	let emptyRender = $state(false)
 	// The repair hint above has to match the app's framework: only React apps have
-	// an `index.tsx` and `createRoot`; Svelte and Vue mount from `index.ts`. Keyed
+	// an `index.tsx` and `createRoot`; Svelte mounts from `index.ts`. Keyed
 	// off file extensions rather than exact template filenames, which users rename.
 	let mountHint = $derived.by(() => {
 		const paths = Object.keys(files ?? {}).map((p) => p.replace(/^\//, ''))
@@ -506,9 +526,6 @@ addEventListener('message', function (e) {
 				entrypoint: entrypoint ?? 'index.ts',
 				call: "mount(App, { target: document.getElementById('root')! })"
 			}
-		}
-		if (paths.some((p) => p.endsWith('.vue'))) {
-			return { entrypoint: entrypoint ?? 'index.ts', call: "createApp(App).mount('#root')" }
 		}
 		return {
 			entrypoint: entrypoint ?? 'index.tsx',
@@ -1979,6 +1996,18 @@ addEventListener('message', function (e) {
 	// Live DOM inspection for the session chat. The element is re-read on every call,
 	// so the model always sees the current render.
 	const requestDomQuery: RawAppDomRequester = async (query: RawAppDomQuery) => {
+		await buildTracker.wait()
+		if (editorDestroyed) return undefined
+		if (buildTracker.pending) return { text: BUILD_PENDING_TEXT }
+		if (sdkPrompt) return { text: SDK_CONSENT_PENDING_TEXT }
+		if (previewSdkPending) return { text: SDK_STARTING_TEXT }
+		const res = await readPreviewDom(query)
+		return res && buildError !== undefined
+			? { text: `${buildFailedText(buildError)}\n\n${res.text}` }
+			: res
+	}
+
+	const readPreviewDom: RawAppDomRequester = async (query: RawAppDomQuery) => {
 		const selector = query.selector?.trim()
 		const res = await requestFromPreview('domRead', { selector })
 		if (!res) return undefined
@@ -2145,6 +2174,12 @@ addEventListener('message', function (e) {
 	// reconstructs the DOM into an SVG foreignObject, and a WebGL canvas is only
 	// captured when its context was created with preserveDrawingBuffer.
 	const captureScreenshot: RawAppScreenshotRequester = async () => {
+		await buildTracker.wait()
+		if (editorDestroyed) throw new Error('The app preview was closed')
+		if (buildTracker.pending) throw new Error(BUILD_PENDING_TEXT)
+		if (sdkPrompt) throw new Error(SDK_CONSENT_PENDING_TEXT)
+		if (previewSdkPending) throw new Error(SDK_STARTING_TEXT)
+		if (buildError !== undefined) throw new Error(buildFailedText(buildError))
 		const body = await requestFromPreview('elementRect', { selector: 'body' })
 		if (!body?.rect) throw new Error('App preview is not ready')
 		const { width, height } = body.rect

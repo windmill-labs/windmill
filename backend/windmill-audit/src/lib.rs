@@ -4,6 +4,7 @@ use sqlx::FromRow;
 #[cfg(feature = "private")]
 pub mod audit_ee;
 pub mod audit_oss;
+pub mod instance_config;
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
 #[sqlx(type_name = "ACTION_KIND", rename_all = "lowercase")]

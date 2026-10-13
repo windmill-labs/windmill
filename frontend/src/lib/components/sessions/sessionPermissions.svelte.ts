@@ -23,8 +23,8 @@ export function useSessionPermissions(workspace: () => string | undefined) {
 		/** Whether this user can save the drafts the `kind` editor writes. */
 		canOpenEditor: (kind: string) => rights.roleCanDraft(kind),
 		/** The same, and this item's own permissions let them write it. */
-		canEditItem: (item: Pick<WorkspaceItem, 'kind' | 'path' | 'extraPerms'>) =>
-			rights.canDraftItem(item.kind, item.path, item.extraPerms),
+		canEditItem: (item: Pick<WorkspaceItem, 'kind' | 'raw_app' | 'path' | 'extraPerms'>) =>
+			rights.canDraftItem(item.raw_app ? 'raw_app' : item.kind, item.path, item.extraPerms),
 		/** Whether the page loads for this user rather than refusing them. */
 		pageAllowed: (page: PreviewPage) => previewPageAllowed(page, user.current, entry)
 	}

@@ -21,7 +21,6 @@
 		Settings,
 		Trash2
 	} from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import AddScorer from './AddScorer.svelte'
 	import { kindLabel, parseThreshold, scorerLabel, type ScorerKind } from './evalUtils'
 
@@ -304,8 +303,8 @@
 					<a
 						class="flex items-center gap-1.5 text-xs min-w-0 hover:underline w-fit"
 						href={settingsScorer.kind === 'agent'
-							? `${base}/resources?path=${settingsScorer.path}&workspace=${workspace}`
-							: `${base}/scripts/get/${settingsScorer.path}?workspace=${workspace}`}
+							? `/resources?path=${settingsScorer.path}&workspace=${workspace}`
+							: `/scripts/get/${settingsScorer.path}?workspace=${workspace}`}
 						target="_blank"
 						rel="noreferrer"
 						title={`Open ${settingsScorer.path}`}

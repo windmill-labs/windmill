@@ -1,5 +1,4 @@
 import { fromStore } from 'svelte/store'
-import { base } from '$lib/base'
 import { instanceUi } from '$lib/instanceUi'
 
 const ui = fromStore(instanceUi)
@@ -18,5 +17,5 @@ const ui = fromStore(instanceUi)
 export function apiBaseUrl(): string {
 	const setting = ui.current?.api_base_url
 	const configured = typeof setting === 'string' ? setting.trim() : ''
-	return configured || `${window.location.origin}${base}`
+	return configured || window.location.origin
 }

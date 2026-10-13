@@ -6,7 +6,7 @@
  * The build itself is `wmill app bundle`, the same one `wmill app push` runs, so
  * an app deployed through the API is compiled exactly as the CLI and the editor
  * compile it — entry point, virtual `wmill` module, `/ui/` shared-UI resolution
- * and the Svelte/Vue plugins included. Reimplementing any of that here would be
+ * and the Svelte plugin included. Reimplementing any of that here would be
  * a third bundler to keep in step with the other two.
  */
 declare const __wmillAppPolicy: {

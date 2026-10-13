@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -108,8 +107,8 @@
 
 <Row
 	href={app.draft_only
-		? `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
-		: `${base}/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
+		? `/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
+		: `/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
 	kind="app"
 	{keyboardSelected}
 	{marked}
@@ -169,7 +168,7 @@
 						variant="subtle"
 						wrapperClasses="w-20"
 						startIcon={{ icon: Pen }}
-						href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
+						href="/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
 					>
 						Edit
 					</Button>
@@ -240,7 +239,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
+						href: `/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
 						disabled: !showEditButton,
 						hide: $userStore?.operator
 					},

@@ -1,21 +1,21 @@
-# windmill-chat
+# @windmill-labs/chat-sdk
 
 Build a chat interface on a Windmill flow deployed in **chat mode**, from any frontend
 or from a Windmill raw app. The library is headless: it runs the flow, follows the
 answer as it streams, keeps the conversation history, and hands you state to render.
 
 ```
-npm install windmill-chat
+npm install @windmill-labs/chat-sdk
 ```
 
-No runtime dependencies. Optional peers: `react` for `windmill-chat/react`, `ai` for
-`windmill-chat/ai-sdk`, `@assistant-ui/react` for `windmill-chat/assistant-ui`.
+No runtime dependencies. Optional peers: `react` for `@windmill-labs/chat-sdk/react`, `ai` for
+`@windmill-labs/chat-sdk/ai-sdk`, `@assistant-ui/react` for `@windmill-labs/chat-sdk/assistant-ui`.
 
 | You build the UI with | Import | You get |
 |---|---|---|
-| Vercel AI SDK `useChat`, AI Elements | `windmill-chat/ai-sdk` | a `ChatTransport`: `useChat({ transport })`, nothing else changes |
-| assistant-ui | `windmill-chat/assistant-ui` | a runtime for `AssistantRuntimeProvider`, threads included |
-| Your own components | `windmill-chat/react` or `windmill-chat` | a hook / a store with messages, status and actions |
+| Vercel AI SDK `useChat`, AI Elements | `@windmill-labs/chat-sdk/ai-sdk` | a `ChatTransport`: `useChat({ transport })`, nothing else changes |
+| assistant-ui | `@windmill-labs/chat-sdk/assistant-ui` | a runtime for `AssistantRuntimeProvider`, threads included |
+| Your own components | `@windmill-labs/chat-sdk/react` or `@windmill-labs/chat-sdk` | a hook / a store with messages, status and actions |
 
 ## The flow
 
@@ -31,7 +31,7 @@ so an AI agent step remembers earlier turns. The answer is:
 
 ```tsx
 import { useChat } from '@ai-sdk/react'
-import { createWindmillChatTransport } from 'windmill-chat/ai-sdk'
+import { createWindmillChatTransport } from '@windmill-labs/chat-sdk/ai-sdk'
 
 const transport = createWindmillChatTransport({
   baseUrl: 'https://app.windmill.dev',
@@ -65,7 +65,7 @@ explanatory error.
 
 ```tsx
 import { AssistantRuntimeProvider } from '@assistant-ui/react'
-import { useWindmillRuntime } from 'windmill-chat/assistant-ui'
+import { useWindmillRuntime } from '@windmill-labs/chat-sdk/assistant-ui'
 
 export function Support() {
   const runtime = useWindmillRuntime({ baseUrl, workspace, flowPath, token })
@@ -84,7 +84,7 @@ through `Reasoning`. It takes the same options as `useWindmillChat` below.
 ## React
 
 ```tsx
-import { useWindmillChat } from 'windmill-chat/react'
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
 
 export function Support() {
   const chat = useWindmillChat({
@@ -155,7 +155,7 @@ change, and returns the unsubscribe function. That is the Svelte store contract,
 `$chat` works as is; other frameworks wrap it in a few lines.
 
 ```ts
-import { createChat } from 'windmill-chat'
+import { createChat } from '@windmill-labs/chat-sdk'
 
 const chat = createChat({ baseUrl, workspace, flowPath, token })
 chat.subscribe((state) => render(state))
@@ -164,7 +164,7 @@ await chat.sendMessage('Hello')
 
 ```svelte
 <script>
-  import { createChat } from 'windmill-chat'
+  import { createChat } from '@windmill-labs/chat-sdk'
   const chat = createChat({ flowPath: 'f/support/assistant' })
 </script>
 
@@ -331,8 +331,8 @@ custom integrations.
 ## For AI coding agents
 
 When asked to add a chat over a Windmill flow: the flow must be deployed with chat mode
-on. Pick the entry point from the table at the top (`useChat` → `windmill-chat/ai-sdk`,
-assistant-ui → `windmill-chat/assistant-ui`, otherwise `windmill-chat/react`). Inside a
+on. Pick the entry point from the table at the top (`useChat` → `@windmill-labs/chat-sdk/ai-sdk`,
+assistant-ui → `@windmill-labs/chat-sdk/assistant-ui`, otherwise `@windmill-labs/chat-sdk/react`). Inside a
 Windmill raw app pass only `flowPath`. Elsewhere pass `baseUrl`, `workspace` and a
 `token`; for a public page use a token scoped to `jobs:run:flows:<flowPath>` and leave
 `history` at its default. Render `role`, `content`, `pending`, `success` and
