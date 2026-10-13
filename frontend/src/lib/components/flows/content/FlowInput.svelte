@@ -820,6 +820,7 @@
 								workspace={opWs}
 								editTab={chatInputsEditTab ? 'inputEditor' : undefined}
 								showDynOpt
+								deployedFlowPath={$initialPathStore}
 								bind:dynCode
 								bind:dynLang
 								on:delete={(e) => {
@@ -878,6 +879,7 @@
 							addPropertyV2?.handleDeleteArgument([e.detail])
 						}}
 						showDynOpt
+						deployedFlowPath={$initialPathStore}
 						displayWebhookWarning
 						editTab={$flowInputEditorState?.selectedTab}
 						{previewSchema}

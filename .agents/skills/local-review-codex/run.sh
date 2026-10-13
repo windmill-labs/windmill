@@ -1,17 +1,14 @@
 #!/usr/bin/env bash
 # Local Codex review — mirrors the .github/workflows/codex-pr-review.yml CI job,
 # but scoped to this branch's unpushed work (committed + uncommitted) so you can
-# review before pushing. Same policy (REVIEW.md) and reasoning effort (xhigh) as CI.
-#
-# The model deliberately differs from CI: gpt-6-astra is confirmed available on the
-# ChatGPT auth `codex login` uses here, but CI authenticates with OPENAI_API_KEY and
-# that tier is unverified for it, so codex-pr-review.yml stays on gpt-5.6-sol.
+# review before pushing. Same policy (REVIEW.md), model and reasoning effort (xhigh)
+# as CI.
 #
 # Usage: run.sh [BASE_REF]   (BASE_REF defaults to "main")
 set -euo pipefail
 
-MODEL="gpt-6-astra"
-CODEX_MIN="0.153.4"
+MODEL="gpt-6.1-sol"
+CODEX_MIN="0.159.3"
 
 BASE_REF="${1:-main}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"

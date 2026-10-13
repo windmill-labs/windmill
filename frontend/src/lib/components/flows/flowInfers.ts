@@ -10,8 +10,9 @@ import { AGENT_HISTORY_KEYS } from './agentFormFields'
  *  picked cannot drift from the button they see. */
 export const MEMORY_OPTION_LABELS: Record<string, string> = {
 	off: 'Off',
-	window: 'On',
-	auto: 'On (legacy)',
+	compaction: 'On',
+	window: 'Legacy',
+	auto: 'Legacy (older)',
 	manual: 'Previous messages (legacy)'
 }
 
@@ -59,7 +60,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		memory: {
 			type: 'object',
 			description:
-				'Windmill stores the conversation and sends its last messages with each request.',
+				'Windmill stores the conversation and sends it with each request. On keeps all of it, summarizing the older part as it nears the context window. Legacy keeps only the last messages.',
 			enumLabels: MEMORY_OPTION_LABELS,
 			// Chat mode keys memory on the conversation, so a chat whose agent has memory off
 			// forgets every turn. Enabling chat mode turns it on; this keeps it there. A step
@@ -67,6 +68,13 @@ export const AI_AGENT_SCHEMA: Schema = {
 			// an agent added to an already-chat-enabled flow — would have no way out of it.
 			lockOneOfWhenChatEnabled:
 				"Chat mode keys this agent's history on the conversation, so memory stays on while it is enabled.",
+			oneOfHints: {
+				off: 'Nothing is stored between runs.',
+				compaction:
+					'Keeps the whole conversation, summarizing older messages as it nears the context window.',
+				window: 'Keeps only the most recent messages and drops older ones. Prefer On.',
+				auto: 'Keeps only the most recent messages and drops older ones. Prefer On.'
+			},
 			oneOf: [
 				{
 					type: 'object',
@@ -77,17 +85,17 @@ export const AI_AGENT_SCHEMA: Schema = {
 				},
 				{
 					type: 'object',
-					title: 'window',
+					title: 'compaction',
 					properties: {
-						kind: { type: 'string', enum: ['window'] },
-						context_length: {
+						kind: { type: 'string', enum: ['compaction'] },
+						context_window: {
 							type: 'number',
-							title: 'Messages to keep',
-							description: 'Number of most recent messages to load and store. 0 turns memory off.',
-							default: 10
+							title: 'Context window',
+							description:
+								"Leave empty to use the model's context window. Unknown models use 128k tokens, so set it for custom models."
 						}
 					},
-					required: ['kind', 'context_length']
+					required: ['kind']
 				}
 			],
 			showExpr: "fields.output_type !== 'image'"
@@ -204,10 +212,53 @@ export const AI_AGENT_SCHEMA: Schema = {
 	]
 }
 
-/** Memory shapes older editors wrote. The step form offers one only to a step that still holds it,
+/** The inputs of an AI decision step: one call to a decision model (TypeSafe's Jev, Cloudflare's
+ *  Clef, or OpenAI's Decisions API). */
+export const AI_DECISION_SCHEMA: Schema = {
+	$schema: 'https://json-schema.org/draft/2020-12/schema',
+	properties: {
+		provider: {
+			type: 'object',
+			format: 'ai-decision-provider',
+			description:
+				'The decision model to ask: TypeSafe (Jev), Cloudflare (Clef) or OpenAI (Decisions API).'
+		},
+		// Untyped, so the static editor takes any JSON: TypeSafe reads a string, an object or an
+		// array of strings.
+		state: {
+			type: undefined,
+			description:
+				'The content to evaluate: a text, or an object with named parts. Extra detail makes the answers less accurate.',
+			placeholder: 'e.g. "My order is late" or { "message": "..." }'
+		},
+		questions: {
+			type: 'object',
+			format: 'ai-decision-questions',
+			description: 'What to ask about the state'
+		}
+	},
+	required: ['provider', 'state', 'questions'],
+	type: 'object',
+	order: ['provider', 'state', 'questions']
+}
+
+/** Memory shapes the editor no longer offers for new steps. The step form offers one only to a step that still holds it,
  *  since the one-of field rewrites a value that matches none of its options. No field carries a
  *  default: the form writes one into a missing field on open, and a missing count runs as off. */
 export const LEGACY_MEMORY_VARIANTS: Record<string, any> = {
+	window: {
+		type: 'object',
+		title: 'window',
+		properties: {
+			kind: { type: 'string', enum: ['window'] },
+			context_length: {
+				type: 'number',
+				title: 'Messages to keep',
+				description: 'Number of most recent messages to load and store. 0 turns memory off.'
+			}
+		},
+		required: ['kind', 'context_length']
+	},
 	auto: {
 		type: 'object',
 		title: 'auto',
@@ -360,6 +411,15 @@ export async function loadSchemaFromModule(
 			// renders (`InputTransformForm` binds `schema.properties[argName]`), and the tool names
 			// one step offers would otherwise become every step's.
 			schema: structuredClone(AI_AGENT_SCHEMA)
+		}
+	} else if (mod.type === 'aidecision') {
+		const input_transforms = mod.input_transforms ?? {}
+		return {
+			input_transforms: Object.keys(AI_DECISION_SCHEMA.properties ?? {}).reduce((accu, key) => {
+				accu[key] = input_transforms[key] ?? { type: 'static', value: undefined }
+				return accu
+			}, {}),
+			schema: structuredClone(AI_DECISION_SCHEMA)
 		}
 	}
 

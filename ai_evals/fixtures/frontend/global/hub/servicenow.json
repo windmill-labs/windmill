@@ -1,0 +1,672 @@
+{
+	"app": "servicenow",
+	"display_name": "ServiceNow",
+	"description": "IT service management: incidents, records and attachments.",
+	"docs_url": "https://www.servicenow.com/docs/bundle/zurich-api-reference/page/integrate/inbound-rest/concept/c_RESTAPI.html",
+	"curated": true,
+	"meta": {
+		"api_docs": "https://www.servicenow.com/docs/bundle/zurich-api-reference/page/integrate/inbound-rest/concept/c_RESTAPI.html",
+		"shipped_surfaces": [
+			"table",
+			"stats",
+			"attachment",
+			"import_set",
+			"user"
+		],
+		"validation": {
+			"status": "live_validated",
+			"method": "All surfaces run live against a ServiceNow PDI (a developer instance, Zurich) on 2026-06-04 with Basic auth: Table CRUD (create / get / update PATCH+PUT / delete on incident, delete verified by 404), list_records (encoded query + fields + pagination), aggregate (Stats group-by count), get_current_user, list_tables, and the table/fields/group_by dynselect resolvers. Attachment upload (binary /file) -> list -> download -> delete round-trip with the downloaded bytes byte-for-byte matching the upload. insert_import_set + get_import_set_result against imp_user (transform status surfaced). Trigger e2e-tested via bun test with the windmill-client fake. All created records cleaned up.",
+			"sources": {
+				"table_crud": "HIGH - run live (create/get/update PATCH & PUT/delete on incident)",
+				"aggregate_stats": "HIGH - run live (/api/now/stats group-by count on incident)",
+				"attachment": "HIGH - run live (binary /file upload -> list -> download -> delete round-trip; downloaded bytes verified equal)",
+				"import_set": "HIGH - run live (POST /api/now/import/imp_user + GET result; top-level {import_set,staging_table,result} envelope, transform status surfaced)",
+				"user": "HIGH - run live (/api/now/ui/user/current_user -> admin sys_user)",
+				"trigger": "HIGH - e2e-tested live via bun test (first run sets watermark + no backlog, second run emits the new record)",
+				"dropdowns": "HIGH - run live (sys_db_object table list; sys_dictionary super_class inheritance walk confirmed - incident resolves 106 fields incl. task-inherited short_description/priority/state)"
+			},
+			"low_confidence_fields": [
+				"trigger datetime comparison assumes the integration user's timezone is UTC/GMT (validated with the PDI admin user, whose TZ is UTC); a non-UTC integration user could shift the sys_updated_on> watermark boundary by the offset"
+			]
+		},
+		"pagination": {
+			"pattern": "offset",
+			"request_params": {
+				"offset": "sysparm_offset",
+				"limit": "sysparm_limit"
+			},
+			"response_fields": {
+				"next": "Link (response header, rel=\"next\")",
+				"total": "X-Total-Count (response header)"
+			},
+			"default_limit": 10000,
+			"notes": "Table API pages with sysparm_offset + sysparm_limit. Each page response carries a Link header (RFC 5988) with rel=\"first\"/\"prev\"/\"next\"/\"last\" full URLs, plus X-Total-Count with the total match count. Add sysparm_no_count=true to skip the count on huge tables. The list_records action exposes limit+offset and returns one page; iterate offset until fewer than limit rows return."
+		},
+		"gotchas": [
+			"Base path is {instance_url}/api/now; instance_url lives on the resource. Auth is Basic (username:password) OR Bearer token \u2014 scripts send Bearer when auth.token is set, otherwise Basic. Both hit identical paths.",
+			"Table/Attachment/Stats reads/writes return a {\"result\": ...} envelope: list/stats -> result is an array, get/create/update -> result is an object. EXCEPTION: the Import Set API (POST /api/now/import/{staging}, GET .../{sys_id}) returns a TOP-LEVEL object {import_set, staging_table, result:[...]} with NO outer 'result' wrapper. Scripts return the raw JSON (envelope intact).",
+			"Datetimes are 'YYYY-MM-DD HH:MM:SS' in UTC with NO trailing 'Z'. Used directly in encoded queries, e.g. sys_updated_on>2026-01-01 00:00:00.",
+			"sysparm_query is an ENCODED query string: '^' = AND clause separator, '^OR' = OR, operators =, !=, LIKE, >=, <=, IN, STARTSWITH, ORDERBY, ORDERBYDESC. A literal '^' inside a value must be doubled to '^^'. Example: active=true^priority=1^ORDERBYDESCsys_updated_on.",
+			"System fields sys_id, sys_created_on, sys_updated_on, sys_created_by are auto-managed; do not send them on create/update.",
+			"DELETE (record and attachment) returns 204 No Content with an empty body \u2014 guard with `if (response.status === 204) return { success: true }` before response.json().",
+			"Update: PATCH partial-updates; PUT replaces the whole record (clears omitted fields). update_record sends PUT when replace=true, PATCH otherwise.",
+			"Attachment upload uses POST /api/now/attachment/file with table_name, table_sys_id, file_name in the QUERY STRING and the raw file bytes as the body (Content-Type = the file's MIME type), NOT multipart. Returns 201. Download is GET /api/now/attachment/{sys_id}/file (raw bytes).",
+			"Import Set transform runs SYNCHRONOUSLY. A result[].status of 'error' is an application-level failure even on HTTP 200/201 \u2014 inspect result[].status / error_message, don't trust the HTTP code alone.",
+			"Table-name DROPDOWN comes from GET /api/now/table/sys_db_object?sysparm_fields=name,label (use the 'name' as the value). A table's COLUMNS come from sys_dictionary \u2014 but sys_dictionary stores each field once, under the table where it is DEFINED, so name=<table> returns ONLY that table's own fields. Extended tables (incident/change_request/sc_task all extend task) inherit columns like short_description/priority/assigned_to/state that live on the parent. To get the full column set, walk sys_db_object.super_class up the hierarchy (GET sys_db_object?sysparm_query=name=<t>&sysparm_fields=super_class.name, repeat) and query GET sys_dictionary?sysparm_query=nameIN<table>,<ancestors>^elementISNOTEMPTY&sysparm_fields=element,column_label (elementISNOTEMPTY drops the collection/meta row).",
+			"Table API enforces row- and field-level ACLs: a 200 can omit fields the user can't read; inaccessible tables/ops return 403."
+		],
+		"enums": {
+			"sysparm_display_value": [
+				"true",
+				"false",
+				"all"
+			],
+			"sysparm_view": [
+				"desktop",
+				"mobile",
+				"both"
+			],
+			"import_set_result_status": [
+				"inserted",
+				"updated",
+				"ignored",
+				"error"
+			],
+			"incident_state_note": "incident.state and priority/urgency/impact are instance-configurable; defaults: state 1=New,2=In Progress,3=On Hold,6=Resolved,7=Closed,8=Canceled; priority/urgency/impact 1-5. On task/incident, priority is CALCULATED from impact+urgency (a priority value sent on create/update is recomputed/ignored) \u2014 set impact+urgency instead. Never hardcode for generic actions."
+		},
+		"errors": {
+			"401": "Authentication failed or OAuth token expired/invalid. Check username/password or refresh the bearer token.",
+			"403": "ACL denies the table or operation, or the user lacks the required role (e.g. rest_api_explorer / table ACL). Response: {\"error\":{\"message\":\"User Not Authorized\"}}.",
+			"404": "No Record found (bad sys_id) or Invalid table (bad/inaccessible table name, common Import Set staging-table error).",
+			"400": "Bad encoded query, invalid field name, or malformed request body."
+		}
+	},
+	"resource_type": {
+		"name": "servicenow",
+		"description": "ServiceNow instance credential. Set instance_url to your instance base (https://<instance>.service-now.com). Authenticate with EITHER Basic auth (username + password) OR an OAuth 2.0 bearer token \u2014 scripts send a Bearer header when token is set, otherwise Basic auth.",
+		"schema": {
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"order": [
+				"instance_url",
+				"username",
+				"password",
+				"token"
+			],
+			"properties": {
+				"instance_url": {
+					"default": "",
+					"description": "Instance base URL, e.g. https://dev12345.service-now.com (no trailing slash). Every REST call is made against this host.",
+					"placeholder": "https://dev12345.service-now.com",
+					"type": "string"
+				},
+				"password": {
+					"default": "",
+					"description": "Basic auth password. Leave blank when using an OAuth bearer token.",
+					"password": true,
+					"type": "string"
+				},
+				"token": {
+					"default": "",
+					"description": "OAuth 2.0 access token (Bearer). Populated automatically when you connect via Windmill's ServiceNow OAuth flow (admin configures the instance + client id/secret in instance settings), or paste one manually. Provide this instead of username/password to authenticate with OAuth.",
+					"password": true,
+					"type": "string"
+				},
+				"username": {
+					"default": "",
+					"description": "Basic auth username. Leave blank when using an OAuth bearer token.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"instance_url"
+			],
+			"type": "object"
+		}
+	},
+	"scripts": [
+		{
+			"version_id": 28665,
+			"app": "servicenow",
+			"summary": "Aggregate Records",
+			"description": "Count records on a table (Aggregate API), optionally filtered by an encoded query and grouped by a field.",
+			"terms": "servicenow aggregate records count records on a table (aggregate api), optionally filtered by an encoded query and grouped by a field.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nexport type DynSelect_table = string\nexport type DynSelect_group_by = string\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n// Dropdown of the instance's tables (sys_db_object).\nexport async function table(auth: RT.Servicenow) {\n  const response = await fetch(\n    `${auth.instance_url}/api/now/table/sys_db_object?sysparm_fields=name,label&sysparm_limit=10000`,\n    {\n      headers: {\n        Authorization: authHeader(auth),\n        Accept: \"application/json\",\n      },\n    }\n  )\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n  const { result } = (await response.json()) as {\n    result: { name: string; label: string }[]\n  }\n  return result\n    .filter((t) => t.name)\n    .map((t) => ({ value: t.name, label: `${t.label} (${t.name})` }))\n    .sort((a, b) => a.label.localeCompare(b.label))\n}\n\n// Walk the table's inheritance chain (sys_db_object.super_class) so the group-by\n// options include fields inherited from parent tables, not just fields defined\n// on the chosen table (sys_dictionary stores each field under its defining\n// table \u2014 e.g. incident extends task, so priority/state live on task).\n// Best-effort: any failure falls back to just the table itself.\nasync function tableChain(auth: RT.Servicenow, table: string) {\n  const chain: string[] = []\n  let current: string | undefined = table\n  while (current && !chain.includes(current)) {\n    chain.push(current)\n    const response = await fetch(\n      `${auth.instance_url}/api/now/table/sys_db_object?sysparm_query=name=${current}&sysparm_fields=super_class.name&sysparm_limit=1`,\n      {\n        headers: {\n          Authorization: authHeader(auth),\n          Accept: \"application/json\",\n        },\n      }\n    )\n    if (!response.ok) break\n    const { result } = (await response.json()) as {\n      result: { \"super_class.name\"?: string }[]\n    }\n    current = result[0]?.[\"super_class.name\"] || undefined\n  }\n  return chain\n}\n\n// Dependent select: the chosen table's columns (sys_dictionary) to group by,\n// including columns inherited from parent tables.\nexport async function group_by(auth: RT.Servicenow, table: DynSelect_table) {\n  if (!table) return []\n  const chain = await tableChain(auth, table)\n  const url = new URL(`${auth.instance_url}/api/now/table/sys_dictionary`)\n  url.searchParams.append(\n    \"sysparm_query\",\n    `nameIN${chain.join(\",\")}^elementISNOTEMPTY`\n  )\n  url.searchParams.append(\"sysparm_fields\", \"element,column_label\")\n  url.searchParams.append(\"sysparm_limit\", \"10000\")\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: authHeader(auth),\n      Accept: \"application/json\",\n    },\n  })\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n  const { result } = (await response.json()) as {\n    result: { element: string; column_label: string }[]\n  }\n  return result\n    .filter((f) => f.element)\n    .map((f) => ({\n      value: f.element,\n      label: `${f.column_label} (${f.element})`,\n    }))\n    .sort((a, b) => a.label.localeCompare(b.label))\n}\n\n/**\n * Aggregate Records\n * Count records on a table (Aggregate API), optionally filtered by an encoded query and grouped by a field. Returns ServiceNow's stats envelope with the count per group.\n */\nexport async function main(\n  auth: RT.Servicenow,\n  table: DynSelect_table,\n  query: string | undefined,\n  group_by: DynSelect_group_by | undefined\n) {\n  const url = new URL(`${auth.instance_url}/api/now/stats/${table}`)\n  url.searchParams.append(\"sysparm_count\", \"true\")\n  if (query !== undefined && query !== \"\") {\n    url.searchParams.append(\"sysparm_query\", query)\n  }\n  if (group_by !== undefined && group_by !== \"\") {\n    url.searchParams.append(\"sysparm_group_by\", group_by)\n  }\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: authHeader(auth),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					},
+					"group_by": {
+						"default": null,
+						"description": "",
+						"format": "dynselect-group_by",
+						"type": "object"
+					},
+					"query": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"table": {
+						"default": null,
+						"description": "",
+						"format": "dynselect-table",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth",
+					"table"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28666,
+			"app": "servicenow",
+			"summary": "Create Record",
+			"description": "Insert a record into any table (incident, change_request, sys_user, cmdb_ci, or a custom table). Pick the table from a live dropdown and pass a column/value map.",
+			"terms": "servicenow create record insert a record into any table (incident, change_request, sys_user, cmdb_ci, or a custom table). pick the table from a live dropdown and pass a column/value map.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nexport type DynSelect_table = string\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n// Dropdown of the instance's tables (sys_db_object).\nexport async function table(auth: RT.Servicenow) {\n  const response = await fetch(\n    `${auth.instance_url}/api/now/table/sys_db_object?sysparm_fields=name,label&sysparm_limit=10000`,\n    {\n      headers: {\n        Authorization: authHeader(auth),\n        Accept: \"application/json\",\n      },\n    }\n  )\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n  const { result } = (await response.json()) as {\n    result: { name: string; label: string }[]\n  }\n  return result\n    .filter((t) => t.name)\n    .map((t) => ({ value: t.name, label: `${t.label} (${t.name})` }))\n    .sort((a, b) => a.label.localeCompare(b.label))\n}\n\n/**\n * Create Record\n * Insert a record into any table (incident, change_request, sys_user, cmdb_ci, or a custom table). Pick the table from a live dropdown and pass a column/value map.\n */\nexport async function main(\n  auth: RT.Servicenow,\n  table: DynSelect_table,\n  body: { [key: string]: any }\n) {\n  const url = new URL(`${auth.instance_url}/api/now/table/${table}`)\n\n  const response = await fetch(url, {\n    method: \"POST\",\n    headers: {\n      Authorization: authHeader(auth),\n      \"Content-Type\": \"application/json\",\n      Accept: \"application/json\",\n    },\n    body: JSON.stringify(body),\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					},
+					"body": {
+						"default": null,
+						"description": "",
+						"properties": {},
+						"type": "object"
+					},
+					"table": {
+						"default": null,
+						"description": "",
+						"format": "dynselect-table",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth",
+					"table",
+					"body"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28667,
+			"app": "servicenow",
+			"summary": "Delete Attachment",
+			"description": "Delete an attachment by sys_id. Returns {success, sys_id} (ServiceNow replies 204 No Content).",
+			"terms": "servicenow delete attachment delete an attachment by sys_id. returns {success, sys_id} (servicenow replies 204 no content).",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n/**\n * Delete Attachment\n * Delete an attachment by its sys_id. ServiceNow returns 204 No Content on success, so this returns {success, sys_id}.\n */\nexport async function main(auth: RT.Servicenow, attachment_sys_id: string) {\n  const response = await fetch(\n    `${auth.instance_url}/api/now/attachment/${attachment_sys_id}`,\n    {\n      method: \"DELETE\",\n      headers: {\n        Authorization: authHeader(auth),\n        Accept: \"application/json\",\n      },\n    }\n  )\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return { success: true, sys_id: attachment_sys_id }\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"attachment_sys_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth",
+					"attachment_sys_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28668,
+			"app": "servicenow",
+			"summary": "Delete Record",
+			"description": "Delete a record by sys_id. Returns {success, sys_id} (ServiceNow replies 204 No Content).",
+			"terms": "servicenow delete record delete a record by sys_id. returns {success, sys_id} (servicenow replies 204 no content).",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nexport type DynSelect_table = string\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n// Dropdown of the instance's tables (sys_db_object).\nexport async function table(auth: RT.Servicenow) {\n  const response = await fetch(\n    `${auth.instance_url}/api/now/table/sys_db_object?sysparm_fields=name,label&sysparm_limit=10000`,\n    {\n      headers: {\n        Authorization: authHeader(auth),\n        Accept: \"application/json\",\n      },\n    }\n  )\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n  const { result } = (await response.json()) as {\n    result: { name: string; label: string }[]\n  }\n  return result\n    .filter((t) => t.name)\n    .map((t) => ({ value: t.name, label: `${t.label} (${t.name})` }))\n    .sort((a, b) => a.label.localeCompare(b.label))\n}\n\n/**\n * Delete Record\n * Delete a record by sys_id. ServiceNow returns 204 No Content on success, so this returns {success, sys_id}.\n */\nexport async function main(\n  auth: RT.Servicenow,\n  table: DynSelect_table,\n  sys_id: string\n) {\n  const url = new URL(`${auth.instance_url}/api/now/table/${table}/${sys_id}`)\n\n  const response = await fetch(url, {\n    method: \"DELETE\",\n    headers: {\n      Authorization: authHeader(auth),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return { success: true, sys_id }\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					},
+					"sys_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"table": {
+						"default": null,
+						"description": "",
+						"format": "dynselect-table",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth",
+					"table",
+					"sys_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28670,
+			"app": "servicenow",
+			"summary": "Get Current User",
+			"description": "Return the sys_user record of the authenticated user.",
+			"terms": "servicenow get current user return the sys_user record of the authenticated user.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n/**\n * Get Current User\n * Return the sys_user record of the authenticated user (resolves current_user, then fetches the full record from sys_user).\n */\nexport async function main(auth: RT.Servicenow) {\n  const currentResponse = await fetch(\n    `${auth.instance_url}/api/now/ui/user/current_user`,\n    {\n      method: \"GET\",\n      headers: {\n        Authorization: authHeader(auth),\n        Accept: \"application/json\",\n      },\n    }\n  )\n  if (!currentResponse.ok) {\n    throw new Error(`${currentResponse.status} ${await currentResponse.text()}`)\n  }\n  const { result } = (await currentResponse.json()) as {\n    result: { user_sys_id: string }\n  }\n\n  const userResponse = await fetch(\n    `${auth.instance_url}/api/now/table/sys_user/${result.user_sys_id}`,\n    {\n      method: \"GET\",\n      headers: {\n        Authorization: authHeader(auth),\n        Accept: \"application/json\",\n      },\n    }\n  )\n  if (!userResponse.ok) {\n    throw new Error(`${userResponse.status} ${await userResponse.text()}`)\n  }\n\n  return await userResponse.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28671,
+			"app": "servicenow",
+			"summary": "Get Import Set Result",
+			"description": "Fetch the outcome of a prior import row by the staging-row sys_id returned by Insert Into Import Set (result.sys_id).",
+			"terms": "servicenow get import set result fetch the outcome of a prior import row by the staging-row sys_id returned by insert into import set (result.sys_id).",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n/**\n * Get Import Set Result\n * Fetch the outcome of a prior import row by the staging-row sys_id returned by Insert Into Import Set (result.sys_id), returning the transform result (target table, status, target record link).\n */\nexport async function main(\n  auth: RT.Servicenow,\n  staging_table: string,\n  sys_id: string\n) {\n  const url = new URL(\n    `${auth.instance_url}/api/now/import/${staging_table}/${sys_id}`\n  )\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: authHeader(auth),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					},
+					"staging_table": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"sys_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth",
+					"staging_table",
+					"sys_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28672,
+			"app": "servicenow",
+			"summary": "Get Record",
+			"description": "Retrieve a single record by sys_id. Optionally restrict the returned columns, and choose raw vs. display values.",
+			"terms": "servicenow get record retrieve a single record by sys_id. optionally restrict the returned columns, and choose raw vs. display values.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nexport type DynSelect_table = string\nexport type DynMultiselect_fields = string[]\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n// Dropdown of the instance's tables (sys_db_object).\nexport async function table(auth: RT.Servicenow) {\n  const response = await fetch(\n    `${auth.instance_url}/api/now/table/sys_db_object?sysparm_fields=name,label&sysparm_limit=10000`,\n    {\n      headers: {\n        Authorization: authHeader(auth),\n        Accept: \"application/json\",\n      },\n    }\n  )\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n  const { result } = (await response.json()) as {\n    result: { name: string; label: string }[]\n  }\n  return result\n    .filter((t) => t.name)\n    .map((t) => ({ value: t.name, label: `${t.label} (${t.name})` }))\n    .sort((a, b) => a.label.localeCompare(b.label))\n}\n\n// Walk the table's inheritance chain (sys_db_object.super_class) so the column\n// list includes fields inherited from parent tables, not just fields defined on\n// the chosen table (sys_dictionary stores each field under its defining table \u2014\n// e.g. incident extends task, so short_description/priority live on task).\n// Best-effort: any failure falls back to just the table itself.\nasync function tableChain(auth: RT.Servicenow, table: string) {\n  const chain: string[] = []\n  let current: string | undefined = table\n  while (current && !chain.includes(current)) {\n    chain.push(current)\n    const response = await fetch(\n      `${auth.instance_url}/api/now/table/sys_db_object?sysparm_query=name=${current}&sysparm_fields=super_class.name&sysparm_limit=1`,\n      {\n        headers: {\n          Authorization: authHeader(auth),\n          Accept: \"application/json\",\n        },\n      }\n    )\n    if (!response.ok) break\n    const { result } = (await response.json()) as {\n      result: { \"super_class.name\"?: string }[]\n    }\n    current = result[0]?.[\"super_class.name\"] || undefined\n  }\n  return chain\n}\n\n// Dependent multi-select: the chosen table's columns (sys_dictionary), including\n// columns inherited from parent tables.\nexport async function fields(auth: RT.Servicenow, table: DynSelect_table) {\n  if (!table) return []\n  const chain = await tableChain(auth, table)\n  const url = new URL(`${auth.instance_url}/api/now/table/sys_dictionary`)\n  url.searchParams.append(\n    \"sysparm_query\",\n    `nameIN${chain.join(\",\")}^elementISNOTEMPTY`\n  )\n  url.searchParams.append(\"sysparm_fields\", \"element,column_label\")\n  url.searchParams.append(\"sysparm_limit\", \"10000\")\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: authHeader(auth),\n      Accept: \"application/json\",\n    },\n  })\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n  const { result } = (await response.json()) as {\n    result: { element: string; column_label: string }[]\n  }\n  return result\n    .filter((f) => f.element)\n    .map((f) => ({\n      value: f.element,\n      label: `${f.column_label} (${f.element})`,\n    }))\n    .sort((a, b) => a.label.localeCompare(b.label))\n}\n\n/**\n * Get Record\n * Retrieve a single record by sys_id. Optionally restrict the returned columns, and choose raw vs. display values.\n */\nexport async function main(\n  auth: RT.Servicenow,\n  table: DynSelect_table,\n  sys_id: string,\n  fields: DynMultiselect_fields | undefined,\n  display_value: \"false\" | \"true\" | \"all\" | undefined\n) {\n  const url = new URL(`${auth.instance_url}/api/now/table/${table}/${sys_id}`)\n  if (fields && fields.length > 0) {\n    url.searchParams.append(\"sysparm_fields\", fields.join(\",\"))\n  }\n  if (display_value !== undefined && display_value !== \"\") {\n    url.searchParams.append(\"sysparm_display_value\", display_value)\n  }\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: authHeader(auth),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					},
+					"display_value": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"false",
+							"true",
+							"all"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"fields": {
+						"default": null,
+						"description": "",
+						"format": "dynmultiselect-fields",
+						"type": "object"
+					},
+					"sys_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"table": {
+						"default": null,
+						"description": "",
+						"format": "dynselect-table",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth",
+					"table",
+					"sys_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28673,
+			"app": "servicenow",
+			"summary": "Insert Into Import Set",
+			"description": "Push a row into an import set staging table; the transform map runs synchronously. Inspect result[].status.",
+			"terms": "servicenow insert into import set push a row into an import set staging table; the transform map runs synchronously. inspect result[].status.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n/**\n * Insert Into Import Set\n * Push a row into an import set staging table; the associated transform map runs synchronously. Inspect result[].status (inserted/updated/ignored/error) \u2014 a transform error returns 200/201 with status \"error\".\n */\nexport async function main(\n  auth: RT.Servicenow,\n  staging_table: string,\n  body: { [key: string]: any }\n) {\n  const url = new URL(`${auth.instance_url}/api/now/import/${staging_table}`)\n\n  const response = await fetch(url, {\n    method: \"POST\",\n    headers: {\n      Authorization: authHeader(auth),\n      \"Content-Type\": \"application/json\",\n      Accept: \"application/json\",\n    },\n    body: JSON.stringify(body),\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					},
+					"body": {
+						"default": null,
+						"description": "",
+						"properties": {},
+						"type": "object"
+					},
+					"staging_table": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth",
+					"staging_table",
+					"body"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28674,
+			"app": "servicenow",
+			"summary": "List Attachments",
+			"description": "List attachment metadata, optionally filtered with an encoded query (e.g. table_name=incident^table_sys_id=<id>).",
+			"terms": "servicenow list attachments list attachment metadata, optionally filtered with an encoded query (e.g. table_name=incident^table_sys_id=<id>).",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n/**\n * List Attachments\n * List attachment metadata (sys_id, file_name, content_type, size, download_link). Filter with an encoded query, e.g. table_name=incident^table_sys_id=<record sys_id>.\n */\nexport async function main(\n  auth: RT.Servicenow,\n  query: string | undefined,\n  limit: number | undefined\n) {\n  const url = new URL(`${auth.instance_url}/api/now/attachment`)\n  if (query !== undefined && query !== \"\") {\n    url.searchParams.append(\"sysparm_query\", query)\n  }\n  url.searchParams.append(\"sysparm_limit\", String(limit ?? 100))\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: authHeader(auth),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					},
+					"limit": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"query": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28675,
+			"app": "servicenow",
+			"summary": "List Records",
+			"description": "Query records from any table with an encoded query (sysparm_query), pagination, column selection, and raw/display values.",
+			"terms": "servicenow list records query records from any table with an encoded query (sysparm_query), pagination, column selection, and raw/display values.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nexport type DynSelect_table = string\nexport type DynMultiselect_fields = string[]\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n// Dropdown of the instance's tables (sys_db_object).\nexport async function table(auth: RT.Servicenow) {\n  const response = await fetch(\n    `${auth.instance_url}/api/now/table/sys_db_object?sysparm_fields=name,label&sysparm_limit=10000`,\n    {\n      headers: {\n        Authorization: authHeader(auth),\n        Accept: \"application/json\",\n      },\n    }\n  )\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n  const { result } = (await response.json()) as {\n    result: { name: string; label: string }[]\n  }\n  return result\n    .filter((t) => t.name)\n    .map((t) => ({ value: t.name, label: `${t.label} (${t.name})` }))\n    .sort((a, b) => a.label.localeCompare(b.label))\n}\n\n// Walk the table's inheritance chain (sys_db_object.super_class) so the column\n// list includes fields inherited from parent tables, not just fields defined on\n// the chosen table (sys_dictionary stores each field under its defining table \u2014\n// e.g. incident extends task, so short_description/priority live on task).\n// Best-effort: any failure falls back to just the table itself.\nasync function tableChain(auth: RT.Servicenow, table: string) {\n  const chain: string[] = []\n  let current: string | undefined = table\n  while (current && !chain.includes(current)) {\n    chain.push(current)\n    const response = await fetch(\n      `${auth.instance_url}/api/now/table/sys_db_object?sysparm_query=name=${current}&sysparm_fields=super_class.name&sysparm_limit=1`,\n      {\n        headers: {\n          Authorization: authHeader(auth),\n          Accept: \"application/json\",\n        },\n      }\n    )\n    if (!response.ok) break\n    const { result } = (await response.json()) as {\n      result: { \"super_class.name\"?: string }[]\n    }\n    current = result[0]?.[\"super_class.name\"] || undefined\n  }\n  return chain\n}\n\n// Dependent multi-select: the chosen table's columns (sys_dictionary), including\n// columns inherited from parent tables.\nexport async function fields(auth: RT.Servicenow, table: DynSelect_table) {\n  if (!table) return []\n  const chain = await tableChain(auth, table)\n  const url = new URL(`${auth.instance_url}/api/now/table/sys_dictionary`)\n  url.searchParams.append(\n    \"sysparm_query\",\n    `nameIN${chain.join(\",\")}^elementISNOTEMPTY`\n  )\n  url.searchParams.append(\"sysparm_fields\", \"element,column_label\")\n  url.searchParams.append(\"sysparm_limit\", \"10000\")\n\n  const response = await fetch(url, {\n    headers: {\n      Authorization: authHeader(auth),\n      Accept: \"application/json\",\n    },\n  })\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n  const { result } = (await response.json()) as {\n    result: { element: string; column_label: string }[]\n  }\n  return result\n    .filter((f) => f.element)\n    .map((f) => ({\n      value: f.element,\n      label: `${f.column_label} (${f.element})`,\n    }))\n    .sort((a, b) => a.label.localeCompare(b.label))\n}\n\n/**\n * List Records\n * Query records from any table with an encoded query (sysparm_query), pagination, column selection, and raw/display values. Returns one page; iterate offset until fewer than limit rows return.\n */\nexport async function main(\n  auth: RT.Servicenow,\n  table: DynSelect_table,\n  query: string | undefined,\n  limit: number | undefined,\n  offset: number | undefined,\n  fields: DynMultiselect_fields | undefined,\n  display_value: \"false\" | \"true\" | \"all\" | undefined\n) {\n  const url = new URL(`${auth.instance_url}/api/now/table/${table}`)\n  if (query !== undefined && query !== \"\") {\n    url.searchParams.append(\"sysparm_query\", query)\n  }\n  url.searchParams.append(\"sysparm_limit\", String(limit ?? 100))\n  if (offset !== undefined) {\n    url.searchParams.append(\"sysparm_offset\", String(offset))\n  }\n  if (fields && fields.length > 0) {\n    url.searchParams.append(\"sysparm_fields\", fields.join(\",\"))\n  }\n  if (display_value !== undefined && display_value !== \"\") {\n    url.searchParams.append(\"sysparm_display_value\", display_value)\n  }\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: authHeader(auth),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					},
+					"display_value": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"false",
+							"true",
+							"all"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"fields": {
+						"default": null,
+						"description": "",
+						"format": "dynmultiselect-fields",
+						"type": "object"
+					},
+					"limit": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"offset": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"query": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"table": {
+						"default": null,
+						"description": "",
+						"format": "dynselect-table",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth",
+					"table"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28676,
+			"app": "servicenow",
+			"summary": "List Tables",
+			"description": "List the instance tables (sys_db_object) with API name, label, and sys_id. Optionally filter by a name/label substring.",
+			"terms": "servicenow list tables list the instance tables (sys_db_object) with api name, label, and sys_id. optionally filter by a name/label substring.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n/**\n * List Tables\n * List the instance's tables (sys_db_object) with their API name, label, and sys_id. Optionally filter by a substring matched against name or label.\n */\nexport async function main(\n  auth: RT.Servicenow,\n  name_filter: string | undefined\n) {\n  const url = new URL(`${auth.instance_url}/api/now/table/sys_db_object`)\n  url.searchParams.append(\"sysparm_fields\", \"name,label,sys_id\")\n  if (name_filter !== undefined && name_filter !== \"\") {\n    url.searchParams.append(\n      \"sysparm_query\",\n      `nameLIKE${name_filter}^ORlabelLIKE${name_filter}`\n    )\n  }\n  url.searchParams.append(\"sysparm_limit\", \"10000\")\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: authHeader(auth),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					},
+					"name_filter": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28677,
+			"app": "servicenow",
+			"summary": "Update Record",
+			"description": "Update a record by sys_id with a column/value map. PATCH (partial) by default; set replace=true to PUT (full overwrite).",
+			"terms": "servicenow update record update a record by sys_id with a column/value map. patch (partial) by default; set replace=true to put (full overwrite).",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\nexport type DynSelect_table = string\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n// Dropdown of the instance's tables (sys_db_object).\nexport async function table(auth: RT.Servicenow) {\n  const response = await fetch(\n    `${auth.instance_url}/api/now/table/sys_db_object?sysparm_fields=name,label&sysparm_limit=10000`,\n    {\n      headers: {\n        Authorization: authHeader(auth),\n        Accept: \"application/json\",\n      },\n    }\n  )\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n  const { result } = (await response.json()) as {\n    result: { name: string; label: string }[]\n  }\n  return result\n    .filter((t) => t.name)\n    .map((t) => ({ value: t.name, label: `${t.label} (${t.name})` }))\n    .sort((a, b) => a.label.localeCompare(b.label))\n}\n\n/**\n * Update Record\n * Update a record by sys_id with a column/value map. PATCH (partial update) by default; set replace=true to PUT (full overwrite that clears omitted fields).\n */\nexport async function main(\n  auth: RT.Servicenow,\n  table: DynSelect_table,\n  sys_id: string,\n  body: { [key: string]: any },\n  replace: boolean | undefined\n) {\n  const url = new URL(`${auth.instance_url}/api/now/table/${table}/${sys_id}`)\n\n  const response = await fetch(url, {\n    method: replace ? \"PUT\" : \"PATCH\",\n    headers: {\n      Authorization: authHeader(auth),\n      \"Content-Type\": \"application/json\",\n      Accept: \"application/json\",\n    },\n    body: JSON.stringify(body),\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					},
+					"body": {
+						"default": null,
+						"description": "",
+						"properties": {},
+						"type": "object"
+					},
+					"replace": {
+						"default": null,
+						"description": "",
+						"type": "boolean"
+					},
+					"sys_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"table": {
+						"default": null,
+						"description": "",
+						"format": "dynselect-table",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth",
+					"table",
+					"sys_id",
+					"body"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28679,
+			"app": "servicenow",
+			"summary": "New or Updated Record",
+			"description": "Emits records whose timestamp is newer than the last poll, tracked via Windmill state. Defaults to sys_updated_on.",
+			"terms": "servicenow new or updated record emits records whose timestamp is newer than the last poll, tracked via windmill state. defaults to sys_updated_on.",
+			"kind": "trigger",
+			"language": "bunnative",
+			"content": "//native\n\nimport * as wmill from \"windmill-client\"\n\nexport type DynSelect_table = string\n\nfunction authHeader(auth: RT.Servicenow) {\n  return auth.token\n    ? `Bearer ${auth.token}`\n    : `Basic ${btoa(`${auth.username}:${auth.password}`)}`\n}\n\n// Dropdown of the instance's tables (sys_db_object).\nexport async function table(auth: RT.Servicenow) {\n  const response = await fetch(\n    `${auth.instance_url}/api/now/table/sys_db_object?sysparm_fields=name,label&sysparm_limit=10000`,\n    {\n      headers: {\n        Authorization: authHeader(auth),\n        Accept: \"application/json\",\n      },\n    }\n  )\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n  const { result } = (await response.json()) as {\n    result: { name: string; label: string }[]\n  }\n  return result\n    .filter((t) => t.name)\n    .map((t) => ({ value: t.name, label: `${t.label} (${t.name})` }))\n    .sort((a, b) => a.label.localeCompare(b.label))\n}\n\n/**\n * New or Updated Record\n * Emits records from a table whose timestamp is newer than the last poll, tracked via Windmill state. Defaults to sys_updated_on (set timestamp_field to sys_created_on for new-only). Optionally narrow with an extra encoded query.\n */\nexport async function main(\n  auth: RT.Servicenow,\n  table: DynSelect_table,\n  timestamp_field: \"sys_updated_on\" | \"sys_created_on\" | undefined,\n  query: string | undefined\n) {\n  const tsField =\n    timestamp_field && timestamp_field !== \"\"\n      ? timestamp_field\n      : \"sys_updated_on\"\n  const lastChecked: string | undefined = await wmill.getState()\n\n  // ServiceNow datetimes are 'YYYY-MM-DD HH:MM:SS' in UTC (no trailing Z).\n  const nowUtc = new Date().toISOString().slice(0, 19).replace(\"T\", \" \")\n\n  // First run: set the watermark to now and don't emit a backlog.\n  if (!lastChecked) {\n    await wmill.setState(nowUtc)\n    return []\n  }\n\n  let encoded = `${tsField}>${lastChecked}`\n  if (query !== undefined && query !== \"\") {\n    encoded += `^${query}`\n  }\n  encoded += `^ORDERBY${tsField}`\n\n  const url = new URL(`${auth.instance_url}/api/now/table/${table}`)\n  url.searchParams.append(\"sysparm_query\", encoded)\n  url.searchParams.append(\"sysparm_limit\", \"200\")\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: authHeader(auth),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  const { result } = (await response.json()) as {\n    result: Array<{ [key: string]: any }>\n  }\n\n  if (result.length > 0) {\n    await wmill.setState(result[result.length - 1][tsField])\n  }\n\n  return result\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-servicenow",
+						"type": "object"
+					},
+					"query": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"table": {
+						"default": null,
+						"description": "",
+						"format": "dynselect-table",
+						"type": "object"
+					},
+					"timestamp_field": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"sys_updated_on",
+							"sys_created_on"
+						],
+						"originalType": "enum",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth",
+					"table"
+				],
+				"type": "object"
+			}
+		}
+	]
+}

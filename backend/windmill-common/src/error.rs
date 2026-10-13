@@ -303,7 +303,11 @@ impl IntoResponse for Error {
 
         let e = &self;
 
-        if matches!(status, axum::http::StatusCode::NOT_FOUND) {
+        // A refused turn is as expected as a miss: the chat follows the turn that refused it.
+        if matches!(
+            status,
+            axum::http::StatusCode::NOT_FOUND | axum::http::StatusCode::CONFLICT
+        ) {
             tracing::warn!(message = e.to_string());
         } else {
             tracing::error!(message = e.to_string(), error = ?e);

@@ -1,10 +1,7 @@
 <script lang="ts">
-	import { Pencil } from 'lucide-svelte'
-	import { Alert, Button } from '$lib/components/common'
+	import { ChevronRight } from 'lucide-svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import Path from '$lib/components/Path.svelte'
-	import Label from '$lib/components/Label.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import {
 		dirKey,
 		KIND_LABEL_LOWER,
@@ -14,17 +11,7 @@
 		type WorkspaceItemKind
 	} from '$lib/components/workspacePicker'
 	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
-	import { isOwner } from '$lib/utils'
-	import { userStore } from '$lib/stores'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
-
-	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
-
+	import { splitItemPath } from '$lib/components/breadcrumbPath'
 	interface Props {
 		summary?: string
 		path?: string
@@ -75,22 +62,9 @@
 		workspaceId
 	}: Props = $props()
 
-	let pathPopoverOpen = $state(false)
-	/** Snapshot of `path` taken when the pen popover opens; cleared on close.
-	 * While set, the breadcrumb derives from it instead of `path` so the pen
-	 * anchor doesn't reflow as the user types in the popover (which would drag
-	 * the popover with it via floating-ui's auto-update). */
+	/** Held by the pen popover while it is open, so the trail below — and the pen anchored to its
+	 * end — does not reflow as the user types. */
 	let snapshotPath = $state<string | undefined>(undefined)
-
-	function setPathPopoverOpen(open: boolean) {
-		pathPopoverOpen = open
-		// Only snapshot when there's a path to freeze. New flows / scripts open
-		// the popover with `path === ''` and rely on `Path.reset()` to seed a
-		// path; if we snapshot the empty value the breadcrumb stays blank for
-		// the whole popover lifetime. Leaving `snapshotPath` undefined lets
-		// `displayPath` track the live seeded path instead.
-		snapshotPath = open && path ? path : undefined
-	}
 
 	// Path segments. e.g. "f/demo/weather_report" → scope "f/demo", slug "weather_report".
 	// `snapshotPath` keeps the breadcrumb frozen while the pen popover is open
@@ -98,32 +72,7 @@
 	// follows the live `path` — coherent with the picker because we inject a
 	// virtual current-item entry at that same live path (see `currentItem`).
 	let displayPath = $derived(snapshotPath ?? path ?? '')
-	/** Breakdown for breadcrumb rendering. Top-level dirs (scopes) come first
-	 * — `f/<folder>` or `u/<user>` — then any number of subfolders, then the
-	 * item name. Each dir entry's `fullPath` is the cumulative path up to
-	 * that level, used to key the picker's `initialOpen` / `initialHighlight`. */
-	let segments = $derived.by(() => {
-		const parts = displayPath.split('/')
-		if (parts.length < 3) return null
-		const scope = parts.slice(0, 2).join('/')
-		const slug = parts.slice(2)
-		const dirs: { name: string; fullPath: string }[] = []
-		// Top-level scope is a dir.
-		dirs.push({ name: scope, fullPath: scope })
-		// Intermediate slug parts (everything except the last one).
-		let acc = scope
-		for (let i = 0; i < slug.length - 1; i++) {
-			acc = `${acc}/${slug[i]}`
-			dirs.push({ name: slug[i], fullPath: acc })
-		}
-		const leaf = { name: slug[slug.length - 1], fullPath: displayPath }
-		return { dirs, leaf }
-	})
-
-	// Treat an empty path as ownable so the pen popover lets a user pick the
-	// path for a brand-new item. `Path.reset()` then synthesizes a default
-	// under their own user/folder scope.
-	let own = $derived(!path || isOwner(path, actingUser, $operatingWorkspace))
+	let segments = $derived(splitItemPath(displayPath) ?? null)
 
 	// Virtual entry for the picker: surfaces the currently-edited item at its
 	// live path (which may differ from `savedPath` mid-rename, so the picker
@@ -145,7 +94,7 @@
 	}
 </script>
 
-<div class="inline-block max-w-full align-top group px-2 py-0.5 leading-tight">
+<div class="max-w-full group px-2 py-0.5 leading-tight inline-block align-top">
 	<!-- Path row -->
 	{#if !hidePath}
 		<div class="flex items-center max-w-full text-2xs text-secondary font-mono">
@@ -162,9 +111,9 @@
 				{#if segments}
 					{#each segments.dirs as dir, i (dir.fullPath)}
 						{@const dKey = dirKey('all', dir.fullPath)}
+						<ChevronRight size={10} class="shrink-0" />
 						<BreadcrumbSegment
 							label={dir.name}
-							withChevron
 							extraClass={i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'}
 							initialScope={i === 0
 								? { kind: 'all' }
@@ -175,11 +124,13 @@
 							onPick={handlePickerSelect}
 						/>
 					{/each}
+				{/if}
+				{#if segments?.leaf}
 					{@const leafKey = leafKeyFor(kind, segments.leaf.fullPath)}
 					{@const leafParent = segments.dirs[segments.dirs.length - 1]?.fullPath}
+					<ChevronRight size={10} class="shrink-0" />
 					<BreadcrumbSegment
 						label={segments.leaf.name}
-						withChevron
 						extraClass="gap-0.5 min-w-0"
 						initialScope={leafParent ? { kind: 'all', dir: leafParent } : { kind: 'all' }}
 						initialHighlight={leafKey}
@@ -191,65 +142,21 @@
 				{/if}
 			</nav>
 
-			<!-- Pen → path-edit popover. Skipped entirely when path editing is
-		     disabled so the user doesn't see an inert button. -->
+			<!-- Skipped entirely when path editing is disabled so the user doesn't see an inert
+			     button. -->
 			{#if pathEditable}
-				<Popover
-					placement="bottom-start"
-					contentClasses="p-4"
-					usePointerDownOutside
-					excludeSelectors=".drawer"
-					disableFocusTrap
-					closeOnOtherPopoverOpen
-					bind:isOpen={() => pathPopoverOpen, setPathPopoverOpen}
-				>
-					{#snippet trigger()}
-						<Button
-							variant="subtle"
-							unifiedSize="xs"
-							iconOnly
-							startIcon={{ icon: Pencil }}
-							title="Edit path"
-							aria-label="Edit path"
-							btnClasses={penVisibility === 'hover' && !pathPopoverOpen
-								? 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
-								: ''}
-						/>
-					{/snippet}
-					{#snippet content()}
-						<div class="flex flex-col gap-6 w-[480px]">
-							{#if own}
-								<Path
-									autofocus
-									bind:path
-									initialPath={snapshotPath ?? path ?? ''}
-									namePlaceholder={kind}
-									{kind}
-									size="sm"
-									drawerOffset={4000}
-									workspaceOverride={workspaceId}
-								/>
-								{#if savedPath && path && path !== savedPath}
-									<Alert
-										type="info"
-										size="xs"
-										title="Deploy the {kind} to make the path change effective."
-									/>
-								{/if}
-								{#if onBehalfOfEmail}
-									<Alert type="info" title="Run on behalf of" size="xs">
-										This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
-									</Alert>
-								{/if}
-							{:else}
-								<Label label="Path">
-									<span class="text-xs font-mono text-secondary">{path}</span>
-									<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
-								</Label>
-							{/if}
-						</div>
-					{/snippet}
-				</Popover>
+				<!-- Path only: this bar carries its own summary field below, and `hidePath` would take
+				     the pen with it, leaving a condensed pane no way to name the item. -->
+				<PathEditPopover
+					bind:path
+					bind:snapshotPath
+					summaryEditable={false}
+					{savedPath}
+					{kind}
+					{workspaceId}
+					{onBehalfOfEmail}
+					{penVisibility}
+				/>
 			{/if}
 		</div>
 	{/if}

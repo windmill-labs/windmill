@@ -16,8 +16,9 @@ section or the flat layout.
 
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Compass, FileText } from 'lucide-svelte'
+	import { Compass, FileText, NetworkIcon, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
+	import { AssetService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import {
@@ -43,10 +44,11 @@ section or the flat layout.
 		PREVIEW_PAGES,
 		artifactKey,
 		isArtifactKey,
-		pageHref,
 		pageKey,
+		previewModeFor,
 		type PreviewTarget
 	} from './previewRouter'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 
 	type Kind = WorkspaceItemKind
 	type DrillPickerHandle = {
@@ -88,6 +90,8 @@ section or the flat layout.
 
 	const kinds: Kind[] = ['flow', 'script', 'app']
 	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
+	const permissions = useSessionPermissions(() => effectiveWorkspace)
+	const canEdit = (item: WorkspaceItem) => permissions.canEditItem(item)
 
 	let inner = $state<DrillPickerHandle | undefined>(undefined)
 	export function focus() {
@@ -135,7 +139,11 @@ section or the flat layout.
 					draftPath: storagePath !== d.path ? d.path : d.draftPath,
 					summary: d.summary ?? '',
 					kind: k,
-					raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
+					raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined,
+					// A chat-scaffolded draft the workspace listers have never seen. It has
+					// an editor and nothing else, so picking it must not aim at a deployed
+					// page — and a row merged over a loaded one keeps the lister's answer.
+					draftOnly: true
 				}
 			})
 	}
@@ -145,12 +153,48 @@ section or the flat layout.
 
 	// Wrap item leaves as PreviewTargets so the tree can carry page leaves too.
 	// Branch structure is untouched — only leaf `data` is re-tagged.
+	//
+	// `mode` is stamped here rather than left to the tab: picking is the reader
+	// saying "show me this", so it lands on the deployed page, and `navigate`
+	// would otherwise keep whichever side the re-pointed tab happened to be on.
+	// A draft-only item opens its editor, unless this user cannot save there.
 	function tagItems(nodes: DrillNode<WorkspaceItem>[]): DrillNode<PreviewTarget>[] {
 		return nodes.map((n) =>
 			n.type === 'leaf'
-				? { ...n, data: { type: 'item', item: n.data } }
+				? {
+						...n,
+						data: {
+							type: 'item',
+							item: n.data,
+							mode: canEdit(n.data) ? previewModeFor(n.data) : 'view'
+						}
+					}
 				: { ...n, children: tagItems(n.children) }
 		)
+	}
+
+	// Open the item's editor. Offered on every item row this user can edit, including the
+	// draft-only ones a plain click already opens there: a row that drops the button to say
+	// "you were getting this anyway" reads as one that cannot be edited.
+	function editAction(leaf: DrillLeaf<PreviewTarget>) {
+		const target = leaf.data
+		if (target.type !== 'item' || !canEdit(target.item)) return undefined
+		return {
+			icon: Pen,
+			label: 'Edit',
+			title: `Edit ${workspaceItemDisplayPath(target.item)}`,
+			run: () => onPick({ ...target, mode: 'edit' })
+		}
+	}
+
+	// What the row says about the item's deploy state, in the review dock's words so
+	// the two never describe the same item differently.
+	function stateBadge(leaf: DrillLeaf<PreviewTarget>) {
+		const target = leaf.data
+		if (target.type !== 'item') return undefined
+		if (target.item.draftOnly) return { label: 'Draft only', color: 'indigo' as const }
+		if (target.item.hasDraft) return { label: 'Draft', color: 'indigo' as const }
+		return undefined
 	}
 
 	function pageLeaf(p: (typeof PREVIEW_PAGES)[number]): DrillLeaf<PreviewTarget> {
@@ -159,7 +203,7 @@ section or the flat layout.
 			key: pageKey(p.path),
 			label: p.label,
 			icon: p.icon,
-			data: { type: 'page', href: pageHref(p.path), label: p.label }
+			data: { type: 'page', href: p.path, label: p.label }
 		}
 	}
 
@@ -171,7 +215,9 @@ section or the flat layout.
 		label: 'Pages',
 		icon: Compass,
 		searchGroup: true,
-		children: PREVIEW_PAGES.filter((p) => p.path !== '/').map(pageLeaf)
+		children: PREVIEW_PAGES.filter((p) => p.path !== '/' && permissions.pageAllowed(p)).map(
+			pageLeaf
+		)
 	})
 
 	// Session artifacts, when present, get their own branch between Pages and the
@@ -195,9 +241,39 @@ section or the flat layout.
 			: undefined
 	)
 
+	// Data pipelines are folders, not items, so they get a branch of their own
+	// rather than a leaf in the workspace tree.
+	const pipelinesResource = resource(
+		() => effectiveWorkspace,
+		async (ws) => (ws ? await AssetService.listPipelineFolders({ workspace: ws }) : [])
+	)
+	const pipelinesBranch = $derived<DrillBranch<PreviewTarget> | undefined>(
+		pipelinesResource.current && pipelinesResource.current.length > 0
+			? {
+					type: 'branch',
+					key: 'pipelines',
+					label: 'Data pipelines',
+					icon: NetworkIcon,
+					searchGroup: true,
+					children: pipelinesResource.current.map(({ folder }) => {
+						const path = `/pipeline/${encodeURIComponent(folder)}`
+						return {
+							type: 'leaf' as const,
+							key: pageKey(path),
+							label: `f/${folder}`,
+							icon: NetworkIcon,
+							data: { type: 'page', href: path, label: folder }
+						}
+					})
+				}
+			: undefined
+	)
+
 	const tree = $derived<DrillNode<PreviewTarget>[]>([
-		pagesBranch,
+		// An operator's workspace may enable none of them.
+		...(pagesBranch.children.length > 0 ? [pagesBranch] : []),
 		...(artifactsBranch ? [artifactsBranch] : []),
+		...(pipelinesBranch ? [pipelinesBranch] : []),
 		...tagItems(
 			buildWorkspaceTree({
 				loaded: loader.loaded,
@@ -262,5 +338,7 @@ section or the flat layout.
 		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
 	}}
 	onFilterChange={loader.onFilterChange}
+	leafAction={editAction}
+	leafBadge={stateBadge}
 	{rootLoading}
 />

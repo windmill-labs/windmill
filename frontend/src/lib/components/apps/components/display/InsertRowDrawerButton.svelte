@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Drawer, DrawerContent, Button } from '$lib/components/common'
+	import { Drawer, DrawerContent, Button, ButtonType } from '$lib/components/common'
 	import { CornerDownLeft, Plus } from 'lucide-svelte'
 	import InsertRow from './dbtable/InsertRow.svelte'
 	import type { ColumnDef } from './dbtable/utils'
@@ -9,9 +9,11 @@
 		columnDefs: ColumnDef[]
 		dbType: DbType
 		onInsert: (args: Record<string, any>) => void | Promise<void>
+		/** Sizes the trigger on the unified scale; without it the trigger keeps its legacy size. */
+		unifiedSize?: ButtonType.UnifiedSize
 	}
 
-	let { columnDefs, dbType, onInsert }: Props = $props()
+	let { columnDefs, dbType, onInsert, unifiedSize }: Props = $props()
 
 	let args: Record<string, any> = $state({})
 	let insertDrawer: Drawer | undefined = $state()
@@ -35,7 +37,8 @@
 <Button
 	startIcon={{ icon: Plus }}
 	variant="default"
-	size="xs2"
+	size={unifiedSize ? undefined : 'xs2'}
+	{unifiedSize}
 	on:click={() => {
 		args = {}
 		insertDrawer?.openDrawer()

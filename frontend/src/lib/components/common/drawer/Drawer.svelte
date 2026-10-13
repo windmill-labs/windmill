@@ -28,6 +28,8 @@
 		positionClass?: string | undefined
 		name?: string
 		children?: import('svelte').Snippet<[any]>
+		/** Asked before a click away or Escape closes it; resolving false keeps it open. */
+		confirmClose?: () => boolean | Promise<boolean>
 	}
 
 	let {
@@ -43,7 +45,8 @@
 		class: clazz = '',
 		positionClass = undefined,
 		name = undefined,
-		children: children_render
+		children: children_render,
+		confirmClose
 	}: Props = $props()
 
 	if (open === undefined) {
@@ -146,6 +149,7 @@
 		onOpen={() => dispatch('open')}
 		onClose={() => dispatch('close')}
 		{preventEscape}
+		{confirmClose}
 	>
 		{#snippet children({ handleClickAway, zIndex, isTop })}
 			<aside
@@ -154,7 +158,7 @@
 				class:open
 				class:close={!open && timeout}
 				class:global-chat-open={aiChatOpen}
-				style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: calc(${aiChatOpen && placement === 'right' && !disableChatOffset ? chatState.size : 0}% + 4px)`}
+				style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: calc(${aiChatOpen && (placement === 'right' || placement === 'center') && !disableChatOffset ? chatState.size : 0}% + 4px)`}
 			>
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -271,5 +275,29 @@
 
 	.drawer.open > .panel {
 		transform: translate(0, 0);
+	}
+
+	/* A modal inset from every edge, so what is behind it shows around it. `size` does not
+	   apply: the inset alone sizes it. */
+	.panel.center {
+		inset: 2rem;
+		width: auto;
+		height: auto;
+		border-radius: 0.5rem;
+		overflow: hidden;
+		opacity: 0;
+		transform: scale(0.98);
+		transition:
+			opacity var(--duration) ease,
+			transform var(--duration) ease;
+	}
+
+	.drawer.respect-global-chat.global-chat-open > .panel.center {
+		right: calc(var(--adjusted-offset) + 2rem);
+	}
+
+	.drawer.open > .panel.center {
+		opacity: 1;
+		transform: scale(1);
 	}
 </style>

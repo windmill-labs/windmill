@@ -137,6 +137,7 @@ async fn maybe_queue_binary_prebuild(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -588,6 +589,16 @@ pub async fn handle_dependency_job(
             // lock, so evicting this process' half of that pair here would key a bundle by a
             // hash whose content cache has not caught up.
             windmill_common::invalidate_deployed_script_hash_cache(w_id, script_path);
+
+            if restart_perpetual_runs_from_args(job.args.as_ref()) {
+                windmill_queue::restart_perpetual_runs_on_new_version(
+                    db,
+                    w_id,
+                    script_path,
+                    &job.created_by,
+                )
+                .await;
+            }
 
             if let Err(e) = handle_deployment_metadata(
                 &job.permissioned_as_email,
@@ -1233,6 +1244,7 @@ pub async fn handle_flow_dependency_job(
                 &job.workspace_id,
                 flow.failure_module.as_ref(),
                 flow.same_worker,
+                flow.preserve_step_tags,
             )
             .await?;
 
@@ -1317,6 +1329,14 @@ pub async fn handle_flow_dependency_job(
         "modified_ids": modified_ids,
         "updated_flow_value": new_flow_value,
     })))
+}
+
+/// Set by a deploy someone made of a perpetual script, and by nothing else: a relock this path
+/// gets because an imported script changed leaves the runs of the version it replaces alone.
+fn restart_perpetual_runs_from_args(args: Option<&Json<HashMap<String, Box<RawValue>>>>) -> bool {
+    args.and_then(|args| args.0.get("restart_perpetual_runs"))
+        .and_then(|value| serde_json::from_str::<bool>(value.get()).ok())
+        .unwrap_or(false)
 }
 
 fn get_deployment_msg_and_parent_path_from_args(
@@ -2115,6 +2135,7 @@ async fn insert_flow_modules<'c>(
     workspace_id: &str,
     failure_module: Option<&Box<FlowModule>>,
     same_worker: bool,
+    preserve_step_tags: bool,
     modules: &mut Vec<FlowModule>,
     modules_node: &mut Option<FlowNodeId>,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
@@ -2125,6 +2146,7 @@ async fn insert_flow_modules<'c>(
         workspace_id,
         failure_module,
         same_worker,
+        preserve_step_tags,
     ))
     .await?;
     if modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module) {
@@ -2141,6 +2163,7 @@ async fn insert_flow_modules<'c>(
             modules: std::mem::take(modules),
             failure_module: failure_module.cloned(),
             same_worker,
+            preserve_step_tags,
             ..Default::default()
         }))),
         None,
@@ -2157,6 +2180,7 @@ async fn reduce_flow<'c>(
     workspace_id: &str,
     failure_module: Option<&Box<FlowModule>>,
     same_worker: bool,
+    preserve_step_tags: bool,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     use FlowModuleValue::*;
     for module in &mut *modules {
@@ -2215,6 +2239,7 @@ async fn reduce_flow<'c>(
                     workspace_id,
                     failure_module,
                     same_worker,
+                    preserve_step_tags,
                     modules,
                     modules_node,
                 )
@@ -2228,6 +2253,7 @@ async fn reduce_flow<'c>(
                         workspace_id,
                         failure_module,
                         same_worker,
+                        preserve_step_tags,
                         &mut branch.modules,
                         &mut branch.modules_node,
                     )
@@ -2239,6 +2265,7 @@ async fn reduce_flow<'c>(
                     workspace_id,
                     failure_module,
                     same_worker,
+                    preserve_step_tags,
                     default,
                     default_node,
                 )
@@ -2252,6 +2279,7 @@ async fn reduce_flow<'c>(
                         workspace_id,
                         failure_module,
                         same_worker,
+                        preserve_step_tags,
                         &mut branch.modules,
                         &mut branch.modules_node,
                     )

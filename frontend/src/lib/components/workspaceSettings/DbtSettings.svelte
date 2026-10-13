@@ -57,8 +57,9 @@
 </script>
 
 <script lang="ts">
-	import { Plus, Trash } from 'lucide-svelte'
+	import { Plus } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
+	import CloseButton from '../common/CloseButton.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import DataTable from '../table/DataTable.svelte'
@@ -66,7 +67,7 @@
 	import Row from '../table/Row.svelte'
 	import Cell from '../table/Cell.svelte'
 	import SettingsFooter from './SettingsFooter.svelte'
-	import Description from '$lib/components/Description.svelte'
+	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -105,20 +106,11 @@
 	}
 </script>
 
-<Description link="https://www.windmill.dev/docs/getting_started/scripts_quickstart/dbt">
-	Where dbt projects in this workspace run. A project names a warehouse by name in its descriptor (<span
-		class="font-mono">profile.warehouse</span
-	>) and reaches
-	<span class="font-mono">{DEFAULT_WAREHOUSE}</span> when it names none, so a project carries no
-	connection of its own. The name is also what its tables are keyed on in the asset graph (<span
-		class="font-mono">dbt://{DEFAULT_WAREHOUSE}/schema/table</span
-	>), so two projects on one warehouse share their nodes. Each entry points either at one of
-	Windmill's own connection resources, whose fields are translated into a dbt target, or at a
-	<span class="font-mono">dbt_profile</span> resource, which carries a
-	<span class="font-mono">profiles.yml</span> target as it is and so reaches any adapter dbt has. Configuring
-	one here is what makes it available: anyone who may run a dbt script builds with it and reads its models,
-	without being granted the resource, the same bargain workspace object storage makes.
-</Description>
+<SettingsPageHeader
+	title="dbt warehouses"
+	description={`Where dbt projects in this workspace run. A project picks a warehouse by name with <span class='font-mono'>profile.warehouse</span> in its descriptor, and gets <span class='font-mono'>${DEFAULT_WAREHOUSE}</span> when it names none. Point each warehouse at a Windmill connection resource, or at a <span class='font-mono'>dbt_profile</span> resource holding a <span class='font-mono'>profiles.yml</span> target for any other adapter. Anyone who can run a dbt script builds with these warehouses without being granted the resource.`}
+	link="https://www.windmill.dev/docs/getting_started/scripts_quickstart/dbt"
+/>
 
 <DataTable>
 	<Head>
@@ -154,14 +146,10 @@
 						class="min-w-24"
 					/>
 				</Cell>
-				<Cell last>
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						startIcon={{ icon: Trash }}
-						iconOnly
-						on:click={() => {
+				<Cell last class="w-12">
+					<CloseButton
+						small
+						on:close={() => {
 							dbtSettings.warehouses = dbtSettings.warehouses.filter((_, j) => j !== i)
 						}}
 					/>
@@ -170,19 +158,21 @@
 		{/each}
 		<Row>
 			<Cell first colspan={4}>
-				<Button
-					size="sm"
-					btnClasses="max-w-fit"
-					variant="default"
-					on:click={() => {
-						dbtSettings.warehouses = [
-							...dbtSettings.warehouses,
-							{ name: dbtSettings.warehouses.length === 0 ? DEFAULT_WAREHOUSE : '' }
-						]
-					}}
-				>
-					<Plus /> New warehouse
-				</Button>
+				<div class="flex justify-center">
+					<Button
+						unifiedSize="md"
+						variant="default"
+						startIcon={{ icon: Plus }}
+						onclick={() => {
+							dbtSettings.warehouses = [
+								...dbtSettings.warehouses,
+								{ name: dbtSettings.warehouses.length === 0 ? DEFAULT_WAREHOUSE : '' }
+							]
+						}}
+					>
+						New warehouse
+					</Button>
+				</div>
 			</Cell>
 		</Row>
 	</tbody>

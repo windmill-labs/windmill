@@ -1,3 +1,5 @@
+import type { RunningTurn } from './api'
+
 export type ChatRole = 'user' | 'assistant' | 'tool' | 'system'
 
 /**
@@ -61,6 +63,11 @@ export interface Conversation {
    * server has listed the conversation; unset for one only this client has seen.
    */
   isTest?: boolean
+  /**
+   * The turn the conversation was still answering when the server listed it: started in
+   * another tab, or before this chat was created. Pass it to `resumeTurn` to follow it.
+   */
+  runningTurn?: RunningTurn
 }
 
 export interface ChatState {
@@ -164,8 +171,17 @@ export interface Chat {
    * Sends a message in the current conversation, starting one when there is none. Resolves
    * when the answer is complete. Rejects when the message could not be sent at all — a turn
    * already running, an attachment that failed to upload — without touching the transcript.
+   * A conversation still answering a message sent elsewhere rejects with `TurnRunningError`:
+   * follow that turn with `resumeTurn`, then send again.
    */
   sendMessage(text: string, options?: SendMessageOptions): Promise<void>
+  /**
+   * Follows a turn of the current conversation that this chat did not start, as named by
+   * `Conversation.runningTurn` or a `TurnRunningError`: its answer streams into `messages`
+   * from the start and the turn finishes like one sent here. Server history only; resolves
+   * when the answer is complete, at once when a turn is already being followed.
+   */
+  resumeTurn(turn: RunningTurn): Promise<void>
   /** Stops following the answer and asks Windmill to cancel the run. */
   stop(): Promise<void>
   newConversation(): void
@@ -183,6 +199,11 @@ export interface Chat {
   /** Sets a conversation's title. The list keeps its order: only a turn moves a conversation. */
   renameConversation(conversationId: string, title: string): Promise<void>
   loadOlderMessages(): Promise<void>
+  /**
+   * Reads what the current conversation gained since its newest message held here, such
+   * as a turn another tab ran. Server history only; does nothing while a turn is followed.
+   */
+  refreshMessages(): Promise<void>
   /** Stops background work (stream, polling) and writes local history out. The chat stays usable. */
   destroy(): void
 }

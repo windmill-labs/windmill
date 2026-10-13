@@ -46,7 +46,6 @@
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { base } from '$lib/base'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
 	import {
@@ -408,7 +407,7 @@
 							{/if}
 							<a
 								target="_blank"
-								href={`${base}/run/${testJob.uuid}?workspace=${$workspaceStore}`}
+								href={`/run/${testJob.uuid}?workspace=${$workspaceStore}`}
 								class="inline-flex items-center gap-1"
 							>
 								{testJob.uuid}

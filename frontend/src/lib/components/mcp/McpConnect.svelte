@@ -8,7 +8,6 @@
 	import McpServerOAuthConnect from './McpServerOAuthConnect.svelte'
 	import OauthScopes from '$lib/components/OauthScopes.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
-	import { base } from '$lib/base'
 	import { onDestroy, untrack } from 'svelte'
 	import { ExternalLink, Pen } from 'lucide-svelte'
 	import { MCP_REGISTRY, findMcpEntry, findMcpEntryByUrl } from './registry'
@@ -449,7 +448,7 @@
 				Under <span class="font-mono">u/{$userStore?.username ?? 'you'}</span> it is yours alone; in
 				a folder, everyone in it can use the connection and its token. Saved as an
 				<a
-					href="{base}/resources?workspace={ws}"
+					href="/resources?workspace={ws}"
 					target="_blank"
 					rel="noopener noreferrer"
 					class="text-accent hover:underline inline-flex items-center gap-1"

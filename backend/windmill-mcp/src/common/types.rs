@@ -67,6 +67,11 @@ pub struct SchemaType {
     pub properties: HashMap<String, Value>,
     #[serde(default)]
     pub required: Vec<String>,
+    /// The author's guidance for choosing the inputs. A `Value` so that a schema carrying
+    /// anything but a string here still parses, and never serialized: it belongs in the
+    /// tool description, not in the input schema a client validates arguments against.
+    #[serde(default, skip_serializing)]
+    pub prompt_for_ai: Option<Value>,
 }
 
 fn default_schema_type() -> String {
@@ -75,7 +80,22 @@ fn default_schema_type() -> String {
 
 impl Default for SchemaType {
     fn default() -> Self {
-        Self { r#type: "object".to_string(), properties: HashMap::new(), required: vec![] }
+        Self {
+            r#type: "object".to_string(),
+            properties: HashMap::new(),
+            required: vec![],
+            prompt_for_ai: None,
+        }
+    }
+}
+
+impl SchemaType {
+    pub fn prompt_for_ai(&self) -> Option<&str> {
+        self.prompt_for_ai
+            .as_ref()
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|prompt| !prompt.is_empty())
     }
 }
 

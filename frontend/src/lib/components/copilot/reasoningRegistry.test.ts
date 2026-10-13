@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
 	applyReasoningToConfig,
+	completionsRejectsToolsWithReasoning,
+	explicitOffToken,
 	getReasoningCapability,
 	REASONING_OFF,
 	resolveEffectiveReasoning,
@@ -8,6 +10,8 @@ import {
 	stripLegacyThinkingSuffix,
 	supportsReasoning
 } from './reasoningRegistry'
+import type { AIProvider } from '$lib/gen'
+import parity from './reasoningParity.json'
 
 describe('stripLegacyThinkingSuffix', () => {
 	it('removes the deprecated /thinking suffix', () => {
@@ -261,6 +265,42 @@ describe('supportsReasoning (static registry)', () => {
 		expect(getReasoningCapability('openrouter', 'x-ai/grok-4').canDisable).toBe(false)
 		expect(getReasoningCapability('openrouter', 'deepseek/deepseek-r1').canDisable).toBe(false)
 	})
+	it('never sends a disable the 5.5 point releases and gpt-6-astra reject', () => {
+		// Live-verified: Claude 5.5 rejects `thinking: disabled`, gpt-6-astra rejects `none`.
+		for (const [provider, model] of [
+			['anthropic', 'claude-sonnet-5-5'],
+			['anthropic', 'claude-opus-5-5'],
+			['aws_bedrock', 'global.anthropic.claude-opus-5-5-v1:0'],
+			['openai', 'gpt-6-astra']
+		] as const) {
+			expect(getReasoningCapability(provider, model).canDisable, model).toBe(false)
+			expect(explicitOffToken(provider, model), model).toBeUndefined()
+		}
+		expect(getReasoningCapability('openrouter', 'anthropic/claude-sonnet-5.5').canDisable).toBe(
+			false
+		)
+		expect(explicitOffToken('openrouter', 'anthropic/claude-sonnet-5.5')).toBeUndefined()
+		// A dated Claude 5 id is not a point release.
+		expect(explicitOffToken('anthropic', 'claude-sonnet-5-20260101')).toBe('none')
+		expect(explicitOffToken('openai', 'gpt-6-sol')).toBe('none')
+		expect(getReasoningCapability('openai', 'gpt-6-luna')).toMatchObject({
+			supported: true,
+			canDisable: true,
+			levels: ['low', 'medium', 'high', 'xhigh', 'max']
+		})
+	})
+	it("reads Azure's gpt-35-turbo as gpt-3.5, not a gpt-5+ reasoning model", () => {
+		expect(supportsReasoning('azure_openai', 'gpt-35-turbo')).toBe(false)
+		expect(supportsReasoning('openai', 'gpt-35-turbo-16k')).toBe(false)
+	})
+	it('finds the models that refuse function tools with reasoning on Chat Completions', () => {
+		for (const model of ['gpt-5.5', 'gpt-5.6-sol', 'gpt-6-astra']) {
+			expect(completionsRejectsToolsWithReasoning('openai', model), model).toBe(true)
+		}
+		for (const model of ['gpt-5', 'gpt-5.1', 'gpt-35-turbo', 'o3']) {
+			expect(completionsRejectsToolsWithReasoning('azure_openai', model), model).toBe(false)
+		}
+	})
 	it('forwards an explicit off as effort none through OpenRouter', () => {
 		expect(
 			resolveRequestReasoning({
@@ -351,6 +391,23 @@ describe('Azure AI Foundry reasoning follows the model family', () => {
 		expect(supportsReasoning('azure_foundry', 'gpt-4o')).toBe(false)
 		expect(supportsReasoning('azure_foundry', 'DeepSeek-R1')).toBe(false)
 	})
+})
+
+describe('backend parity', () => {
+	// windmill-ai's `providers/mod.rs` test reads the same file. The backend rules see the
+	// model id alone, so the file holds only rows whose answer doesn't depend on the
+	// provider: a Bedrock- or Gemini-Pro-specific row belongs in the tests above.
+	it.each(parity)(
+		'$provider $model',
+		({ provider, model, canDisable, completionsToolsNeedOff }) => {
+			const capability = getReasoningCapability(provider as AIProvider, model)
+			expect(capability.supported).toBe(true)
+			expect(capability.canDisable).toBe(canDisable)
+			expect(completionsRejectsToolsWithReasoning(provider as AIProvider, model)).toBe(
+				completionsToolsNeedOff
+			)
+		}
+	)
 })
 
 describe('resolveEffectiveReasoning', () => {

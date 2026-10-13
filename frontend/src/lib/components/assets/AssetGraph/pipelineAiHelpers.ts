@@ -9,7 +9,12 @@ import {
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import { assetUri, autoOutputAsset, type PipelineOutputKind } from './pipelineTemplates'
 import { parsePipelineAnnotations, scd2CurrentTargetPath } from './parsePipelineAnnotations'
-import type { AssetGraphResponse } from './types'
+import type {
+	AssetGraphResponse,
+	PipelineTriggerDraft,
+	PipelineTriggerDraftKind
+} from './types'
+import { defaultTriggerPath, isDraftableTriggerKind, triggerDraftKey } from './pipelineTriggerDrafts'
 import type {
 	PipelineAIChatHelpers,
 	PipelineContext,
@@ -62,20 +67,26 @@ export type PipelineAiHelperDeps = {
 	onForgetPath?: (path: string) => void
 	/** Notify the caller a test run started so it can light up its run UI. */
 	onRunStarted?: (jobId: string, path: string) => void
+	/** Whether the folder has trigger drafts, which live beside the script drafts. */
+	hasTriggerDrafts?: () => boolean
+	getTriggerDrafts: () => Map<string, PipelineTriggerDraft>
+	/** False when another trigger draft already holds the config's path. */
+	setTriggerDraft: (d: PipelineTriggerDraft, previousKey?: string) => boolean
 }
 
 export function makePipelineScript(
 	language: ScriptLang,
 	scriptPath: string,
 	content: string,
-	createdAt: string
+	createdAt: string,
+	summary = ''
 ): Script {
 	// Cast through unknown: a local draft only needs path/language/content/schema;
 	// the many readonly deployment fields on Script don't matter until createScript.
 	return {
 		hash: '',
 		path: scriptPath,
-		summary: '',
+		summary,
 		description: '',
 		content,
 		schema: emptySchema(),
@@ -199,7 +210,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 					path: r.path,
 					language: draft?.script.language,
 					unsaved: r.unsaved ?? false,
-					summary: draft?.script.summary || undefined,
+					summary: (draft ? draft.script.summary : r.summary) || undefined,
 					writes: [...new Set(writes)],
 					reads: [...new Set(reads)],
 					triggers: [...new Set(triggers)]
@@ -213,7 +224,36 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 		}
 	}
 
+	// Declared `on <kind>` bindings of a node that a trigger row or draft fills.
+	// Webhook and data-upload need none, so they never count as unconfigured.
+	function unconfiguredTriggers(path: string, content: string): PipelineTriggerDraftKind[] {
+		const declared = parsePipelineAnnotations(content)
+			.nativeTriggers.map((n) => n.kind)
+			.filter(isDraftableTriggerKind)
+		const drafted = new Set(
+			[...deps.getTriggerDrafts().values()]
+				.filter((d) => d.config.script_path === path)
+				.map((d) => d.kind)
+		)
+		const deployed = new Set(
+			deps
+				.getResolvedGraph()
+				.triggers.filter(
+					(t) =>
+						t.trigger_kind !== 'asset' &&
+						t.runnable_kind === 'script' &&
+						t.runnable_path === path &&
+						t.path &&
+						!t.missing
+				)
+				.map((t) => t.trigger_kind)
+		)
+		return [...new Set(declared)].filter((k) => !drafted.has(k) && !deployed.has(k))
+	}
+
 	const helpers: PipelineAIChatHelpers = {
+		getFolder: folderName,
+		hasDrafts: () => deps.getDrafts().size > 0 || (deps.hasTriggerDrafts?.() ?? false),
 		getPipelineContext: buildContext,
 		getNodeBody: async (path) => {
 			const draft = deps.getDrafts().get(path)
@@ -227,7 +267,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				return undefined
 			}
 		},
-		proposeNode: async ({ path, language, content, outputKind }) => {
+		proposeNode: async ({ path, language, content, outputKind, summary }) => {
 			deps.ensureEditable?.()
 			// build_pipeline_node creates a NEW node in the OPEN folder. Reject a path
 			// outside the folder (it would silently stage into this folder's bundle)
@@ -267,10 +307,13 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			}
 			const inferred = await inferDraftAssets(language, content)
 			// Fall back to a seeded output (from the declared output_kind) when the
-			// body doesn't yet write anything inferable.
+			// body doesn't yet write anything inferable. A `materialize` target is the
+			// output already (the canvas adds it from the annotation): a seed beside it
+			// would show as a second, default-named output.
+			const materialized = materializeWrites(content).length > 0
 			const seeded =
 				inferred.writes[0] ??
-				(outputKind
+				(outputKind && !materialized
 					? autoOutputAsset(outputKind as PipelineOutputKind, folderName(), language)
 					: undefined)
 			// Effective outputs = what actually becomes an output edge on the canvas:
@@ -280,7 +323,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: deps.newDraftLocalId(),
-				script: makePipelineScript(language, path, content, new Date().toISOString()),
+				script: makePipelineScript(language, path, content, new Date().toISOString(), summary),
 				outputAssets,
 				inputAssets: inferred.reads
 			})
@@ -298,7 +341,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				)
 			}
 		},
-		editNode: async (path, content) => {
+		editNode: async (path, content, summary) => {
 			deps.ensureEditable?.()
 			assertInFolder(path)
 			assertPipelineAnnotation(content)
@@ -319,11 +362,19 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				baseScript = await ScriptService.getScriptByPath({ workspace, path })
 			}
 			const inferred = await inferDraftAssets(baseScript.language, content)
-			const outputAssets = inferred.writes.length > 0 ? inferred.writes : existing?.outputAssets
+			// The stored outputs only stand in for a body that writes nothing inferable;
+			// with a `materialize` target the annotation is the output, so stale ones
+			// (a seeded default name, the target before a rename) must not linger.
+			const outputAssets =
+				inferred.writes.length > 0
+					? inferred.writes
+					: materializeWrites(content).length > 0
+						? undefined
+						: existing?.outputAssets
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: existing?.localId ?? deps.newDraftLocalId(),
-				script: { ...baseScript, content },
+				script: { ...baseScript, content, ...(summary !== undefined ? { summary } : {}) },
 				outputAssets,
 				inputAssets: inferred.reads
 			})
@@ -332,11 +383,60 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			deps.onProposeNode?.(path)
 			// Deployable lineage only (see proposeNode): body writes + materialize target.
 			return {
+				summary: summary ?? baseScript.summary ?? '',
 				detectedReads: inferred.reads.map(assetUri),
 				detectedWrites: dedupeAssets([...inferred.writes, ...materializeWrites(content)]).map(
 					assetUri
 				)
 			}
+		},
+		unconfiguredTriggers: async (path) => {
+			const body = await helpers.getNodeBody(path)
+			return body ? unconfiguredTriggers(path, body.content) : []
+		},
+		setNodeTrigger: async (path, kind, config) => {
+			deps.ensureEditable?.()
+			assertInFolder(path)
+			const body = await helpers.getNodeBody(path)
+			if (!body) throw new Error(`No pipeline node at '${path}'. Build it first.`)
+			const prefix = body.language === 'python3' || body.language === 'bash' ? '#' : body.language === 'duckdb' || body.language === 'postgresql' ? '--' : '//'
+			if (!parsePipelineAnnotations(body.content).nativeTriggers.some((n) => n.kind === kind)) {
+				throw new Error(
+					`'${path}' does not declare \`${prefix} on ${kind}\`. Add that annotation line with edit_pipeline_node first, so the trigger is wired to the node.`
+				)
+			}
+			const row = deps
+				.getResolvedGraph()
+				.triggers.find(
+					(t) =>
+						t.trigger_kind === kind &&
+						t.runnable_kind === 'script' &&
+						t.runnable_path === path &&
+						t.path &&
+						!t.missing &&
+						!(t as { draft?: boolean }).draft
+				)
+			if (row && 'path' in row) {
+				throw new Error(
+					`'${path}' already has a deployed ${kind} trigger at '${row.path}'. Change that one instead of adding a second.`
+				)
+			}
+			const existing = [...deps.getTriggerDrafts().values()].find(
+				(d) => d.kind === kind && d.config.script_path === path
+			)
+			const triggerPath =
+				(typeof config.path === 'string' && config.path) ||
+				existing?.config.path ||
+				defaultTriggerPath(path, kind)
+			const saved = deps.setTriggerDraft(
+				{ kind, config: { ...config, path: triggerPath, script_path: path, is_flow: false } },
+				existing ? triggerDraftKey(kind, existing.config.path) : undefined
+			)
+			if (!saved) {
+				throw new Error(`Another draft trigger already uses the path '${triggerPath}'. Pass a different config.path.`)
+			}
+			deps.onShowDrafts?.()
+			return { path: triggerPath, replaced: !!existing }
 		},
 		removeProposedNode: async (path) => {
 			if (!deps.getDrafts().has(path)) {

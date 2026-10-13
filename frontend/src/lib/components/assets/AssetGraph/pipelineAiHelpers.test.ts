@@ -8,7 +8,8 @@ import type { AssetGraphResponse } from './types'
 function makeHandle(
 	initial: Array<[string, PipelineDraft]> = [],
 	runnables: Array<{ path: string }> = [],
-	folder = 'x'
+	folder = 'x',
+	triggers: unknown[] = []
 ) {
 	let drafts = new Map(initial)
 	let forgotten: string[] = []
@@ -16,11 +17,13 @@ function makeHandle(
 		getFolder: () => folder,
 		getWorkspace: () => 'w',
 		getResolvedGraph: () =>
-			({ assets: [], runnables, edges: [], triggers: [] }) as unknown as AssetGraphResponse,
+			({ assets: [], runnables, edges: [], triggers }) as unknown as AssetGraphResponse,
 		getDrafts: () => drafts,
 		setDrafts: (next) => (drafts = next),
 		newDraftLocalId: () => 'id',
-		onForgetPath: (p) => forgotten.push(p)
+		onForgetPath: (p) => forgotten.push(p),
+		getTriggerDrafts: () => new Map(),
+		setTriggerDraft: () => true
 	})
 	return { handle, drafts: () => drafts, forgotten: () => forgotten }
 }
@@ -155,6 +158,30 @@ describe('pipeline AI direct-draft helpers', () => {
 		expect(res.detectedWrites).toEqual(['ducklake://main/out'])
 	})
 
+	// The canvas draws an inactive draft's stored outputs beside its materialize
+	// target, so a seeded default left on a materialize node shows a phantom asset.
+	it('keeps no seeded or stale output on a node with a materialize target', async () => {
+		vi.spyOn(ScriptService, 'getScriptByPath').mockRejectedValue(new Error('404'))
+		const { handle, drafts } = makeHandle()
+		await handle.proposeNode({
+			path: 'f/x/mat',
+			language: 'duckdb' as any,
+			content: '-- pipeline\n-- materialize ducklake://main/abc\nSELECT 1',
+			outputKind: 'ducklake' as any
+		})
+		expect(drafts().get('f/x/mat')?.outputAssets).toBeUndefined()
+
+		await handle.proposeNode({
+			path: 'f/x/later',
+			language: 'duckdb' as any,
+			content: '-- pipeline\nSELECT 1',
+			outputKind: 'ducklake' as any
+		})
+		expect(drafts().get('f/x/later')?.outputAssets?.length).toBeGreaterThan(0)
+		await handle.editNode('f/x/later', '-- pipeline\n-- materialize ducklake://main/abc\nSELECT 1')
+		expect(drafts().get('f/x/later')?.outputAssets).toBeUndefined()
+	})
+
 	it('editNode rejects a path outside the open folder', async () => {
 		const { handle, drafts } = makeHandle()
 		await expect(handle.editNode('f/other/foo', '-- pipeline')).rejects.toThrow(/open folder/)
@@ -180,5 +207,25 @@ describe('pipeline AI direct-draft helpers', () => {
 		expect(d?.script.description).toBe('desc')
 		expect(d?.script.tag).toBe('custom')
 		expect(d?.script.content).toBe('-- pipeline\nSELECT 2')
+	})
+
+	it("does not take a flow's schedule at the same path for the script's", async () => {
+		const flowSchedule = {
+			trigger_kind: 'schedule',
+			runnable_kind: 'flow',
+			runnable_path: 'f/x/ingest',
+			path: 'f/x/flow_schedule'
+		}
+		const content = '# pipeline\n# on schedule\ndef main():\n    return 1'
+		const { handle } = makeHandle(
+			[['f/x/ingest', draft({ script: { content, language: 'python3' } as any })]],
+			[],
+			'x',
+			[flowSchedule]
+		)
+		expect(await handle.unconfiguredTriggers('f/x/ingest')).toEqual(['schedule'])
+		await expect(
+			handle.setNodeTrigger('f/x/ingest', 'schedule', { schedule: '0 0 6 * * *', timezone: 'UTC' })
+		).resolves.toMatchObject({ path: 'f/x/ingest_schedule' })
 	})
 })

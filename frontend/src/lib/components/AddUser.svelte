@@ -261,13 +261,13 @@
 						<ToggleButton
 							value="developer"
 							label="Developer"
-							tooltip="Can author and edit scripts/flows/apps within its path. Counts as 1 seat. Use this for CLI sync tokens."
+							tooltip="Can author and edit scripts/flows/apps within its path. Counts as 0.5 seat. Use this for CLI sync tokens."
 							{item}
 						/>
 						<ToggleButton
 							value="admin"
 							label="Admin"
-							tooltip="Full workspace admin. Counts as 1 seat. Grant only when the service account needs to manage workspace settings."
+							tooltip="Full workspace admin. Counts as 0.5 seat. Grant only when the service account needs to manage workspace settings."
 							{item}
 						/>
 					{/snippet}

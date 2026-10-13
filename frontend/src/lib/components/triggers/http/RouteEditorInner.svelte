@@ -22,13 +22,8 @@
 		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds } from '$lib/stores'
-	import {
-		canWrite,
-		capitalize,
-		emptyString,
-		generateRandomString,
-		sendUserToast
-	} from '$lib/utils'
+	import { capitalize, emptyString, generateRandomString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -81,6 +76,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	const editRights = useEditRights()
 
 	let {
 		useDrawer = true,
@@ -163,7 +159,9 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
 	)
 	let extraPerms = $state<Record<string, boolean> | undefined>(undefined)
 	let summary: string | undefined = $state()
@@ -275,6 +273,7 @@
 	) {
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -589,6 +588,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -724,6 +724,7 @@
 											{#key is_static_website}
 												<FileUpload
 													folderOnly={is_static_website}
+													disabled={!can_write}
 													allowMultiple={false}
 													randomFileKey={true}
 													on:addition={(evt) => {

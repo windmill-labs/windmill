@@ -4,18 +4,33 @@
 	import { Button } from '$lib/components/common'
 	import Tooltip from '../Tooltip.svelte'
 	import { toggleWorkspaceErrorHandler } from './errorHandlerToggle'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		kind: 'script' | 'flow'
 		scriptOrFlowPath: string
 		errorHandlerMuted: boolean | undefined
 		iconOnly?: boolean
+		unifiedSize?: 'xs' | 'sm' | 'md' | 'lg'
 	}
 
-	let { kind, scriptOrFlowPath, errorHandlerMuted = $bindable(), iconOnly = true }: Props = $props()
+	let {
+		kind,
+		scriptOrFlowPath,
+		errorHandlerMuted = $bindable(),
+		iconOnly = true,
+		unifiedSize = 'md'
+	}: Props = $props()
 
 	async function toggleErrorHandler(): Promise<void> {
-		const next = await toggleWorkspaceErrorHandler(kind, scriptOrFlowPath, errorHandlerMuted)
+		const next = await toggleWorkspaceErrorHandler(
+			$operatingWorkspace,
+			kind,
+			scriptOrFlowPath,
+			errorHandlerMuted
+		)
 		if (next !== undefined) errorHandlerMuted = next
 	}
 </script>
@@ -24,7 +39,7 @@
 	title={errorHandlerMuted === undefined || !errorHandlerMuted
 		? 'Disable workspace error handler for this script'
 		: 'Enable workspace error handler for this script'}
-	unifiedSize="md"
+	{unifiedSize}
 	on:click={toggleErrorHandler}
 	variant="subtle"
 	startIcon={{

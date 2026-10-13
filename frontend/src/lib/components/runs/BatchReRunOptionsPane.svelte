@@ -13,7 +13,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import { JobService, type InputTransform, type ListSelectedJobGroupsResponse } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '../operatingWorkspace.svelte'
 	import type { Schema } from '$lib/common'
 	import InputTransformForm from '../InputTransformForm.svelte'
 	import type { FlowPropPickerConfig, PropPickerContext } from '../prop_picker'
@@ -43,6 +43,8 @@
 		onConfirm: (options: BatchReRunOptions) => void
 	} = $props()
 
+	const operatingWorkspace = useOperatingWorkspace()
+
 	let selected: JobGroup | undefined = $state()
 	let options: BatchReRunOptions = $state({ flow: {}, script: {} })
 	watch(
@@ -65,7 +67,7 @@
 
 	const listSelectedJobsSchemaCache = new Map<string, JobGroup>()
 	async function fetchJobGroups(): Promise<JobGroup[]> {
-		if (!$workspaceStore) return []
+		if (!$operatingWorkspace) return []
 
 		const cachedSelectedIds = selectedIds.filter((id) => listSelectedJobsSchemaCache.has(id))
 		const nonCachedSelectedIds = selectedIds.filter((id) => !listSelectedJobsSchemaCache.has(id))
@@ -75,7 +77,7 @@
 		)
 		const newJobGroups = nonCachedSelectedIds.length
 			? await JobService.listSelectedJobGroups({
-					workspace: $workspaceStore,
+					workspace: $operatingWorkspace,
 					requestBody: nonCachedSelectedIds
 				})
 			: []

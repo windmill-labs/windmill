@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,\n         occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),\n         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip),\n         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id) WHERE worker = $6",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray",
+        "Float4",
+        "Int8",
+        "Int8",
+        "Text",
+        "Int8",
+        "Int8",
+        "Float4",
+        "Float4",
+        "Float4",
+        "Bool",
+        "Varchar",
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d267e03115ee74ab7ca7edd8a010e424819133ce38dab7300a5fca4c6f54536d"
+}

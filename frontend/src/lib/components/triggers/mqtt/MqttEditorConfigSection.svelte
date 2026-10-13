@@ -128,11 +128,26 @@
 												>
 											</span>
 										</div>
-										<ToggleButtonGroup bind:selected={v.qos}>
-											{#snippet children({ item })}
-												<ToggleButton value={'qos0'} label="At most once (QoS 0)" {item} />
-												<ToggleButton value={'qos1'} label="At least once (QoS 1)" {item} />
-												<ToggleButton value={'qos2'} label="Exactly once (QoS 2)" {item} />
+										<ToggleButtonGroup bind:selected={v.qos} disabled={!can_write}>
+											{#snippet children({ item, disabled })}
+												<ToggleButton
+													value={'qos0'}
+													label="At most once (QoS 0)"
+													{item}
+													{disabled}
+												/>
+												<ToggleButton
+													value={'qos1'}
+													label="At least once (QoS 1)"
+													{item}
+													{disabled}
+												/>
+												<ToggleButton
+													value={'qos2'}
+													label="Exactly once (QoS 2)"
+													{item}
+													{disabled}
+												/>
 											{/snippet}
 										</ToggleButtonGroup>
 									</label>
@@ -159,8 +174,9 @@
 							</div>
 							<button
 								transition:fade|local={{ duration: 100 }}
-								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
+								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
 								aria-label="Clear"
+								disabled={!can_write}
 								onclick={() => {
 									subscribe_topics = subscribe_topics.filter((_, index) => index !== i)
 								}}
@@ -175,6 +191,7 @@
 							variant="default"
 							size="xs"
 							btnClasses="mt-1"
+							disabled={!can_write}
 							on:click={() => {
 								subscribe_topics = [
 									...subscribe_topics,

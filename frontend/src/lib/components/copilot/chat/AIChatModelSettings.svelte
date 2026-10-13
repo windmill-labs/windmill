@@ -22,8 +22,6 @@
 	} from '$lib/aiStore'
 	import { WorkspaceService, type AIProvider, type AIProviderModel } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$lib/base'
-	import AIPromptsModal from '$lib/components/settings/AIPromptsModal.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import {
@@ -48,7 +46,7 @@
 	}: { promptSettings?: boolean } = $props()
 
 	const aiChatManager = getAiChatManager()
-	const AI_SETTINGS_HREF = `${base}/workspace_settings?tab=ai`
+	const AI_SETTINGS_HREF = '/workspace_settings?tab=ai'
 
 	let providerModel = $derived(
 		($copilotSessionModel ??
@@ -95,6 +93,11 @@
 	// ---- prompt parameters (User / Workspace custom prompts) ----
 	let mode = $derived(aiChatManager.mode)
 	let modalOpen = $state(false)
+	// Sticky, so the prompts modal mounts on first open and then stays for its close animation.
+	let promptsModalRequested = $state(false)
+	$effect(() => {
+		if (modalOpen) promptsModalRequested = true
+	})
 	let modalScope = $state<'user' | 'workspace'>('user')
 	let customPrompts = $state<Record<string, string>>({})
 	let initialPrompt = $state('')
@@ -285,20 +288,24 @@
 
 <ChatModelSettings {config} />
 
-{#if promptSettings}
-	<AIPromptsModal
-		bind:open={modalOpen}
-		bind:customPrompts
-		scope={modalScope}
-		modes={[activeMode]}
-		readOnly={modalReadOnly}
-		{readOnlyReason}
-		onSave={modalReadOnly ? undefined : save}
-		onReset={reset}
-		{hasChanges}
-		title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
-		target="body"
-		fixedHeight="sm"
-		settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
-	/>
+{#if promptSettings && promptsModalRequested}
+	<!-- Dynamic, on first open: statically, the prompts modal pulls the whole chat manager into
+	     the home page. -->
+	{#await import('$lib/components/settings/AIPromptsModal.svelte') then AIPromptsModal}
+		<AIPromptsModal.default
+			bind:open={modalOpen}
+			bind:customPrompts
+			scope={modalScope}
+			modes={[activeMode]}
+			readOnly={modalReadOnly}
+			{readOnlyReason}
+			onSave={modalReadOnly ? undefined : save}
+			onReset={reset}
+			{hasChanges}
+			title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
+			target="body"
+			fixedHeight="sm"
+			settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
+		/>
+	{/await}
 {/if}

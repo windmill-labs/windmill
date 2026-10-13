@@ -78,6 +78,8 @@ pub struct HubScriptResult {
     id: i64,
     version_id: i64,
     summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
     app: String,
     kind: String,
     score: f32,
@@ -163,6 +165,9 @@ struct HubScript {
     id: i64,
     version_id: i64,
     summary: String,
+    // Nearly a fifth of hub scripts carry an explicit `"description": null`; a bare
+    // String here fails the whole blob and takes hub search down with it.
+    description: Option<String>,
     app: String,
     kind: String,
     embedding: Vec<f32>,
@@ -360,6 +365,10 @@ impl EmbeddingsDb {
             let mut hm = HashMap::new();
             hm.insert("ask_id".to_string(), script.ask_id.clone().to_string());
             hm.insert("summary".to_string(), script.summary.clone());
+            hm.insert(
+                "description".to_string(),
+                script.description.clone().unwrap_or_default(),
+            );
             hm.insert("app".to_string(), script.app.clone());
             hm.insert("kind".to_string(), script.kind.clone());
             hm.insert("id".to_string(), script.id.clone().to_string());
@@ -517,6 +526,10 @@ impl EmbeddingsDb {
                         .get("summary")
                         .ok_or(Error::msg("no summary"))?
                         .to_owned(),
+                    description: metadata
+                        .get("description")
+                        .filter(|d| !d.is_empty())
+                        .map(|d| d.to_owned()),
                     app: metadata.get("app").ok_or(Error::msg("no app"))?.to_owned(),
                     kind: metadata
                         .get("kind")
@@ -706,6 +719,31 @@ pub fn global_service() -> Router {
 #[cfg(all(test, feature = "embedding"))]
 mod tests {
     use super::trim_to_top_score;
+
+    // The blob carries an explicit `"description": null` for roughly a fifth of hub
+    // scripts, and an older hub omits the key entirely. A bare String here fails the
+    // whole 155 MB array and takes hub search down with it.
+    #[test]
+    fn reads_a_hub_script_whether_or_not_it_has_a_description() {
+        let present = r#"{"ask_id":1,"id":2,"version_id":3,"summary":"s","description":"d","app":"a","kind":"script","embedding":[]}"#;
+        let null = r#"{"ask_id":1,"id":2,"version_id":3,"summary":"s","description":null,"app":"a","kind":"script","embedding":[]}"#;
+        let missing = r#"{"ask_id":1,"id":2,"version_id":3,"summary":"s","app":"a","kind":"script","embedding":[]}"#;
+
+        assert_eq!(
+            serde_json::from_str::<super::HubScript>(present)
+                .unwrap()
+                .description,
+            Some("d".to_string())
+        );
+        for without in [null, missing] {
+            assert_eq!(
+                serde_json::from_str::<super::HubScript>(without)
+                    .unwrap()
+                    .description,
+                None
+            );
+        }
+    }
 
     #[test]
     fn trims_scores_more_than_5pct_below_top() {

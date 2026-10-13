@@ -1,10 +1,55 @@
+use std::borrow::Cow;
+
 use async_trait::async_trait;
-use windmill_common::{client::AuthedClient, error::Error};
+use windmill_common::{client::AuthedClient, error::Error, utils::strip_json_nul};
 use windmill_types::s3::S3Object;
 
 use crate::ai_types::OpenAIToolCall;
 use crate::proxy::{ProxyBuildArgs, ProxyRequest};
 use crate::types::*;
+
+/// Only explicit input-context rejections warrant dropping conversation history.
+/// Rate limits, output-token limits and generic validation errors must propagate.
+pub fn is_context_length_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("context_length_exceeded")
+        || message.contains("maximum context length")
+        || message.contains("prompt is too long")
+        || message.contains("exceed context limit")
+        || message.contains("input is too long for requested model")
+        || (message.contains("input token count") && message.contains("exceeds the maximum"))
+        || message.contains("too many input tokens")
+}
+
+#[cfg(test)]
+mod context_error_tests {
+    use super::is_context_length_error;
+
+    #[test]
+    fn recognizes_context_rejections_without_retrying_other_provider_errors() {
+        for message in [
+            r#"{"error":{"code":"context_length_exceeded"}}"#,
+            "This model's maximum context length is 128000 tokens",
+            "prompt is too long: 210000 tokens > 200000 maximum",
+            "input length and `max_tokens` exceed context limit: 199000 + 8192 > 200000",
+            "The input token count (10000) exceeds the maximum number of tokens allowed (8192)",
+            "ValidationException: Input is too long for requested model.",
+            "ValidationException: Too many input tokens",
+        ] {
+            assert!(is_context_length_error(message), "{message}");
+        }
+        for message in [
+            "Rate limit exceeded: tokens per minute",
+            "max_tokens exceeds the maximum output tokens",
+            "Invalid tool schema",
+            "Additional properties are not allowed: stream_options",
+            "Request body too large",
+            "Internal server error",
+        ] {
+            assert!(!is_context_length_error(message), "{message}");
+        }
+    }
+}
 
 /// Arguments for building an AI request
 pub struct BuildRequestArgs<'a> {
@@ -47,6 +92,39 @@ pub enum ParsedResponse {
     Image {
         base64_data: String,
     },
+}
+
+impl ParsedResponse {
+    /// Drops every U+0000 the model emitted. Postgres stores neither a NUL in `text` nor its
+    /// `\u0000` escape in `jsonb`, and this output is written to both: tool job args, the flow
+    /// status, agent memory, conversation rows.
+    pub fn without_nul(mut self) -> Self {
+        fn strip(s: &mut String) {
+            if s.contains('\0') {
+                s.retain(|c| c != '\0');
+            }
+        }
+        if let ParsedResponse::Text { content, reasoning, tool_calls, annotations, .. } = &mut self
+        {
+            for text in [content, reasoning].into_iter().flatten() {
+                strip(text);
+            }
+            for annotation in annotations {
+                strip(&mut annotation.url);
+                annotation.title.as_mut().into_iter().for_each(strip);
+            }
+            for tool_call in tool_calls {
+                strip(&mut tool_call.id);
+                strip(&mut tool_call.function.name);
+                // Arguments are serialized JSON, where a NUL is spelled as its escape.
+                strip(&mut tool_call.function.arguments);
+                if let Cow::Owned(stripped) = strip_json_nul(&tool_call.function.arguments) {
+                    tool_call.function.arguments = stripped;
+                }
+            }
+        }
+        self
+    }
 }
 
 /// Trait for streaming AI events to a sink (e.g., database persistence).

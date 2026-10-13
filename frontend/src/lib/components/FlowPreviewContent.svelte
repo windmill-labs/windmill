@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		ApiError,
 		type Job,
 		JobService,
 		type RestartedFrom,
@@ -27,7 +28,7 @@
 		RefreshCw,
 		X
 	} from 'lucide-svelte'
-	import { sendUserToast, type StateStore } from '$lib/utils'
+	import { DynamicInput, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
@@ -43,9 +44,13 @@
 	import FlowRestartButton from './FlowRestartButton.svelte'
 	import { useNestedRestartState } from './useNestedRestartState.svelte'
 	import { buildFlowRecording, downloadRecordingJson } from './recording/runRecording'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -216,9 +221,12 @@
 			}
 			onRunPreview?.(newJobId)
 		} catch (e) {
-			sendUserToast('Could not run preview', true, undefined, e.toString())
 			isRunning = false
 			jobId = undefined
+			// The chat follows the turn its conversation is still answering rather than
+			// reporting a failed run, so the refusal goes back to it.
+			if (conversationId && e instanceof ApiError && e.status === 409) throw e
+			sendUserToast('Could not run preview', true, undefined, e.toString())
 		}
 		schemaFormWithArgPicker?.refreshHistory()
 		return newJobId
@@ -465,12 +473,14 @@
 				<div class="flex flex-row justify-center w-full mb-6">
 					<FlowChat
 						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
-							await runPreview(
+							// Its own run's id, not `jobId`: several test chats can start a run at
+							// once, and `jobId` is whichever started last.
+							const started = await runPreview(
 								{ user_message: userMessage, ...(additionalInputs ?? {}) },
 								undefined,
 								conversationId
 							)
-							return jobId ?? ''
+							return started ?? ''
 						}}
 						conversationKind="test"
 						frame="boxed"
@@ -546,14 +556,14 @@
 											savedArgs = $state.snapshot(previewArgs.val)
 										}}
 										bind:isValid
-										helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&
-										flowStore.val.schema?.['x-windmill-dyn-select-lang']
-											? {
-													source: 'inline',
-													code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
-													lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as ScriptLang
-												}
-											: undefined}
+										helperScript={DynamicInput.flowHelperScript(
+											flowStore.val.schema?.['x-windmill-dyn-select-code'] as string | undefined,
+											flowStore.val.schema?.['x-windmill-dyn-select-lang'] as
+												| ScriptLang
+												| undefined,
+											$initialPathStore,
+											operatingUser.current?.operator
+										)}
 									/>
 								</div>
 							{/key}

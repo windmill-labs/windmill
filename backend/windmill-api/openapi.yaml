@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.817.0
+  version: 1.830.0
   title: Windmill API
 
   contact:
@@ -1398,6 +1398,14 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: background
+          description: |
+            return once the request is validated and create the fork in the background, answering
+            with the creation id getForkCreationStatus reads
+          in: query
+          required: false
+          schema:
+            type: boolean
       requestBody:
         description: new forked workspace
         required: true
@@ -1407,11 +1415,44 @@ paths:
               $ref: "#/components/schemas/CreateWorkspaceFork"
       responses:
         "201":
-          description: forked workspace created
+          description: forked workspace created, or with background set, the id of its creation
           content:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/fork_creation_status/{creation_id}:
+    get:
+      summary: get the status of a fork created in the background
+      operationId: getForkCreationStatus
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: creation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: fork creation status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [running, completed, failed]
+                  step:
+                    type: string
+                    description: the part of the copy a running fork is in
+                  error:
+                    type: string
+                required:
+                  - status
 
   /w/{workspace}/workspaces/attach_dev_workspace:
     post:
@@ -1572,6 +1613,104 @@ paths:
               schema:
                 type: object
 
+  /settings/external_instance_pg/status:
+    get:
+      summary: Returns whether the external instance cluster is configured and how its last setup went
+      operationId: getExternalInstancePgStatus
+      tags:
+        - setting
+      responses:
+        "200":
+          description: external instance cluster status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalInstancePgStatus"
+
+  /settings/external_instance_pg/setup:
+    post:
+      summary: Sets up the external instance cluster with its saved admin login, optionally rotating the passwords Windmill manages on it (enterprise edition only)
+      operationId: setupExternalInstancePg
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rotate_passwords:
+                  type: boolean
+      responses:
+        "200":
+          description: the setup report, also stored as the last setup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalInstancePgSetupReport"
+
+  /settings/external_instance_pg/databases:
+    get:
+      summary: Lists the databases Windmill created on the external instance cluster, with the workspaces whose data tables, Ducklake catalogs or pending fork cleanups use each
+      operationId: listExternalInstancePgDatabases
+      tags:
+        - setting
+      responses:
+        "200":
+          description: databases by name
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/CustomInstanceDb"
+
+  /settings/external_instance_pg/databases/{name}:
+    post:
+      summary: Creates a database on the external instance cluster (enterprise edition only)
+      operationId: createExternalInstancePgDatabase
+      tags:
+        - setting
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tag:
+                  $ref: "#/components/schemas/CustomInstanceDbTag"
+      responses:
+        "200":
+          description: database created
+          content:
+            application/json:
+              schema: {}
+    delete:
+      summary: Drops a database Windmill created on the external instance cluster, refused while a data table, Ducklake catalog or pending fork cleanup uses it
+      operationId: dropExternalInstancePgDatabase
+      tags:
+        - setting
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: database dropped
+          content:
+            application/json:
+              schema: {}
+
   /settings/list_custom_instance_pg_databases:
     post:
       summary: Returns the set-up statuses of custom instance pg databases
@@ -1590,13 +1729,19 @@ paths:
 
   /settings/datatable_roles:
     get:
-      summary: list the instance's data table roles
+      summary: list the data table roles of one Windmill-managed Postgres cluster
       operationId: listInstanceDatatableRoles
       tags:
         - setting
+      parameters:
+        - in: query
+          name: cluster
+          required: false
+          schema:
+            $ref: "#/components/schemas/DatatableRoleCluster"
       responses:
         "200":
-          description: the instance role catalog
+          description: the cluster's role catalog
           content:
             application/json:
               schema:
@@ -1604,7 +1749,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/InstanceDatatableRole"
     post:
-      summary: create a data table role on the instance's Postgres cluster
+      summary: create a data table role on a Windmill-managed Postgres cluster
       operationId: createInstanceDatatableRole
       tags:
         - setting
@@ -1618,6 +1763,14 @@ paths:
               properties:
                 name:
                   type: string
+                cluster:
+                  $ref: "#/components/schemas/DatatableRoleCluster"
+                take_over:
+                  type: boolean
+                  description: >
+                    manage a Postgres role of that name that already exists on the cluster,
+                    replacing its password, instead of refusing it. A role with cluster-wide
+                    attributes or memberships is refused either way
       responses:
         "200":
           description: the created role
@@ -1625,6 +1778,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InstanceDatatableRole"
+        "409":
+          description: a Postgres role of that name already exists on the cluster and take_over was not set
 
   /settings/datatable_roles/{id}:
     post:
@@ -1761,6 +1916,27 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /settings/instance_ui:
+    get:
+      summary: get the instance-wide announcement banner, accent color and API base url
+      description: |
+        Readable by any authenticated user; every page load reads it. Each value
+        is the raw stored setting, or null when unset.
+      operationId: getInstanceUi
+      tags:
+        - setting
+      responses:
+        "200":
+          description: the instance_banner, accent_color and api_base_url settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instance_banner: {}
+                  accent_color: {}
+                  api_base_url: {}
 
   /settings_u/ruff_config:
     get:
@@ -4327,6 +4503,12 @@ paths:
                     description: >-
                       Omitted when the seats counted are another workspace's, as they are for a
                       fork resolving to its billing root.
+                  service_accounts:
+                    type: integer
+                    description: >-
+                      Enabled service accounts, half a seat each like operators. Omitted when the
+                      seats counted are another workspace's, as they are for a fork resolving to
+                      its billing root.
                   seats:
                     type: integer
                 required:
@@ -4364,6 +4546,9 @@ paths:
                     type: string
                   is_past_due:
                     type: boolean
+                  is_canceled:
+                    type: boolean
+                    description: the team plan was canceled this month; it stays premium until the month ends, capped at max_tolerated_executions
                   max_tolerated_executions:
                     type: number
                 required:
@@ -5390,7 +5575,7 @@ paths:
                       type: string
                     resource_type:
                       type: string
-                      enum: [postgres, instance]
+                      enum: [postgres, instance, external_instance]
                     resource_path:
                       type: string
                     governing_workspace_id:
@@ -5442,6 +5627,9 @@ paths:
                   type: boolean
                 default_role:
                   type: string
+                  description: >-
+                    The id of one of `roles`, `admin` (the default), or `$none` for no default
+                    role: a connection that names no role then holds its viewer's roles only.
                 roles:
                   type: array
                   items:
@@ -7309,6 +7497,72 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
+
+  /oidc/signing_status:
+    get:
+      summary: what signs OIDC tokens and the keys the JWKS serves (ee only, superadmin)
+      operationId: getOidcSigningStatus
+      tags:
+        - oidc
+      responses:
+        "200":
+          description: OIDC signing status
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - mode
+                  - keys
+                properties:
+                  mode:
+                    type: string
+                    enum: [database, file, external]
+                  keys:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - alg
+                        - state
+                        - source
+                      properties:
+                        kid:
+                          type: string
+                        alg:
+                          type: string
+                        state:
+                          type: string
+                          enum: [pending, active, retired, published]
+                        source:
+                          type: string
+                          enum: [signer, database, file, publish_dir]
+                  signer:
+                    type: object
+                    description: set when an external signer is configured
+                    required:
+                      - breaker
+                      - max_rps
+                      - current_rps
+                    properties:
+                      last_refresh_success:
+                        type: string
+                        format: date-time
+                      last_refresh_error:
+                        type: string
+                      breaker:
+                        type: string
+                        enum: [closed, open, half_open]
+                      max_rps:
+                        type: number
+                      current_rps:
+                        type: number
+                      keys_from_store:
+                        type: boolean
+                        description: the keys served are those stored by the last accepted listing, the signer has not answered this server yet
+                      tls_files_error:
+                        type: string
+                        description: why the mTLS files on disk are not the ones in use
 
   /w/{workspace}/oidc/token/{audience}:
     post:
@@ -9801,6 +10055,13 @@ paths:
                   properties:
                     name:
                       type: string
+                    documented:
+                      description: >-
+                        whether the integration carries provider knowledge checked
+                        against the live API, on top of the resource type and example
+                        scripts /integrations/hub/{app}/meta returns for any
+                        integration. Absent on a hub predating the flag.
+                      type: boolean
                     picks:
                       description: how often the integration has been picked, absent on a hub that does not count picks
                       type: integer
@@ -9810,6 +10071,162 @@ paths:
                       nullable: true
                   required:
                     - name
+
+  /integrations/hub/{app}/meta:
+    get:
+      summary: get hub integration metadata
+      operationId: getHubIntegrationMeta
+      tags:
+        - integration
+      parameters:
+        - name: app
+          description: integration slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: integration metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: string
+                  display_name:
+                    type: string
+                  description:
+                    type: string
+                    nullable: true
+                  docs_url:
+                    type: string
+                    nullable: true
+                  curated:
+                    description: >-
+                      whether the script set was pruned to idiomatic actions rather
+                      than generated one per endpoint; null when nobody has assessed
+                      it, which is distinct from a stated false
+                    type: boolean
+                    nullable: true
+                  metadata_source:
+                    description: >-
+                      whether the provider knowledge was authored (curated) or
+                      inferred from the shipped scripts (derived)
+                    type: string
+                    enum:
+                      - curated
+                      - derived
+                  meta:
+                    description: >-
+                      the integration's authored meta.json verbatim; the content
+                      repo owns its schema, so it is passed through unvalidated
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+                  meta_updated_at:
+                    type: string
+                    nullable: true
+                  derived:
+                    description: facts computed from the integration's shipped scripts
+                    type: object
+                    properties:
+                      api_hosts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            host:
+                              type: string
+                            count:
+                              type: number
+                          required:
+                            - host
+                            - count
+                      style:
+                        type: string
+                        enum:
+                          - fetch
+                          - sdk
+                          - mixed
+                          - unknown
+                      languages:
+                        type: object
+                        additionalProperties:
+                          type: number
+                      script_counts:
+                        type: object
+                        properties:
+                          total:
+                            type: number
+                          by_kind:
+                            type: object
+                            additionalProperties:
+                              type: number
+                        required:
+                          - total
+                          - by_kind
+                      top_scripts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            path:
+                              type: string
+                            ask_id:
+                              type: number
+                            version_id:
+                              type: number
+                            summary:
+                              type: string
+                            description:
+                              type: string
+                              nullable: true
+                            kind:
+                              type: string
+                            language:
+                              type: string
+                              nullable: true
+                            views:
+                              type: number
+                            votes:
+                              type: number
+                          required:
+                            - path
+                            - summary
+                            - kind
+                    required:
+                      - api_hosts
+                      - style
+                      - languages
+                      - script_counts
+                      - top_scripts
+                  resource_types:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: number
+                        name:
+                          type: string
+                        description:
+                          type: string
+                          nullable: true
+                        schema:
+                          description: >-
+                            the resource type's JSON schema; the hub stores it as text
+                            and returns it as a JSON string, so a client must be ready
+                            for either that or an object
+                      required:
+                        - name
+                        - schema
+                # `derived` and `resource_types` are omitted by a hub older than the
+                # client, which reads every section as optional.
+                required:
+                  - app
+                  - display_name
 
   /flows/hub/list:
     get:
@@ -10139,6 +10556,9 @@ paths:
                           type: number
                         summary:
                           type: string
+                        description:
+                          type: string
+                          nullable: true
                         app:
                           type: string
                         version_id:
@@ -10207,6 +10627,8 @@ paths:
                     version_id:
                       type: number
                     summary:
+                      type: string
+                    description:
                       type: string
                     app:
                       type: string
@@ -10631,6 +11053,37 @@ paths:
                     description: "`saved` only, upsert or delete: where the write landed. Differs from the URL path when the item had moved away from it; the editor follows it there. Absent when a delete found nothing to remove and the caller cannot read the path it moved to."
                 required: [status, current_timestamp]
 
+  /w/{workspace}/drafts/delete_for_user/{kind}/{path}:
+    post:
+      summary: delete another user's draft, or every draft at a path (admin only)
+      description: Delete the draft a given user holds at a path, or, without `username`, every draft at that path (the legacy ownerless one and the caller's own included). Workspace admins / superadmins only, and only for script, flow, app and raw_app drafts. Unlike a discard of one's own draft through `drafts/update`, this returns 404 when nothing was deleted.
+      operationId: deleteDraftForUser
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/UserDraftItemKind"
+        - $ref: "#/components/parameters/ScriptPath"
+        - name: username
+          in: query
+          required: false
+          description: Workspace username of the draft owner. Omit to delete every user's draft at the path.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: draft(s) deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: no matching draft at that path
+
   /w/{workspace}/drafts/move/{kind}/{path}:
     post:
       summary: move the current user's draft-only item to another path
@@ -10724,6 +11177,9 @@ paths:
         - kind
         - tag
         - deployment_message
+        - schema
+      x-mcp-tool-opaque-fields:
+        - schema
       tags:
         - script
       parameters:
@@ -10763,6 +11219,9 @@ paths:
         - kind
         - tag
         - deployment_message
+        - schema
+      x-mcp-tool-opaque-fields:
+        - schema
       tags:
         - script
       parameters:
@@ -10905,6 +11364,8 @@ paths:
             text/plain:
               schema:
                 type: string
+        "400":
+          description: the body's workspace_id does not match the workspace in the path
 
   /w/{workspace}/workspace_dependencies/archive/{language}:
     post:
@@ -11711,6 +12172,7 @@ paths:
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/RunRetry"
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
           in: query
@@ -11822,6 +12284,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_wait_result/fv/{version}:
     post:
@@ -11862,6 +12329,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
     get:
       summary: run flow by version with GET and wait until completion
@@ -11894,6 +12366,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_and_stream/f/{path}:
     post:
@@ -11935,6 +12412,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
     get:
       summary: run flow by path with GET and stream updates via SSE
@@ -11968,6 +12450,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_and_stream/fv/{version}:
     post:
@@ -12015,6 +12502,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
     get:
       summary: run flow by version with GET and stream updates via SSE
@@ -12054,6 +12546,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_and_stream/p/{path}:
     post:
@@ -13559,7 +14056,7 @@ paths:
         Returns the flat list of all item paths visible to the caller across
         scripts, flows, apps, raw apps, variables, and resources. Intended to
         feed an entirely client-side path autocomplete UI: the frontend fetches
-        once (server caches per workspace for 60s) and performs all prefix/segment
+        once (server caches per caller for 60s) and performs all prefix/segment
         computation locally. Capped at 20,000 paths (5,000 per table).
       operationId: listPathAutocompletePaths
       tags:
@@ -15463,6 +15960,11 @@ paths:
               schema:
                 type: string
                 format: uuid
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run/fv/{version}:
     post:
@@ -15520,6 +16022,11 @@ paths:
               schema:
                 type: string
                 format: uuid
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run/batch_rerun_jobs:
     post:
@@ -15670,6 +16177,7 @@ paths:
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/RunRetry"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
@@ -16013,6 +16521,52 @@ paths:
               schema:
                 type: string
                 format: uuid
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
+
+  /w/{workspace}/jobs/run/agent/{path}:
+    post:
+      summary: run a saved AI agent
+      description: |
+        Runs the `ai_agent` resource at `path` as stored, for any caller who can read it
+        (operators included), as the caller, who needs access to the agent's AI resource and to
+        whatever its tools use. With `memory_id`, the run is a turn
+        of the caller's conversation with the agent; without, a single run.
+      operationId: runAgent
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: memory_id
+          description: The conversation this turn belongs to. A uuid is used as is; any other string is hashed within the workspace and agent.
+          in: query
+          schema:
+            type: string
+      requestBody:
+        description: the run's inputs
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_message:
+                  type: string
+                user_attachments:
+                  type: array
+                  items: {}
+      responses:
+        "201":
+          description: job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
 
   /w/{workspace}/jobs/run_wait_result/preview_flow:
     post:
@@ -16042,6 +16596,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run/dynamic_select:
     post:
@@ -16146,6 +16705,31 @@ paths:
                     type: integer
                 required:
                   - database_length
+
+  /w/{workspace}/jobs/oldest:
+    get:
+      summary: get the creation date of the oldest job
+      operationId: getOldestJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: all_workspaces
+          description: consider jobs from all workspaces (only valid if request come from the `admins` workspace)
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: creation date of the oldest job, absent when there is none
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created_at:
+                    type: string
+                    format: date-time
 
   /w/{workspace}/jobs/completed/count:
     get:
@@ -16342,6 +16926,29 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /w/{workspace}/jobs/queue/run_now/{id}:
+    post:
+      summary: start a queued job scheduled for later now
+      description: |
+        Moves the start of a queued job that is waiting for a future time (scheduled, debounced,
+        re-scheduled by a concurrency limit, or a flow step waiting on a sleep or a retry delay)
+        to now, keeping the same job id. A job with a
+        concurrency limit is still checked against its limit when it is pulled. A schedule's
+        upcoming tick is refused, since the schedule would queue that tick again.
+      operationId: runQueuedJobNow
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job id
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/jobs/queue/cancel_selection:
     post:
@@ -16874,6 +17481,27 @@ paths:
             application/json:
               schema:
                 type: string
+
+  /w/{workspace}/jobs/worker_is_draining/{id}:
+    get:
+      summary: whether the worker running this job is draining
+      description: |
+        True once the worker running the job has received its shutdown signal. The worker
+        still waits for the job to finish, so a long-running job can poll this to exit early.
+        False when the job is not currently running on a worker.
+      operationId: workerIsDraining
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: whether the worker running this job is draining
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/jobs_u/get_logs/{id}:
     get:
@@ -23055,6 +23683,54 @@ paths:
                     - id
                     - values
 
+  /workers/runnable_stats:
+    get:
+      summary: get resource usage per runnable and worker group over a time window (require devops role)
+      operationId: getRunnableStats
+      tags:
+        - worker
+      parameters:
+        - name: window_secs
+          in: query
+          required: false
+          description: how far back to read, in seconds (defaults to one day, capped at the 30-day retention)
+          schema:
+            type: integer
+        - name: worker_group
+          in: query
+          required: false
+          description: only the jobs run by this worker group
+          schema:
+            type: string
+        - name: workspace
+          in: query
+          required: false
+          description: only the jobs of this workspace
+          schema:
+            type: string
+        - name: order_by
+          in: query
+          required: false
+          description: "what the rows are ranked by, descending (default: total_duration)"
+          schema:
+            type: string
+            enum: [total_duration, max_memory, cpu]
+        - name: limit
+          in: query
+          required: false
+          description: number of rows to return (default 100, at most 1000)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: resource usage per runnable and worker group, heaviest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RunnableStats"
+
   /workers/queue_metrics_series:
     get:
       summary: get the queue metrics of a time window, as a bounded line per tag
@@ -24762,9 +25438,12 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
-          description: Parquet Preview
+          description: >
+            Parquet Preview: `columns`, `column_types` (Arrow type names) and `rows`.
           content:
             application/json: {}
 
@@ -24789,6 +25468,13 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/TablePreviewCsvHasHeader"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
           description: Table count
@@ -24837,13 +25523,20 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
         - name: csv_separator
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewCsvHasHeader"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
-          description: Csv Preview
+          description: >
+            Csv Preview: `columns`, `column_types` (Arrow type names), `rows`, and the
+            `csv_separator` the file was read with, guessed from its first bytes when
+            none is given.
+            A `.jsonl` or `.ndjson` file is read as newline-delimited JSON.
           content:
             application/json: {}
 
@@ -27203,6 +27896,28 @@ components:
       required: true
       schema:
         type: string
+    TablePreviewS3ResourcePath:
+      name: s3_resource_path
+      description: Read the file from this object storage resource instead of the workspace storage.
+      in: query
+      schema:
+        type: string
+    TablePreviewCsvHasHeader:
+      name: csv_has_header
+      description: Whether the first CSV line names the columns. Defaults to true.
+      in: query
+      schema:
+        type: boolean
+    TablePreviewFilters:
+      name: filters
+      description: >
+        JSON object, column name to filter. A number column takes an optional comparison
+        operator and a number (`>=10`), a boolean column a boolean, and any other column a
+        case-insensitive substring, or `=value` for an exact match. A `search_term` without
+        a `search_col` matches any column, case-insensitively.
+      in: query
+      schema:
+        type: string
     HubPublishFolder:
       name: folder
       in: query
@@ -27382,6 +28097,12 @@ components:
     CacheTtl:
       name: cache_ttl
       description: Override the cache time to live (in seconds). Can not be used to disable caching, only override with a new cache ttl
+      in: query
+      schema:
+        type: string
+    RunRetry:
+      name: retry
+      description: JSON-encoded retry policy (same shape as a schedule's retry) re-running the job when it fails. The returned id is the first attempt's; each retry is a job of its own, recorded as a child of the first attempt. Not supported for hub scripts, with invisible_to_owner, or for a script whose preprocessor would run.
       in: query
       schema:
         type: string
@@ -28075,6 +28796,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/AiTransform"
     ProviderConfig:
       $ref: "../../openflow.openapi.yaml#/components/schemas/ProviderConfig"
+    ProviderTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/ProviderTransform"
     MemoryConfig:
       $ref: "../../openflow.openapi.yaml#/components/schemas/MemoryConfig"
     FlowModuleValue:
@@ -28095,6 +28818,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/BranchAll"
     AiAgent:
       $ref: "../../openflow.openapi.yaml#/components/schemas/AiAgent"
+    AiDecision:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/AiDecision"
     Identity:
       $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
     FlowStatus:
@@ -28937,6 +29662,23 @@ components:
         is_test:
           type: boolean
           description: Started from the flow editor's test panel rather than a deployed run
+        running_turn:
+          type: object
+          nullable: true
+          description: >-
+            The turn the conversation is still answering, set by the list endpoint: its
+            newest user message, while the flow run it started is queued or running. A
+            run into this conversation is refused with 409 until the turn ends.
+          required: [job_id, user_seq]
+          properties:
+            job_id:
+              type: string
+              format: uuid
+              description: The flow run of the turn
+            user_seq:
+              type: integer
+              format: int64
+              description: created_seq of the user message that started the turn
 
     FlowConversationMessage:
       type: object
@@ -29069,6 +29811,8 @@ components:
           togetherai,
           aws_bedrock,
           customai,
+          typesafe,
+          cloudflare,
         ]
 
     GitSyncObjectType:
@@ -29541,6 +30285,7 @@ components:
       properties:
         workspace_id:
           type: string
+          description: must equal the workspace in the request path
         language:
           $ref: "#/components/schemas/ScriptLang"
         name:
@@ -29756,6 +30501,12 @@ components:
           items:
             type: string
           default: []
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job."
         inherited_labels:
           type: array
           items:
@@ -29808,6 +30559,15 @@ components:
           type: string
         schema:
           type: object
+          description: >-
+            JSON Schema of the arguments of `main`, which is what a run form and an
+            MCP tool offer. Omitted (or `{}`), it is inferred from `content` for
+            TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible
+            scripts. For other languages, or code that does not parse, a new script
+            gets none. A new version of an existing script also keeps what the
+            previous version's schema says about each argument, or that whole schema
+            when nothing can be inferred. A dbt script always takes its schema from its
+            descriptor, whatever is sent.
         is_template:
           type: boolean
         lock:
@@ -29904,6 +30664,12 @@ components:
           type: array
           items:
             type: string
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
         skip_draft_deletion:
           type: boolean
           description: "When true (set by the CLI / git sync), deploying this script does not delete an existing user draft at the same path."
@@ -31250,6 +32016,7 @@ components:
             - "jobs"
             - "jobs.cancel"
             - "jobs.force_cancel"
+            - "jobs.run_now"
             - "jobs.disapproval"
             - "jobs.delete"
             - "account.delete"
@@ -31260,6 +32027,7 @@ components:
             - "resource_types.create"
             - "resource_types.update"
             - "resource_types.delete"
+            - "resource_types.sync"
             - "schedule.create"
             - "schedule.setenabled"
             - "schedule.edit"
@@ -31819,6 +32587,17 @@ components:
             (over a deployed row or a synthesized draft-only row).
             Frontend appends a `*` to the displayed name.
           type: boolean
+        agent_memory:
+          description: |
+            For an `ai_agent` resource only, its `memory` setting: the one part
+            of the value a listing returns, since it decides whether the agent
+            keeps a conversation.
+        draft_path:
+          type: string
+          description: |
+            On a draft-only row, the path its editor has staged when it
+            differs from the storage path (e.g. a never-deployed item parked at
+            `u/{user}/draft_{uuid}`).
       required:
         - path
         - resource_type
@@ -32082,6 +32861,16 @@ components:
                   - id
                   - success
                   - duration_ms
+            late_run_streak:
+              type: integer
+              description: runs in a row, up to the latest, that started or finished after the next occurrence was due, so that occurrence was missed
+            missed_occurrences:
+              type: integer
+              description: occurrences missed by the latest streak of late runs, kept after it ends; a lower bound once a single late run misses 1000
+            last_missed_at:
+              type: string
+              format: date-time
+              description: latest missed occurrence, kept after the schedule runs on time again; past 1000 misses in one late run, when the miss was detected, at most one period later
 
     ErrorHandler:
       type: string
@@ -34013,9 +34802,55 @@ components:
         - ducklake
         - datatable
 
+    ExternalInstancePgSetupStep:
+      type: object
+      required: [name, status, message]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [ok, warning, error]
+        message:
+          type: string
+
+    ExternalInstancePgSetupReport:
+      type: object
+      required: [success, finished_at, steps]
+      properties:
+        success:
+          type: boolean
+          description: no step failed; warnings leave it true
+        finished_at:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalInstancePgSetupStep"
+
+    ExternalInstancePgStatus:
+      type: object
+      required: [configured, database_count]
+      properties:
+        configured:
+          type: boolean
+        database_count:
+          type: integer
+        last_setup:
+          $ref: "#/components/schemas/ExternalInstancePgSetupReport"
+
+    DatatableRoleCluster:
+      type: string
+      description: >-
+        The Windmill-managed Postgres cluster a data table role is a login on: Windmill's own
+        (behind `instance` data tables) or the external instance cluster (behind
+        `external_instance` ones). Defaults to `instance`.
+      enum: [instance, external_instance]
+
     InstanceDatatableRole:
       type: object
-      required: [id, name, enabled]
+      required: [id, name, enabled, cluster]
       properties:
         id:
           type: string
@@ -34023,6 +34858,13 @@ components:
           type: string
         enabled:
           type: boolean
+        cluster:
+          $ref: "#/components/schemas/DatatableRoleCluster"
+        in_use:
+          type: boolean
+          description: >-
+            Whether any data table, in any workspace, lets someone connect as this role. Only set
+            in a data table's available_roles.
 
     DatatableRoleTenants:
       type: object
@@ -34044,12 +34886,15 @@ components:
         supported:
           type: boolean
           description: >-
-            Whether this data table can be put under roles at all. Only one backed by the
-            instance database can: a role is a login on that cluster.
+            Whether this data table can be put under roles at all. Only one on a database Windmill
+            manages can: a role is a login on that database's cluster.
+        cluster:
+          $ref: "#/components/schemas/DatatableRoleCluster"
         permissioned:
           type: boolean
         default_role:
           type: string
+          description: A role id, `admin`, or `$none` when the data table has no default role.
         roles:
           type: array
           items:
@@ -34357,7 +35202,10 @@ components:
           type: array
           items:
             type: string
-          description: Workspaces that reference this database via a ducklake catalog or datatable database with resource_type 'instance'. Computed at request time, not persisted.
+          description: Workspaces that reference this database through a ducklake catalog or a datatable database of the kind being listed — 'instance' for the instance databases endpoint, 'external_instance' for the external cluster one. Computed at request time, not persisted, and only returned to superadmins.
+        workspace_id:
+          type: string
+          description: The workspace a member created this database for as a fork copy. Only that workspace can import into it or point a fork at it.
 
     NewSqsTrigger:
       type: object
@@ -35325,6 +36173,45 @@ components:
               `u/<username>`, `g/<groupname>`, or an email that exists in this
               workspace.
 
+    RunnableStats:
+      type: object
+      description: >
+        Resource usage of the jobs of one runnable on one worker group. Memory and CPU are
+        only known for jobs run as a subprocess; memory is the peak of the job's main process.
+      properties:
+        workspace_id:
+          type: string
+        runnable_path:
+          type: string
+          description: path of the script or flow step; `<adhoc>` gathers previews and other runs without a stable path
+        worker_group:
+          type: string
+        job_count:
+          type: integer
+        total_duration_ms:
+          type: integer
+        max_memory_peak:
+          type: integer
+          description: highest peak memory of a job, in kB
+        sum_memory_peak:
+          type: integer
+          description: sum of the peak memory of the jobs that have one, in kB
+        memory_sample_count:
+          type: integer
+          description: number of jobs that have a peak memory reading
+        total_cpu_ms:
+          type: integer
+      required:
+        - workspace_id
+        - runnable_path
+        - worker_group
+        - job_count
+        - total_duration_ms
+        - max_memory_peak
+        - sum_memory_peak
+        - memory_sample_count
+        - total_cpu_ms
+
     WorkerPing:
       type: object
       properties:
@@ -35373,6 +36260,9 @@ components:
           type: string
         native_mode:
           type: boolean
+        draining:
+          type: boolean
+          description: the worker received its shutdown signal and exits once its current job is done
       required:
         - worker
         - worker_instance
@@ -35710,6 +36600,12 @@ components:
           items:
             type: string
           default: []
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job."
         inherited_labels:
           type: array
           items:
@@ -35756,6 +36652,12 @@ components:
               type: array
               items:
                 type: string
+            job_token_scopes:
+              type: array
+              nullable: true
+              items:
+                type: string
+              description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
           required:
             - path
     # Like OpenFlowWPath but `path` is optional: on update the flow is identified by
@@ -35792,6 +36694,12 @@ components:
               type: array
               items:
                 type: string
+            job_token_scopes:
+              type: array
+              nullable: true
+              items:
+                type: string
+              description: "Scopes the token of every job of this runnable is restricted to (domain:action[:resource], e.g. oidc:write). Jobs it starts, flow steps and AI agent tools inherit the restriction. Unset, the job token carries the full permissions of the identity the job runs as; an empty list leaves it no API access beyond its own job. Omitting the field keeps the deployed value; null clears it."
 
     FlowPreview:
       type: object
@@ -35948,6 +36856,9 @@ components:
             True when the authed user has a draft for this app — either no
             deployed row exists at this path (draft-only) or the user has
             saved a per-user draft on top of the deployed row.
+        draft_only:
+          type: boolean
+          description: No deployed counterpart exists at this path — the draft is the whole item.
         draft_path:
           type: string
           description: |
@@ -36365,6 +37276,7 @@ components:
                       - postgresql
                       - mysql
                       - instance
+                      - external_instance
                   resource_path:
                     type: string
                 required:
@@ -36428,6 +37340,7 @@ components:
                     enum:
                       - postgresql
                       - instance
+                      - external_instance
                   resource_path:
                     type: string
                 required:
@@ -36532,6 +37445,7 @@ components:
           default_role,
           can_create_schema,
           creatable_schemas,
+          migrations_enabled,
         ]
       properties:
         datatable_name:
@@ -36565,6 +37479,9 @@ components:
           description: the schemas the role the listing connected as may create in
           items:
             type: string
+        migrations_enabled:
+          type: boolean
+          description: whether its schema is kept as versioned migrations, which a change made with plain SQL would bypass
 
     DataTableTableSchema:
       type: object
@@ -37309,6 +38226,18 @@ components:
         workers:
           type: boolean
           description: Whether operators can view workers page
+        builder_flows:
+          type: boolean
+          description: Whether operators can compose flows out of existing runnables (consumes a full seat). Omitting the field leaves the stored value unchanged.
+        builder_apps:
+          type: boolean
+          description: Whether operators can compose full-code apps out of existing runnables (consumes a full seat). Omitting the field leaves the stored value unchanged.
+        manage_schedules:
+          type: boolean
+          description: Whether operators can create, edit and delete schedules. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
+        manage_triggers:
+          type: boolean
+          description: Whether operators can create, edit and delete triggers. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
 
     WorkspaceComparison:
       type: object

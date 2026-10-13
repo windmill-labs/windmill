@@ -28,6 +28,7 @@
 		devWorkspacesInChainAbove
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
+	import { isOperatorInWorkspace } from '$lib/components/sidebar/operatorRoutes'
 	import {
 		fetchProtectionRulesForWorkspace,
 		isRuleUnconditionallyActiveInRulesets
@@ -63,13 +64,13 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import { jobManager } from '$lib/services/JobManager'
 	import Alert from '../common/alert/Alert.svelte'
-	import { base } from '$lib/base'
 	import Label from '../Label.svelte'
 	import ForkDatatableSection from './ForkDatatableSection.svelte'
 	import Select from '../select/Select.svelte'
 	import WorkspaceScopeTrigger from '../WorkspaceScopeTrigger.svelte'
 	import DarkModeToggle from '../sidebar/DarkModeToggle.svelte'
 	import ForkDucklakeSection from './ForkDucklakeSection.svelte'
+	import { createWorkspaceForkAndWait } from '$lib/utils/forkCreation'
 
 	interface Props {
 		isFork?: boolean
@@ -127,9 +128,14 @@
 	let forkableWorkspaces = $derived(forkable.current)
 
 	// Base candidates are the current workspace's family: its root first, then every fork/dev under it.
+	// Never one the user is an operator in: a fork does not carry the role, so forking such a base
+	// would hand them a full-rights copy of it.
 	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, forkableWorkspaces))
 	let baseCandidates = $derived(
-		familyRoot ? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)] : []
+		(familyRoot
+			? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)]
+			: []
+		).filter((w) => !isOperatorInWorkspace(w))
 	)
 	let baseItems = $derived(
 		baseCandidates.map((w) => ({
@@ -329,6 +335,7 @@
 	}
 
 	let forkCreationLoading = $state(false)
+	let forkCreationStep = $state('Creating branch')
 	let forkCreationError = $state('')
 	let errorMsgs: string[] = $state([])
 	let failedSyncJobs: string[] = $state([])
@@ -376,6 +383,7 @@
 	async function forkWorkspace(prefixed_id: string): Promise<void> {
 		if (baseWorkspaceId) {
 			forkCreationLoading = true
+			forkCreationStep = 'Creating branch'
 			errorMsgs = []
 			failedSyncJobs = []
 			forkCreationError = ''
@@ -470,9 +478,10 @@
 		}
 
 		try {
-			await WorkspaceService.createWorkspaceFork({
-				workspace: baseWorkspaceId!,
-				requestBody: {
+			forkCreationStep = 'Creating fork'
+			await createWorkspaceForkAndWait(
+				baseWorkspaceId!,
+				{
 					id: prefixed_id,
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
@@ -483,13 +492,15 @@
 					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
 					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
 					copy_members: copyMembers
-				}
-			})
+				},
+				{ onStep: (step) => (forkCreationStep = step) }
+			)
 		} catch (e) {
+			const msg = e?.body ?? e?.message ?? e ?? 'Unknown error'
 			forkCreationError = `Failed to create fork '${prefixed_id}'`
-			errorMsgs.push(e?.body ?? e ?? 'Unknown error')
+			errorMsgs.push(msg)
 			forkCreationLoading = false
-			sendUserToast(`Could not create fork '${prefixed_id}' ${e}`, true)
+			sendUserToast(`Could not create fork '${prefixed_id}' ${msg}`, true)
 			return
 		}
 
@@ -1094,7 +1105,7 @@
 				disabled={forkCreationLoading}
 				variant="default"
 				size="sm"
-				href="{base}/user/workspaces">&leftarrow; Back to workspaces</Button
+				href="/user/workspaces">&leftarrow; Back to workspaces</Button
 			>
 		{/if}
 		{#if !forkCreationLoading}
@@ -1115,7 +1126,8 @@
 			</Button>
 		{:else}
 			<Button variant="accent" disabled={true}>
-				<LoaderCircle class="animate-spin" /> Creating branch
+				<LoaderCircle class="animate-spin" />
+				{forkCreationStep}
 			</Button>
 		{/if}
 	</div>

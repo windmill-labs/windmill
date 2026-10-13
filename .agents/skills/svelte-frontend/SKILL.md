@@ -119,8 +119,8 @@ Form components (TextInput, Toggle, Select, etc.) should use the unified size sy
 New user-facing UX is the main source of `feature_usage` counters — propose them in the plan, not
 as a separate question, and read `docs/feature-telemetry.md` first. `logFeatureUsage()` from
 `$lib/utils/featureUsage` is only half the change: the `(feature, kind)` pair must also be
-registered in the backend allowlist or every event is silently discarded, and the disclosure copy
-in `InstanceSettings.svelte` must name what you added.
+registered in the backend allowlist or every event is silently discarded. The disclosure copy in
+`InstanceSettings.svelte` stays at the category level; see the recipe's step 3.
 
 ## Svelte MCP Server
 

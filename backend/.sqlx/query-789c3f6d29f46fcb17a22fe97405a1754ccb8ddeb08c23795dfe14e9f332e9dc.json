@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, status = 'success' AS \"success!\", result AS \"result: Json<Box<RawValue>>\"\n                FROM v2_job_completed WHERE workspace_id = $1 AND id = ANY($2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "success!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "result: Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true
+    ]
+  },
+  "hash": "789c3f6d29f46fcb17a22fe97405a1754ccb8ddeb08c23795dfe14e9f332e9dc"
+}

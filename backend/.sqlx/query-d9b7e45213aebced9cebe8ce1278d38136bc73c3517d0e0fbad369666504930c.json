@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH deleted AS (\n            DELETE FROM v2_job_queue WHERE id = $1 RETURNING id, workspace_id, started_at, worker\n        )\n        INSERT INTO v2_job_completed\n            (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)\n        SELECT d.workspace_id, d.id, d.started_at, $3, $2::jsonb, r.memory_peak,\n            'failure'::job_status, d.worker\n        FROM deleted d\n        LEFT JOIN v2_job_runtime r ON r.id = d.id\n        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d9b7e45213aebced9cebe8ce1278d38136bc73c3517d0e0fbad369666504930c"
+}

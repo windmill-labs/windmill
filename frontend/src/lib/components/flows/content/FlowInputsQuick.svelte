@@ -8,6 +8,7 @@
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
 	import { defaultScripts, enterpriseLicense, hubBaseUrlStore } from '$lib/stores'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import type { SupportedLanguage } from '$lib/common'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -34,6 +35,7 @@
 	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 
@@ -155,7 +157,10 @@
 		preFilter: 'all' | 'workspace' | 'hub',
 		selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 	) {
-		if (['script', 'trigger', 'failure', 'approval', 'preprocessor'].includes(selectedKind)) {
+		if (
+			!$operatorBuilderFlows &&
+			['script', 'trigger', 'failure', 'approval', 'preprocessor'].includes(selectedKind)
+		) {
 			if (!selected && preFilter == 'all') {
 				inlineScripts = langs.filter((lang) => {
 					return (
@@ -176,7 +181,12 @@
 		['While loop', 'whileloop'],
 		['Branch to one', 'branchone'],
 		['Branch to all', 'branchall'],
-		...(customUi?.aiAgent != false ? ([['AI Agent', 'aiagent']] as [string, string][]) : [])
+		...(customUi?.aiAgent != false
+			? ([
+					['AI Agent', 'aiagent'],
+					['AI Decision', 'aidecision']
+				] as [string, string][])
+			: [])
 	]
 
 	let topLevelNodes: [string, string][] = $state([])
@@ -248,6 +258,7 @@
 	let showAiRows = $derived(
 		!disableAi &&
 			!$copilotInfo.workspaceDisabled &&
+			!$operatorBuilderFlows &&
 			funcDesc?.length > 0 &&
 			kind != 'failure' &&
 			kind != 'preprocessor' &&
@@ -256,28 +267,38 @@
 	)
 	let aiLength = $derived(showAiRows ? 2 : 0)
 
-	// Must match the heading and label rendered for the AI Sandbox section
 	const aiSandboxHeading = 'AI Sandbox'
-	const aiSandboxLabel = 'Claude Code'
-	let matchesAiSandbox = $derived.by(() => {
+	const aiSandboxes = [
+		{ label: 'Claude Code', subkind: 'claudesandbox' },
+		{ label: 'Pi', subkind: 'pisandbox' }
+	] as const
+	// A query matching the heading keeps every sandbox, otherwise only the ones it names.
+	let matchingAiSandboxes = $derived.by(() => {
 		const query = funcDesc?.trim().toLowerCase() ?? ''
-		if (query.length == 0) {
-			return true
-		}
-		return [aiSandboxHeading, aiSandboxLabel].some((term) => {
+		const matches = (term: string) => {
 			const lowered = term.toLowerCase()
 			return lowered.startsWith(query) || lowered.split(' ').some((w) => w.startsWith(query))
-		})
+		}
+		if (query.length == 0 || matches(aiSandboxHeading)) {
+			return aiSandboxes
+		}
+		return aiSandboxes.filter((s) => matches(s.label))
 	})
-	// Gates the AI Sandbox row and its slot in the index space; both must agree or arrow keys land
-	// on an index that renders nothing.
-	let showAiSandbox = $derived(
+	// Gates the AI Sandbox rows and their slots in the index space; both must agree or arrow keys
+	// land on an index that renders nothing.
+	let aiSandboxRows = $derived(
 		selectedKind === 'script' &&
 			preFilter === 'all' &&
 			!selected &&
 			customUi?.aiSandbox != false &&
-			matchesAiSandbox
+			!$operatorBuilderFlows
+			? matchingAiSandboxes
+			: []
 	)
+
+	// Hub runnables carry code the workspace never reviewed, and the backend refuses them in a
+	// flow a builder authors, so the hub browser and its integration filters are not offered.
+	let showHub = $derived(!$operatorBuilderFlows)
 
 	// Every result row lives in one keyboard index space, and hovering a row moves that index, so
 	// mouse and keyboard can never highlight two different rows. Offsets follow the render order.
@@ -285,7 +306,7 @@
 	let aiOffset = $derived(inlineOffset + (inlineScripts?.length ?? 0))
 	let workspaceOffset = $derived(aiOffset + aiLength)
 	let aiSandboxOffset = $derived(workspaceOffset + (filteredWorkspaceItems?.length ?? 0))
-	let hubOffset = $derived(aiSandboxOffset + (showAiSandbox ? 1 : 0))
+	let hubOffset = $derived(aiSandboxOffset + aiSandboxRows.length)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -331,7 +352,7 @@
 					{/if}
 				{/if}
 
-				{#if preFilter === 'hub' || preFilter === 'all'}
+				{#if showHub && (preFilter === 'hub' || preFilter === 'all')}
 					{#if preFilter == 'all'}
 						<div class="pb-0 text-2xs font-normal text-secondary ml-2 pt-1">Integrations</div>
 					{/if}
@@ -514,29 +535,31 @@
 			{/await}
 			<div class="pb-1"></div>
 		{/if}
-		{#if showAiSandbox}
+		{#if aiSandboxRows.length > 0}
 			<div class="pb-0 text-2xs font-normal text-secondary ml-2">{aiSandboxHeading}</div>
-			<FlowScriptPickerQuick
-				eeRestricted={false}
-				selected={selectedByKeyboard === aiSandboxOffset}
-				onHover={() => hover(aiSandboxOffset)}
-				enterpriseLangs={[]}
-				label={aiSandboxLabel}
-				lang="claudesandbox"
-				on:click={() => {
-					dispatch('new', {
-						kind: selectedKind,
-						inlineScript: {
-							language: 'bun',
+			{#each aiSandboxRows as sandbox, i (sandbox.subkind)}
+				<FlowScriptPickerQuick
+					eeRestricted={false}
+					selected={selectedByKeyboard === aiSandboxOffset + i}
+					onHover={() => hover(aiSandboxOffset + i)}
+					enterpriseLangs={[]}
+					label={sandbox.label}
+					lang={sandbox.subkind}
+					on:click={() => {
+						dispatch('new', {
 							kind: selectedKind,
-							subkind: 'claudesandbox',
-							summary
-						}
-					})
-				}}
-			/>
+							inlineScript: {
+								language: 'bun',
+								kind: selectedKind,
+								subkind: sandbox.subkind,
+								summary
+							}
+						})
+					}}
+				/>
+			{/each}
 		{/if}
-		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
+		{#if showHub && selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
 				{#if !selected && preFilter !== 'hub'}
 					<div class=" pb-0 text-2xs font-normal text-secondary ml-2">Hub</div>

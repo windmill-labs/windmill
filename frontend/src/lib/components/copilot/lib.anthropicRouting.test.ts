@@ -99,6 +99,7 @@ async function setupClients() {
 				textDelta('Hel'),
 				{ type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: '{' } },
 				textDelta('lo'),
+				{ type: 'message_delta', delta: { stop_reason: 'end_turn' } },
 				{ type: 'message_stop' }
 			])
 		)
@@ -175,8 +176,9 @@ describe('Anthropic Messages API routing', () => {
 		}
 
 		expect(anthropicStream).toHaveBeenCalledTimes(1)
-		// only the two text deltas surface; message_start/stop and input_json are dropped
-		expect(chunks).toBe(2)
+		// the two text deltas and the stop reason surface; message_start/stop and
+		// input_json are dropped
+		expect(chunks).toBe(3)
 		expect(text).toBe('Hello')
 	})
 
@@ -226,6 +228,87 @@ describe('Anthropic Messages API routing', () => {
 		await getNonStreamingMetadataCompletion(messages, new AbortController())
 		expect(anthropicCreate.mock.calls[0][0].max_tokens).toBe(METADATA_MAX_TOKENS)
 		expect(METADATA_MAX_TOKENS).toBeLessThanOrEqual(21333)
+	})
+
+	it('getStreamedCompletionText streams the capped request and falls back off the Responses API', async () => {
+		const { getStreamedCompletionText, workspaceAIClients } = await import('./lib')
+
+		h.currentModel = { provider: 'anthropic', model: 'claude-sonnet-4-6' }
+		expect(
+			await getStreamedCompletionText(messages, new AbortController(), { maxTokensCap: 8000 })
+		).toBe('Hello')
+		expect(anthropicCreate).not.toHaveBeenCalled()
+		expect(anthropicStream.mock.calls[0][0].max_tokens).toBe(8000)
+
+		h.currentModel = { provider: 'openai', model: 'gpt-4o' }
+		const completedResponses = vi
+			.fn()
+			.mockReturnValue(
+				streamOf([
+					{ type: 'response.created' },
+					{ type: 'response.output_text.delta', delta: 'responses ' },
+					{ type: 'response.output_text.delta', delta: 'text' },
+					{ type: 'response.completed' }
+				])
+			)
+		vi.spyOn(workspaceAIClients, 'getOpenaiClient').mockReturnValue({
+			chat: { completions: { create: openaiCreate } },
+			responses: { stream: completedResponses }
+		} as any)
+		expect(await getStreamedCompletionText(messages, new AbortController())).toBe('responses text')
+		expect(openaiCreate).not.toHaveBeenCalled()
+
+		// The Responses stream fails on iteration, not on creation.
+		const responsesStream = vi.fn().mockReturnValue(
+			(async function* () {
+				throw new Error('responses api not served')
+			})()
+		)
+		openaiCreate.mockResolvedValue(
+			streamOf([
+				{ choices: [{ delta: { content: 'chat ' } }] },
+				{ choices: [{ delta: { content: 'text' } }] },
+				{ choices: [{ delta: {}, finish_reason: 'stop' }] },
+				{ choices: [], usage: {} }
+			])
+		)
+		vi.spyOn(workspaceAIClients, 'getOpenaiClient').mockReturnValue({
+			chat: { completions: { create: openaiCreate } },
+			responses: { stream: responsesStream }
+		} as any)
+		vi.spyOn(console, 'error').mockImplementation(() => {})
+		h.currentModel = { provider: 'openai', model: 'gpt-4o' }
+
+		expect(
+			await getStreamedCompletionText(messages, new AbortController(), { maxTokensCap: 8000 })
+		).toBe('chat text')
+		expect(responsesStream.mock.calls[0][0].max_output_tokens).toBe(8000)
+		expect(openaiCreate.mock.calls[0][0]).toMatchObject({ stream: true, max_tokens: 8000 })
+	})
+
+	it('getStreamedCompletionText rejects when the stream is cut or stopped midway', async () => {
+		const { getStreamedCompletionText } = await import('./lib')
+		h.currentModel = { provider: 'deepseek', model: 'deepseek-chat' }
+
+		// A hop closing the response early ends the iteration cleanly, with no
+		// finish reason.
+		openaiCreate.mockResolvedValue(streamOf([{ choices: [{ delta: { content: 'partial' } }] }]))
+		await expect(getStreamedCompletionText(messages, new AbortController())).rejects.toThrow(
+			'ended before the model finished'
+		)
+
+		const abortController = new AbortController()
+		// The OpenAI SDK swallows the abort and just ends the iteration.
+		openaiCreate.mockResolvedValue(
+			(async function* () {
+				yield { choices: [{ delta: { content: 'partial' } }] }
+				abortController.abort('user_cancelled')
+			})()
+		)
+
+		await expect(getStreamedCompletionText(messages, abortController)).rejects.toBe(
+			'user_cancelled'
+		)
 	})
 
 	it('caps max_output_tokens for metadata completions on the OpenAI Responses path', async () => {

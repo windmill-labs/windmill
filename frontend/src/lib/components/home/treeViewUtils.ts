@@ -1,5 +1,5 @@
-import type { ListableApp, Script, Flow, ListableRawApp } from '$lib/gen'
-type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
+import type { ListableApp, Script, Flow, ListableRawApp, ListableResource } from '$lib/gen'
+type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app' | 'agent'> = T & {
 	canWrite: boolean
 	marked?: string
 	type?: U
@@ -14,8 +14,11 @@ type TableScript = TableItem<Script, 'script'>
 type TableFlow = TableItem<Flow, 'flow'>
 type TableApp = TableItem<ListableApp, 'app'>
 type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
+/** A saved agent: an `ai_agent` resource the home page lists as a kind of its own. Its
+ *  description stands in as the summary every other kind carries. */
+type TableAgent = TableItem<ListableResource & { summary?: string }, 'agent'>
 
-export type ItemType = TableScript | TableFlow | TableApp | TableRawApp
+export type ItemType = TableScript | TableFlow | TableApp | TableRawApp | TableAgent
 
 export interface FolderItem {
 	folderName: string
@@ -117,22 +120,25 @@ export function groupItems(
 			}
 		} else if (pathSplit[0] === 'f') {
 			insertItemInFolder(root, item, pathSplit.slice(1))
+		} else {
+			// Any other owner (e.g. a schedule at `g/<group>/...`) has no node kind, so it
+			// stays a top-level leaf rather than vanishing from the tree.
+			root.push(item)
 		}
 	})
 
 	const dir = groupDesc ? -1 : 1
+	// Users, then folders, then ungrouped leaves regardless of direction; only the name
+	// comparison within users and folders follows `groupDesc`.
+	const rank = (n: ItemType | FolderItem | UserItem) =>
+		'username' in n ? 0 : 'folderName' in n ? 1 : 2
 	root.sort((a, b) => {
-		// Users always group before folders regardless of direction; only the name
-		// comparison within each kind follows `groupDesc`.
-		if ('username' in a && 'folderName' in b) {
-			return -1
-		}
-		if ('folderName' in a && 'username' in b) {
-			return 1
-		}
-		return (
-			dir * (a['username'] ?? a['folderName'] ?? '').localeCompare(b['username'] ?? b['folderName'])
-		)
+		const r = rank(a) - rank(b)
+		if (r !== 0) return r
+		if ('username' in a && 'username' in b) return dir * a.username.localeCompare(b.username)
+		if ('folderName' in a && 'folderName' in b)
+			return dir * a.folderName.localeCompare(b.folderName)
+		return 0
 	})
 
 	sortGroup(root, leafCompare, dir)
@@ -182,6 +188,8 @@ function getModifiedAt(item: ItemType): number {
 		return new Date(item.edited_at).getTime() || 0
 	} else if (item.type === 'raw_app') {
 		return new Date(item.edited_at).getTime() || 0
+	} else if (item.type === 'agent') {
+		return new Date(item.edited_at ?? 0).getTime() || 0
 	}
 
 	return 0

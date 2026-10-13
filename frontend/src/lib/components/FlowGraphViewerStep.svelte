@@ -216,6 +216,11 @@
 				<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>
 				<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 			</div>
+		{:else if stepDetail.value.type == 'aidecision'}
+			<div class="text-xs">
+				<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>
+				<InputTransformsViewer inputTransforms={stepDetail.value.input_transforms ?? {}} />
+			</div>
 		{:else if stepDetail.value.type == 'forloopflow'}
 			<div>
 				<p class="font-medium text-secondary pb-2"> Iterator expression: </p>

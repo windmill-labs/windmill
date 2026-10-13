@@ -12,6 +12,12 @@ export interface EvalClients {
 export interface ResolvedEvalModelProvider {
   provider: FrontendEvalProvider;
   model: string;
+  reasoning?: string;
+}
+
+/** `run --reasoning` hands the effort to the frontend runtime through the environment. */
+export function evalReasoningEffort(): string | undefined {
+  return process.env.WMILL_AI_EVAL_REASONING || undefined;
 }
 
 export interface WindmillAiProxyClientConfig {
@@ -71,6 +77,13 @@ export function createEvalClients(input: {
 }
 
 export function resolveEvalModelProvider(
+  model: string,
+  provider?: FrontendEvalProvider,
+): ResolvedEvalModelProvider {
+  return { ...resolveProvider(model, provider), reasoning: evalReasoningEffort() };
+}
+
+function resolveProvider(
   model: string,
   provider?: FrontendEvalProvider,
 ): ResolvedEvalModelProvider {

@@ -18,7 +18,8 @@
 		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds } from '$lib/stores'
-	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -42,6 +43,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	const editRights = useEditRights()
 
 	let {
 		useDrawer = true,
@@ -89,7 +91,9 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
 	)
 	let extraPerms = $state<Record<string, boolean> | undefined>(undefined)
 	let error_handler_path: string | undefined = $state()
@@ -136,14 +140,20 @@
 		is_flow = itemKind === 'flow'
 	})
 
+	// Set by `openNew(…, { onSaveDraft })`: the caller keeps the trigger as its own
+	// draft, so Save hands it the config instead of writing it.
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
+
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
 		defaultConfig?: Partial<NewEmailTrigger>,
 		fixedScriptPath_?: string
 	) {
+		saveDraftHandler = undefined
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -185,8 +195,14 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Partial<EmailTrigger>
+		defaultValues?: Partial<EmailTrigger>,
+		opts: {
+			onSaveDraft?: (cfg: Record<string, any>) => boolean
+			/** A config this editor saved before, re-applied over the defaults. */
+			draftConfig?: Record<string, any>
+		} = {}
 	) {
+		saveDraftHandler = opts.onSaveDraft
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -215,6 +231,7 @@
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
 			originalConfig = undefined
+			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig as Partial<EmailTrigger>)
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -273,6 +290,11 @@
 	}
 
 	async function triggerScript(): Promise<void> {
+		if (saveDraftHandler) {
+			if (!saveDraftHandler($state.snapshot(getEmailTriggerConfig()))) return
+			drawer?.closeDrawer()
+			return
+		}
 		if (customSaveBehavior) {
 			customSaveBehavior(emailConfig)
 			drawer?.closeDrawer()
@@ -387,6 +409,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -498,6 +521,7 @@
 			{edit}
 			isLoading={deploymentLoading}
 			onUpdate={triggerScript}
+			saveLabel={saveDraftHandler ? 'Save draft' : undefined}
 			{onReset}
 			{onDelete}
 			{isDeployed}
@@ -517,7 +541,9 @@
 			? can_write
 				? `Edit email trigger ${initialPath}`
 				: `Email trigger ${initialPath}`
-			: 'New email trigger'}
+			: saveDraftHandler
+				? 'Draft email trigger'
+				: 'New email trigger'}
 		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet actions()}

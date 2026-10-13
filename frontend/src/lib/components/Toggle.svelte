@@ -32,6 +32,8 @@
 		class?: string | undefined
 		size?: '2xs' | 'xs' | 'sm' | 'md'
 		textDisabled?: boolean
+		/** Accessible name for a toggle whose visible label sits outside it. */
+		ariaLabel?: string
 		right?: import('svelte').Snippet
 	}
 
@@ -50,6 +52,7 @@
 		class: className = undefined,
 		size = 'sm',
 		textDisabled = false,
+		ariaLabel = undefined,
 		right
 	}: Props = $props()
 
@@ -112,6 +115,7 @@
 				{disabled}
 				type="checkbox"
 				{id}
+				aria-label={ariaLabel}
 				class="sr-only peer"
 				bind:checked
 				onchange={stopPropagation((e) => {

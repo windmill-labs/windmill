@@ -81,12 +81,12 @@
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
+	import DraggableTabs, { type TabItem } from './common/tabs/DraggableTabs.svelte'
 	import { slide } from 'svelte/transition'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import CaptureButton from './triggers/CaptureButton.svelte'
 	import { setContext } from 'svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
-	import { base } from '$lib/base'
 	import DispatchEventsButton from '$lib/components/runs/DispatchEventsButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
 	import { getStringError } from './copilot/chat/utils'
@@ -149,6 +149,7 @@
 			| 'powershell'
 			| 'bunnative'
 			| 'claudesandbox'
+			| 'pisandbox'
 			| 'wac_python'
 			| 'wac_typescript'
 			| 'ci_test_bun'
@@ -407,6 +408,30 @@
 	let supportsModules = $derived((lang === 'bun' || lang === 'python3') && isWacV2)
 	let mainFileName = $derived('script.' + langToExt(scriptLangToEditorLang(lang)))
 
+	// A module path always ends in a file extension, so this id can't collide with one.
+	const MAIN_FILE_TAB_ID = '__main__'
+	// Tab order is view state only: `modules` is stored as JSONB, which re-sorts its keys on
+	// deploy, so an order written into it would not survive.
+	let moduleTabOrder: string[] = $state([])
+	let fileTabs = $derived.by<TabItem[]>(() => {
+		const paths = Object.keys(modules ?? {})
+		const rank = new Map(paths.map((p, i) => [p, i + moduleTabOrder.length]))
+		moduleTabOrder.forEach((p, i) => rank.has(p) && rank.set(p, i))
+		return [
+			{ id: MAIN_FILE_TAB_ID, label: mainFileName, closable: false, pinned: 'left' },
+			// Not closable through the strip: closing deletes the module's code, so it stays on
+			// the explicit × rather than Delete/Backspace and middle-click.
+			...paths
+				.sort((a, b) => rank.get(a)! - rank.get(b)!)
+				.map((modulePath) => ({
+					id: modulePath,
+					label: modulePath,
+					title: modulePath,
+					closable: false
+				}))
+		]
+	})
+
 	let modulePathInput = $state('')
 	let showAddModulePopover = $state(false)
 	let modulePathInputEl: HTMLInputElement | undefined = $state(undefined)
@@ -561,6 +586,7 @@
 		delete modules[modulePath]
 		delete moduleTestState[modulePath]
 		modules = { ...modules }
+		moduleTabOrder = moduleTabOrder.filter((p) => p !== modulePath)
 	}
 
 	function validateRenameModulePath(newPath: string, oldPath: string): string {
@@ -591,6 +617,11 @@
 		return 'path' in canonical && canonical.path === oldPath
 	}
 
+	function prefillRename(modulePath: string) {
+		renameModuleInput = modulePath
+		renameModuleError = ''
+	}
+
 	function renameModule(oldPath: string) {
 		if (!renameModuleInput.trim()) return
 		const canonical = canonicalModulePath(renameModuleInput)
@@ -611,6 +642,7 @@
 		delete modules[oldPath]
 		modules[newPath] = { ...mod, language: newLang ?? mod.language }
 		modules = { ...modules }
+		moduleTabOrder = moduleTabOrder.map((p) => (p === oldPath ? newPath : p))
 		if (moduleTestState[oldPath]) {
 			moduleTestState[newPath] = moduleTestState[oldPath]
 			delete moduleTestState[oldPath]
@@ -2005,7 +2037,8 @@
 						</div>
 					{:else}
 						{#if previewLayout !== 'bottom'}
-							<div class="flex justify-center pt-1 relative">
+							<!-- min-h keeps room for the absolute controls when debug mode hides the run buttons -->
+							<div class="flex justify-center pt-1 relative min-h-9">
 								<div class="absolute top-2 left-2">
 									<HideButton
 										hidden={false}
@@ -2067,43 +2100,15 @@
 							</div>
 						{/if}
 						{#if customUi?.previewPanel?.hideArgs}
-							<!-- Compact preview layout used by the pipeline editor:
-						     no args column (the script is known to take no
-						     inputs), LogPanel takes the full width, with a
-						     small Test/Cancel button at the top-left of the
-						     preview band. The earlier `-translate-y-1/2`
-						     "float onto the editor" version was clipped in
-						     Firefox (transform + overflow: visible interaction
-						     on the parent splitpane Pane), so the button is
-						     now positioned inside the panel — `top-1` keeps
-						     it visually pinned to the top edge without
-						     relying on cross-browser overflow behaviour. -->
-							<div class="relative h-full pt-9 flex flex-col">
-								{#if testJob?.id && testJob.type === 'CompletedJob' && opWs}
-									<!-- Right-side affordances when we're displaying a *completed*
-									     job (either the user just ran a test, or the on-mount
-									     last-run loader populated the panel). The job-id link
-									     opens the full run page in a new tab; the dispatch
-									     button mounts a popover that shows what downstream
-									     jobs this run triggered (rendered only when the run
-									     actually dispatched anything). -->
-									<div class="absolute top-1 right-2 z-10 flex items-center gap-2">
-										<a
-											class="text-3xs text-blue-600 hover:underline font-mono"
-											href={`${base}/run/${testJob.id}?workspace=${opWs}`}
-											target="_blank"
-											rel="noopener noreferrer"
-											title="Open this run"
-										>
-											{testJob.id.slice(0, 8)}… ↗
-										</a>
-										<DispatchEventsButton
-											workspace={testJob.workspace_id ?? opWs}
-											jobId={testJob.id}
-										/>
-									</div>
-								{/if}
-								<div class="absolute top-1 left-2 z-10">
+							<!-- Compact preview layout used by the pipeline editor: no args
+							     column (most pipeline scripts take no inputs) and a full-width
+							     LogPanel. The controls sit in normal flow rather than floating
+							     onto the editor band, which Firefox clipped (transform +
+							     overflow: visible on the parent splitpane Pane). -->
+							<div class="h-full flex flex-col">
+								<!-- Test sits at the top right, the last run's link under it. -->
+								<div class="shrink-0 flex flex-col items-end gap-1 px-2 pt-2 pb-1">
+								<div>
 									{#if testIsLoading}
 										{@render cancelTestButton('sm', 'shadow-md')}
 									{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0 || customUi?.previewPanel?.onBoundedRun}
@@ -2236,6 +2241,31 @@
 									{:else}
 										{@render runTestButton('sm', 'shadow-md')}
 									{/if}
+								</div>
+								{#if testJob?.id && testJob.type === 'CompletedJob' && opWs}
+									<!-- Right-side affordances when we're displaying a *completed*
+									     job (either the user just ran a test, or the on-mount
+									     last-run loader populated the panel). The job-id link
+									     opens the full run page in a new tab; the dispatch
+									     button mounts a popover that shows what downstream
+									     jobs this run triggered (rendered only when the run
+									     actually dispatched anything). -->
+									<div class="flex items-center gap-2">
+										<a
+											class="text-3xs text-blue-600 hover:underline font-mono"
+											href={`/run/${testJob.id}?workspace=${opWs}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											title="Open this run"
+										>
+											{testJob.id.slice(0, 8)}… ↗
+										</a>
+										<DispatchEventsButton
+											workspace={testJob.workspace_id ?? opWs}
+											jobId={testJob.id}
+										/>
+									</div>
+								{/if}
 								</div>
 								{#if customUi?.previewPanel?.argsAboveLogs && schema?.properties && Object.keys(schema.properties).length > 0}
 									<div
@@ -2562,93 +2592,71 @@
 {#snippet editorContent()}
 	<div class="h-full !overflow-visible bg-surface dark:bg-surface-secondary relative flex flex-col">
 		{#if supportsModules}
-			<div
-				class="flex items-center border-b border-tertiary/30 bg-surface-secondary px-1 gap-0.5 text-xs overflow-x-auto shrink-0"
+			<DraggableTabs
+				tabs={fileTabs}
+				activeId={activeModuleTab ?? MAIN_FILE_TAB_ID}
+				onSelect={(id) => (id === MAIN_FILE_TAB_ID ? switchToMain() : switchToModule(id))}
+				onReorder={(next) => (moduleTabOrder = next.map((t) => t.id))}
+				class="shrink-0 border-b border-light bg-surface-secondary/50"
 			>
-				<button
-					class="px-2 py-1 rounded-t {activeModuleTab === null
-						? 'bg-surface font-semibold border-b-2 border-blue-500'
-						: 'hover:bg-surface-hover'}"
-					onclick={() => switchToMain()}
-				>
-					{mainFileName}
-				</button>
-				{#each Object.keys(modules ?? {}) as modulePath}
-					<div
-						class="group rounded-t flex items-center {activeModuleTab === modulePath
-							? 'bg-surface font-semibold border-b-2 border-blue-500'
-							: 'hover:bg-surface-hover'}"
-					>
-						<button class="pl-2 py-1 flex items-center" onclick={() => switchToModule(modulePath)}>
-							{modulePath}
-						</button>
-						<div class="flex items-center pr-1 w-[32px] justify-end">
+				{#snippet tabAccessory(tab)}
+					{#if tab.id !== MAIN_FILE_TAB_ID}
+						<!-- Stops the trigger's click, mouse or Enter/Space alike, from also selecting the tab. -->
+						<span role="presentation" class="inline-flex" onclick={(e) => e.stopPropagation()}>
 							<Popover
 								placement="bottom-start"
 								openFocus={renameModuleInputEl}
 								contentClasses="p-3 w-72"
+								class="inline-flex"
+								triggerAttrs={{
+									'aria-label': `Rename ${tab.id}`,
+									onpointerdown: () => prefillRename(tab.id),
+									onkeydown: (e: KeyboardEvent) =>
+										(e.key === 'Enter' || e.key === ' ') && prefillRename(tab.id)
+								}}
 							>
 								{#snippet trigger()}
 									<span
-										class="opacity-0 group-hover:opacity-100 hover:text-blue-500 transition-opacity"
-										role="button"
-										tabindex="0"
-										onclick={(e) => {
-											e.stopPropagation()
-											renameModuleInput = modulePath
-											renameModuleError = ''
-										}}
-										onkeydown={(e) => {
-											if (e.key === 'Enter') {
-												e.stopPropagation()
-												renameModuleInput = modulePath
-												renameModuleError = ''
-											}
-										}}
+										class="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
 									>
-										<Pencil size={12} />
+										<Pencil size={10} />
 									</span>
 								{/snippet}
 								{#snippet content({ close })}
-									{@render renameModuleForm(modulePath, close)}
+									{@render renameModuleForm(tab.id, close)}
 								{/snippet}
 							</Popover>
-							<span
-								class="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity"
-								role="button"
-								tabindex="0"
-								onclick={(e) => {
-									e.stopPropagation()
-									removeModule(modulePath)
-								}}
-								onkeydown={(e) => {
-									if (e.key === 'Enter') {
-										e.stopPropagation()
-										removeModule(modulePath)
-									}
-								}}
-							>
-								<X size={12} />
-							</span>
-						</div>
-					</div>
-				{/each}
-				<Popover
-					placement="bottom-start"
-					bind:isOpen={showAddModulePopover}
-					openFocus={modulePathInputEl}
-					contentClasses="p-3 w-72"
-				>
-					{#snippet trigger()}
-						<span class="px-2 py-1 rounded-t hover:bg-surface-hover inline-flex items-center">
-							<Plus size={12} />
 						</span>
-					{/snippet}
-					{#snippet content({ close })}
-						{@render addModuleForm(close)}
-					{/snippet}
-				</Popover>
-			</div>
+						<Button
+							variant="subtle"
+							unifiedSize="2xs"
+							iconOnly
+							startIcon={{ icon: X }}
+							wrapperClasses="opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+							aria-label={`Delete ${tab.id}`}
+							title={`Delete ${tab.id}`}
+							onClick={() => removeModule(tab.id)}
+						/>
+					{/if}
+				{/snippet}
+				{#snippet afterTabs()}
+					<Popover
+						placement="bottom-start"
+						bind:isOpen={showAddModulePopover}
+						openFocus={modulePathInputEl}
+						contentClasses="p-3 w-72"
+						class="ml-0.5 h-6 w-6 rounded-md inline-flex items-center justify-center text-hint hover:text-secondary hover:bg-surface-hover focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected"
+						triggerAttrs={{ 'aria-label': 'Add module' }}
+					>
+						{#snippet trigger()}
+							<Plus size={12} />
+						{/snippet}
+						{#snippet content({ close })}
+							{@render addModuleForm(close)}
+						{/snippet}
+					</Popover>
+				{/snippet}
+			</DraggableTabs>
 		{/if}
 		<div class="relative flex-1 min-h-0 min-w-0 !overflow-visible">
 			<div class="absolute bg-surface top-2 right-4 z-10 flex flex-row gap-2">
@@ -2732,7 +2740,7 @@
 									{#snippet popoverOverride()}
 										<div class="text-sm">
 											Enable Windmill AI in the <a
-												href="{base}/workspace_settings?tab=ai"
+												href="/workspace_settings?tab=ai"
 												target="_blank"
 												class="inline-flex flex-row items-center gap-1"
 											>

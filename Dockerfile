@@ -83,7 +83,6 @@ COPY /python-client/docs/ /frontend/static/pydocs/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
-ARG VITE_BASE_URL ""
 # Must be declared for the build-arg to reach the bundle. See frontend/svelte.config.js.
 ARG WM_BUILD_VERSION=""
 # Read more about macro in docker/dev.nu
@@ -142,10 +141,10 @@ FROM ${DEBIAN_IMAGE}
 
 ARG TARGETPLATFORM
 ARG POWERSHELL_VERSION=7.5.0
-ARG KUBECTL_VERSION=1.36.2
+ARG KUBECTL_VERSION=1.37.1
 ARG HELM_VERSION=3.21.4
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
-ARG GO_VERSION=1.26.8
+ARG GO_VERSION=1.27.1
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
@@ -242,7 +241,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.11.24/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.0/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
 # --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run
@@ -287,8 +286,6 @@ COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so ${APP}/libwindmill_duckdb_ffi_internal.so
 
-COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
-
 COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /usr/bin/bun
 
 # Install windmill CLI
@@ -318,7 +315,7 @@ COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 # crane: pulls + flattens images for the sandboxed container runtime (`# sandbox <image>`).
 # Single static binary — no daemon/store/root needed. See docs/docker-v2-runtime.md.
-ARG CRANE_VERSION=v0.21.7
+ARG CRANE_VERSION=v0.22.1
 RUN arch="$(dpkg --print-architecture)"; \
     case "$arch" in amd64) crane_arch=x86_64 ;; arm64) crane_arch=arm64 ;; *) echo >&2 "error: unsupported arch '$arch' for crane"; exit 1 ;; esac; \
     wget -O /tmp/crane.tgz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz" \

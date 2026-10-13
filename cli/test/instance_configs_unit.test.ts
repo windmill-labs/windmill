@@ -8,7 +8,8 @@
  * - pushInstanceConfigs skips unchanged configs
  */
 
-import { expect, test, describe, beforeEach, afterEach, mock } from "bun:test";
+import { expect, test, describe, beforeEach, afterEach } from "bun:test";
+import { mockServices } from "./mock_services.ts";
 import { writeFile, readFile, mkdir, rm } from "node:fs/promises";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +22,7 @@ let updateConfigCalls: { name: string; requestBody: any }[] = [];
 let deleteConfigCalls: { name: string }[] = [];
 
 // Mock the wmill module before importing settings.ts
-mock.module("../gen/services.gen.ts", () => ({
+mockServices({
   listWorkerGroups: async () => listWorkerGroupsResult,
   updateConfig: async (args: { name: string; requestBody: any }) => {
     updateConfigCalls.push(args);
@@ -32,7 +33,7 @@ mock.module("../gen/services.gen.ts", () => ({
   listConfigs: async () => {
     throw new Error("listConfigs should not be called");
   },
-}));
+});
 
 import {
   pullInstanceConfigs,

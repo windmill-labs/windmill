@@ -29,6 +29,16 @@ export type AiAgentProviderCatalog = {
 	defaultModel?: { kind: AIProvider; model: string }
 }
 
+/** The kinds that serve decision models only, which an AI agent step cannot run on. */
+const DECISION_ONLY_KINDS: readonly string[] = ['typesafe', 'cloudflare']
+
+/** The model of OpenAI's Decisions API, which an `openai` resource serves next to its chat
+ * models: the one kind both step types run on. */
+const OPENAI_DECISION_MODEL = 'gpt-6-luna'
+
+/** The providers an AI decision step runs on. */
+const DECISION_PROVIDER_KINDS: readonly string[] = [...DECISION_ONLY_KINDS, 'openai']
+
 /** A model id as every provider writes one: `claude-sonnet-5`, `meta-llama/Llama-3.3-70B`,
  * `anthropic.claude-haiku-4-5-20251001-v1:0`, `ft:gpt-4o:acme::abc`. Anything else is not
  * rendered: a resource may point at a gateway someone else controls, and its listing lands in a
@@ -146,11 +156,14 @@ This workspace has none, so an AI agent step has no model to run on. ${
 	const truncationLine = catalog.resourcesAreComplete
 		? ''
 		: '\nThis list is incomplete: the workspace has AI provider resources that are not shown.'
+	const decisionLine = catalog.options.some((o) => DECISION_PROVIDER_KINDS.includes(o.kind))
+		? `\nA \`typesafe\` or \`cloudflare\` resource serves AI decision steps only. AI decision steps run on those or on an \`openai\` resource with model \`${OPENAI_DECISION_MODEL}\`, and on nothing else.`
+		: ''
 	return `## AI provider resources in this workspace
 
 An AI agent step's \`model\` must be one of the ids listed below for the resource it references — never a model id from memory, which the endpoint would reject at run time.
 
-${catalog.options.map(describeOption).join('\n')}${truncationLine}
+${catalog.options.map(describeOption).join('\n')}${truncationLine}${decisionLine}
 ${choiceLine}`
 }
 
@@ -176,7 +189,9 @@ export function selectAiAgentProviderCandidates(
 		if (!configuredPaths.has(candidate.resourcePath)) return 2
 		return candidate.kind === defaultProviderKind ? 0 : 1
 	}
-	return candidates.sort((a, b) => rank(a) - rank(b) || a.resourcePath.localeCompare(b.resourcePath))
+	return candidates.sort(
+		(a, b) => rank(a) - rank(b) || a.resourcePath.localeCompare(b.resourcePath)
+	)
 }
 
 /** What a set of modules needs from the catalog: `needsCatalog` is false when no AI agent step
@@ -224,7 +239,8 @@ function blocking(message: string): ProviderIssue {
 
 function checkProviderValue(
 	value: unknown,
-	catalog: AiAgentProviderCatalog
+	catalog: AiAgentProviderCatalog,
+	stepType: string
 ): ProviderIssue | undefined {
 	if (typeof value === 'string') {
 		return blocking(
@@ -237,6 +253,16 @@ function checkProviderValue(
 	const { kind, resource, model } = value as Record<string, unknown>
 	if (typeof kind !== 'string' || kind === '') {
 		return blocking(`provider.kind is missing. Expected ${PROVIDER_SHAPE}`)
+	}
+	if (stepType === 'aidecision' && !DECISION_PROVIDER_KINDS.includes(kind)) {
+		return blocking(
+			`an AI decision step runs on a decision model: provider.kind must be "typesafe", "cloudflare" or "openai", not "${kind}"`
+		)
+	}
+	if (stepType !== 'aidecision' && DECISION_ONLY_KINDS.includes(kind)) {
+		return blocking(
+			`"${kind}" serves decision models, which answer typed questions rather than messages: use an "aidecision" step rather than an AI agent`
+		)
 	}
 	if (typeof resource !== 'string' || !resource.startsWith('$res:')) {
 		return blocking(
@@ -267,6 +293,15 @@ function checkProviderValue(
 			`provider.kind "${kind}" does not match "${resource}", which is a \`${match.kind}\` resource`
 		)
 	}
+	// An OpenAI resource lists its chat models, which says nothing about its decision model.
+	if (stepType === 'aidecision' && kind === 'openai') {
+		return model === OPENAI_DECISION_MODEL
+			? undefined
+			: {
+					message: `model "${model}" is not the model OpenAI's Decisions API is known to serve, "${OPENAI_DECISION_MODEL}"`,
+					blocking: false
+				}
+	}
 	if (match.modelsAreLive && !match.models.ids.includes(model)) {
 		return {
 			message: `model "${model}" is not in the model listing of "${resource}"`,
@@ -277,9 +312,9 @@ function checkProviderValue(
 }
 
 /**
- * Reject AI agent steps whose provider config would fail at run time: a malformed provider, a
- * resource that is not an AI provider resource of the workspace, or a model the endpoint's own
- * listing rules out.
+ * Reject AI agent and AI decision steps whose provider config would fail at run time: a malformed
+ * provider, a kind the step cannot run on, a resource that is not an AI provider resource of the
+ * workspace, or a model the endpoint's own listing rules out.
  *
  * Everything the catalog could not establish is reported through `warnings` instead of blocking,
  * so an incomplete catalog never rejects a provider that would have worked.
@@ -297,7 +332,7 @@ export function validateAiAgentProviders(
 		// A missing provider is reported by collectProviderlessAgentIds, and a javascript
 		// transform resolves at run time with no value to check here.
 		if (!transform || transform.type !== 'static') return
-		const issue = checkProviderValue(transform.value, known)
+		const issue = checkProviderValue(transform.value, known, value.type)
 		if (!issue) return
 		if (issue.blocking) {
 			errors.push(`Step "${mod.id}": ${issue.message}`)

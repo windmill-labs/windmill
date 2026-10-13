@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { onDestroy, untrack } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { useOperatorBuilderApps, workspaceListLoaded } from '$lib/operatorWriteRights'
+	import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -11,6 +13,7 @@
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { openEditorInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import {
@@ -28,12 +31,13 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import RawAppTemplatePicker, {
+		type RawAppBuildMode,
 		type RawAppTemplatePickerResult
 	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
 	import {
+		BUILDER_FRAMEWORK_TEMPLATES,
 		react19Template,
-		STARTER_RUNNABLE,
-		STARTER_RUNNABLE_KEY
+		STARTER_RUNNABLES
 	} from '$lib/components/raw_apps/templates'
 	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
@@ -82,8 +86,8 @@
 		| undefined = $state(undefined)
 	let redraw = $state(0)
 	let path = page.params.path ?? ''
-	/** Opens the framework picker on a brand-new draft (`new_draft=true`):
-	 * React/Svelte + data config + optional AI prompt before the editor goes live. */
+	/** Opens the new-app picker on a brand-new draft (`new_draft=true`): build with AI, or pick
+	 * React/Svelte + data config before the editor goes live. */
 	let templatePicker = $state(false)
 
 	/** Deployed raw-app bundle this load, the baseline the autosave `discardIf`
@@ -99,6 +103,8 @@
 	// edits to the just-deployed app autosaved to a dead key (autosave appeared
 	// broken). See /scripts/edit, which derives its draft path the same way.
 	// effectivePath omitted: the live-editor-draft entry is owned by RawAppEditor.
+	const operatorBuilderApps = useOperatorBuilderApps()
+
 	const draftSync = usePageDraftSync<RawAppDraft>({
 		itemKind: 'raw_app',
 		path: () => page.params.path ?? '',
@@ -190,6 +196,8 @@
 		// `?new_draft` loads the saved draft instead of blanking it — see
 		// shouldSeedNewDraft.
 		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'raw_app', path)) {
+			await workspaceListLoaded()
+			if (tok !== loadAppToken) return
 			isNewApp = true
 			// Page reused across same-route nav: clear the previous path's
 			// draft-presence state so it doesn't bleed onto the fresh draft.
@@ -233,9 +241,8 @@
 			// Explicit path seed: the fork-a-draft handoff re-homes the source
 			// path into the forker's namespace and passes it here.
 			const pathParam = page.url.searchParams.get('seed_path')
-			// One-shot YAML/JSON import handoff. Carried via $importStore, or
-			// sessionStorage when /apps_raw's full page reload would drop in-memory
-			// state. Wrapped exports carry { summary, value, policy }; bare ones the value.
+			// One-shot YAML/JSON import handoff, carried via $importStore or
+			// sessionStorage. Wrapped exports carry { summary, value, policy }; bare ones the value.
 			let importRaw: any = $importStore
 			if ($importStore) {
 				$importStore = undefined
@@ -273,8 +280,10 @@
 			}
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
-			const seedFiles = { ...react19Template }
-			const seedRunnables = { [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
+			const seedFiles = {
+				...($operatorBuilderApps ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template)
+			}
+			const seedRunnables = starterRunnables()
 			savedApp = {
 				summary: '',
 				value: { files: seedFiles as any, runnables: seedRunnables as any },
@@ -523,12 +532,56 @@
 
 	let rawAppEditor: RawAppEditor | undefined = $state()
 
-	function onTemplatePickerStart(result: RawAppTemplatePickerResult, withPrompt: boolean) {
-		files = { ...result.files }
-		runnables = { ...result.runnables, [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
-		data = result.data
-		summary = result.summary
-		policy = result.policy
+	// The starter runnables are inline scripts, which the backend refuses from an operator with
+	// builder rights: seeding them would make their very first deploy fail.
+	function starterRunnables() {
+		return $operatorBuilderApps ? {} : structuredClone(STARTER_RUNNABLES)
+	}
+
+	// The deploy panel cannot switch Viewer mode off, nor drop the identity an app another user
+	// deployed carries, so the editor conforms the policy as soon as it opens.
+	$effect(() => {
+		if ($operatorBuilderApps && policy) conformBuilderAppPolicy(policy, $userStore)
+	})
+
+	async function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
+		const picked = {
+			files: { ...result.files },
+			runnables: { ...result.runnables, ...starterRunnables() },
+			data: result.data,
+			summary: '',
+			policy: result.policy
+		}
+		const workspace = $workspaceStore
+		if (mode === 'ai' && prefersSessionHandoff($userStore?.operator) && workspace) {
+			// The session loads the app by path, so the picked setup is saved before it
+			// opens. `new_draft` tells it the app is still the starter template.
+			try {
+				draftSync.draft = {
+					...picked,
+					...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+				} as RawAppDraft
+				// The autosave this write queues would otherwise land after the session has
+				// read the draft, leaving it a baseline older than the row.
+				await tick()
+				await UserDraftDbSyncer.flush({ workspace, itemKind: 'raw_app', path })
+				await UserDraft.forcePersist('raw_app', path, { workspace })
+				// A failed save is recorded, not thrown, and the session would open on nothing.
+				const saved = UserDraftDbSyncer.getState({ workspace, itemKind: 'raw_app', path })
+				if (saved.state === 'failed') {
+					throw new Error(saved.failureMessage ?? 'the app could not be saved')
+				}
+				await openEditorInSession({ kind: 'raw_app', path }, workspace, { new_draft: 'true' })
+				return
+			} catch (e) {
+				sendUserToast(`Could not open the AI session: ${e?.body ?? e?.message ?? e}`, true)
+			}
+		}
+		files = picked.files
+		runnables = picked.runnables
+		data = picked.data
+		summary = picked.summary
+		policy = picked.policy
 		// Remount RawAppEditor so the iframe picks up the new files.
 		redraw++
 		// Sync to aiChatManager so its prompts respect the picked data config.
@@ -538,22 +591,9 @@
 			schema: result.data.schema,
 			roles: result.data.roles
 		}
-		if (withPrompt && result.prompt) {
-			const prompt = result.prompt
-			// The delay lets the remount above settle: the session hand-off persists
-			// the draft the preview loads, and the docked path needs the editor to
-			// have registered its app helpers.
-			setTimeout(async () => {
-				// Falls through when the hand-off has no path to open, so the click
-				// still reaches the legacy path (or its toast) instead of vanishing.
-				if (prefersSessionHandoff($userStore?.operator)) {
-					if (await rawAppEditor?.openInSession(prompt)) return
-				}
-				aiChatManager.changeMode(AIMode.APP)
-				if (!aiChatManager.open) aiChatManager.toggleOpen()
-				aiChatManager.instructions = prompt
-				aiChatManager.sendRequest()
-			}, 500)
+		if (mode === 'ai') {
+			aiChatManager.changeMode(AIMode.APP)
+			if (!aiChatManager.open) aiChatManager.toggleOpen()
 		}
 	}
 </script>
@@ -608,9 +648,11 @@
 
 {#if files}
 	{#key redraw}
-		<div class="h-screen">
+		<div class="h-full">
 			<RawAppEditor
 				bind:this={rawAppEditor}
+				ownsPageHeader
+				onDetails={(e) => goto(`/apps_raw/get/${e.path}?workspace=${$workspaceStore}`)}
 				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()
 					goto(`/apps_raw/edit/${savedPath}`)

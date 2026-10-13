@@ -15,6 +15,7 @@ enterprise = ["windmill-common/enterprise"]
 [dependencies]
 windmill-api-auth.workspace = true
 windmill-api-sse.workspace = true
+windmill-audit.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-queue.workspace = true
 axum.workspace = true

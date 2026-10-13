@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { WindmillIcon2 } from './icons'
+	import WindmillIcon2 from './icons/WindmillIcon2.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { Building } from 'lucide-svelte'

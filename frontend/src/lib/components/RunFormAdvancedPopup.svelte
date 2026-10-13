@@ -7,6 +7,7 @@
 	import { Button } from './common'
 	import { WorkerService } from '$lib/gen'
 	import DateTimeInput from './DateTimeInput.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 
 	interface Props {
@@ -35,10 +36,21 @@
 		invisible_to_owner = $bindable(),
 		overrideTag = $bindable()
 	}: Props = $props();
+	// As in WorkerTagPicker: the shared `workerTags` cache is the navigation workspace's, so
+	// tags of another operating workspace live in a local list rather than overwriting it.
+	const operatingWorkspace = useOperatingWorkspace()
+	let usesLocal = $derived($operatingWorkspace !== $workspaceStore)
+	let localWorkerTags = $state<string[] | undefined>(undefined)
+	let currentTags = $derived(usesLocal ? localWorkerTags : $workerTags)
+
 	loadWorkerGroups()
 
 	async function loadWorkerGroups() {
-		if (!$workerTags) {
+		if (usesLocal) {
+			localWorkerTags ??= await WorkerService.getCustomTagsForWorkspace({
+				workspace: $operatingWorkspace!
+			})
+		} else if (!$workerTags) {
 			$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: $workspaceStore! })
 		}
 	}
@@ -76,7 +88,7 @@
 		{/if}
 	</div>
 	{#if !$userStore?.operator}
-		{#if $workerTags && $workerTags?.length > 0}
+		{#if currentTags && currentTags.length > 0}
 			<div class="w-full">
 				<select
 					placeholder="Worker group"
@@ -96,7 +108,7 @@
 					{:else}
 						<option value="" disabled selected>Override Worker Group Tag</option>
 					{/if}
-					{#each $workerTags ?? [] as tag (tag)}
+					{#each currentTags ?? [] as tag (tag)}
 						<option value={tag}>{tag}</option>
 					{/each}
 				</select>

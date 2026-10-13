@@ -196,12 +196,15 @@ class Windmill:
         args: dict = None,
         scheduled_in_secs: int = None,
         tag: str = None,
+        retry: dict = None,
     ) -> str:
         """Internal helper for running scripts asynchronously."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
         if tag:
             params["tag"] = tag
+        if retry:
+            params["retry"] = json.dumps(retry)
         if os.environ.get("WM_JOB_ID"):
             params["parent_job"] = os.environ.get("WM_JOB_ID")
         if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
@@ -222,9 +225,15 @@ class Windmill:
         args: dict = None,
         scheduled_in_secs: int = None,
         tag: str = None,
+        retry: dict = None,
     ) -> str:
-        """Create a script job by path and return its job id."""
-        return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag)
+        """Create a script job by path and return its job id.
+
+        ``retry`` re-runs the job when it fails, with the policy a schedule takes,
+        e.g. ``{"constant": {"attempts": 3, "seconds": 10}}``. The returned id is
+        the first attempt's; each retry is a job of its own, recorded as a child of it.
+        """
+        return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag, retry=retry)
 
     def run_script_by_hash_async(
         self,
@@ -232,9 +241,10 @@ class Windmill:
         args: dict = None,
         scheduled_in_secs: int = None,
         tag: str = None,
+        retry: dict = None,
     ) -> str:
-        """Create a script job by hash and return its job id."""
-        return self._run_script_async_internal(hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag)
+        """Create a script job by hash and return its job id. See ``run_script_by_path_async`` for ``retry``."""
+        return self._run_script_async_internal(hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag, retry=retry)
 
     def run_flow_async(
         self,
@@ -812,6 +822,22 @@ class Windmill:
             return None
         else:
             return r.json()
+
+    def worker_is_draining(self, job_id: Optional[str] = None) -> bool:
+        """Whether the worker running the job has received its shutdown signal.
+
+        A draining worker waits for its current job to finish before exiting. A long-running
+        script can poll this and return early so the worker can be replaced.
+
+        Args:
+            job_id: Job ID (defaults to current WM_JOB_ID)
+
+        Returns:
+            True if the worker running the job is draining
+        """
+        job_id = job_id or os.environ.get("WM_JOB_ID")
+
+        return self.get(f"/w/{self.workspace}/jobs/worker_is_draining/{job_id}").json()
 
     def set_flow_user_state(self, key: str, value: Any) -> None:
         """Set the user state of a flow at a given key"""
@@ -1618,6 +1644,7 @@ def run_script_by_path_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
     tag: str = None,
+    retry: Dict[str, Any] = None,
 ) -> str:
     """Create a script job by path and return its job ID.
 
@@ -1626,6 +1653,8 @@ def run_script_by_path_async(
         args: Script arguments
         scheduled_in_secs: Delay before execution in seconds
         tag: Override the worker tag the job runs on
+        retry: Re-run the job when it fails, with the policy a schedule takes,
+            e.g. ``{"constant": {"attempts": 3, "seconds": 10}}``
 
     Returns:
         Job ID string
@@ -1635,6 +1664,7 @@ def run_script_by_path_async(
         args=args,
         scheduled_in_secs=scheduled_in_secs,
         tag=tag,
+        retry=retry,
     )
 
 
@@ -1644,6 +1674,7 @@ def run_script_by_hash_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
     tag: str = None,
+    retry: Dict[str, Any] = None,
 ) -> str:
     """Create a script job by hash and return its job ID.
 
@@ -1652,6 +1683,7 @@ def run_script_by_hash_async(
         args: Script arguments
         scheduled_in_secs: Delay before execution in seconds
         tag: Override the worker tag the job runs on
+        retry: Re-run the job when it fails, see ``run_script_by_path_async``
 
     Returns:
         Job ID string
@@ -1661,6 +1693,7 @@ def run_script_by_hash_async(
         args=args,
         scheduled_in_secs=scheduled_in_secs,
         tag=tag,
+        retry=retry,
     )
 
 
@@ -2008,6 +2041,17 @@ def get_progress(job_id: Optional[str] = None) -> Any:
     Get the progress
     """
     return _client.get_progress(job_id)
+
+
+@init_global_client
+def worker_is_draining(job_id: Optional[str] = None) -> bool:
+    """
+    Whether the worker running this job has received its shutdown signal.
+
+    A draining worker waits for its current job to finish before exiting. A long-running
+    script can poll this and return early so the worker can be replaced.
+    """
+    return _client.worker_is_draining(job_id)
 
 
 def set_shared_state_pickle(value: Any, path="state.pickle") -> None:
@@ -2722,6 +2766,7 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
 
 import asyncio as _asyncio
 import contextvars as _contextvars
+import inspect as _inspect
 import sys as _sys
 import traceback as _traceback
 
@@ -2949,6 +2994,64 @@ _workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
     "_workflow_ctx"
 )
 
+# Set while a task body runs in its child job: ``"async"`` or ``"sync"`` after
+# the kind of function the body is. A flag on the ctx cannot stand in: under
+# ``asyncio.gather`` the workflow body keeps replaying beside the task body, and
+# its calls must still park rather than run a sibling task's body in this job.
+_in_task_body: _contextvars.ContextVar[Optional[str]] = _contextvars.ContextVar(
+    "_in_task_body", default=None
+)
+
+
+def _dispatch_ctx() -> "WorkflowCtx | None":
+    """The ctx SDK calls dispatch through, or None where they run in place:
+    outside a workflow, and inside a task body, which is one job and has no
+    rounds of its own to dispatch or checkpoint a step in."""
+    if _in_task_body.get():
+        return None
+    return _workflow_ctx.get(None)
+
+
+async def _resolved(value):
+    return value
+
+
+def _call_in_task_body(func, caller: str, args, kwargs):
+    """Run a task called from inside a task body in place, round-tripping its
+    result as a dispatched one would be.
+
+    The workflow body awaits every task, sync ones included, so an async caller
+    gets an awaitable back either way; a sync caller gets the value. The scope
+    is re-marked for the nested body, which may be of the other kind."""
+
+    async def run_async(coro):
+        token = _in_task_body.set("async")
+        try:
+            return _json_round_trip(await coro)
+        finally:
+            _in_task_body.reset(token)
+
+    if _inspect.iscoroutinefunction(func):
+        return run_async(func(*args, **kwargs))
+    token = _in_task_body.set("sync")
+    try:
+        result = func(*args, **kwargs)
+    finally:
+        _in_task_body.reset(token)
+    if _asyncio.iscoroutine(result):
+        return run_async(result)
+    result = _json_round_trip(result)
+    return _resolved(result) if caller == "async" else result
+
+
+def _assert_not_inside_task_body(what: str) -> None:
+    if _in_task_body.get():
+        raise RuntimeError(
+            f"{what} cannot be called from inside a task: a task runs as a single "
+            "job and cannot suspend or dispatch steps. Call it from the @workflow "
+            "body instead."
+        )
+
 
 class WorkflowCtx:
     """Internal context for workflow replay/suspension.
@@ -3073,15 +3176,20 @@ class WorkflowCtx:
         raise _StepSuspend({"mode": "sleep", "key": key, "seconds": seconds, "steps": []})
 
     async def _resolved(self, value):
-        return value
+        return await _resolved(value)
 
     async def _execute_directly(self, func, **kwargs):
+        token = _in_task_body.set(
+            "async" if _inspect.iscoroutinefunction(func) else "sync"
+        )
         try:
             result = func(**kwargs)
             if _asyncio.iscoroutine(result):
                 result = await result
         except Exception as exc:
             raise _StepFailure(exc) from exc
+        finally:
+            _in_task_body.reset(token)
         raise _StepSuspend({"mode": "step_complete", "steps": [], "result": result})
 
     async def _never_resolve(self):
@@ -3323,7 +3431,9 @@ def task(
 
     - **v2 (inside @workflow)**: dispatches as a checkpoint step.
     - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-    - **Standalone**: executes the function body directly.
+    - **Standalone, or called from inside another v2 task**: executes the
+      function body directly. A task runs as a single job, so the tasks it
+      calls run in that same job, without their own options.
 
     A task runs as its own job, so its result is always encoded as JSON and
     decoded back before the caller sees it: a ``datetime`` comes back as a
@@ -3403,11 +3513,15 @@ def task(
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             # WAC v2: inside a @workflow context
-            ctx = _workflow_ctx.get(None)
+            ctx = _dispatch_ctx()
             if ctx is not None:
                 script = task_path if task_path else task_name
                 merged = _merge_args(args, kwargs)
                 return ctx._next_step(task_name, script, func, _task_options=_task_opts, **merged)
+
+            caller = _in_task_body.get()
+            if caller is not None:
+                return _call_in_task_body(func, caller, args, kwargs)
 
             # WAC v1: running inside a Windmill job but not in a @workflow
             if (
@@ -3487,6 +3601,7 @@ def task_script(
     _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": _checked_retry(retry)}.items() if v is not None} or None
 
     def wrapper(**kwargs):
+        _assert_not_inside_task_body(f'task_script("{path}")')
         ctx = _workflow_ctx.get(None)
         if ctx is not None:
             return ctx._next_step(name, path, dispatch_type="script", _task_options=_opts, **kwargs)
@@ -3526,6 +3641,7 @@ def task_flow(
     _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": _checked_retry(retry)}.items() if v is not None} or None
 
     def wrapper(**kwargs):
+        _assert_not_inside_task_body(f'task_flow("{path}")')
         ctx = _workflow_ctx.get(None)
         if ctx is not None:
             return ctx._next_step(name, path, dispatch_type="flow", _task_options=_opts, **kwargs)
@@ -3560,8 +3676,11 @@ async def step(name: str, fn):
     ``fn``'s result is encoded as JSON and decoded back before it is returned,
     so the round that runs the body sees the same types every replay sees:
     a ``datetime`` comes back as a string, a tuple as a list.
+
+    Called from inside a task body, ``fn`` runs in place and nothing is
+    checkpointed: a task is a single job and is never replayed.
     """
-    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    ctx = _dispatch_ctx()
     if ctx is not None:
         return await ctx._run_inline_step(name, fn)
     result = fn()
@@ -3576,9 +3695,9 @@ async def sleep(seconds: int):
     """Server-side sleep — suspend the workflow for the given duration without holding a worker.
 
     Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
-    Outside a workflow, falls back to ``asyncio.sleep``.
+    Outside a workflow, or inside a task body, falls back to ``asyncio.sleep``.
     """
-    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    ctx = _dispatch_ctx()
     if ctx is not None:
         return await ctx._sleep(seconds)
     await _asyncio.sleep(seconds)
@@ -3616,6 +3735,7 @@ async def wait_for_approval(
         await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
         result = await wait_for_approval(key="manager", timeout=3600)
     """
+    _assert_not_inside_task_body("wait_for_approval()")
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
         return await ctx._wait_for_approval(

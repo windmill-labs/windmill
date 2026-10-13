@@ -1,16 +1,16 @@
-import { get } from 'svelte/store'
 import { FlowService, ScriptService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import { workspaceStore } from '$lib/stores'
 
 /** Flips the workspace error handler for one script or flow and reports the outcome in a
- * toast. Returns the new muted state, or undefined when nothing changed. */
+ * toast. Returns the new muted state, or undefined when nothing changed. The workspace is the
+ * caller's to supply — a detail page embedded in an AI session acts on that session's
+ * workspace, which is not the one the navigation store names. */
 export async function toggleWorkspaceErrorHandler(
+	workspace: string | undefined,
 	kind: 'script' | 'flow',
 	path: string,
 	muted: boolean | undefined
 ): Promise<boolean | undefined> {
-	const workspace = get(workspaceStore)
 	if (workspace === undefined) return undefined
 	const next = !muted
 	try {

@@ -10,7 +10,7 @@
 	import Select from './select/Select.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
-	import { appIconComponent } from './icons'
+	import { appIconComponent } from './icons/appIcon.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()

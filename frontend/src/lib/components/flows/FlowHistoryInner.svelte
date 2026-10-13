@@ -207,7 +207,7 @@
 											variant="accent"
 											on:click={() =>
 												window.open(
-													`/flows/add?template_id=${selectedVersion?.id}&template=${path}`,
+													`/flows/add?template_id=${selectedVersion?.id}&template=${path}&workspace=${$operatingWorkspace}`,
 													'_blank'
 												)}
 										>

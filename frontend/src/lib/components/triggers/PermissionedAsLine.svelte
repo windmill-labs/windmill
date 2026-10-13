@@ -22,9 +22,16 @@
 		 * `default_permissioned_as` rules and preselects the matching default.
 		 */
 		path?: string | undefined
+		/** Read-only editor: show the stored value, offer no choice and announce no change. */
+		disabled?: boolean
 	}
 
-	let { permissionedAs, onPermissionedAsChange, path = undefined }: Props = $props()
+	let {
+		permissionedAs,
+		onPermissionedAsChange,
+		path = undefined,
+		disabled = false
+	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
@@ -77,13 +84,20 @@
 			permissionedAs !== effectivePermissionedAs
 	)
 
-	const shouldRender = $derived(!!wsId && (permissionedAs !== undefined || canPreserve))
+	const shouldRender = $derived(
+		!!wsId && (permissionedAs !== undefined || (canPreserve && !disabled))
+	)
 
 	// For non-admin users editing a trigger owned by someone else: signal that
 	// permissioned_as will change to the current user (backend ignores preserve for non-admins).
 	// Only fires when there's an actual change (DB value differs from current user).
 	$effect(() => {
-		if (!canPreserve && permissionedAs !== undefined && permissionedAs !== myPermissionedAs) {
+		if (
+			!disabled &&
+			!canPreserve &&
+			permissionedAs !== undefined &&
+			permissionedAs !== myPermissionedAs
+		) {
 			onPermissionedAsChange(undefined, false)
 		}
 	})
@@ -107,7 +121,7 @@
 {#if shouldRender && wsId}
 	<div class="flex items-center gap-1.5 text-2xs text-tertiary mb-4">
 		<span>Permissioned as</span>
-		{#if canPreserve}
+		{#if canPreserve && !disabled}
 			<OnBehalfOfSelector
 				targetWorkspace={wsId}
 				targetValue={permissionedAs}
@@ -127,7 +141,7 @@
 			{/if}
 		{:else if permissionedAs}
 			<strong class="text-secondary">{permissionedAs}</strong>
-			{#if willChange}
+			{#if willChange && !disabled}
 				<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />
 				<span class="text-yellow-600 dark:text-yellow-400"
 					>will change to <strong>{effectivePermissionedAs}</strong> on save</span

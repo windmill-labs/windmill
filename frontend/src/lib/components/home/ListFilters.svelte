@@ -2,7 +2,7 @@
 	import { Folder, User } from 'lucide-svelte'
 	import { Badge } from '../common'
 	import type { BadgeColor, BadgeIconProps } from '../common/badge/model'
-	import { appIconComponent } from '../icons'
+	import { appIconComponent } from '../icons/appIcon.svelte'
 	import { integrationDisplayName } from '../resourceTypeDisplay'
 	import { untrack } from 'svelte'
 	import { useHostedPage } from '../hostedPage'
@@ -115,7 +115,9 @@
 							<Icon class="mr-0.5" size={12} />
 						{:else if resourceType}
 							{@const SvelteComponent = appIconComponent(filter)}
-							<SvelteComponent height="14px" width="14px" />
+							{#if SvelteComponent}
+								<SvelteComponent height="14px" width="14px" />
+							{/if}
 						{:else if filter.startsWith('u/')}
 							<User class="mr-0.5" size={14} />
 						{:else if filter.startsWith('f/')}

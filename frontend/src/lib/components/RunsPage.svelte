@@ -10,27 +10,17 @@
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
+	import { displayDate } from '$lib/utils'
+	import { userWorkspaces, superadmin, devopsRole, enterpriseLicense } from '$lib/stores'
+	import { useHostedPage } from '$lib/components/hostedPage'
 	import {
-		userStore,
-		workspaceStore,
-		userWorkspaces,
-		superadmin,
-		devopsRole,
-		enterpriseLicense
-	} from '$lib/stores'
-	import {
-		Button,
-		ButtonType,
-		Drawer,
-		DrawerContent,
-		Skeleton,
-		Tab,
-		Tabs
-	} from '$lib/components/common'
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	import { Button, Drawer, DrawerContent, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
 
-	import JobRunsPreview from '$lib/components/runs/JobRunsPreview.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
@@ -44,19 +34,20 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
-	import { pageHref, RUNS_PATH } from '$lib/components/sessions/previewPaths'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import { RUNS_PATH } from '$lib/components/sessions/previewPaths'
 	import { twMerge } from 'tailwind-merge'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import BatchLoadProgress from '$lib/components/BatchLoadProgress.svelte'
 	import { pluralize, MAX_RESOLUTION_BATCH, MAX_RESOLUTION_NOTE_LEN } from '$lib/utils'
-	import BatchReRunOptionsPane, {
-		type BatchReRunOptions
-	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
-	import { untrack } from 'svelte'
+	import type { BatchReRunOptions } from '$lib/components/runs/BatchReRunOptionsPane.svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import { page } from '$app/state'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
+	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import { StaleWhileLoading, useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import {
 		Calendar,
@@ -65,7 +56,9 @@
 		CirclePlay,
 		Clock,
 		Hourglass,
-		TriangleAlertIcon
+		TriangleAlertIcon,
+		ArrowLeft,
+		Loader2
 	} from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
@@ -86,6 +79,13 @@
 
 	let { initialPath }: Props = $props()
 
+	// Under a host — an AI session's preview tab — the document URL, the page header band and
+	// the navigation workspace all belong to the host: the filters live where it keeps them,
+	// the filter row renders in the page, and requests go to the workspace it names.
+	const hosted = useHostedPage()
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
 	let folders: string[] = $state([])
@@ -96,7 +96,7 @@
 			folders,
 			jobTriggerKinds,
 			isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
-			isAdminsWorkspace: $workspaceStore === 'admins'
+			isAdminsWorkspace: $operatingWorkspace === 'admins'
 		})
 	)
 	let perPage = useLocalStorageValue('runs_per_page', 1000, 'number')
@@ -120,6 +120,8 @@
 	// what was seeded at mount is gone. Re-apply it. Editing a filter writes with `replaceState`,
 	// which never reaches `page.url`, so a filter the user clears stays cleared.
 	$effect(() => {
+		// A host remounts the page when it re-points it, and its document URL is not this page's.
+		if (hosted) return
 		page.url.href
 		untrack(() => filters.seed(filterSeeds()))
 	})
@@ -176,7 +178,9 @@
 	let manualTimeframe = $derived(timeframe.type === 'manual' ? timeframe : undefined)
 
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
-		typeOfChart(page.url.searchParams.get('graph'))
+		typeOfChart(
+			(hosted ? new URLSearchParams(hosted.search) : page.url.searchParams).get('graph')
+		)
 	)
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
@@ -188,10 +192,11 @@
 		resultError,
 		perPage: perPage.val,
 		lookback: graph === 'RunChart' ? 0 : lookback,
-		currentWorkspace: $workspaceStore ?? ''
+		currentWorkspace: $operatingWorkspace ?? ''
 	}))
 	let batchProgress = $derived(jobsLoader.batchProgress)
 	let currentBatchSize = $derived(jobsLoader.currentBatchSize)
+	let scanProgress = $derived(jobsLoader.scanProgress)
 	let lastFetchWentToEnd = $derived(jobsLoader.lastFetchWentToEnd)
 	let queue_count = $derived(jobsLoader.queue_count)
 	let suspended_count = $derived(jobsLoader.suspended_count)
@@ -208,24 +213,25 @@
 	function reset() {
 		_timeframe.val = { ...runsTimeframes[0] }
 		selectedIds = []
+		openedRunId = undefined
 		delete filters.val.schedule_path
 		selectedWorkspace = undefined
 		jobsLoader?.loadJobs(true)
 	}
 
 	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+		usernames = await UserService.listUsernames({ workspace: $operatingWorkspace! })
 	}
 
 	async function loadFolders(): Promise<void> {
 		folders = await FolderService.listFolders({
-			workspace: $workspaceStore!
+			workspace: $operatingWorkspace!
 		}).then((x) => x.map((y) => y.name))
 	}
 
 	async function loadPaths() {
-		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $workspaceStore ?? '' })
-		const npaths_flows = await FlowService.listFlowPaths({ workspace: $workspaceStore ?? '' })
+		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $operatingWorkspace ?? '' })
+		const npaths_flows = await FlowService.listFlowPaths({ workspace: $operatingWorkspace ?? '' })
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
 
@@ -268,7 +274,7 @@
 		const resultFilter = filters.val.result && JSON.parse(filters.val.result)
 		const { minTs, maxTs } = timeframe.computeMinMax()
 		return {
-			workspace: $workspaceStore ?? '',
+			workspace: $operatingWorkspace ?? '',
 			startedBefore: maxTs ?? undefined,
 			startedAfter: minTs ?? undefined,
 			schedulePath: filters.val.schedule_path ?? undefined,
@@ -326,7 +332,7 @@
 	}
 	async function cancelJobs(uuidsToCancel: string[], forceCancel: boolean = false) {
 		const uuids = await JobService.cancelSelection({
-			workspace: $workspaceStore ?? '',
+			workspace: $operatingWorkspace ?? '',
 			requestBody: uuidsToCancel,
 			forceCancel: forceCancel,
 			allWorkspaces: filters.val.all_workspaces || undefined
@@ -353,7 +359,7 @@
 		for (const j of jobs ?? []) if (j.workspace_id) workspaceById.set(j.id, j.workspace_id)
 		const byWorkspace = new Map<string, string[]>()
 		for (const id of jobIds) {
-			const ws = workspaceById.get(id) ?? $workspaceStore ?? ''
+			const ws = workspaceById.get(id) ?? $operatingWorkspace ?? ''
 			const bucket = byWorkspace.get(ws)
 			if (bucket) bucket.push(id)
 			else byWorkspace.set(ws, [id])
@@ -431,7 +437,7 @@
 	}
 
 	async function reRunJobs(jobIdsToReRun: string[], batchReRunOptions: BatchReRunOptions) {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		if (askingForConfirmation) {
 			askingForConfirmation.loading = true
@@ -445,7 +451,7 @@
 
 		// workaround because EventSource does not support POST requests
 		// https://medium.com/@david.richards.tech/sse-server-sent-events-using-a-post-request-without-eventsource-1c0bd6f14425
-		const response = await fetch(`${OpenAPI.BASE}/w/${$workspaceStore}/jobs/run/batch_rerun_jobs`, {
+		const response = await fetch(`${OpenAPI.BASE}/w/${$operatingWorkspace}/jobs/run/batch_rerun_jobs`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(body)
@@ -498,6 +504,9 @@
 		})
 
 		selectedIds = []
+		// Opened from the table's "Run again", the options are done; left open, the next selection
+		// of one run would show them again. The re-run selection mode keeps them for its next batch.
+		if (!manualSelectionMode) batchRerunOptionsIsOpen = false
 		jobsLoader?.loadJobs(true, true)
 	}
 
@@ -555,7 +564,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			untrack(() => {
 				loadUsernames()
 				loadFolders()
@@ -581,8 +590,269 @@
 	)
 
 	let manualSelectionMode: undefined | 'cancel' | 'rerun' | 'resolve' = $state()
+
+	// Below 1024px (Tailwind `lg`) the side pane leaves the table too little room, so what it would
+	// show becomes a page pushed over the list. Selection modes keep the split: their rows are
+	// picked in the list while the pane holds the action.
+	const pagedLayout = $derived(innerWidth < 1024 && !manualSelectionMode)
+	// Set only by a plain row click, a chart point or the arrow keys, never by a modifier click:
+	// a Ctrl/Cmd/Shift-click starting a multi-selection selects one run first, and opening it would
+	// hide the list before the second click.
+	let openedRunId: string | undefined = $state()
+	const runPageOpen = $derived(
+		// A confirmed re-run clears the selection but leaves the options flag set.
+		(batchRerunOptionsIsOpen && selectedIds.length > 0) ||
+			(selectedIds.length === 1 && selectedIds[0] === openedRunId)
+	)
+
+	// Clears the selection too: a re-run selection of one job would otherwise land on that job.
+	function backToList() {
+		batchRerunOptionsIsOpen = false
+		selectedIds = []
+		openedRunId = undefined
+	}
 	let resolutionNote = $state('')
+	const phone = $derived(!hosted && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
 </script>
+
+{#snippet runsHint()}
+	<Tooltip
+		documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
+	>
+		All past and schedule executions of scripts and flows, including previews. You only see your own
+		runs or runs of groups you belong to unless you are an admin.
+	</Tooltip>
+{/snippet}
+
+{#snippet headerActions()}
+	<!-- The page's own row inside the band's actions box: these controls are denser than a page's
+	     two or three buttons, so they take a wider gap than the band's own. `flex-1 min-w-0` passes
+	     the band's flexibility down to the search field, the one control here that gives width
+	     back; the rest keep theirs or drop out of the row entirely at a width. -->
+	<div class="flex items-center gap-3 flex-1 min-w-0 {hosted ? 'flex-wrap justify-end' : ''}">
+		<!-- Always the icon form: the bar has room for two counters, never for the two labelled
+		     blocks. pr-2 on top of the row's own gap because the counts hang outside their icons,
+		     so without it the badge butts against the first filter.
+		     A phone's bar has room for the filter field and the timeframe and nothing else: the
+		     counters are a glance, and the same numbers are on the chart below. -->
+		<div class="flex items-center pr-2 {phone ? 'hidden' : ''}">
+			<RunsQueue
+				success={filters.val.status ?? null}
+				{queue_count}
+				{suspended_count}
+				onJobsWaiting={() => {
+					jobsFilter('waiting')
+				}}
+				onJobsSuspended={() => {
+					jobsFilter('suspended')
+				}}
+				small
+			/>
+		</div>
+		<!-- The two groups are the widest thing in the bar: they appear only once the bar is wide
+		     enough to hold them next to the search field, below which the same filtering is reachable
+		     from the search field's own `kind` and `status` chips. -->
+		<div class="hidden min-[1500px]:flex gap-2">
+			<ToggleButtonGroup
+				tabListClass="hidden min-[1500px]:flex"
+				bind:selected={
+					() => filters.val.job_kinds ?? 'runs',
+					(v) => (v === 'runs' ? delete filters.val.job_kinds : (filters.val.job_kinds = v))
+				}
+			>
+				{#snippet children({ item })}
+					<ToggleButton size="sm" value="all" label="All" {item} />
+					<ToggleButton
+						size="sm"
+						value="runs"
+						label="Runs"
+						tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
+						{item}
+					/>
+					<ToggleButton
+						size="sm"
+						value="dependencies"
+						label="Deps"
+						tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+						{item}
+					/>
+					<ToggleButtonMore
+						small
+						hideSelectedOption={innerWidth < smallScreenWidth}
+						togglableItems={[
+							{
+								label: 'Previews',
+								value: 'previews',
+								tooltip: "Previews are jobs that have been started in the editor as 'Tests'"
+							},
+							{
+								label: 'Sync',
+								value: 'deploymentcallbacks',
+								tooltip:
+									'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings'
+							}
+						]}
+						{item}
+						bind:selected={filters.val.job_kinds}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+			<ToggleButtonGroup
+				bind:selected={
+					() => filters.val.status ?? 'all',
+					(v) => (v === 'all' ? delete filters.val.status : (filters.val.status = v))
+				}
+				id="status"
+			>
+				{#snippet children({ item })}
+					<ToggleButton size="sm" value={'all'} label="All" {item} />
+					<ToggleButton
+						size="sm"
+						value={'running'}
+						tooltip="Running"
+						class="whitespace-nowrap"
+						icon={CirclePlay}
+						iconProps={{
+							class:
+								'group-data-[state=on]:text-yellow-600 dark:group-data-[state=on]:text-yellow-400'
+						}}
+						{item}
+					/>
+					<ToggleButton
+						size="sm"
+						value={'success'}
+						tooltip="Success"
+						class="whitespace-nowrap"
+						icon={CircleCheck}
+						iconProps={{
+							class:
+								'group-data-[state=on]:text-green-500 dark:group-data-[state=on]:text-green-300'
+						}}
+						{item}
+					/>
+					<ToggleButton
+						size="sm"
+						value={'failure'}
+						tooltip="Failure"
+						class="whitespace-nowrap"
+						icon={CircleAlert}
+						iconProps={{
+							class: 'group-data-[state=on]:text-red-500 dark:group-data-[state=on]:text-red-300'
+						}}
+						{item}
+					/>
+					<ToggleButton
+						size="sm"
+						value={'canceled'}
+						tooltip="Canceled"
+						class="whitespace-nowrap"
+						icon={Hourglass}
+						selectedColor="gray"
+						{item}
+					/>
+					{#if filters.val.status == 'waiting'}
+						<ToggleButton
+							size="sm"
+							value={'waiting'}
+							tooltip="Waiting"
+							class="whitespace-nowrap"
+							icon={Hourglass}
+							selectedColor="blue"
+							{item}
+						/>
+					{:else if filters.val.status == 'suspended'}
+						<ToggleButton
+							size="sm"
+							value={'suspended'}
+							tooltip="Suspended"
+							class="whitespace-nowrap"
+							icon={Hourglass}
+							selectedColor="purple"
+							{item}
+						/>
+					{/if}
+				{/snippet}
+			</ToggleButtonGroup>
+		</div>
+
+		<div class="hidden xl:flex gap-2 items-center">
+			{#if !filters.val.job_trigger_kind || filters.val.job_trigger_kind === '!schedule'}
+				<div class="flex items-center gap-1" title="Show schedules">
+					<Toggle
+						size="xs"
+						id="show-schedules"
+						bind:checked={
+							() => filters.val.job_trigger_kind !== '!schedule',
+							(v) =>
+								v
+									? delete filters.val.job_trigger_kind
+									: (filters.val.job_trigger_kind = '!schedule')
+						}
+					/>
+					<Calendar size={14} />
+				</div>
+			{/if}
+			<div class="flex items-center gap-1" title="Show future jobs">
+				<Toggle
+					size="xs"
+					id="show-future-jobs"
+					bind:checked={
+						() => filters.val.show_future_jobs !== false,
+						(v) =>
+							v ? delete filters.val.show_future_jobs : (filters.val.show_future_jobs = false)
+					}
+				/>
+				<Clock size={14} />
+			</div>
+		</div>
+
+		<!-- The one control in the band that gives way: everything else keeps the width it asked
+		     for, or drops out of the row at a width, and this takes what is left. -->
+		<FilterSearchbar
+			class={twMerge(
+				// A width of its own, and only ever less. As `flex-1` the field was whatever the row
+				// had left over, so a chip appearing or a filter committing resized it under the
+				// cursor and the last pixels came off the breadcrumb. 18rem is its width whenever the
+				// row fits, and it still shrinks when the row runs short, which is what keeps the row
+				// inside a box the bar lets shrink (`actionsFlexible`). `min-w-0` is what makes that
+				// shrink unconditional: a flex item's floor is its min-content width, which the chips
+				// inside the field raise, so without it a typed filter would push the field wider
+				// again exactly when the row has no room to give.
+				'relative w-[18rem] min-w-0 max-w-full',
+				// A phone's bar cannot spare that much before the timeframe beside it.
+				phone && 'w-[10rem]'
+			)}
+			schema={runsFilterSearchbarSchema}
+			presets={buildRunsFilterPresets({
+				isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
+				isAdminsWorkspace: $operatingWorkspace === 'admins'
+			})}
+			bind:value={filters.val}
+			placeholder="Filter runs..."
+			size="sm"
+			autofocus={!hosted}
+		/>
+		<TimeframeSelect
+			unifiedSize="sm"
+			onClick={() => jobsLoader?.loadJobs(true)}
+			loading={jobsLoader?.loading}
+			items={runsTimeframes}
+			bind:value={_timeframe.val}
+		/>
+		<!-- The filters are shallow-routed, so the search has to come off `window.location` at click
+		     time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
+		     preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway. -->
+		<div class={phone || hosted ? 'hidden' : 'contents'}>
+			<OpenInSessionButton
+				source={{
+					page: () => RUNS_PATH + window.location.search,
+					workspaceId: $operatingWorkspace ?? undefined
+				}}
+				btnProps={{ unifiedSize: 'sm' }}
+			/>
+		</div>
+	</div>
+{/snippet}
 
 <ConfirmationModal
 	title={askingForConfirmation?.title ?? ''}
@@ -631,242 +901,37 @@
 			{#if selectedIds[0] === '-'}
 				<div class="p-4">There is no information available for this job</div>
 			{:else}
-				<JobRunsPreview id={selectedIds[0]} workspace={selectedWorkspace} />
+				{#await import('$lib/components/runs/JobRunsPreview.svelte') then JobRunsPreview}
+					<JobRunsPreview.default id={selectedIds[0]} workspace={selectedWorkspace} />
+				{/await}
 			{/if}
 		{/if}
 	</DrawerContent>
 </Drawer>
 
+<!-- The document's history is the host's: its Back is not a move on this page. -->
 <svelte:window
 	onpopstate={() => {
-		reset()
+		if (!hosted) reset()
 	}}
 />
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.runs}
+{#if operatingUser.current?.operator && $operatingWorkspace && !$userWorkspaces.find((_) => _.id === $operatingWorkspace)?.operator_settings?.runs}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
-		<!-- Header and filters -->
-		<div id="runs-filters-bar" class="flex flex-row items-start w-full px-4 gap-3 py-4 flex-wrap">
-			<div class="flex flex-row items-center gap-6">
-				<h1
-					class={twMerge(
-						'!text-2xl font-semibold leading-6 tracking-tight',
-						$userStore?.operator ? 'pl-10' : ''
-					)}
-				>
-					Runs
-				</h1>
-
-				<Tooltip
-					documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
-				>
-					All past and schedule executions of scripts and flows, including previews. You only see
-					your own runs or runs of groups you belong to unless you are an admin.
-				</Tooltip>
-
-				<!-- Queue -->
-				<RunsQueue
-					success={filters.val.status ?? null}
-					{queue_count}
-					{suspended_count}
-					onJobsWaiting={() => {
-						jobsFilter('waiting')
-					}}
-					onJobsSuspended={() => {
-						jobsFilter('suspended')
-					}}
-					small={innerWidth < smallScreenWidth}
-				/>
+	<div class="w-full h-full flex flex-col" bind:clientWidth={innerWidth}>
+		<!-- `actionsFlexible`: the filter row holds a search field that can give width back, so the
+		     bar lets this box shrink on a phone instead of holding its content width. -->
+		{#if hosted}
+			<div class="flex px-4 pt-3 pb-2">
+				{@render headerActions()}
 			</div>
-
-			<div class="hidden xl:flex gap-2 ml-6">
-				<ToggleButtonGroup
-					tabListClass="hidden xl:flex"
-					bind:selected={
-						() => filters.val.job_kinds ?? 'runs',
-						(v) => (v === 'runs' ? delete filters.val.job_kinds : (filters.val.job_kinds = v))
-					}
-				>
-					{#snippet children({ item })}
-						<ToggleButton value="all" label="All" {item} />
-						<ToggleButton
-							value="runs"
-							label="Runs"
-							tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
-							{item}
-						/>
-						<ToggleButton
-							value="dependencies"
-							label="Deps"
-							tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
-							{item}
-						/>
-						<ToggleButtonMore
-							hideSelectedOption={innerWidth < smallScreenWidth}
-							togglableItems={[
-								{
-									label: 'Previews',
-									value: 'previews',
-									tooltip: "Previews are jobs that have been started in the editor as 'Tests'"
-								},
-								{
-									label: 'Sync',
-									value: 'deploymentcallbacks',
-									tooltip:
-										'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings'
-								}
-							]}
-							{item}
-							bind:selected={filters.val.job_kinds}
-						/>
-					{/snippet}
-				</ToggleButtonGroup>
-				<ToggleButtonGroup
-					bind:selected={
-						() => filters.val.status ?? 'all',
-						(v) => (v === 'all' ? delete filters.val.status : (filters.val.status = v))
-					}
-					id="status"
-				>
-					{#snippet children({ item })}
-						<ToggleButton value={'all'} label="All" {item} />
-						<ToggleButton
-							value={'running'}
-							tooltip="Running"
-							class="whitespace-nowrap"
-							icon={CirclePlay}
-							iconProps={{
-								class:
-									'group-data-[state=on]:text-yellow-600 dark:group-data-[state=on]:text-yellow-400'
-							}}
-							{item}
-						/>
-						<ToggleButton
-							value={'success'}
-							tooltip="Success"
-							class="whitespace-nowrap"
-							icon={CircleCheck}
-							iconProps={{
-								class:
-									'group-data-[state=on]:text-green-500 dark:group-data-[state=on]:text-green-300'
-							}}
-							{item}
-						/>
-						<ToggleButton
-							value={'failure'}
-							tooltip="Failure"
-							class="whitespace-nowrap"
-							icon={CircleAlert}
-							iconProps={{
-								class: 'group-data-[state=on]:text-red-500 dark:group-data-[state=on]:text-red-300'
-							}}
-							{item}
-						/>
-						<ToggleButton
-							value={'canceled'}
-							tooltip="Canceled"
-							class="whitespace-nowrap"
-							icon={Hourglass}
-							selectedColor="gray"
-							{item}
-						/>
-						{#if filters.val.status == 'waiting'}
-							<ToggleButton
-								value={'waiting'}
-								tooltip="Waiting"
-								class="whitespace-nowrap"
-								icon={Hourglass}
-								selectedColor="blue"
-								{item}
-							/>
-						{:else if filters.val.status == 'suspended'}
-							<ToggleButton
-								value={'suspended'}
-								tooltip="Suspended"
-								class="whitespace-nowrap"
-								icon={Hourglass}
-								selectedColor="purple"
-								{item}
-							/>
-						{/if}
-					{/snippet}
-				</ToggleButtonGroup>
-			</div>
-
-			<div class="hidden xl:flex gap-2 items-center min-h-8 ml-2">
-				{#if !filters.val.job_trigger_kind || filters.val.job_trigger_kind === '!schedule'}
-					<div class="flex items-center gap-1" title="Show schedules">
-						<Toggle
-							size="xs"
-							color="nord"
-							id="show-schedules"
-							bind:checked={
-								() => filters.val.job_trigger_kind !== '!schedule',
-								(v) =>
-									v
-										? delete filters.val.job_trigger_kind
-										: (filters.val.job_trigger_kind = '!schedule')
-							}
-						/>
-						<Calendar size={14} />
-					</div>
-				{/if}
-				<div class="flex items-center gap-1" title="Show future jobs">
-					<Toggle
-						size="xs"
-						color="nord"
-						id="show-future-jobs"
-						bind:checked={
-							() => filters.val.show_future_jobs !== false,
-							(v) =>
-								v ? delete filters.val.show_future_jobs : (filters.val.show_future_jobs = false)
-						}
-					/>
-					<Clock size={14} />
-				</div>
-			</div>
-
-			<TimeframeSelect
-				wrapperClasses="ml-auto"
-				onClick={() => jobsLoader?.loadJobs(true)}
-				loading={jobsLoader?.loading}
-				items={runsTimeframes}
-				bind:value={_timeframe.val}
-			/>
-			<FilterSearchbar
-				class={twMerge(
-					'flex-1 relative min-w-[18rem]',
-					Object.keys(filters.val).length <= 3
-						? 'max-w-[20rem] 2xl:max-w-[28rem]'
-						: 'max-w-[34rem]',
-					ButtonType.UnifiedMinHeightClasses.md
-				)}
-				schema={runsFilterSearchbarSchema}
-				presets={buildRunsFilterPresets({
-					isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
-					isAdminsWorkspace: $workspaceStore === 'admins'
-				})}
-				bind:value={filters.val}
-				placeholder="Filter runs..."
-				autofocus
-			/>
-			<!-- The filters are shallow-routed, so the search has to come off
-			     `window.location` at click time — `page.url` never sees them. Always the
-			     canonical `/runs`: only that is a recognized preview page, and the
-			     `/runs/<path>` route mirrors its path into `?path=` anyway. -->
-			<OpenInSessionButton
-				source={{
-					page: () => pageHref(RUNS_PATH) + window.location.search,
-					workspaceId: $workspaceStore ?? undefined
-				}}
-				btnProps={{ unifiedSize: 'md' }}
-			/>
-		</div>
+		{:else}
+			<PageHeaderContent afterName={runsHint} actions={headerActions} actionsFlexible />
+		{/if}
 
 		<!-- Graph -->
 		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 border rounded-md">
@@ -920,6 +985,7 @@
 						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
 					}}
 					onPointClicked={(ids) => {
+						openedRunId = ids.length === 1 ? ids[0] : undefined
 						runsTable?.scrollToRun(ids)
 					}}
 				/>
@@ -937,235 +1003,330 @@
 		</div>
 
 		<div class="grow min-h-0 bottom-splitpane-wrapper">
-			<Splitpanes>
-				<Pane minSize={40}>
-					<div class="h-full flex">
-						<div class="flex flex-col flex-1 m-4 mt-2 mr-2">
-							{#if batchProgress}
-								<div class="px-1 pb-2">
-									<BatchLoadProgress
-										loaded={batchProgress.loaded}
-										total={batchProgress.total}
-										itemsLabel="jobs"
-										batchSize={currentBatchSize}
-										batchSizeCap={1000}
-										onBatchSizeChange={(v) => jobsLoader.restreamWithBatchSize(v)}
-										onStop={() => jobsLoader.stopBatchLoading()}
-									/>
-								</div>
-							{/if}
-							<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
-							<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
-								{#if jobs}
-									<RunsTable
-										{jobs}
-										externalJobs={externalJobs ?? []}
-										omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
-										showExternalJobs={graph !== 'RunChart'}
-										activeLabel={filters.val.label}
-										{lastFetchWentToEnd}
-										loadingExtra={jobsLoader.loadingExtra}
-										bind:selectedIds
-										bind:selectedWorkspace
-										on:loadExtra={loadExtra}
-										on:filterByPath={filterByPath}
-										on:filterByUser={filterByUser}
-										on:filterByFolder={filterByFolder}
-										on:filterByLabel={filterByLabel}
-										on:filterByConcurrencyKey={filterByConcurrencyKey}
-										on:filterByTag={filterByTag}
-										on:filterBySchedule={filterBySchedule}
-										on:filterByWorker={filterByWorker}
-										bind:this={runsTable}
-										perPage={perPage.val}
-										bind:batchRerunOptionsIsOpen
-										onCancelJobs={onCancelSelectedJobs}
-										onSetJobsResolution={setJobsResolution}
-										{manualSelectionMode}
-									></RunsTable>
-								{:else}
-									<div class="gap-1 flex flex-col">
-										{#each new Array(8) as _}
-											<Skeleton layout={[[3]]} />
-										{/each}
-									</div>
-								{/if}
-							</div>
-							<div
-								class="bg-surface-tertiary border rounded-b-md flex text-xs px-2 py-1 items-center gap-4"
-							>
-								{#if !manualSelectionMode}
-									<DropdownV2
-										btnText="Batch actions"
-										size="xs"
-										items={[
-											{
-												displayName: 'Cancel jobs',
-												action: () => ((manualSelectionMode = 'cancel'), (selectedIds = []))
-											},
-											{
-												displayName: 'Re-run jobs',
-												action: () => {
-													manualSelectionMode = 'rerun'
-													selectedIds = []
-													batchRerunOptionsIsOpen = true
-												}
-											},
-											...(!$userStore?.operator
-												? [
-														{
-															// Operators are rejected by the endpoint, so offering it would only 403.
-															displayName: 'Resolve failed jobs',
-															action: () => (
-																(manualSelectionMode = 'resolve'),
-																(selectedIds = []),
-																(resolutionNote = '')
-															)
-														}
-													]
-												: []),
-											{
-												displayName: 'Cancel all jobs matching filters',
-												action: () => onCancelAllJobsMatchingFilters()
-											},
-											{
-												displayName: 'Re-run all jobs matching filters',
-												action: () => onRerunAllJobsMatchingFilters()
-											}
-										]}
-									/>
-								{:else}
-									<Button
-										size="xs"
-										destructive
-										onClick={() => {
-											manualSelectionMode = undefined
-											batchRerunOptionsIsOpen = false
-										}}
-									>
-										Exit selection mode
-									</Button>
-								{/if}
-								<div class="flex-1"></div>
-								<Toggle
-									size="xs"
-									color="nord"
-									bind:checked={autoRefresh.val}
-									options={{ right: 'Auto-refresh' }}
-									textClass="whitespace-nowrap"
-								/>
-								<Select
-									class="w-24"
-									bind:value={
-										() => perPage.val,
-										(newPerPage) => {
-											perPage.val = newPerPage
-											if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
-										}
-									}
-									onCreateItem={(v) => (perPage.val = parseInt(v))}
-									items={[
-										{ value: 25, label: '25' },
-										{ value: 100, label: '100' },
-										{ value: 1000, label: '1000' },
-										{ value: 10000, label: '10000' }
-									]}
-									transformInputSelectedText={(_, v) => `${v} / page`}
-								/>
-							</div>
-						</div>
-					</div>
-				</Pane>
-				<AnimatedPane
-					size={40}
-					minSize={15}
-					class="flex flex-col"
-					opened={selectedIds.length > 0 || !!manualSelectionMode}
-				>
-					<div class="mt-12 overflow-y-auto pr-4 ml-2 relative flex-1">
-						{#if manualSelectionMode === 'cancel'}
-							<div
-								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center"
-							>
-								<Button
-									destructive
-									variant="accent"
-									disabled={!selectedIds.length}
-									onClick={() => onCancelSelectedJobs(selectedIds)}
-								>
-									Cancel {selectedIds.length} jobs
-								</Button>
-							</div>
-						{:else if manualSelectionMode === 'resolve'}
-							<div
-								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center gap-3 p-4"
-							>
-								<p class="text-xs text-secondary text-center max-w-xs">
-									Resolving keeps the run a failure but stops it showing as one in the runs list.
-								</p>
-								<TextInput
-									bind:value={resolutionNote}
-									inputProps={{
-										placeholder: $enterpriseLicense
-											? 'Why is this handled? (optional)'
-											: 'Notes and attribution require ee',
-										disabled: !$enterpriseLicense
-									}}
-									size="sm"
-								/>
-								<div class="flex flex-row gap-2">
-									<Button
-										variant="accent"
-										disabled={!selectedIds.length}
-										onClick={() => setJobsResolution(selectedIds, true, resolutionNote)}
-									>
-										Mark {selectedIds.length} resolved
-									</Button>
-									<Button
-										variant="default"
-										disabled={!selectedIds.length}
-										onClick={() => setJobsResolution(selectedIds, false)}
-									>
-										Unresolve {selectedIds.length}
-									</Button>
-								</div>
-							</div>
-						{:else if batchRerunOptionsIsOpen}
-							<BatchReRunOptionsPane
-								{selectedIds}
-								onCancel={() => (
-									(batchRerunOptionsIsOpen = false),
-									(manualSelectionMode = undefined)
-								)}
-								onConfirm={async (options) => {
-									await onReRunSelectedJobs(options)
-								}}
-							/>
-						{:else if selectedIds.length === 1}
-							{#if selectedIds[0] === '-'}
-								<div class="p-4">There is no information available for this job</div>
-							{:else}
-								<JobRunsPreview
-									id={selectedIds[0]}
-									workspace={selectedWorkspace}
-									on:filterByConcurrencyKey={filterByConcurrencyKey}
-									on:filterByWorker={filterByWorker}
-									onResolutionChanged={() => jobsLoader?.loadJobs(true, true)}
-								/>
-							{/if}
-						{:else if selectedIds.length > 1}
-							<div
-								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex items-center justify-center"
-							>
-								<div class="text-xs m-4"> {selectedIds.length} jobs selected</div>
-							</div>
-						{/if}
-					</div>
-				</AnimatedPane>
-			</Splitpanes>
+			{#if pagedLayout}
+				<!-- No `onNavigate`: its arrow keys are read at `window`, where they would take
+				     ArrowRight from the table's horizontal scroll and ArrowLeft from a modal or drawer
+				     opened over the run. -->
+				<PagedContent
+					class="h-full"
+					current={runPageOpen ? 'run' : 'list'}
+					pages={[
+						{ key: 'list', content: runsList },
+						{ key: 'run', content: runPage, placeholder: runPagePlaceholder }
+					]}
+				/>
+			{:else}
+				<Splitpanes>
+					<Pane minSize={40}>
+						{@render runsList()}
+					</Pane>
+					<AnimatedPane
+						size={40}
+						minSize={15}
+						class="flex flex-col"
+						opened={selectedIds.length > 0 || !!manualSelectionMode}
+					>
+						{@render sidePanel()}
+					</AnimatedPane>
+				</Splitpanes>
+			{/if}
 		</div>
 	</div>
 {/if}
+
+{#snippet runsList()}
+	<div class="h-full flex">
+		<div class="flex flex-col flex-1 min-w-0 m-4 mt-2 mr-2">
+			{#if scanProgress}
+				<div class="px-1 pb-2 flex items-center gap-2">
+					<Loader2 size={14} class="animate-spin shrink-0 text-accent" />
+					<div class="flex-1 min-w-0">
+						<BatchLoadProgress
+							loaded={Math.round(scanProgress.fraction * 100)}
+							total={100}
+							itemsLabel="runs"
+							label={`Slow search: runs since ${displayDate(scanProgress.scannedTo)} searched, ${jobs?.length ?? 0} found`}
+							onStop={() => jobsLoader.stopBatchLoading()}
+						/>
+					</div>
+				</div>
+			{/if}
+			{#if batchProgress}
+				<div class="px-1 pb-2">
+					<BatchLoadProgress
+						loaded={batchProgress.loaded}
+						total={batchProgress.total}
+						itemsLabel="jobs"
+						batchSize={currentBatchSize}
+						batchSizeCap={1000}
+						onBatchSizeChange={(v) => jobsLoader.restreamWithBatchSize(v)}
+						onStop={() => jobsLoader.stopBatchLoading()}
+					/>
+				</div>
+			{/if}
+			<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
+			<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
+				{#if jobs}
+					<RunsTable
+						{jobs}
+						externalJobs={externalJobs ?? []}
+						omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
+						showExternalJobs={graph !== 'RunChart'}
+						activeLabel={filters.val.label}
+						{lastFetchWentToEnd}
+						loadingExtra={jobsLoader.loadingExtra}
+						bind:selectedIds
+						bind:selectedWorkspace
+						on:select={() => (openedRunId = selectedIds.length === 1 ? selectedIds[0] : undefined)}
+						on:loadExtra={loadExtra}
+						on:filterByPath={filterByPath}
+						on:filterByUser={filterByUser}
+						on:filterByFolder={filterByFolder}
+						on:filterByLabel={filterByLabel}
+						on:filterByConcurrencyKey={filterByConcurrencyKey}
+						on:filterByTag={filterByTag}
+						on:filterBySchedule={filterBySchedule}
+						on:filterByWorker={filterByWorker}
+						bind:this={runsTable}
+						perPage={perPage.val}
+						bind:batchRerunOptionsIsOpen
+						onCancelJobs={onCancelSelectedJobs}
+						onSetJobsResolution={setJobsResolution}
+						{manualSelectionMode}
+					></RunsTable>
+				{:else}
+					<div class="gap-1 flex flex-col">
+						{#each new Array(8) as _}
+							<Skeleton layout={[[3]]} />
+						{/each}
+					</div>
+				{/if}
+			</div>
+			<div
+				class="bg-surface-tertiary border rounded-b-md flex text-xs px-2 py-1 items-center gap-4"
+			>
+				{#if !manualSelectionMode}
+					<DropdownV2
+						btnText="Batch actions"
+						size="xs"
+						items={[
+							{
+								displayName: 'Cancel jobs',
+								action: () => ((manualSelectionMode = 'cancel'), (selectedIds = []))
+							},
+							{
+								displayName: 'Re-run jobs',
+								action: () => {
+									manualSelectionMode = 'rerun'
+									selectedIds = []
+									batchRerunOptionsIsOpen = true
+								}
+							},
+							...(!operatingUser.current?.operator
+								? [
+										{
+											// Operators are rejected by the endpoint, so offering it would only 403.
+											displayName: 'Resolve failed jobs',
+											action: () => (
+												(manualSelectionMode = 'resolve'),
+												(selectedIds = []),
+												(resolutionNote = '')
+											)
+										}
+									]
+								: []),
+							{
+								displayName: 'Cancel all jobs matching filters',
+								action: () => onCancelAllJobsMatchingFilters()
+							},
+							{
+								displayName: 'Re-run all jobs matching filters',
+								action: () => onRerunAllJobsMatchingFilters()
+							}
+						]}
+					/>
+				{:else}
+					<Button
+						size="xs"
+						destructive
+						onClick={() => {
+							manualSelectionMode = undefined
+							batchRerunOptionsIsOpen = false
+						}}
+					>
+						Exit selection mode
+					</Button>
+				{/if}
+				<div class="flex-1"></div>
+				<Toggle
+					size="xs"
+					color="nord"
+					bind:checked={autoRefresh.val}
+					options={{ right: 'Auto-refresh' }}
+					textClass="whitespace-nowrap"
+				/>
+				<Select
+					class="w-24"
+					bind:value={
+						() => perPage.val,
+						(newPerPage) => {
+							perPage.val = newPerPage
+							if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
+						}
+					}
+					onCreateItem={(v) => (perPage.val = parseInt(v))}
+					items={[
+						{ value: 25, label: '25' },
+						{ value: 100, label: '100' },
+						{ value: 1000, label: '1000' },
+						{ value: 10000, label: '10000' }
+					]}
+					transformInputSelectedText={(_, v) => `${v} / page`}
+				/>
+			</div>
+		</div>
+	</div>
+{/snippet}
+
+{#snippet sidePanel()}
+	<div class="mt-12 overflow-y-auto pr-4 ml-2 relative flex-1">
+		{#if manualSelectionMode === 'cancel'}
+			<div
+				class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center"
+			>
+				<Button
+					destructive
+					variant="accent"
+					disabled={!selectedIds.length}
+					onClick={() => onCancelSelectedJobs(selectedIds)}
+				>
+					Cancel {selectedIds.length} jobs
+				</Button>
+			</div>
+		{:else if manualSelectionMode === 'resolve'}
+			<div
+				class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center gap-3 p-4"
+			>
+				<p class="text-xs text-secondary text-center max-w-xs">
+					Resolving keeps the run a failure but stops it showing as one in the runs list.
+				</p>
+				<TextInput
+					bind:value={resolutionNote}
+					inputProps={{
+						placeholder: $enterpriseLicense
+							? 'Why is this handled? (optional)'
+							: 'Notes and attribution require ee',
+						disabled: !$enterpriseLicense
+					}}
+					size="sm"
+				/>
+				<div class="flex flex-row gap-2">
+					<Button
+						variant="accent"
+						disabled={!selectedIds.length}
+						onClick={() => setJobsResolution(selectedIds, true, resolutionNote)}
+					>
+						Mark {selectedIds.length} resolved
+					</Button>
+					<Button
+						variant="default"
+						disabled={!selectedIds.length}
+						onClick={() => setJobsResolution(selectedIds, false)}
+					>
+						Unresolve {selectedIds.length}
+					</Button>
+				</div>
+			</div>
+		{:else if batchRerunOptionsIsOpen}
+			{@render batchRerunOptions()}
+		{:else if selectedIds.length === 1}
+			{#if selectedIds[0] === '-'}
+				<div class="p-4">There is no information available for this job</div>
+			{:else}
+				{@render jobPreview()}
+			{/if}
+		{:else if selectedIds.length > 1}
+			<div
+				class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex items-center justify-center"
+			>
+				<div class="text-xs m-4"> {selectedIds.length} jobs selected</div>
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet runPage()}
+	{@render runPageFrame(runPageBody)}
+{/snippet}
+
+{#snippet runPagePlaceholder()}
+	{@render runPageFrame(runPageSkeleton)}
+{/snippet}
+
+{#snippet runPageFrame(body: Snippet)}
+	<!-- Margins and header row match the runs table's column header, so the back row sits where
+	     the column labels were. -->
+	<div class="h-full flex flex-col min-h-0 p-4 pt-2 pr-2">
+		<div class="flex min-h-6 my-2 items-end">
+			<Button
+				unifiedSize="xs"
+				variant="subtle"
+				startIcon={{ icon: ArrowLeft }}
+				btnClasses="-mb-1 gap-1 text-xs font-semibold leading-3"
+				onclick={backToList}
+			>
+				Runs list
+			</Button>
+		</div>
+		<div class="grow min-h-0 overflow-y-auto">
+			{@render body()}
+		</div>
+	</div>
+{/snippet}
+
+{#snippet runPageBody()}
+	{#if batchRerunOptionsIsOpen}
+		{@render batchRerunOptions()}
+	{:else if selectedIds[0] === '-'}
+		<div class="p-4">There is no information available for this job</div>
+	{:else if selectedIds.length === 1}
+		{@render jobPreview(runPageSkeleton)}
+	{/if}
+{/snippet}
+
+<!-- The shape of a run: its header card, then inputs and result. `mounted` skips the skeleton's
+     fade-in, which outlasts the slide it is drawn for. -->
+{#snippet runPageSkeleton()}
+	<Skeleton mounted layout={[[4.5], 1.5, [1], 0.5, [3], 1.5, [1], 0.5, [8]]} />
+{/snippet}
+
+{#snippet batchRerunOptions()}
+	{#await import('$lib/components/runs/BatchReRunOptionsPane.svelte') then BatchReRunOptionsPane}
+		<BatchReRunOptionsPane.default
+			{selectedIds}
+			onCancel={() => ((batchRerunOptionsIsOpen = false), (manualSelectionMode = undefined))}
+			onConfirm={async (options) => {
+				await onReRunSelectedJobs(options)
+			}}
+		/>
+	{/await}
+{/snippet}
+
+{#snippet jobPreview(pending?: Snippet)}
+	<!-- Dynamic, like the batch re-run pane: both only show once jobs are selected
+	     and each statically reaches hundreds of modules (flow graph, monaco). -->
+	{#await import('$lib/components/runs/JobRunsPreview.svelte')}
+		{@render pending?.()}
+	{:then JobRunsPreview}
+		<JobRunsPreview.default
+			id={selectedIds[0]}
+			workspace={selectedWorkspace}
+			on:filterByConcurrencyKey={filterByConcurrencyKey}
+			on:filterByWorker={filterByWorker}
+			onResolutionChanged={() => jobsLoader?.loadJobs(true, true)}
+		/>
+	{/await}
+{/snippet}
 
 <style>
 	:global(.bottom-splitpane-wrapper .splitpanes__splitter) {

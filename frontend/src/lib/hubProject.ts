@@ -1,5 +1,5 @@
 import type { Component } from 'svelte'
-import { appIconComponent } from '$lib/components/icons'
+import { appIconComponent } from '$lib/components/icons/appIcon.svelte'
 import { HubPublishService, SettingService } from '$lib/gen'
 import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 import type { ImportProjectSummary } from '$lib/components/ImportProjectCard.svelte'

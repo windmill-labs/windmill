@@ -23,12 +23,17 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use windmill_api_auth::{check_scopes, get_scope_tags, ApiAuthed};
+use windmill_audit::{
+    audit_oss::{audit_log_many, AuditAuthorable},
+    ActionKind,
+};
 use windmill_common::{
     db::{UserDB, UserDbWithAuthed},
     error::{self, Error},
     flow_conversations::{
         add_message_to_conversation_tx, message_attachments, MessageExtras, MessageType,
     },
+    flows::Retry,
     get_latest_flow_version_info_for_path,
     jobs::{
         check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
@@ -95,6 +100,172 @@ pub async fn check_tag_as_written_available_for_workspace(
     }
 }
 
+/// Clears a `parent_job` / `root_job` the caller cannot claim. They identify the pushed job
+/// (`WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, the OIDC token's flow path), so only a job's own
+/// `WM_TOKEN` may name that job or its ancestors, and a workspace admin any job of the workspace.
+/// Cleared rather than refused: the SDKs send them from inside a job whatever token they hold.
+pub async fn drop_unclaimable_run_lineage(
+    db: &DB,
+    w_id: &str,
+    run_query: &mut RunJobQuery,
+    authed: &ApiAuthed,
+) -> error::Result<()> {
+    let referenced: Vec<Uuid> = [run_query.parent_job, run_query.root_job]
+        .into_iter()
+        .flatten()
+        .collect();
+    let unclaimable = unclaimable_run_lineage(db, w_id, referenced, authed).await?;
+    for field in [&mut run_query.parent_job, &mut run_query.root_job] {
+        if field.is_some_and(|id| unclaimable.contains(&id)) {
+            tracing::warn!(
+                "ignoring parent_job/root_job {field:?} that {} cannot claim in {w_id}",
+                authed.username
+            );
+            *field = None;
+        }
+    }
+    Ok(())
+}
+
+/// Applies the run's `retry` policy by handing `push` a one-step-flow request, which it
+/// materializes as a native retryable `Script`.
+pub fn with_run_retry(
+    run_query: &RunJobQuery,
+    payload: JobPayload,
+    args: &PushArgs<'_>,
+    tag: &Option<String>,
+) -> error::Result<JobPayload> {
+    let Some(retry) = run_query.retry.as_deref() else {
+        return Ok(payload);
+    };
+    // Retry attempts are always pushed visible to the owner, which would leak a private run.
+    if run_query.invisible_to_owner.unwrap_or(false) {
+        return Err(Error::BadRequest(
+            "retry cannot be combined with invisible_to_owner".to_string(),
+        ));
+    }
+    let retry: Retry = serde_json::from_str(retry)
+        .map_err(|e| Error::BadRequest(format!("invalid retry policy: {e}")))?;
+    let JobPayload::ScriptHash {
+        hash,
+        path,
+        cache_ttl,
+        cache_ignore_s3_path,
+        language,
+        priority,
+        apply_preprocessor,
+        debouncing_settings,
+        concurrency_settings,
+        ..
+    } = payload
+    else {
+        return Err(Error::BadRequest(
+            "retry is only supported for workspace scripts".to_string(),
+        ));
+    };
+    // A failed attempt keeps its raw args and the retry re-push skips the preprocessor, so
+    // every retry would call `main` with un-preprocessed input.
+    if apply_preprocessor {
+        return Err(Error::BadRequest(
+            "retry is not supported for a script with a preprocessor unless skip_preprocessor is set"
+                .to_string(),
+        ));
+    }
+    Ok(JobPayload::SingleStepFlow {
+        path,
+        hash: Some(hash),
+        flow_version: None,
+        language: Some(language),
+        args: HashMap::from(args),
+        retry: Some(retry),
+        error_handler_path: None,
+        error_handler_args: None,
+        skip_handler: None,
+        cache_ttl,
+        cache_ignore_s3_path,
+        priority,
+        tag_override: tag.clone(),
+        trigger_path: None,
+        apply_preprocessor,
+        concurrency_settings,
+        debouncing_settings,
+    })
+}
+
+/// The jobs of `referenced` that `authed` cannot claim as its own run lineage: anything but the
+/// token's own job and that job's `parent_job`, `root_job` and `flow_innermost_root_job`, or for
+/// a workspace admin anything outside the workspace. A restricted job token never gets the admin
+/// latitude: its flow-run routes trust this lineage (`job_in_same_flow_run`), so a claimed
+/// unrelated run would escape its scopes.
+pub async fn unclaimable_run_lineage(
+    db: &DB,
+    w_id: &str,
+    mut referenced: Vec<Uuid>,
+    authed: &ApiAuthed,
+) -> error::Result<Vec<Uuid>> {
+    referenced.sort();
+    referenced.dedup();
+    if let Some(token_job) = authed.job_id {
+        referenced.retain(|id| *id != token_job);
+        if !referenced.is_empty() {
+            if let Some(lineage) = sqlx::query!(
+                "SELECT parent_job, root_job, flow_innermost_root_job FROM v2_job
+                WHERE id = $1 AND workspace_id = $2",
+                token_job,
+                w_id
+            )
+            .fetch_optional(db)
+            .await?
+            {
+                let ancestors = [
+                    lineage.parent_job,
+                    lineage.root_job,
+                    lineage.flow_innermost_root_job,
+                ];
+                referenced.retain(|id| !ancestors.contains(&Some(*id)));
+            }
+        }
+    }
+    if referenced.is_empty() {
+        return Ok(referenced);
+    }
+    let restricted_job_token = authed.job_id.is_some() && authed.scopes.is_some();
+    let in_workspace = if authed.is_admin && !restricted_job_token {
+        sqlx::query_scalar!(
+            "SELECT id FROM v2_job WHERE id = ANY($1) AND workspace_id = $2",
+            &referenced,
+            w_id,
+        )
+        .fetch_all(db)
+        .await?
+    } else {
+        vec![]
+    };
+    referenced.retain(|id| !in_workspace.contains(id));
+    Ok(referenced)
+}
+
+/// `WM_END_USER_EMAIL` of a run started through a `/jobs/run*` route. `WM_EMAIL` names the
+/// runnable's `on_behalf_of` identity when it has one, so this is the only place the caller's
+/// address reaches the job. A job's own `WM_TOKEN` passes on the end user of that job, and a run
+/// a trigger fired has no end user.
+pub async fn run_end_user_email(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    trigger: Option<&TriggerMetadata>,
+) -> error::Result<Option<String>> {
+    if trigger.is_some() {
+        return Ok(None);
+    }
+    match authed.job_id {
+        Some(job_id) => Ok(windmill_common::auth::get_job_perms(db, &job_id, w_id)
+            .await?
+            .and_then(|p| p.end_user_email)),
+        None => Ok(Some(authed.email.clone())),
+    }
+}
+
 #[cfg(feature = "enterprise")]
 pub async fn check_license_key_valid() -> error::Result<()> {
     use windmill_common::ee_oss::LICENSE_KEY_VALID;
@@ -116,11 +287,15 @@ pub async fn check_license_key_valid() -> error::Result<()> {
 pub async fn cancel_jobs(
     jobs: Vec<Uuid>,
     db: &DB,
-    username: &str,
+    author: &(impl AuditAuthorable + Sync),
     w_id: &str,
     force_cancel: bool,
 ) -> error::JsonResult<Vec<Uuid>> {
+    let username = author.username();
     let mut uuids = vec![];
+    // A job that completed before its turn is reported back like the others but was not
+    // cancelled, so it gets no audit entry.
+    let mut audited = vec![];
     tracing::info!("Cancelling jobs: {:?}", jobs);
     let mut tx = db.begin().await?;
     let trivial_jobs =  sqlx::query!("INSERT INTO v2_job_completed AS cj
@@ -166,7 +341,7 @@ pub async fn cancel_jobs(
         }
         match tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
             let tx = db.begin().await?;
-            let (tx, _) = cancel_job(
+            let (tx, cancelled) = cancel_job(
                 username,
                 None,
                 job_id.clone(),
@@ -178,13 +353,14 @@ pub async fn cancel_jobs(
             )
             .await?;
             tx.commit().await?;
-            Ok::<_, anyhow::Error>(())
+            Ok::<_, anyhow::Error>(cancelled)
         })
         .await
         {
             Ok(result) => match result {
-                Ok(_) => {
+                Ok(cancelled) => {
                     uuids.push(job_id);
+                    audited.extend(cancelled);
                 }
                 Err(e) => {
                     tracing::error!("Failed to cancel job {:?}: {:?}", job_id, e);
@@ -199,7 +375,26 @@ pub async fn cancel_jobs(
         }
     }
 
+    audited.extend(trivial_jobs.iter().copied());
     uuids.extend(trivial_jobs);
+
+    // The cancels are committed by now: failing here would report them as not done.
+    if let Err(e) = audit_log_many(
+        db,
+        author,
+        if force_cancel {
+            "jobs.force_cancel"
+        } else {
+            "jobs.cancel"
+        },
+        ActionKind::Delete,
+        w_id,
+        &audited.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+    )
+    .await
+    {
+        tracing::error!("Failed to write audit entries for cancelled jobs in {w_id}: {e:#}");
+    }
 
     Ok(Json(uuids))
 }
@@ -748,6 +943,7 @@ pub async fn handle_chat_conversation_messages(
         tx,
         memory_id,
         Some(job_id),
+        job_id,
         &user_message,
         MessageType::User,
         None,
@@ -776,6 +972,8 @@ pub async fn run_flow<'c>(
     bool,
     Option<sqlx::Transaction<'c, sqlx::Postgres>>,
 )> {
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(db, w_id, &mut run_query, authed).await?;
     let on_behalf_of = flow_version_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo {
         version,
@@ -786,6 +984,7 @@ pub async fn run_flow<'c>(
         chat_input_enabled,
         early_return,
         labels,
+        job_token_scopes,
         ..
     } = flow_version_info;
 
@@ -835,6 +1034,8 @@ pub async fn run_flow<'c>(
         )
     };
 
+    let end_user_email = run_end_user_email(db, w_id, authed, trigger.as_ref()).await?;
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -845,6 +1046,7 @@ pub async fn run_flow<'c>(
             version,
             apply_preprocessor,
             labels,
+            job_token_scopes,
         },
         push_args,
         authed.display_username(),
@@ -868,9 +1070,10 @@ pub async fn run_flow<'c>(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
 
@@ -1017,6 +1220,8 @@ pub async fn push_script_job_by_path_into_queue<'c>(
 
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
@@ -1034,6 +1239,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let job_payload = with_run_retry(&run_query, job_payload, &push_args, &tag)?;
 
     let return_tx = tx_o.is_some();
 
@@ -1060,6 +1266,8 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         )
     };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, trigger.as_ref()).await?;
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -1092,9 +1300,10 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         },
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
 

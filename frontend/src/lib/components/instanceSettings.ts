@@ -2,8 +2,10 @@ import type { ButtonType } from './common/button/model'
 import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
 import { instanceBannerFormError } from './instanceBanner'
+import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
 import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
+import { OidcService } from '$lib/gen'
 
 /**
  * Bumped after instance settings are successfully saved. Settings whose display
@@ -67,11 +69,14 @@ export interface Setting {
 		| 'otel'
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
+		| 'external_instance_pg'
+		| 'instance_pg'
 		| 'github_enterprise_app'
 		| 'webhook_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
 		| 'instance_banner'
+		| 'accent_color'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -171,8 +176,7 @@ export function isValidWebhookBaseUrl(value: unknown): boolean {
 	return (
 		(url.protocol === 'http:' || url.protocol === 'https:') &&
 		url.host !== '' &&
-		// Userinfo would end up in the per-repository receiver stored in workspace
-		// settings, which workspace admins can read.
+		// Userinfo would end up in URLs that users who are not instance admins can read.
 		url.username === '' &&
 		url.password === '' &&
 		// Tested on the raw string, not `url.search`/`url.hash`: those are `''` for a
@@ -183,6 +187,8 @@ export function isValidWebhookBaseUrl(value: unknown): boolean {
 		// `new URL` silently percent-encodes a space in the path, where the server
 		// rejects it outright.
 		!/\s/.test(trimmed) &&
+		// Shell-active characters: the URL is pasted into commands users copy.
+		!/[$`'"\\;&|<>(){}*!]/.test(trimmed) &&
 		!trimmed.endsWith('/')
 	)
 }
@@ -203,7 +209,29 @@ export const settings: Record<string, Setting[]> = {
 				(value?.startsWith('http') &&
 					value.includes('://') &&
 					!value?.endsWith('/') &&
-					!value?.endsWith(' '))
+					!value?.endsWith(' ')),
+			advancedToggle: {
+				label: 'The API is served on a different url than the UI',
+				onChange(values) {
+					values['api_base_url'] = values['api_base_url'] == null ? '' : null
+					return values
+				},
+				checked: (values) => values['api_base_url'] != null
+			}
+		},
+		{
+			label: 'API base url',
+			description:
+				'Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, the CLI remote), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway. If that url does not also serve the UI, the CLI must authenticate with a token rather than the browser login.',
+			key: 'api_base_url',
+			fieldType: 'text',
+			placeholder: 'https://api.windmill.company.com',
+			storage: 'setting',
+			ee_only: '',
+			hiddenIfNull: true,
+			error:
+				'API base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, no shell metacharacters, and no trailing slash',
+			isValid: isValidWebhookBaseUrl
 		},
 		{
 			label: 'Email domain',
@@ -334,6 +362,31 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true,
 			// Gates Save. The card renders the specific message itself, so no `error` here.
 			isValid: (value: any) => instanceBannerFormError(value) == undefined
+		},
+		{
+			label: 'Accent color',
+			description:
+				'Recolors buttons, selections and the sidebar for every user, so each environment (e.g. staging vs. production) is recognizable at a glance.',
+			key: ACCENT_COLOR_SETTING,
+			fieldType: 'accent_color',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true,
+			error: 'Must be a hex color like #1f9d55',
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseAccentColor(value) !== undefined
+		},
+		{
+			label: 'Sync resource types from the hub daily',
+			description:
+				'Every day, the server updates the resource types of the admins workspace from the Hub, overwriting local edits to the types the Hub also defines. Superadmins can also sync them on demand with "Sync resource types with Hub".',
+			key: 'sync_hub_resource_types_daily',
+			fieldType: 'boolean',
+			storage: 'setting',
+			hideInQuickSetup: true
 		}
 	],
 	Jobs: [
@@ -565,6 +618,39 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: true,
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Cancel jobs on unserved tags after (days)',
+			description:
+				"A job queued with a tag that no worker group serves waits forever. Superadmins get a daily critical alert listing such jobs once they have waited a day with no worker serving their tag (it can be muted under Alerts). When set, pending jobs whose tag no worker has served for this many days are also canceled, with a reason naming the tag. Only top-level jobs are checked: a step waiting inside a running flow is not. A canceled schedule tick is followed by the schedule's next one, on the same tag. At most 3650. Leave empty or set 0 to only alert.",
+			key: 'cancel_stranded_jobs_after_days',
+			fieldType: 'number',
+			placeholder: 'off',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			isValid: (v) =>
+				v == undefined ||
+				v === '' ||
+				(Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 3650)
+		}
+	],
+	'Managed Postgres': [
+		{
+			label: 'External instance',
+			description:
+				'A Postgres cluster Windmill administers for data tables and Ducklake catalogs, instead of its own database. It creates the databases there and manages the roles jobs connect as.',
+			key: 'external_instance_pg',
+			fieldType: 'external_instance_pg',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Windmill instance',
+			description:
+				"Windmill's own database as a data table and Ducklake substrate. On unless turned off here, and never available on cloud.",
+			key: 'instance_pg_disabled',
+			fieldType: 'instance_pg',
+			storage: 'setting'
 		}
 	],
 	'Object Storage': [
@@ -745,6 +831,7 @@ export const settings: Record<string, Setting[]> = {
 		}
 	],
 	'DB Health': [],
+	'OIDC signing': [],
 	Registries: [
 		{
 			label: 'Instance Python Version',
@@ -755,7 +842,7 @@ export const settings: Record<string, Setting[]> = {
 			// 1. Change placeholder in instanceSettings.ts
 			// 2. Change LATEST_STABLE_PY in dockerfile
 			// 3. Change #[default] annotation for PyVersion in backend
-			placeholder: '3.10,3.11,3.12,3.13',
+			placeholder: '3.10,3.11,3.12,3.13,3.14,3.15',
 			select_items: [
 				{
 					label: 'Latest Stable',
@@ -773,6 +860,12 @@ export const settings: Record<string, Setting[]> = {
 				},
 				{
 					label: '3.13'
+				},
+				{
+					label: '3.14'
+				},
+				{
+					label: '3.15'
 				}
 			],
 			storage: 'setting'
@@ -1010,6 +1103,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Mute stranded job alerts',
+			description:
+				'Stop the daily critical alert listing pending jobs whose tag no worker has served for a day. Cancelling those jobs automatically is configured separately, under Jobs.',
+			key: 'critical_alert_mute_stranded_jobs',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Slack',
 			key: 'slack',
 			fieldType: 'slack_connect',
@@ -1161,7 +1263,7 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			error:
-				'Webhook base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, and no trailing slash',
+				'Webhook base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, no shell metacharacters, and no trailing slash',
 			isValid: isValidWebhookBaseUrl
 		}
 	],
@@ -1244,6 +1346,13 @@ export const instanceSettingsNavigationGroups = [
 				aiId: 'instance-settings-scim-saml',
 				aiDescription: 'Instance SCIM/SAML settings',
 				isEE: true
+			},
+			{
+				id: 'oidc_signing',
+				label: 'OIDC signing',
+				aiId: 'instance-settings-oidc-signing',
+				aiDescription: 'Keys that sign and verify the OIDC tokens Windmill issues',
+				isEE: true
 			}
 		]
 	},
@@ -1267,6 +1376,14 @@ export const instanceSettingsNavigationGroups = [
 				label: 'Object Storage',
 				aiId: 'instance-settings-object-storage',
 				aiDescription: 'Instance object storage settings',
+				isEE: true
+			},
+			{
+				id: 'managed_postgres',
+				label: 'Managed Postgres',
+				aiId: 'instance-settings-managed-postgres',
+				aiDescription:
+					'Postgres substrates Windmill administers for data tables and Ducklake catalogs: its own database and an external cluster',
 				isEE: true
 			}
 		]
@@ -1387,11 +1504,13 @@ export const tabToCategoryMap: Record<string, string> = {
 	telemetry: 'Telemetry',
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
+	managed_postgres: 'Managed Postgres',
 	jobs: 'Jobs',
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket',
 	db_health: 'DB Health',
+	oidc_signing: 'OIDC signing',
 	lsp: 'LSP'
 }
 
@@ -1399,6 +1518,30 @@ export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
 	sso: 'sso',
 	oauth: 'oauth',
 	scim_saml: 'scim'
+}
+
+/**
+ * "OIDC signing" is listed only on instances that sign with an external signer: its page
+ * says nothing actionable elsewhere.
+ */
+export function listedNavigationGroups<G extends { items: { id: string }[] }>(
+	groups: G[],
+	externalOidcSigner: boolean
+): G[] {
+	if (externalOidcSigner) return groups
+	return groups.map((group) => ({
+		...group,
+		items: group.items.filter((item) => item.id !== 'oidc_signing')
+	}))
+}
+
+/** The status endpoint is EE only: call it once the license is known. */
+export async function usesExternalOidcSigner(): Promise<boolean> {
+	try {
+		return (await OidcService.getOidcSigningStatus()).mode === 'external'
+	} catch {
+		return false
+	}
 }
 
 // Navigation groups for the initial setup flow (no Users tab)
@@ -1423,11 +1566,13 @@ export const categoryToTabMap: Record<string, string> = {
 	Telemetry: 'telemetry',
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',
+	'Managed Postgres': 'managed_postgres',
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub',
 	'GitHub App': 'github_enterprise_app',
 	WebSocket: 'websocket',
 	'DB Health': 'db_health',
+	'OIDC signing': 'oidc_signing',
 	LSP: 'lsp'
 }
 

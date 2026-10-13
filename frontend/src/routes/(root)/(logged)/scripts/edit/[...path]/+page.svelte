@@ -541,6 +541,7 @@
 {#if draftSync.draft && renderEditor}
 	<ScriptBuilder
 		bind:this={scriptBuilder}
+		ownsPageHeader
 		{initialPath}
 		userDraftPath={draftPath}
 		{draftBaseHash}

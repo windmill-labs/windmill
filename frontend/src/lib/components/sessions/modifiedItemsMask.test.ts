@@ -62,6 +62,12 @@ describe('diffInMask', () => {
 		expect(diffInMask(diff('script', 'u/me/s'), mask)).toBe(true)
 	})
 
+	it('selects only the scripts a masked pipeline deployed, not the rest of its folder', () => {
+		const mask = new Set(['data_pipeline:f/crm/data_pipeline', 'script:f/crm/clean'])
+		expect(diffInMask(diff('script', 'f/crm/clean'), mask)).toBe(true)
+		expect(diffInMask(diff('script', 'f/crm/unrelated'), mask)).toBe(false)
+	})
+
 	it('matches a legacy app diff under both its identity and bridged mask keys', () => {
 		expect(diffInMask(diff('app', 'u/me/legacy'), new Set(['app:u/me/legacy']))).toBe(true)
 		expect(diffInMask(diff('app', 'u/me/legacy'), new Set(['raw_app:u/me/legacy']))).toBe(true)

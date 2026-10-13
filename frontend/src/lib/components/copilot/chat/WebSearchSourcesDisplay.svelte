@@ -43,9 +43,9 @@
 	// consulted hostname to a third party from the user's browser — an accepted
 	// tradeoff for now (blocked/air-gapped environments degrade to the Globe
 	// icon via onerror). Hit gstatic directly rather than www.google.com/s2/
-	// favicons: the app is served with COEP require-corp, and the s2 redirect
-	// hop carries no Cross-Origin-Resource-Policy header, so the browser blocks
-	// the image. The gstatic endpoint itself responds with CORP: cross-origin.
+	// favicons: the s2 redirect hop carries no Cross-Origin-Resource-Policy
+	// header, so a cross-origin isolated page would block the image. The
+	// gstatic endpoint itself responds with CORP: cross-origin.
 	function faviconUrl(hostname: string): string {
 		return `https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${encodeURIComponent(hostname)}&size=64`
 	}

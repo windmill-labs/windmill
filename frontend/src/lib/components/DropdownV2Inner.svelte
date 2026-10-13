@@ -107,9 +107,19 @@
 				<DropdownSubmenuItem {item} {builders} {meltItem} close={close ?? (() => {})} />
 			{:else if item.disabled && item.tooltip}
 				<!-- Wrapper carries the native `title`; the disabled button's `pointer-events-none`
-				     lets the hover reach it so the user learns why the item is disabled. -->
-				<div title={item.tooltip} class="w-full">
-					{@render menuItem(item)}
+				     lets the hover reach it so the user learns why the item is disabled. The ⓘ sits
+				     outside the disabled button, the only place it can receive a hover. -->
+				<div class="relative w-full">
+					<div title={item.tooltip} class="w-full pr-6">
+						{@render menuItem(item)}
+					</div>
+					<div class="absolute right-3 top-1/2 -translate-y-1/2 flex">
+						<Tooltip>
+							{#snippet text()}
+								{item.tooltip}
+							{/snippet}
+						</Tooltip>
+					</div>
 				</div>
 			{:else}
 				{@render menuItem(item)}

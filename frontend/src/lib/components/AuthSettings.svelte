@@ -80,6 +80,8 @@
 		'gmail',
 		'gcal',
 		'gforms',
+		'gdocs',
+		'gchat',
 		'gcloud',
 		'gworkspace',
 		'basecamp',
@@ -94,7 +96,8 @@
 		'apify',
 		'docusign',
 		'salesforce',
-		'outreach'
+		'outreach',
+		'notion'
 	]
 	// Providers whose registry entry (`backend/oauth_connect.json`) carries a
 	// `sandbox` URL block. Each one gets a sibling `<name>_sandbox` dropdown

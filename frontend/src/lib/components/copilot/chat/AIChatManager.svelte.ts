@@ -52,14 +52,15 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { workspaceAIClients, getStreamedCompletionText } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
 import { getEffectiveModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
 	formatCompactSummary,
-	buildSummaryMessageContent
+	buildSummaryMessageContent,
+	toolExchangesAsText
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
 import { redactFileArgs, redactSecretArgs } from '$lib/components/job_args'
@@ -88,10 +89,11 @@ import {
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { get } from 'svelte/store'
+import { fromStore, get } from 'svelte/store'
+import type { ProviderToolSummary } from './agentContext'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
-import { copilotInfo } from '$lib/aiStore'
+import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
@@ -109,7 +111,12 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import {
+	closeInterruptedToolBatch,
+	runChatLoop,
+	sendsWebSearch,
+	truncateToToolPairedPrefix
+} from './chatLoop'
 import { FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE, OutputTokenLimitError } from './outputTokenLimit'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
@@ -161,6 +168,11 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
+import {
+	navigationOperatorBuilderApps,
+	navigationOperatorBuilderFlows,
+	navigationOperatorBuilderRights
+} from '$lib/operatorWriteRights'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -171,7 +183,10 @@ import { PlanModeController, type PlanModeHost } from './planModeController.svel
 // cannot see — the upcoming completion and tool results, system-prompt/tool-
 // schema changes from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
-const COMPACTION_TARGET_RATIO = 0.7
+// The gap below the trigger is what one compaction buys: each summarization request
+// carries most of the window, and a target close to the trigger spends that on a few
+// turns of room and summarizes its own previous summary again soon after.
+const COMPACTION_TARGET_RATIO = 0.5
 // How often a running turn is offered to the mid-turn checkpoint (see
 // sendRequest). The whole transcript is rewritten on each accepted checkpoint,
 // so this bounds the write rate; it also bounds how much of a turn a tab that
@@ -289,6 +304,10 @@ export function supportsAutoAcceptToolConfirmations(mode: AIMode): boolean {
 export function supportsPlanMode(mode: AIMode): boolean {
 	return PLAN_MODES.has(mode)
 }
+
+const isOperatorBuilder = fromStore(navigationOperatorBuilderRights)
+const isOperatorBuilderFlows = fromStore(navigationOperatorBuilderFlows)
+const isOperatorBuilderApps = fromStore(navigationOperatorBuilderApps)
 
 export function isAIModeVisible(mode: AIMode): boolean {
 	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
@@ -485,14 +504,20 @@ export class AIChatManager implements ChatViewHost {
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
-	skipResponsesApi = false
+	skipResponsesApi = $state(false)
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
-	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
+	// One per mounted pipeline editor; a session can have several folders open.
+	#pipelineEditors = new Set<PipelineAIChatHelpers>()
 	// Resolved when a pipeline editor registers its tools. open_preview(pipeline)
 	// awaits this so the model's next build_pipeline_node call can't race ahead of
 	// the async canvas mount and hit "Unknown tool call".
-	#pipelineHelpersWaiters = new Set<() => void>()
+	#pipelineHelpersWaiters = new Set<(helpers: PipelineAIChatHelpers) => void>()
+	// A session's pipeline editor unmounts whenever another tab takes the preview
+	// panel. Its tools stay offered for every folder the session opened, and a call
+	// reopens the tab through this, so a page shown in between costs no failed call.
+	#pipelineReopener: ((folder: string) => void) | undefined = undefined
+	#openedPipelineFolders = new Set<string>()
 	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
@@ -746,6 +771,28 @@ export class AIChatManager implements ChatViewHost {
 	 * transitions, whichever one is offered right now. A reference answer, so flipping the
 	 * autonomy picker must not change it. */
 	availableTools: Tool<any>[] = $derived(this.#shipped(this.planMode.availableTools))
+	#copilotInfo = fromStore(copilotInfo)
+	#sessionModel = fromStore(copilotSessionModel)
+	/** Capabilities the provider runs on its own servers, attached by the adapter at send
+	 * time. Never part of `tools`: the request path would try to dispatch them. The two
+	 * `void` reads only subscribe: the model helpers read through `get()`, which tracks
+	 * nothing, so a change of model or of the workspace's AI config would otherwise not
+	 * re-derive. A workspace switch re-derives through the AI config it loads. */
+	get providerTools(): ProviderToolSummary[] {
+		void this.#copilotInfo.current
+		void this.#sessionModel.current
+		const model = tryGetCurrentModel()
+		if (!model || (model.provider === 'openai' && this.skipResponsesApi)) return []
+		const enabled = isWebSearchEnabledForProvider(model.provider)
+		return sendsWebSearch(this.operatingWorkspace ?? '', model, enabled)
+			? [
+					{
+						name: 'Web search',
+						description: "Runs on the provider's servers, no confirmation."
+					}
+				]
+			: []
+	}
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -862,6 +909,15 @@ export class AIChatManager implements ChatViewHost {
 	// outside any turn, and waiting would resurrect the entry on reload.
 	async removeModifiedItem(itemKind: UserDraftItemKind, storagePath: string) {
 		if (!this.modifiedItems?.delete(maskKey(itemKind, storagePath))) return
+		await this.#persistModifiedItems()
+	}
+
+	// Record the items deploying a chat-modified item produced — a pipeline's
+	// scripts — so a fork review selects exactly them. Persisted at once, like a
+	// discard: the deploy can run outside any turn.
+	async recordDeployedItems(itemKind: UserDraftItemKind, storagePaths: string[]) {
+		if (!this.modifiedItems || storagePaths.length === 0) return
+		for (const p of storagePaths) this.modifiedItems.add(maskKey(itemKind, p))
 		await this.#persistModifiedItems()
 	}
 
@@ -1403,13 +1459,23 @@ export class AIChatManager implements ChatViewHost {
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
+	// The flow, app and script builders all write code, which the backend refuses from an
+	// operator with builder rights: leaving them reachable would only produce work that cannot be
+	// deployed.
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
 			this.scriptEditorOptions !== undefined &&
-			!this.disabledModes.script,
-		flow: this.flowAiChatHelpers !== undefined && !this.disabledModes.flow,
-		app: this.appAiChatHelpers !== undefined && !this.disabledModes.app,
+			!this.disabledModes.script &&
+			!isOperatorBuilder.current,
+		flow:
+			this.flowAiChatHelpers !== undefined &&
+			!this.disabledModes.flow &&
+			!isOperatorBuilderFlows.current,
+		app:
+			this.appAiChatHelpers !== undefined &&
+			!this.disabledModes.app &&
+			!isOperatorBuilderApps.current,
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,
 		API: !this.disabledModes.API,
@@ -1545,20 +1611,18 @@ export class AIChatManager implements ChatViewHost {
 		this.compacting = true
 		try {
 			// Cap the summarizer's output at the budget already reserved for the
-			// summary. Without a cap the model's default max_tokens applies, and the
-			// Anthropic SDK rejects non-streaming requests whose max_tokens implies
-			// >10 minutes of generation (~21k tokens) before anything is sent.
-			const raw = await getNonStreamingCompletion(
+			// summary: without a cap the model's default max_tokens applies.
+			const raw = await getStreamedCompletionText(
 				[
 					// Strip image blobs from the summarizer input — the summary text stands in
 					// for them, so re-sending base64 to the summarizer only wastes tokens.
-					...stripImagePartsFromMessages(sanitizeToolCallArguments(prefix)),
+					...toolExchangesAsText(stripImagePartsFromMessages(sanitizeToolCallArguments(prefix))),
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
 				abortController,
 				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS }
 			)
-			const formatted = formatCompactSummary(raw ?? '')
+			const formatted = formatCompactSummary(raw)
 			if (!formatted) {
 				return 'empty'
 			}
@@ -2452,8 +2516,27 @@ export class AIChatManager implements ChatViewHost {
 
 	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
 	// fires the three network refreshes.
+	setPipelineReopener = (reopen: (folder: string) => void) => {
+		this.#pipelineReopener = reopen
+	}
+
+	#pipelineFolders = (): string[] => [
+		...new Set([
+			...[...this.#pipelineEditors].map((p) => p.getFolder()),
+			...(this.#pipelineReopener ? this.#openedPipelineFolders : [])
+		])
+	]
+
+	#ensurePipeline = async (folder: string): Promise<PipelineAIChatHelpers | undefined> => {
+		const find = () => [...this.#pipelineEditors].find((p) => p.getFolder() === folder)
+		const live = find()
+		if (live || !this.#pipelineReopener) return live
+		this.#pipelineReopener(folder)
+		return (await this.waitForPipelineHelpers(folder)) ? find() : undefined
+	}
+
 	configureGlobalMode = () => {
-		const pipeline = this.pipelineAiChatHelpers
+		const hasPipelines = this.#pipelineFolders().length > 0
 		const opts = this.globalAssemblyOpts()
 		const baseHelpers: GlobalToolHelpers = {
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
@@ -2485,7 +2568,14 @@ export class AIChatManager implements ChatViewHost {
 			}
 		}
 		this.#assembledTools = assembleGlobalTools(opts)
-		this.helpers = pipeline ? { ...baseHelpers, pipeline } : baseHelpers
+		this.helpers = hasPipelines
+			? {
+					...baseHelpers,
+					pipelines: () => [...this.#pipelineEditors],
+					pipelineFolders: this.#pipelineFolders,
+					ensurePipeline: this.#ensurePipeline
+				}
+			: baseHelpers
 		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
 		this.syncArtifactsSession()
 	}
@@ -2498,7 +2588,7 @@ export class AIChatManager implements ChatViewHost {
 		mcpServers: this.mcpServers,
 		access: this.sessionAccess,
 		sessionContext: this.sessionContextResolver?.(),
-		pipelineContext: this.pipelineAiChatHelpers?.getPipelineContext()
+		pipelineFolders: this.#pipelineFolders()
 	})
 
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
@@ -4830,19 +4920,18 @@ export class AIChatManager implements ChatViewHost {
 	// AI edits apply directly as drafts, so there is nothing to auto-accept.
 	// Returns a cleanup that tears the registration back down.
 	setPipelineHelpers = (pipelineHelpers: PipelineAIChatHelpers) => {
-		this.pipelineAiChatHelpers = pipelineHelpers
+		this.#pipelineEditors.add(pipelineHelpers)
+		this.#openedPipelineFolders.add(pipelineHelpers.getFolder())
 		untrack(() => {
 			if (this.mode === AIMode.GLOBAL) {
 				this.configureGlobalMode()
 			}
 		})
 		// The pipeline tools are now registered — release anything awaiting them.
-		const waiters = [...this.#pipelineHelpersWaiters]
-		this.#pipelineHelpersWaiters.clear()
-		waiters.forEach((resolve) => resolve())
+		;[...this.#pipelineHelpersWaiters].forEach((notify) => notify(pipelineHelpers))
 
 		return () => {
-			this.pipelineAiChatHelpers = undefined
+			this.#pipelineEditors.delete(pipelineHelpers)
 			untrack(() => {
 				if (this.mode === AIMode.GLOBAL) {
 					this.configureGlobalMode()
@@ -4852,15 +4941,16 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	/**
-	 * Await the pipeline editor's tool registration. Resolves `true` immediately
-	 * when a pipeline editor is already mounted, or when the next one registers;
-	 * resolves `false` after `timeoutMs` if none registers (e.g. a backgrounded
-	 * session whose preview tab is not mounted, or a closed tab). Callers must
-	 * treat `false` as "tools NOT available" rather than silently reporting
-	 * success — the open_preview handler surfaces that to the model.
+	 * Await the tool registration of the pipeline editor for `folder` (any folder
+	 * when unset). Resolves `true` immediately when one is already mounted, or when
+	 * it registers; resolves `false` after `timeoutMs` if none registers (e.g. a
+	 * session whose runtime is not mounted, or a closed tab). Callers must treat
+	 * `false` as "tools NOT available" rather than silently reporting success —
+	 * the open_preview handler surfaces that to the model.
 	 */
-	waitForPipelineHelpers = (timeoutMs = 8000): Promise<boolean> => {
-		if (this.pipelineAiChatHelpers) return Promise.resolve(true)
+	waitForPipelineHelpers = (folder?: string, timeoutMs = 8000): Promise<boolean> => {
+		const matches = (p: PipelineAIChatHelpers) => folder === undefined || p.getFolder() === folder
+		if ([...this.#pipelineEditors].some(matches)) return Promise.resolve(true)
 		return new Promise<boolean>((resolve) => {
 			let settled = false
 			const finish = (registered: boolean) => {
@@ -4869,7 +4959,9 @@ export class AIChatManager implements ChatViewHost {
 				this.#pipelineHelpersWaiters.delete(onRegister)
 				resolve(registered)
 			}
-			const onRegister = () => finish(true)
+			const onRegister = (p: PipelineAIChatHelpers) => {
+				if (matches(p)) finish(true)
+			}
 			this.#pipelineHelpersWaiters.add(onRegister)
 			setTimeout(() => finish(false), timeoutMs)
 		})

@@ -454,12 +454,18 @@ jobs:
           dockerhub-user: windmilllabs
           dockerhub-password: ${{ secrets.DOCKER_PAT }}
 
+      # Filed under main, not under the release tag this job runs on. The scanned image is
+      # `-ee:main` and the Security tab only reads the default branch, so tag-only uploads
+      # left main's last Docker Scout result at 2025-01-29: the tool showed as failing and
+      # its alerts could never close. `sha` is the release commit, which is on main.
       - name: Upload SARIF result
         id: upload-sarif
         if: ${{ github.event_name != 'pull_request_target' }}
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: sarif.output.json
+          ref: refs/heads/main
+          sha: ${{ github.sha }}
 
   # docker_scout_ee:
   #   runs-on: ubicloud

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import type { Job } from '$lib/gen'
 	import {
@@ -22,6 +21,7 @@
 	import { forLater } from '$lib/forLater'
 	import { twMerge } from 'tailwind-merge'
 	import Portal from '$lib/components/Portal.svelte'
+	import { useHostedPage } from '../hostedPage'
 
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
@@ -30,6 +30,7 @@
 	import './runs-grid.css'
 
 	const dispatch = createEventDispatcher()
+	const hosted = useHostedPage()
 
 	interface Props {
 		job: Job
@@ -61,7 +62,10 @@
 </script>
 
 <Portal name="run-row">
-	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<ScheduleEditor
+		onUpdate={() => (hosted ? hosted.openLink('/schedules') : goto('/schedules'))}
+		bind:this={scheduleEditor}
+	/>
 </Portal>
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -166,12 +170,12 @@
 							{/if}
 							{#if job && job.is_flow_step && job.parent_job}
 								<br /> Step of flow
-								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+								<a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 									{truncateRev(job.parent_job, 10)}
 								</a>
 							{:else if job && job.parent_job}
 								<br /> Parent
-								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+								<a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 									{truncateRev(job.parent_job, 10)}
 								</a>
 							{/if}
@@ -322,7 +326,7 @@
 		<div class="flex justify-end pr-2">
 			<a
 				target="_blank"
-				href="{base}/run/{job.id}?workspace={job.workspace_id}"
+				href="/run/{job.id}?workspace={job.workspace_id}"
 				class={twMerge(
 					'text-right float-right  px-2',
 					selected ? 'text-accent' : 'text-secondary hover:text-accent'

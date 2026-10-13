@@ -1,12 +1,13 @@
 <script lang="ts">
 	import type { Component } from 'svelte'
-	import { base } from '$lib/base'
 	import { UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { Button } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { GithubIcon, GitlabIcon, GoogleIcon } from '$lib/components/icons'
+	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
+	import GitlabIcon from '$lib/components/icons/GitlabIcon.svelte'
+	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
 	import { OauthService } from '$lib/gen'
 
 	// An account created through a pre-approved invite has no credentials yet
@@ -104,7 +105,7 @@
 								// Read by the OAuth callback: a provider asserting another address is refused
 								// rather than opening a second account under it (see oauth2_ee.rs).
 								document.cookie = `finish_setup=${encodeURIComponent(email)}; path=/; max-age=600; SameSite=Lax`
-								window.location.assign(`${base}/api/oauth/login/${login.type}`)
+								window.location.assign(`/api/oauth/login/${login.type}`)
 							}}
 						>
 							Continue with {login.displayName}

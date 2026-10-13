@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { parkWizard, type WizardResume } from './wizardParking'
-	import type { Snippet } from 'svelte'
-	import { Database, ArrowRight, Plus } from 'lucide-svelte'
+	import { untrack, type Snippet } from 'svelte'
+	import { Database, ArrowRight, Plus, Lightbulb, Server } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -13,6 +13,7 @@
 	import Password from '../Password.svelte'
 	import Select from '../select/Select.svelte'
 	import Toggle from '../Toggle.svelte'
+	import MeltTooltip from '../meltComponents/Tooltip.svelte'
 	import Path from '../Path.svelte'
 	import Label from '../Label.svelte'
 	import Section from '../Section.svelte'
@@ -26,12 +27,16 @@
 		VariableService,
 		WorkspaceService
 	} from '$lib/gen'
-	import type { ListCustomInstanceDbsResponse } from '$lib/gen'
+	import type {
+		ListExternalInstancePgDatabasesResponse,
+		ListCustomInstanceDbsResponse
+	} from '$lib/gen'
 	import { resource, type ResourceReturn } from 'runed'
 	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import SetupChecklist, { type SetupStep } from '../wizards/SetupChecklist.svelte'
 	import SupabaseProjectStep from './SupabaseProjectStep.svelte'
 	import DataTableConnectionReport from './DataTableConnectionReport.svelte'
+	import DataTableUsagePreview from './DataTableUsagePreview.svelte'
 	import { useSupabaseOauth } from './supabaseOauth.svelte'
 	import { probeDatatableConnection } from './datatableProbe'
 	import { logDatatableWizard } from './datatableTelemetry'
@@ -44,7 +49,17 @@
 		release,
 		type Claims
 	} from './setupClaims'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { isCloudHosted } from '$lib/cloud'
+	import { goto } from '$lib/navigation'
+	import { sendUserToast } from '$lib/toast'
+	import { apiErrorMessage, escapeHtml } from '$lib/utils'
+	import {
+		externalInstancePgPrefill,
+		prefillFromResourceValue,
+		type ExternalInstancePgPrefill
+	} from '../instanceSettings/externalInstancePgPrefill'
+	import { superadminSettingsHref } from '../sidebar/settings'
 	import { isCustomInstanceDbEnabled } from './utils.svelte'
 	import {
 		composePostgresConnectionString,
@@ -59,6 +74,7 @@
 		intentComplete,
 		newResourceParts,
 		newWizardState,
+		postgresResourceValue,
 		supabaseSummary,
 		planSteps,
 		probeValue,
@@ -86,6 +102,22 @@
 		/** The instance database pool and its confirmation host are owned by the settings page,
 		 * which already loads them for the rows; sharing them keeps one source of truth. */
 		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
+		/** The external cluster's databases, and whether it is on offer at all. Owned by the
+		 * settings page for the same reason as `customInstanceDbs`. */
+		externalInstanceDbs?: ResourceReturn<ListExternalInstancePgDatabasesResponse> | undefined
+		externalInstanceAvailable?: boolean
+		/** Whether Windmill's own database can take a new data table. Defaults to the superadmin
+		 *  check alone, for callers that do not load `instance_pg_disabled`. */
+		instanceAvailable?: boolean
+		/** Reloads what decides the two flags above, which a superadmin may have changed in the
+		 *  instance settings since the wizard last opened. */
+		refreshManagedInstances?: () => void
+		/** Whether to point a superadmin at the instance settings drawer to set up an external
+		 *  cluster. Only pages under the app layout have that drawer to open. */
+		offerExternalSetup?: boolean
+		/** A free name on the external cluster. Its registry and the workspace's entries there are
+		 *  a different set from the instance's, so the two defaults cannot be the same helper. */
+		defaultExternalDbName?: () => string
 		confirmationModal: ConfirmationModalHandle
 		defaultInstanceDbName: () => string
 		/** Name to open with, when the caller needs a table of a particular name rather
@@ -129,6 +161,12 @@
 		resume,
 		onDone,
 		customInstanceDbs,
+		externalInstanceDbs,
+		externalInstanceAvailable = false,
+		instanceAvailable: instanceAvailableProp,
+		refreshManagedInstances,
+		offerExternalSetup = false,
+		defaultExternalDbName,
 		confirmationModal,
 		defaultInstanceDbName,
 		initialName,
@@ -191,6 +229,122 @@
 	let wiz: WizardState = $state(
 		newWizardState({ name: 'main', projectName: 'windmill-data', folder: '' })
 	)
+
+	let instanceAvailable = $derived(instanceAvailableProp ?? !!$isCustomInstanceDbEnabled)
+	let managedProvider = $derived(
+		wiz.provider === 'instance' || wiz.provider === 'external_instance'
+	)
+	/** A managed kind was picked that this instance does not offer, so nothing can be set up. */
+	let managedKindUnavailable = $derived(
+		(wiz.provider === 'instance' && !instanceAvailable) ||
+			(wiz.provider === 'external_instance' && !externalInstanceAvailable)
+	)
+	// Both substrates are set up by a superadmin, so only they are shown the managed option while
+	// neither is on offer yet: it leads to the explainer on how to set one up.
+	// Cloud has no Postgres Windmill manages, internal or external: data tables there are always a
+	// resource.
+	let managedOffered = $derived(
+		!isCloudHosted() && (instanceAvailable || externalInstanceAvailable || !!$superadmin)
+	)
+	let canSetUpExternal = $derived(
+		offerExternalSetup && !isCloudHosted() && !!$superadmin && !!$enterpriseLicense
+	)
+
+	function preferredManagedProvider(): Provider {
+		return instanceAvailable || !externalInstanceAvailable ? 'instance' : 'external_instance'
+	}
+
+	// Availability can change under an open wizard — a superadmin setting the cluster up in the
+	// tab the explainer opened — and a kind that stopped or started being the only one on offer
+	// is the one the toggle has to show.
+	$effect(() => {
+		if (!opened || !managedProvider || !managedKindUnavailable) return
+		const preferred = preferredManagedProvider()
+		if (preferred !== wiz.provider) untrack(() => selectProvider(preferred))
+	})
+
+	/** Leaves the wizard for the instance settings drawer, on the tab that sets a cluster up. */
+	async function openManagedPostgresSettings() {
+		close()
+		const { pathname, search } = window.location
+		await goto(pathname + search + superadminSettingsHref('managed_postgres'))
+	}
+
+	/**
+	 * The connection on screen in the resource step, to seed the external cluster form: a
+	 * resource that already reaches a Postgres is usually the cluster someone means to hand over.
+	 */
+	function prefillSourceLabel(): string | undefined {
+		if (wiz.provider !== 'resource') return undefined
+		if (wiz.own.creating) return newResourceParts(wiz) ? 'the connection you entered' : undefined
+		return wiz.own.resourcePath
+	}
+
+	async function prefillFromResourceStep(): Promise<ExternalInstancePgPrefill | undefined> {
+		if (wiz.provider !== 'resource') return undefined
+		if (wiz.own.creating) {
+			const parts = newResourceParts(wiz)
+			if (!parts) return undefined
+			return prefillFromResourceValue(
+				'the connection you entered',
+				postgresResourceValue(parts, parts.password ?? '', wiz.own.advanced)
+			)
+		}
+		const path = wiz.own.resourcePath
+		if (!path) return undefined
+		// Interpolated: the stored password is a `$var:` reference the setting cannot follow.
+		const value = await ResourceService.getResourceValueInterpolated({
+			workspace: targetWorkspace,
+			path
+		})
+		return value && typeof value === 'object'
+			? prefillFromResourceValue(path, value as Record<string, any>)
+			: undefined
+	}
+
+	async function explainExternalInstance() {
+		const useIt = externalInstanceAvailable
+		const source = useIt ? undefined : prefillSourceLabel()
+		// The explainer sits outside this dialog, so the click that answers it reads as a click
+		// outside and would ask to discard the run. Released a task later: that click is still
+		// being dispatched when `ask` resolves.
+		dismissing = true
+		const confirmed = await confirmationModal
+			.ask({
+				title: 'Let Windmill manage your external database',
+				type: 'info',
+				confirmationText: useIt ? 'Use the external cluster' : 'Open managed Postgres settings',
+				children: `<div class="flex flex-col gap-2 text-sm text-primary">
+				<p>Point Windmill at a Postgres cluster you run &mdash; RDS, Cloud SQL, Azure, self-hosted &mdash; with an admin login that has <span class="font-mono">CREATEDB</span> and <span class="font-mono">CREATEROLE</span>.</p>
+				<p>Windmill then creates one database per data table there, generates and rotates its credentials, and manages the data table roles jobs connect as. Nobody in the workspace handles a password, and the admin login is never handed to a job.</p>
+				<p>${
+					useIt
+						? 'An external cluster is already set up on this instance.'
+						: 'A superadmin sets it up once for the whole instance, under Instance settings &rarr; Managed Postgres. It is an Enterprise Edition feature.'
+				}</p>${
+					source
+						? `<p>The form opens filled in with the connection of <span class="font-mono">${escapeHtml(source)}</span>, for you to review before saving.</p>`
+						: ''
+				}
+			</div>`
+			})
+			.finally(() => setTimeout(() => (dismissing = false)))
+		if (!confirmed) return
+		if (useIt) {
+			selectProvider('external_instance')
+			return
+		}
+		// Closed before reading the resource, not after: the guard against the explainer's click
+		// is released a task later, and the read takes longer than that.
+		close()
+		try {
+			externalInstancePgPrefill.set(await prefillFromResourceStep())
+		} catch (e) {
+			// The settings are still worth opening; the form just starts empty.
+			sendUserToast(`Could not read the resource to fill the form in: ${apiErrorMessage(e)}`, true)
+		}
+		await openManagedPostgresSettings()
+	}
 	let preventClose = $state(false)
 	/** A dismissal dialog is up, so a second one must not stack on it. */
 	let dismissing = false
@@ -273,7 +427,11 @@
 		// A caller that needs a specific name wins over the usual "main, unless taken":
 		// the import wizard's migrations only apply to a table of the name they target.
 		if (initialName) return initialName
-		return existingNames.includes('main') ? `${targetWorkspace || 'data'}_datatable` : 'main'
+		if (!existingNames.includes('main')) return 'main'
+		const base = targetWorkspace || 'data'
+		let name = base
+		for (let i = 2; existingNames.includes(name); i++) name = `${base}_${i}`
+		return name
 	}
 
 	// Takes the list rather than reading it, so the fetch that loads it can seed off its own
@@ -304,6 +462,21 @@
 					// for. Counting it as taken would refuse the retry, on the step the user cannot
 					// see it from.
 					Object.keys(customInstanceDbs.current ?? {}).filter((n) => n !== claimedInstanceDb)
+				)
+			: undefined
+	)
+	// The cluster refuses a name it already holds, whoever made it, so the registry is the list
+	// to check against — same shape as the instance one.
+	const externalDbName = () => defaultExternalDbName?.() ?? defaultInstanceDbName()
+	let externalNameError = $derived(
+		wiz.provider === 'external_instance' && wiz.external.mode === 'create'
+			? instanceDbNameError(
+					wiz.external.dbName ?? '',
+					// A database this run already created is not a collision: after a failed probe,
+					// Back returns here under the same name, and the retry reuses what it made.
+					Object.keys(externalInstanceDbs?.current ?? {}).filter(
+						(n) => !createdExternalDbs.includes(n)
+					)
 				)
 			: undefined
 	)
@@ -420,6 +593,22 @@
 		(oauthConnects.current ?? []).some((c) => c.name === 'supabase_wizard')
 	)
 
+	/** A resource is the only thing step 1 would offer, so it is skipped: there is no choice to
+	 *  make. Decided once Supabase's availability is known, since that is the other option. */
+	let onlyResource = $derived(
+		!managedOffered &&
+			!oauthConnects.loading &&
+			oauthConnects.current !== undefined &&
+			!supabaseAvailable
+	)
+	$effect(() => {
+		if (!opened || !onlyResource || wiz.step !== 1 || wiz.provider) return
+		untrack(() => {
+			selectProvider('resource')
+			enterStep(2)
+		})
+	})
+
 	const folderNames = resource(
 		() => (opened ? targetWorkspace : ''),
 		async (workspace) => {
@@ -451,6 +640,7 @@
 				resourcePath,
 				claims: claimsToJSON(claims),
 				createdProjects,
+				createdExternalDbs,
 				mode: wiz.supabase.mode,
 				org: wiz.supabase.org,
 				project: wiz.supabase.project,
@@ -484,6 +674,7 @@
 		claimedInstanceDb = undefined
 		leftBehind = false
 		createdProjects = []
+		createdExternalDbs = []
 		nameConflictFor = undefined
 		lastFailure = ''
 		finishAlsoFailed = false
@@ -495,7 +686,9 @@
 			// redirect, so what it had already created is still its own to write over.
 			claims = claimsFromJSON(from.claims)
 			createdProjects = from.createdProjects ?? []
-			leftBehind = anythingClaimed(claims) || createdProjects.length > 0
+			createdExternalDbs = from.createdExternalDbs ?? []
+			leftBehind =
+				anythingClaimed(claims) || createdProjects.length > 0 || createdExternalDbs.length > 0
 			// Which side of the toggle it was on, and the organization it was pointed at. Left to
 			// default, a run that died mid-create comes back asking for the password it generated.
 			if (from.mode) wiz.supabase.mode = from.mode
@@ -525,6 +718,8 @@
 		// needs the destination's username. Seeding first and correcting later loses whenever
 		// the folder list resolves first, and never corrects at all if `whoami` fails.
 		await loadTargetUser()
+		// A superadmin may have set a cluster up in the instance settings since the last open.
+		refreshManagedInstances?.()
 		reset(parked ?? resume)
 		opened = true
 		logDatatableWizard({ step: 'opened' })
@@ -536,6 +731,7 @@
 		logDatatableWizard({ step: 'picked', provider: key })
 		invalidate()
 		if (key === 'instance') wiz.instance.dbName ??= defaultInstanceDbName()
+		if (key === 'external_instance') wiz.external.dbName ??= externalDbName()
 	}
 
 	function suggestedResourceName(): string {
@@ -566,6 +762,7 @@
 	function goToStep(index: number) {
 		const target = index + 1
 		if (run.steps.length || target > maxStep || target === wiz.step) return
+		if (target === 1 && onlyResource) return
 		wiz.step = target as 1 | 2 | 3
 	}
 
@@ -660,6 +857,9 @@
 	 * leave a password nothing later may write over.
 	 */
 	let createdProjects = $state<CreatedProject[]>([])
+	/** Databases this session created on the external cluster, so a retry does not create twice
+	 * and Discard can say one was left behind. */
+	let createdExternalDbs = $state<string[]>([])
 	/** The instance database this session asked for, which is registered even when it failed. */
 	let claimedInstanceDb = $state<string | undefined>(undefined)
 	/**
@@ -792,9 +992,13 @@
 				onInstanceDbsChanged: async () => {
 					await customInstanceDbs.refetch()
 				},
+				onExternalDbsChanged: async () => {
+					await externalInstanceDbs?.refetch()
+				},
 				onProgress: (steps) => (run.steps = steps),
 				onPoolerUnavailable: (reason) => (poolerUnavailable = reason),
 				createdProjects,
+				createdExternalDbs,
 				claims,
 				username: targetUsername
 			})
@@ -822,10 +1026,15 @@
 			// Kept, not replaced: what an earlier attempt wrote is still out there, so a later
 			// one failing sooner must not hand its own objects back to the collision checks.
 			createdProjects = result?.createdProjects ?? createdProjects
+			createdExternalDbs = result?.createdExternalDbs ?? createdExternalDbs
 			claims = result?.claims ?? claims
 			// A row taken back out frees its name again, and free is somebody else's to take.
 			if (result?.rowRolledBack) claims = release(claims, 'row', name)
-			leftBehind = anythingClaimed(claims) || createdProjects.length > 0 || !!claimedInstanceDb
+			leftBehind =
+				anythingClaimed(claims) ||
+				createdProjects.length > 0 ||
+				createdExternalDbs.length > 0 ||
+				!!claimedInstanceDb
 			run = {
 				...run,
 				running: false,
@@ -833,6 +1042,7 @@
 					ok: false,
 					error: 'The setup stopped unexpectedly.',
 					claims,
+					createdExternalDbs,
 					createdProjects
 				}
 			}
@@ -933,8 +1143,7 @@
 			if (run.running) return { label: 'Setting things up', disabled: true, busy: true }
 			// Before the `ok` check: the setup succeeded and the step after it did not, so
 			// "Done" would be offered over a failed row.
-			if (finishAlsoFailed)
-				return { label: 'Try again', disabled: false, act: retryFinishAlso }
+			if (finishAlsoFailed) return { label: 'Try again', disabled: false, act: retryFinishAlso }
 			if (run.result?.ok) return { label: 'Done', disabled: false, act: close }
 			// A run that died because the Supabase token expired would retry into the same 401
 			// forever; authorizing again is the only thing that can move it on.
@@ -984,7 +1193,11 @@
 				}
 			return {
 				label: 'Continue',
-				disabled: !intentComplete(wiz) || !!instanceNameError,
+				disabled:
+					managedKindUnavailable ||
+					!intentComplete(wiz) ||
+					!!instanceNameError ||
+					!!externalNameError,
 				act: enterReview
 			}
 		}
@@ -997,13 +1210,15 @@
 			disabled:
 				// Guards the way back as well as the way forward: the stepper can return to step 2,
 				// and not every control there invalidates the review it just made stale.
+				managedKindUnavailable ||
 				!intentComplete(wiz) ||
 				!wiz.review.name.trim() ||
 				!!nameError ||
 				!wiz.review.resourceName.trim() ||
 				!!resourcePathError ||
 				!!pathTakenError ||
-				!!instanceNameError,
+				!!instanceNameError ||
+				!!externalNameError,
 			act: finish
 		}
 	})
@@ -1062,15 +1277,15 @@
 						you at any time.
 					</Alert>
 					<div class="flex flex-col gap-2">
-						{#if $isCustomInstanceDbEnabled}
-							{#snippet instanceIcon()}
-								<Database size={18} class="text-secondary" />
+						{#if managedOffered}
+							{#snippet managedIcon()}
+								<Server size={18} class="text-secondary" />
 							{/snippet}
 							{@render providerCard(
-								'instance',
-								instanceIcon,
-								'Windmill database',
-								'Windmill creates and manages a database on this instance.'
+								managedProvider ? wiz.provider! : preferredManagedProvider(),
+								managedIcon,
+								'Windmill managed database (Recommended)',
+								'Windmill manages the databases and roles for you.'
 							)}
 						{/if}
 						{#if supabaseAvailable}
@@ -1090,8 +1305,8 @@
 						{@render providerCard(
 							'resource',
 							ownIcon,
-							'Your own database',
-							'Any Postgres — RDS, Neon, self-hosted. Pick a resource, or paste a connection string.'
+							'Use a resource',
+							'Select or create a Postgres resource.'
 						)}
 					</div>
 				{:else if wiz.step === 2}
@@ -1111,8 +1326,22 @@
 								onIntentChange={() => invalidate()}
 							/>
 						{/if}
-					{:else if wiz.provider === 'instance'}
-						{@render instanceStep()}
+					{:else if managedProvider}
+						{@render managedKindToggle()}
+						{#if managedKindUnavailable}
+							<p class="text-xs text-secondary">
+								{#if $superadmin}
+									Windmill has no Postgres it can manage databases on yet. Set up an external
+									cluster, or turn Windmill's own database back on, in the instance settings.
+								{:else}
+									Only a superadmin can create a database Windmill manages.
+								{/if}
+							</p>
+						{:else if wiz.provider === 'instance'}
+							{@render instanceStep()}
+						{:else}
+							{@render externalStep()}
+						{/if}
 					{:else}
 						{@render ownStep()}
 					{/if}
@@ -1133,7 +1362,7 @@
 			<div class="flex flex-col gap-1 pt-3">
 				<div class="flex justify-between items-center gap-2">
 					<div>
-						{#if wiz.step > 1 && !run.steps.length}
+						{#if wiz.step > 1 && !run.steps.length && !(wiz.step === 2 && onlyResource)}
 							<Button
 								size="xs"
 								variant="default"
@@ -1149,16 +1378,28 @@
 							<Button size="xs" variant="default" onClick={backToReview}>Back</Button>
 						{/if}
 					</div>
-					<Button
-						size="sm"
-						variant="accent"
-						disabled={primary.disabled}
-						loading={primary.busy}
-						endIcon={primary.busy ? undefined : { icon: ArrowRight }}
-						onClick={() => primary.act?.()}
-					>
-						{primary.label}
-					</Button>
+					<div class="flex items-center gap-2">
+						{#if wiz.step === 2 && !run.steps.length && wiz.provider === 'resource' && canSetUpExternal}
+							<Button
+								unifiedSize="md"
+								variant="default"
+								startIcon={{ icon: Lightbulb }}
+								onClick={explainExternalInstance}
+							>
+								Let Windmill manage your external database
+							</Button>
+						{/if}
+						<Button
+							unifiedSize="md"
+							variant="accent"
+							disabled={primary.disabled}
+							loading={primary.busy}
+							endIcon={primary.busy ? undefined : { icon: ArrowRight }}
+							onClick={() => primary.act?.()}
+						>
+							{primary.label}
+						</Button>
+					</div>
 				</div>
 				{#if wiz.provider === 'supabase' && !supaOauth.authed}
 					<p class="text-2xs text-secondary text-right">
@@ -1175,8 +1416,73 @@
 	</div>
 </Modal2>
 
+{#snippet externalHint(label: string)}
+	<div class="flex">
+		<Button
+			unifiedSize="sm"
+			variant="subtle"
+			startIcon={{ icon: Lightbulb }}
+			onClick={explainExternalInstance}
+		>
+			{label}
+		</Button>
+	</div>
+{/snippet}
+
+{#snippet managedKindToggle()}
+	{@const internalReason = instanceAvailable
+		? "A database on Windmill's own Postgres."
+		: !$superadmin
+			? "Only a superadmin can create a database on Windmill's own Postgres."
+			: isCloudHosted()
+				? "Windmill's own Postgres is not available on cloud."
+				: "Windmill's own Postgres is turned off for data tables in the instance settings."}
+	{@const externalReason = externalInstanceAvailable
+		? 'A database on the external Postgres cluster Windmill administers.'
+		: !$enterpriseLicense
+			? 'An external cluster is an Enterprise Edition feature.'
+			: !$superadmin
+				? 'Only a superadmin can create a database on the external cluster.'
+				: 'No external cluster is set up on this instance.'}
+	<div class="flex flex-col gap-1">
+		<span class="text-xs font-semibold text-emphasis">Postgres cluster</span>
+		<div class="flex items-center gap-2">
+			<!-- A choice only while both are on offer. With one, the toggle still shows which one the
+			data table lands on. Its items cannot carry the reasons: a disabled group takes no hover. -->
+			<MeltTooltip disablePopup={instanceAvailable && externalInstanceAvailable}>
+				<ToggleButtonGroup
+					disabled={!(instanceAvailable && externalInstanceAvailable)}
+					noWFull
+					bind:selected={
+						() => (managedKindUnavailable ? undefined : wiz.provider),
+						(v) => {
+							if (v === 'instance' || v === 'external_instance') selectProvider(v)
+						}
+					}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="instance" label="Internal" {item} small />
+						<ToggleButton value="external_instance" label="External" {item} small />
+					{/snippet}
+				</ToggleButtonGroup>
+				{#snippet text()}
+					<div class="flex flex-col gap-1">
+						<span><span class="font-semibold">Internal:</span> {internalReason}</span>
+						<span><span class="font-semibold">External:</span> {externalReason}</span>
+					</div>
+				{/snippet}
+			</MeltTooltip>
+			{#if !externalInstanceAvailable && canSetUpExternal}
+				{@render externalHint('Set up externally managed Postgres')}
+			{/if}
+		</div>
+	</div>
+{/snippet}
+
 {#snippet providerCard(key: Provider, icon: Snippet, title: string, subtitle: string)}
-	{@const selected = wiz.provider === key}
+	{@const selected =
+		wiz.provider === key ||
+		(managedProvider && (key === 'instance' || key === 'external_instance'))}
 	<button
 		class="text-left border rounded-md p-3 flex gap-3 items-start transition-colors {selected
 			? 'border-border-selected/50 bg-surface-accent-selected'
@@ -1260,6 +1566,80 @@
 			{#if !instanceNameError}
 				<p class="text-2xs text-secondary mt-1">
 					Created in the Windmill PostgreSQL instance when you finish. Windmill manages its
+					credentials.
+				</p>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet externalStep()}
+	{@const externalDbs = Object.entries(externalInstanceDbs?.current ?? {})
+		.filter(([_, db]) => db.tag === 'datatable')
+		.map(([name, db]) => ({ name, db }))}
+	{#if externalDbs.length}
+		<ToggleButtonGroup
+			bind:selected={
+				() => wiz.external.mode,
+				(v) => {
+					wiz.external.mode = v
+					wiz.external.dbName = v === 'create' ? externalDbName() : undefined
+				}
+			}
+		>
+			{#snippet children({ item })}
+				<ToggleButton value="existing" label="Use an existing one" {item} small />
+				<ToggleButton value="create" label="Create a new one" {item} small />
+			{/snippet}
+		</ToggleButtonGroup>
+	{/if}
+	{#if wiz.external.mode === 'existing'}
+		{@const shared = (
+			externalInstanceDbs?.current?.[wiz.external.dbName ?? '']?.used_by_workspaces ?? []
+		).filter((w) => w !== targetWorkspace)}
+		{#if shared.length}
+			<Alert type="warning" size="xs" bgClass="border-0" title="">
+				This database is also used by workspace{shared.length > 1 ? 's' : ''}
+				<span class="font-semibold">{shared.join(', ')}</span>. Any data written here will be shared
+				with {shared.length > 1 ? 'them' : 'it'}.
+			</Alert>
+		{/if}
+		<div class="flex flex-col gap-2 overflow-y-auto flex-1 min-h-24 pr-1">
+			{#each externalDbs as { name, db } (name)}
+				{@const selected = wiz.external.dbName === name}
+				{@const others = (db.used_by_workspaces ?? []).filter((w) => w !== targetWorkspace)}
+				<button
+					class="text-left border rounded-md p-3 flex gap-3 items-start transition-colors {selected
+						? 'border-border-selected/50 bg-surface-accent-selected'
+						: 'border-border-light hover:bg-surface-hover'}"
+					onclick={() => (wiz.external.dbName = name)}
+				>
+					<span class="mt-0.5 shrink-0"><Database size={18} class="text-secondary" /></span>
+					<span class="flex flex-col gap-0.5 min-w-0">
+						<span class="text-xs font-medium {selected ? 'text-accent' : 'text-emphasis'}"
+							>{name}</span
+						>
+						<span class="text-xs text-secondary font-normal">
+							On the external cluster{others.length
+								? ` · shared with ${others.length} other workspace${others.length > 1 ? 's' : ''}`
+								: ''}
+						</span>
+					</span>
+				</button>
+			{/each}
+		</div>
+	{:else}
+		<div>
+			<span class="text-xs font-semibold text-emphasis">Database name</span>
+			<TextInput
+				bind:value={() => wiz.external.dbName ?? '', (v) => (wiz.external.dbName = v)}
+				error={!!externalNameError}
+				inputProps={{ placeholder: externalDbName() }}
+			/>
+			<InputError error={externalNameError} />
+			{#if !externalNameError}
+				<p class="text-2xs text-secondary mt-1">
+					Created on the external PostgreSQL cluster when you finish. Windmill manages its
 					credentials.
 				</p>
 			{/if}
@@ -1455,6 +1835,17 @@
 						clearable={false}
 					/>
 				</div>
+				<div>
+					<span class="text-2xs text-secondary">Options</span>
+					<TextInput
+						bind:value={() => wiz.own.fields.options ?? '', (v) => setField('options', v)}
+						inputProps={{ placeholder: 'endpoint=ep-example-123456' }}
+					/>
+					<p class="text-2xs text-secondary mt-1">
+						Startup options sent to the server, such as the endpoint ID a Neon pooled or private
+						connection needs.
+					</p>
+				</div>
 				<Toggle
 					size="xs"
 					checked={wiz.own.advanced.use_iam_auth}
@@ -1509,11 +1900,15 @@
 		/>
 		{#if nameLocked}
 			<p class="text-2xs text-secondary">
-				Fixed: the project's migrations target this name, and they run against it whatever
-				this table ends up called.
+				Fixed: the project's migrations target this name, and they run against it whatever this
+				table ends up called.
 			</p>
 		{/if}
 		<InputError error={nameError ?? (nameConflict || undefined)} />
+	</Label>
+
+	<Label label="Using it from a script" class="gap-1">
+		<DataTableUsagePreview name={wiz.review.name.trim() || 'main'} />
 	</Label>
 
 	{#if wiz.provider === 'supabase'}
@@ -1565,6 +1960,18 @@
 				{/if}
 			</p>
 			<TextInput value={wiz.instance.dbName ?? ''} inputProps={{ disabled: true }} />
+		</Label>
+	{:else if wiz.provider === 'external_instance'}
+		<Label label="External cluster database" class="gap-1">
+			<p class="text-2xs text-secondary">
+				{#if wiz.external.mode === 'create'}
+					It does not exist yet — Windmill creates it on the external PostgreSQL cluster when you
+					finish, and manages its credentials.
+				{:else}
+					A database already on the external PostgreSQL cluster, managed by Windmill.
+				{/if}
+			</p>
+			<TextInput value={wiz.external.dbName ?? ''} inputProps={{ disabled: true }} />
 		</Label>
 	{:else if !wiz.own.creating}
 		<Label label="Postgres resource" class="gap-1">

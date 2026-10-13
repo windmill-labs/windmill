@@ -1,21 +1,21 @@
-# windmill-chat
+# @windmill-labs/chat-sdk
 
 Build a chat interface on a Windmill flow deployed in **chat mode**, from any frontend
 or from a Windmill raw app. The library is headless: it runs the flow, follows the
 answer as it streams, keeps the conversation history, and hands you state to render.
 
 ```
-npm install windmill-chat
+npm install @windmill-labs/chat-sdk
 ```
 
-No runtime dependencies. Optional peers: `react` for `windmill-chat/react`, `ai` for
-`windmill-chat/ai-sdk`, `@assistant-ui/react` for `windmill-chat/assistant-ui`.
+No runtime dependencies. Optional peers: `react` for `@windmill-labs/chat-sdk/react`, `ai` for
+`@windmill-labs/chat-sdk/ai-sdk`, `@assistant-ui/react` for `@windmill-labs/chat-sdk/assistant-ui`.
 
 | You build the UI with | Import | You get |
 |---|---|---|
-| Vercel AI SDK `useChat`, AI Elements | `windmill-chat/ai-sdk` | a `ChatTransport`: `useChat({ transport })`, nothing else changes |
-| assistant-ui | `windmill-chat/assistant-ui` | a runtime for `AssistantRuntimeProvider`, threads included |
-| Your own components | `windmill-chat/react` or `windmill-chat` | a hook / a store with messages, status and actions |
+| Vercel AI SDK `useChat`, AI Elements | `@windmill-labs/chat-sdk/ai-sdk` | a `ChatTransport`: `useChat({ transport })`, nothing else changes |
+| assistant-ui | `@windmill-labs/chat-sdk/assistant-ui` | a runtime for `AssistantRuntimeProvider`, threads included |
+| Your own components | `@windmill-labs/chat-sdk/react` or `@windmill-labs/chat-sdk` | a hook / a store with messages, status and actions |
 
 ## The flow
 
@@ -31,7 +31,7 @@ so an AI agent step remembers earlier turns. The answer is:
 
 ```tsx
 import { useChat } from '@ai-sdk/react'
-import { createWindmillChatTransport } from 'windmill-chat/ai-sdk'
+import { createWindmillChatTransport } from '@windmill-labs/chat-sdk/ai-sdk'
 
 const transport = createWindmillChatTransport({
   baseUrl: 'https://app.windmill.dev',
@@ -65,7 +65,7 @@ explanatory error.
 
 ```tsx
 import { AssistantRuntimeProvider } from '@assistant-ui/react'
-import { useWindmillRuntime } from 'windmill-chat/assistant-ui'
+import { useWindmillRuntime } from '@windmill-labs/chat-sdk/assistant-ui'
 
 export function Support() {
   const runtime = useWindmillRuntime({ baseUrl, workspace, flowPath, token })
@@ -84,7 +84,7 @@ through `Reasoning`. It takes the same options as `useWindmillChat` below.
 ## React
 
 ```tsx
-import { useWindmillChat } from 'windmill-chat/react'
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
 
 export function Support() {
   const chat = useWindmillChat({
@@ -155,7 +155,7 @@ change, and returns the unsubscribe function. That is the Svelte store contract,
 `$chat` works as is; other frameworks wrap it in a few lines.
 
 ```ts
-import { createChat } from 'windmill-chat'
+import { createChat } from '@windmill-labs/chat-sdk'
 
 const chat = createChat({ baseUrl, workspace, flowPath, token })
 chat.subscribe((state) => render(state))
@@ -164,7 +164,7 @@ await chat.sendMessage('Hello')
 
 ```svelte
 <script>
-  import { createChat } from 'windmill-chat'
+  import { createChat } from '@windmill-labs/chat-sdk'
   const chat = createChat({ flowPath: 'f/support/assistant' })
 </script>
 
@@ -229,7 +229,8 @@ set) means the turn could not run or be followed at all, such as a refused reque
 Methods: `sendMessage(text, { inputs?, attachments?, attachmentsInput? })`, `stop()`,
 `newConversation()`, `selectConversation(id)`, `loadConversations({ page?, perPage?, kind? })`,
 `deleteConversation(id)`, `renameConversation(id, title)`, `loadOlderMessages()`,
-`destroy()`. `kind` lists the flow editor's test chats (`'test'`), the deployed flow's
+`resumeTurn(turn)`, `refreshMessages()` (reads what another tab added to the open
+conversation), `destroy()`. `kind` lists the flow editor's test chats (`'test'`), the deployed flow's
 own (`'deployed'`, the server's default) or both (`'all'`); each `Conversation` carries
 `isTest`. A rename keeps the conversation's place in the list. Switching conversations
 stops following the current answer; the flow keeps running and, with server history,
@@ -260,6 +261,27 @@ workspace needs object storage set up. With Enterprise advanced storage permissi
 user needs read and write on `windmill_uploads/*`, which the default rules grant. The upload goes through
 `job_helpers`, so a restricted token needs `job_helpers:write`; a sandboxed raw app cannot
 request that scope today, so attachments are not available there yet.
+
+## One turn at a time
+
+A conversation answers one message at a time, and Windmill enforces it: a message sent
+while its previous turn still runs (from another tab, or before a reload) is refused.
+`sendMessage` then rejects with a `TurnRunningError` and shows nothing of the message.
+With server history, a listed `Conversation` also carries `runningTurn` while it is
+answering. Either way, `resumeTurn(turn)` follows that turn in the selected
+conversation: its answer streams in from the start and the turn finishes as if it had
+been sent here, after which the message can be sent again.
+
+```ts
+// `runningTurn` comes from the listing, so read it before selecting.
+await chat.loadConversations()
+const running = chat.getState().conversations.find((c) => c.id === id)?.runningTurn
+await chat.selectConversation(id)
+if (running) await chat.resumeTurn(running)
+```
+
+A dropped connection to the answer is retried; when it keeps failing, the chat stops
+streaming and waits for the flow's result instead, so the turn still ends.
 
 ## History
 
@@ -309,8 +331,8 @@ custom integrations.
 ## For AI coding agents
 
 When asked to add a chat over a Windmill flow: the flow must be deployed with chat mode
-on. Pick the entry point from the table at the top (`useChat` → `windmill-chat/ai-sdk`,
-assistant-ui → `windmill-chat/assistant-ui`, otherwise `windmill-chat/react`). Inside a
+on. Pick the entry point from the table at the top (`useChat` → `@windmill-labs/chat-sdk/ai-sdk`,
+assistant-ui → `@windmill-labs/chat-sdk/assistant-ui`, otherwise `@windmill-labs/chat-sdk/react`). Inside a
 Windmill raw app pass only `flowPath`. Elsewhere pass `baseUrl`, `workspace` and a
 `token`; for a public page use a token scoped to `jobs:run:flows:<flowPath>` and leave
 `history` at its default. Render `role`, `content`, `pending`, `success` and

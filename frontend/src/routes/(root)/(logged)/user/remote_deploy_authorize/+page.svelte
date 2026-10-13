@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { page } from '$app/state'
-	import { base } from '$lib/base'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import { UserService } from '$lib/gen'
@@ -73,7 +72,7 @@
 	}
 </script>
 
-<CenteredModal title="Authorize a deploy connection">
+<CenteredModal title="Authorize a deploy connection" inPage>
 	{#if framed}
 		<Alert type="error" title="Refused">
 			This page cannot be used inside another page. Open it in its own tab.
@@ -126,7 +125,7 @@
 	{/if}
 	{#if framed || invalid}
 		<div class="flex justify-center pt-4">
-			<Button variant="default" unifiedSize="md" href={base}>Go to Windmill</Button>
+			<Button variant="default" unifiedSize="md" href="/">Go to Windmill</Button>
 		</div>
 	{/if}
 </CenteredModal>

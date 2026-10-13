@@ -34,13 +34,20 @@ async fn create(
     authed: ApiAuthed,
     // Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
     Json(nwd): Json<NewWorkspaceDependencies>,
 ) -> error::Result<(StatusCode, String)> {
-    tracing::info!(workspace_id = %nwd.workspace_id, name = ?nwd.name, language = ?nwd.language, "create workspace dependencies");
+    tracing::info!(workspace_id = %w_id, name = ?nwd.name, language = ?nwd.language, "create workspace dependencies");
     require_admin(authed.is_admin, &authed.username)?;
+    // `require_admin` vouches for the path workspace only; the body must not target another.
+    if nwd.workspace_id != w_id {
+        return Err(error::Error::BadRequest(format!(
+            "workspace_id `{}` in the request body does not match the workspace `{}` in the path",
+            nwd.workspace_id, w_id
+        )));
+    }
 
     let dep_path = WorkspaceDependencies::to_path(&nwd.name, nwd.language)?;
-    let w_id = nwd.workspace_id.clone();
     let email = authed.email.clone();
     let username = authed.username.clone();
 

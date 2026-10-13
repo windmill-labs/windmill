@@ -5,6 +5,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { Button } from '$lib/components/common'
 	import AddDataTableWizard from '$lib/components/workspaceSettings/AddDataTableWizard.svelte'
+	import { useManagedInstances } from '$lib/components/workspaceSettings/utils.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
@@ -212,6 +213,7 @@
 	let appConnect: AppConnectDrawer | undefined = $state(undefined)
 
 	const customInstanceDbs = resource([() => workspace], SettingService.listCustomInstanceDbs)
+	const managed = useManagedInstances(() => !!$superadmin)
 	const confirmationModal = createAsyncConfirmationModal()
 	let wizardOpen = $state(false)
 	let wizard = $state<AddDataTableWizard | undefined>(undefined)
@@ -1090,6 +1092,10 @@
 		existingDataTables={configuredNames}
 		onDone={() => void afterWizard()}
 		{customInstanceDbs}
+		externalInstanceDbs={managed.externalDbs}
+		externalInstanceAvailable={managed.externalAvailable}
+		instanceAvailable={managed.instanceAvailable}
+		refreshManagedInstances={managed.refresh}
 		{confirmationModal}
 		{defaultInstanceDbName}
 	/>

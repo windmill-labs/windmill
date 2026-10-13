@@ -25,6 +25,7 @@ import protectionRules from "./commands/protection-rules/protection-rules.ts";
 import instance from "./commands/instance/instance.ts";
 import workerGroups from "./commands/worker-groups/worker-groups.ts";
 import lint from "./commands/lint/lint.ts";
+import digest from "./commands/digest/digest.ts";
 
 import dev from "./commands/dev/dev.ts";
 import { GlobalOptions } from "./types.ts";
@@ -203,6 +204,7 @@ const command = new Command()
   .command("dev", dev)
   .command("sync", sync)
   .command("lint", lint)
+  .command("digest", digest)
   .command("gitsync-settings", gitsyncSettings)
   .command("protection-rules", protectionRules)
   .command("instance", instance)

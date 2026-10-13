@@ -46,7 +46,7 @@ async fn ee_otel_init_config_populates_otel_globals() {
     // Step 1: reproduce the footgun. `OtelConfig::default()` has
     // tracing/metrics off and `console = Ignore`, which trips the
     // 0.31 early-return — Ok(()) but OnceCell stays empty.
-    deno_telemetry::init(
+    windmill_runtime_nativets::init_telemetry(
         deno_telemetry::OtelRuntimeConfig {
             runtime_name: "windmill-nativets-test".into(),
             runtime_version: "0".into(),
@@ -63,10 +63,17 @@ async fn ee_otel_init_config_populates_otel_globals() {
          tracing_enabled/console fields."
     );
 
+    // The instance's own exporter shares this variable and may be set to gRPC,
+    // or to anything else. Native telemetry must not read it: a value
+    // deno_telemetry rejects outright shows it is never consulted.
+    // SAFETY: the only test in this binary, so nothing reads the environment
+    // concurrently.
+    unsafe { std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", "not-a-protocol") };
+
     // Step 2: re-call init with the exact config shape that the EE
     // `load_internal_otel_exporter` ships — this is what production
     // hits, so the test exercises the actual prod call path.
-    deno_telemetry::init(
+    windmill_runtime_nativets::init_telemetry(
         deno_telemetry::OtelRuntimeConfig {
             runtime_name: "windmill-nativets".into(),
             runtime_version: "0".into(),

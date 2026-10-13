@@ -1,4 +1,6 @@
 <script lang="ts">
+	// Resets to the root layout, which does not import it.
+	import '$lib/assets/app.css'
 	import { page } from '$app/state'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { clearUser } from '$lib/logout'

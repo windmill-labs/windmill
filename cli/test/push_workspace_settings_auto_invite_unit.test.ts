@@ -4,7 +4,8 @@
  * instance groups that settings.yaml does not declare.
  */
 
-import { expect, test, describe, beforeEach, mock } from "bun:test";
+import { expect, test, describe, beforeEach } from "bun:test";
+import { mockServices } from "./mock_services.ts";
 
 let editAutoInviteCalls: unknown[] = [];
 let editInstanceGroupsCalls: unknown[] = [];
@@ -17,10 +18,9 @@ const remoteAutoInvite = {
   instance_groups_roles: { eng: "developer" },
 };
 
-// Every wmill.* call reachable from pushWorkspaceSettings is stubbed: bun shares one
-// mocked module across test files, and names missing from whichever mock loads first
-// stay missing for the others.
-mock.module("../gen/services.gen.ts", () => ({
+// Every wmill.* call reachable from pushWorkspaceSettings is stubbed so the
+// function runs without a backend.
+mockServices({
   getSettings: async () => ({ auto_invite: remoteAutoInvite }),
   getWorkspaceName: async () => "phoenix",
   changeWorkspaceName: async () => {},
@@ -45,7 +45,7 @@ mock.module("../gen/services.gen.ts", () => ({
   editSlackCommand: async () => {},
   setWorkspaceSlackOauthConfig: async () => {},
   deleteWorkspaceSlackOauthConfig: async () => {},
-}));
+});
 
 const { pushWorkspaceSettings } = await import("../src/core/settings.ts");
 

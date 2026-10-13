@@ -14,7 +14,15 @@ callers that already know which section they mean, such as the "+" menu's Manage
 </script>
 
 <script lang="ts">
-	import { BookOpen, Boxes, Paperclip, Plug, ScrollText, SlidersHorizontal } from 'lucide-svelte'
+	import {
+		BookOpen,
+		Boxes,
+		ExternalLink,
+		Paperclip,
+		Plug,
+		ScrollText,
+		SlidersHorizontal
+	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
@@ -28,6 +36,11 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import AssistantMcpSection from './AssistantMcpSection.svelte'
 	import AssistantFilesSection from './AssistantFilesSection.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	// Prefilled title marks the issue as AI Sessions feedback for triage.
+	const FEEDBACK_ISSUE_URL =
+		'https://github.com/windmill-labs/windmill/issues/new?title=' +
+		encodeURIComponent('AI Sessions feedback: ')
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -97,11 +110,12 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	// The session's capability surface, not this turn's: the heading answers what the
 	// assistant can call here, so it must not shift when the autonomy picker does.
 	let tools = $derived(summarizeTools(aiChatManager.availableTools))
+	let providerTools = $derived(aiChatManager.providerTools)
 
 	// `SidebarNavigation`'s item shape, which is what the instance and workspace settings
 	// navs are built from too.
 	let sections = $derived([
-		{ id: 'tools', label: 'Tools', icon: Boxes, count: tools.length },
+		{ id: 'tools', label: 'Tools', icon: Boxes, count: tools.length + providerTools.length },
 		{ id: 'skills', label: 'Skills', icon: BookOpen, count: skillCount },
 		{ id: 'instructions', label: 'Instructions', icon: ScrollText },
 		{ id: 'mcp', label: 'MCP connections', icon: Plug, count: mcpCount },
@@ -194,6 +208,18 @@ callers that already know which section they mean, such as the "+" menu's Manage
 				selectedId={section}
 				onNavigate={(id) => select(id as AssistantSettingsSection)}
 			/>
+			<div class="mt-auto">
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					endIcon={{ icon: ExternalLink }}
+					btnClasses="!justify-start !w-full"
+					href={FEEDBACK_ISSUE_URL}
+					target="_blank"
+				>
+					Give feedback
+				</Button>
+			</div>
 		</div>
 
 		<div class="grow min-w-0 flex flex-col min-h-0">
@@ -202,7 +228,12 @@ callers that already know which section they mean, such as the "+" menu's Manage
 			     own their own scrolling — each is a list and a detail page laid over each
 			     other — so only Instructions scrolls here. -->
 			<div class="{section === 'tools' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
-				<AssistantToolsSection {tools} active={section === 'tools'} bind:blocksClose={toolsBusy} />
+				<AssistantToolsSection
+					{tools}
+					{providerTools}
+					active={section === 'tools'}
+					bind:blocksClose={toolsBusy}
+				/>
 			</div>
 			<!-- Skills owns its own scrolling: its list and its editor are PagedContent pages
 			     laid over each other, and each keeps a scroll position of its own. -->

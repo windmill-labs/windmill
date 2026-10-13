@@ -1,4 +1,6 @@
 <script lang="ts" module>
+	import type { ErrorHandler } from '$lib/gen/types.gen'
+
 	export const errorHandlerArgs = [
 		'path',
 		'workspace_id',
@@ -17,6 +19,17 @@
 	]
 
 	export const slackErrorHandlerHubPathEnding = '/workspace-or-schedule-error-handler-slack'
+
+	/** The stored `<script|flow>/<path>` form of a handler. `kind` is the Custom tab's Script/Flow
+	 * choice and survives switching to a built-in tab, whose handlers are all scripts: stored as
+	 * `flow/...` they never run. */
+	export function handlerFullPath(
+		selected: ErrorHandler,
+		kind: 'flow' | 'script',
+		path: string
+	): string {
+		return `${selected === 'custom' ? kind : 'script'}/${path}`
+	}
 </script>
 
 <script lang="ts">
@@ -30,7 +43,6 @@
 	import ChannelSelector from '$lib/components/ChannelSelector.svelte'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { base } from '$lib/base'
 	import { enterpriseLicense } from '$lib/stores'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import { classNames, emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
@@ -43,7 +55,6 @@
 		WorkspaceService,
 		type Flow
 	} from '$lib/gen'
-	import type { ErrorHandler } from '$lib/gen/types.gen'
 	import { inferArgs } from '$lib/infer'
 	import { hubBaseUrlStore } from '$lib/stores'
 
@@ -58,6 +69,8 @@
 	} from 'lucide-svelte'
 	import { hubPaths } from '$lib/hub'
 	import { isCloudHosted } from '$lib/cloud'
+	import { untrack } from 'svelte'
+	import { syncSlackBotArg } from './handlerSlackArg'
 	import SmtpConfigurationStatus from './common/smtp/SmtpConfigurationStatus.svelte'
 	import { SettingService } from '$lib/gen'
 	import { isSmtpSettingsValid } from './instanceSettings/SmtpSettings.svelte'
@@ -305,12 +318,13 @@
 		loadSmtpConfiguration()
 	})
 
+	let builtinArgs: Record<string, any> | undefined
 	$effect(() => {
-		if (handlerSelected === 'slack' && isSlackHandler(handlerPath)) {
-			handlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
-		} else {
-			handlerExtraArgs['slack'] = undefined
-		}
+		const isSlackBuiltin = handlerSelected === 'slack' && isSlackHandler(handlerPath)
+		const args = handlerExtraArgs
+		// A replaced args object (Discard, reload) holds the stored config, not what the built-in set.
+		untrack(() => syncSlackBotArg(args, isSlackBuiltin, args === builtinArgs))
+		builtinArgs = isSlackBuiltin ? args : undefined
 	})
 
 	let lastHandlerSelected: ErrorHandler | undefined = $state(undefined)
@@ -531,7 +545,7 @@
 
 									<a
 										target="_blank"
-										href={`${base}/run/${connectionTestJob.uuid}?workspace=${effectiveWorkspace}`}
+										href={`/run/${connectionTestJob.uuid}?workspace=${effectiveWorkspace}`}
 										class="inline-flex items-center gap-1"
 									>
 										{connectionTestJob.uuid}
@@ -624,7 +638,7 @@
 								Message sent via Windmill job
 								<a
 									target="_blank"
-									href={`${base}/run/${connectionTestJob.uuid}?workspace=${effectiveWorkspace}`}
+									href={`/run/${connectionTestJob.uuid}?workspace=${effectiveWorkspace}`}
 								>
 									{connectionTestJob.uuid}
 								</a>
@@ -682,7 +696,7 @@
 					report is sent without adding an entry to the instance critical alert feed. Canceled jobs
 					are not reported.
 				</span>
-				<a class="text-xs w-fit" href="{base}/?workspace=admins#superadmin-settings">
+				<a class="text-xs w-fit" href="/?workspace=admins#superadmin-settings">
 					Configure the instance critical alert channels
 				</a>
 			</div>

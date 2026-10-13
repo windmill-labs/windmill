@@ -14,7 +14,7 @@ pub use windmill_common::flow_conversations::FlowConversation;
 use windmill_common::{
     db::{UserDB, DB},
     error::{JsonResult, Result},
-    flow_conversations::MessageType,
+    flow_conversations::{running_turns, MessageType, RunningTurn},
     utils::{not_found_if_none, paginate, truncate_with_ellipsis, Pagination},
 };
 
@@ -81,7 +81,7 @@ async fn list_conversations(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(query): Query<ListConversationsQuery>,
-) -> JsonResult<Vec<FlowConversation>> {
+) -> JsonResult<Vec<ListedConversation>> {
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.clone().begin(&authed).await?;
 
@@ -123,9 +123,27 @@ async fn list_conversations(
     let conversations = sqlx::query_as::<Postgres, FlowConversation>(&sql)
         .fetch_all(&mut *tx)
         .await?;
+    let ids: Vec<Uuid> = conversations.iter().map(|c| c.id).collect();
+    let mut running = running_turns(&mut *tx, &ids).await?;
 
     tx.commit().await?;
-    Ok(Json(conversations))
+    Ok(Json(
+        conversations
+            .into_iter()
+            .map(|conversation| ListedConversation {
+                running_turn: running.remove(&conversation.id),
+                conversation,
+            })
+            .collect(),
+    ))
+}
+
+#[derive(Serialize)]
+pub struct ListedConversation {
+    #[serde(flatten)]
+    pub conversation: FlowConversation,
+    /// Lets a chat that opens after a turn started follow it, and tell which chats are busy.
+    pub running_turn: Option<RunningTurn>,
 }
 
 async fn delete_conversation(

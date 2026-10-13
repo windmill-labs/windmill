@@ -1,4 +1,13 @@
-import { csharp, go, java, json, plaintext, type LanguageType } from 'svelte-highlight/languages'
+import {
+	csharp,
+	css,
+	go,
+	java,
+	json,
+	plaintext,
+	xml,
+	type LanguageType
+} from 'svelte-highlight/languages'
 import graphql from 'svelte-highlight/languages/graphql'
 import javascript from 'svelte-highlight/languages/javascript'
 import php from 'svelte-highlight/languages/php'
@@ -32,6 +41,8 @@ const LANGUAGE_BY_MONACO: Record<string, LanguageType<string>> = {
 	r,
 	go,
 	ruby,
+	css,
+	xml,
 	text: plaintext,
 	plaintext
 }

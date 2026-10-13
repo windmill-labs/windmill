@@ -8,6 +8,7 @@
 		debounce,
 		emptySchema,
 		emptyString,
+		escapeHtml,
 		getSchemaFromProperties,
 		type DynamicInput as DynamicInputTypes
 	} from '$lib/utils'
@@ -40,9 +41,9 @@
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
-	import { base } from '$lib/base'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
+	import AiDecisionQuestionsEditor from './AiDecisionQuestionsEditor.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
 	import { randomUUID } from '$lib/utils/uuid'
@@ -253,7 +254,11 @@
 
 	let ignoreValueUndefined = $state(false)
 	let error: string = $state('')
+	// Parse error of the JSON editor below, which already displays it. Text that does not parse
+	// never reaches `value`, so without this the field would stay valid on its last parsed value.
+	let jsonError: string = $state('')
 	let isListJson = $state(false)
+	let questionsInJson = $state(false)
 	let hasIsListJsonChanged = $state(false)
 
 	let el: HTMLTextAreaElement | undefined = $state(undefined)
@@ -417,9 +422,12 @@
 		'^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$'
 
 	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
-		if (nullable && emptyString(v)) {
+		if (jsonError) {
 			error = ''
-			valid && (valid = true)
+			valid && (valid = false)
+		} else if (nullable && emptyString(v)) {
+			error = ''
+			!valid && (valid = true)
 		} else if (
 			typeof v === 'string' &&
 			(v.startsWith('$var:') || v.startsWith('$res:') || v.startsWith('$jsonvar:'))
@@ -563,6 +571,7 @@
 
 	$effect(() => {
 		extra?.['nonEmpty']
+		jsonError
 		let args = [pattern, value, required] as const
 		untrack(() => validateInput(...args))
 	})
@@ -599,7 +608,7 @@
 			{#if value && typeof value == 'string' && value?.startsWith('$res:')}
 				Linked to resource <a
 					target="_blank"
-					href="{base}/resources#/resource/{value.slice(5)}"
+					href="/resources#/resource/{value.slice(5)}"
 					class="text-blue-500 underline"
 					>{value.slice(5)} <span class="inline-block -mb-0.5"><ExternalLink size={14} /></span></a
 				>
@@ -691,7 +700,9 @@
 
 	{#if description}
 		<div class={twMerge('text-xs text-secondary', css?.description?.class)}>
-			<pre class="font-main whitespace-normal">{description}</pre>
+			<pre class="font-main whitespace-normal"
+				>{description}{#if inputCat == 'ai-decision-questions' && questionsInJson}{': { <name>: { type: choice | score | noul, instructions, criteria } }'}{/if}</pre
+			>
 		</div>
 	{/if}
 
@@ -1162,6 +1173,10 @@
 								{/each}
 							{/snippet}
 						</ToggleButtonGroup>
+						{@const oneOfHint = extra?.['oneOfHints']?.[effectiveOneOfSelected ?? '']}
+						{#if oneOfHint}
+							<div class="-mt-4 mb-2 text-2xs text-hint">{oneOfHint}</div>
+						{/if}
 						{#if effectiveOneOfSelected}
 							{@const objIdx = oneOf.findIndex((o) => o.title === effectiveOneOfSelected)}
 							{@const obj = oneOf[objIdx]}
@@ -1258,6 +1273,7 @@
 											dispatch('blur')
 										}}
 										code={rawValue}
+										bind:error={jsonError}
 										on:changeValue={(e) => {
 											setNewValueFromCode(e.detail)
 										}}
@@ -1280,6 +1296,7 @@
 									dispatch('blur')
 								}}
 								code={rawValue}
+								bind:error={jsonError}
 								on:change={(e) => {
 									value = e.detail
 								}}
@@ -1369,6 +1386,8 @@
 							dispatch('blur')
 						}}
 						code={rawValue}
+						placeholder={placeholder && escapeHtml(placeholder)}
+						bind:error={jsonError}
 						on:changeValue={(e) => {
 							setNewValueFromCode(e.detail)
 						}}
@@ -1470,7 +1489,19 @@
 				{showSchemaExplorer}
 			/>
 		{:else if inputCat == 'ai-provider'}
-			<AIProviderPicker bind:value {disabled} {actions} {workspace} />
+			<AIProviderPicker
+				bind:value
+				{disabled}
+				{actions}
+				{workspace}
+				decision={format === 'ai-decision-provider'}
+			/>
+		{:else if inputCat == 'ai-decision-questions'}
+			<AiDecisionQuestionsEditor
+				bind:value
+				{disabled}
+				onModeChange={(mode) => (questionsInJson = mode === 'json')}
+			/>
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}

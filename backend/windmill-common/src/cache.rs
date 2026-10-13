@@ -687,8 +687,9 @@ pub mod script {
                 schema_validation AS \"schema_validation: bool\", \
                 codebase LIKE '%.tar' as use_tar, \
                 codebase LIKE '%.esm%' as is_esm, \
-                modules AS \"modules: serde_json::Value\" \
-            FROM script WHERE hash = $1 LIMIT 1",
+                modules AS \"modules: serde_json::Value\", \
+                deleted \
+            FROM script WHERE hash = $1 ORDER BY deleted LIMIT 1",
             hash.0
         )
         .fetch_optional(db)
@@ -696,6 +697,14 @@ pub mod script {
         .map_err(Into::into)
         .and_then(unwrap_or_error(&loc, "Script", hash))
         .and_then(|r| {
+            // The hash leaves out the workspace, so forks and clones share it, and a deleted
+            // copy keeps its row with the content wiped. Any live copy holds the same code;
+            // only when every copy is deleted is there nothing left to run.
+            if r.deleted {
+                return Err(error::Error::NotFound(format!(
+                    "Script version {hash} was deleted"
+                )));
+            }
             Ok(RawScript {
                 content: r.content,
                 lock: r.lock,

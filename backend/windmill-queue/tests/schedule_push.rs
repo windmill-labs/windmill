@@ -49,6 +49,7 @@ mod schedule_push {
             cron_version: None,
             dynamic_skip: None,
             labels: None,
+            late_run_streak: 0,
         };
         overrides(&mut s);
         s
@@ -92,6 +93,7 @@ mod schedule_push {
             cache_ignore_s3_path: None,
             runnable_settings_handle: None,
             build_binary_only: false,
+            job_token_scopes: None,
         }
     }
 
@@ -508,6 +510,63 @@ mod schedule_push {
         .fetch_one(&db)
         .await?;
         assert!(scheduled_for > future_cutoff);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // push_scheduled_job: late run streak
+    // -----------------------------------------------------------------------
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_push_tracks_late_run_streak(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let mut schedule = make_schedule(|s| s.schedule = "0 0 0 * * *".to_string());
+        sqlx::query(
+            "INSERT INTO schedule (workspace_id, path, edited_by, schedule, script_path, permissioned_as)
+            VALUES ($1, $2, 'test-user', $3, $4, 'u/test-user')",
+        )
+        .bind(&schedule.workspace_id)
+        .bind(&schedule.path)
+        .bind(&schedule.schedule)
+        .bind(&schedule.script_path)
+        .execute(&db)
+        .await?;
+        let authed = make_authed();
+        let streak = || {
+            sqlx::query_as::<_, (i32, i32, Option<chrono::DateTime<Utc>>)>(
+                "SELECT late_run_streak, missed_occurrences, last_missed_at FROM schedule WHERE path = $1",
+            )
+            .bind(&schedule.path)
+            .fetch_one(&db)
+        };
+        let push = |schedule: Schedule, prev: chrono::DateTime<Utc>| {
+            let db = db.clone();
+            let authed = authed.clone();
+            async move {
+                sqlx::query("DELETE FROM v2_job_queue").execute(&db).await?;
+                let tx = db.begin().await?;
+                push_scheduled_job(&db, tx, &schedule, Some(&authed), Some(prev))
+                    .await?
+                    .commit()
+                    .await?;
+                anyhow::Ok(())
+            }
+        };
+
+        let midnight = Utc::now()
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc();
+
+        // The daily run due 3 days ago finished just now: the 3 midnights since were missed.
+        push(schedule.clone(), midnight - chrono::Duration::days(3)).await?;
+        let (runs, missed, at) = streak().await?;
+        assert_eq!((runs, missed, at), (1, 3, Some(midnight)));
+
+        // Today's run on time ends the streak but keeps what it missed, for the badge.
+        schedule.late_run_streak = runs;
+        push(schedule.clone(), midnight).await?;
+        assert_eq!(streak().await?, (0, 3, at));
         Ok(())
     }
 
@@ -1755,6 +1814,61 @@ mod schedule_push {
             RearmOutcome::NoOp
         );
         assert_eq!(count_queued_jobs(&db).await, 1);
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_push_hub_script_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
+        // Seed the hub cache so the push resolves the script without the network.
+        let version = "990000001";
+        let hub_dir = &*windmill_common::worker::HUB_CACHE_DIR;
+        tokio::fs::create_dir_all(hub_dir).await?;
+        tokio::fs::write(
+            format!("{hub_dir}/{version}"),
+            r#"{"content":"echo hi","lockfile":null,"language":"bash","schema":{},"summary":null}"#,
+        )
+        .await?;
+        let hub_path = format!("hub/{version}/test/echo");
+
+        // A retry must stay a native `script_hub` job: a flow wrapper would queue the
+        // next tick at start and let slow runs overlap.
+        let retry = serde_json::json!({ "constant": { "attempts": 2, "seconds": 1 } });
+        for (path, retry, dynamic_skip) in [
+            ("f/system/hub_plain", None, None),
+            ("f/system/hub_retry", Some(retry), None),
+            // A skip handler needs a flow wrapper, so its metadata lookup must not
+            // go through the `script` table.
+            ("f/system/hub_skip", None, Some("f/system/skip".to_string())),
+        ] {
+            let has_retry = retry.is_some();
+            let has_skip = dynamic_skip.is_some();
+            let schedule = make_schedule(|s| {
+                s.path = path.to_string();
+                s.script_path = hub_path.clone();
+                s.retry = retry;
+                s.dynamic_skip = dynamic_skip;
+            });
+            let tx = db.begin().await?;
+            let tx = push_scheduled_job(&db, tx, &schedule, Some(&make_authed()), None).await?;
+            tx.commit().await?;
+
+            let (job_kind, runnable_path, language, handle) =
+                sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<i64>)>(
+                    "SELECT j.kind::text, j.runnable_path, j.script_lang::text, q.runnable_settings_handle
+                     FROM v2_job j JOIN v2_job_queue q ON j.id = q.id WHERE j.trigger = $1",
+                )
+                .bind(path)
+                .fetch_one(&db)
+                .await?;
+            assert_eq!(runnable_path.as_deref(), Some(hub_path.as_str()));
+            if has_skip {
+                assert_eq!(job_kind, "singlestepflow");
+            } else {
+                assert_eq!(job_kind, "script_hub");
+                assert_eq!(language.as_deref(), Some("bash"));
+                assert_eq!(handle.is_some(), has_retry);
+            }
+        }
         Ok(())
     }
 }

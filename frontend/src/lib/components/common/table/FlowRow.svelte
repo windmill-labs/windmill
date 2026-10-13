@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
@@ -9,6 +8,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -41,6 +41,8 @@
 	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
 	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+
+	const editRights = useEditRights()
 
 	interface Props {
 		flow: Flow & {
@@ -121,6 +123,8 @@
 	}
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
+
+	let hideForOperator = $derived(!editRights.roleCanAuthor('flow'))
 </script>
 
 {#if menuOpen}
@@ -136,8 +140,8 @@
 	aiId={`flow-row-${flow.path}`}
 	aiDescription={`Button to access the form to run the flow ${flow.summary ?? flow.path}`}
 	href={flow.draft_only
-		? `${base}/flows/edit/${flow.path}`
-		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
+		? `/flows/edit/${flow.path}`
+		: `/flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
 	{keyboardSelected}
@@ -188,25 +192,24 @@
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator}
-				{#if showEditButton && flow.canWrite && !flow.archived}
-					<div>
-						<Button
-							variant="subtle"
-							wrapperClasses="w-20"
-							unifiedSize="md"
-							startIcon={{ icon: Pen }}
-							href="{base}/flows/edit/{flow.path}"
-							aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
-							aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
-						>
-							Edit
-						</Button>
-					</div>
-				{/if}
-				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
-					<EditInForkButton itemType="flow" path={flow.path} />
-				{/if}
+			{#if !hideForOperator && showEditButton && flow.canWrite && !flow.archived}
+				<div>
+					<Button
+						variant="subtle"
+						wrapperClasses="w-20"
+						unifiedSize="md"
+						startIcon={{ icon: Pen }}
+						href="/flows/edit/{flow.path}"
+						aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+						aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+					>
+						Edit
+					</Button>
+				</div>
+			{/if}
+			<!-- Hidden from every operator, builder rights included. -->
+			{#if !$userStore?.operator && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
+				<EditInForkButton itemType="flow" path={flow.path} />
 			{/if}
 		</span>
 
@@ -251,7 +254,7 @@
 							// list endpoint only surfaces own/legacy draft-only rows), so
 							// discarding it never requires write permission on the path.
 							disabled: !showEditButton,
-							hide: $userStore?.operator
+							hide: hideForOperator
 						}
 					]
 				}
@@ -260,14 +263,14 @@
 					{
 						displayName: 'View runs',
 						icon: List,
-						href: `${base}/runs/${path}`
+						href: `/runs/${path}`
 					},
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/flows/add?template=${path}`,
+						href: `/flows/add?template=${path}`,
 						disabled: !showEditButton,
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
@@ -283,7 +286,7 @@
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `${base}/audit_logs?resource=${path}`,
+						href: `/audit_logs?resource=${path}`,
 						hide: $userStore?.operator
 					},
 					{
@@ -293,7 +296,7 @@
 							moveDrawer.openDrawer(path, flow.summary, 'flow')
 						},
 						disabled: !owner || archived || !canEdit,
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: 'Copy path',
@@ -321,7 +324,7 @@
 						action: () => {
 							flowHistory?.open()
 						},
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: 'Schedule',
@@ -330,7 +333,7 @@
 							scheduleEditor?.openNew(true, path)
 						},
 						disabled: archived,
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: 'Permissions',
@@ -338,7 +341,7 @@
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
 						},
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: archived ? 'Unarchive' : 'Archive',
@@ -348,7 +351,7 @@
 						},
 						type: 'delete',
 						disabled: !owner || !canEdit,
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: 'Delete',
@@ -365,7 +368,7 @@
 						},
 						type: 'delete',
 						disabled: !owner || !canEdit,
-						hide: $userStore?.operator
+						hide: hideForOperator
 					}
 				]
 			}}

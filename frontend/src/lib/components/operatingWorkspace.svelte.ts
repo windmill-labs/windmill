@@ -22,6 +22,14 @@ export function setOperatingWorkspace(resolve: () => string | undefined): void {
 	setContext(KEY, outer ? () => resolve() ?? outer() : resolve)
 }
 
+/** This subtree's operating workspace as an entry for a `ContextBridge` contexts map. A snippet
+ * handed to the page header's band renders outside the subtree that declared the workspace, so
+ * without this it would quietly act on the navigation workspace instead. Reads context: call
+ * during component initialisation. */
+export function operatingWorkspaceContextEntry(): [any, any] {
+	return [KEY, getContext(KEY)]
+}
+
 /** The workspace this component acts on, as a store. Reads context: call during component
  * initialisation. Falls back to the navigation workspace where no host set one, or where the
  * host's resolves to nothing. */

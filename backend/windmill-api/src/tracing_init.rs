@@ -48,7 +48,9 @@ impl<B> OnResponse<B> for MyOnResponse {
             let status = response.status().as_u16();
             if response.status().is_success() || response.status().is_redirection() {
                 tracing::info!(latency = latency, status = status, "response")
-            } else if response.status().as_u16() == 404 {
+            } else if status == 404 || status == 409 {
+                // A refused turn is as expected as a miss: the flow chat takes the turn that
+                // refused it and sends its message after it.
                 tracing::warn!(latency = latency, status = status, "response")
             } else {
                 tracing::error!(latency = latency, status = status, "response")

@@ -1,0 +1,983 @@
+{
+	"app": "confluence",
+	"display_name": "Confluence",
+	"description": "Atlassian's team workspace: pages, blog posts and spaces.",
+	"docs_url": "https://developer.atlassian.com/cloud/confluence/rest/v2/intro/",
+	"curated": true,
+	"meta": {
+		"api_docs": "https://developer.atlassian.com/cloud/confluence/rest/v2/intro/",
+		"shipped_surfaces": [
+			"pages",
+			"blogposts",
+			"spaces",
+			"search",
+			"users"
+		],
+		"validation": {
+			"status": "live_validated",
+			"method": "smoke test via `bun --env-file=.env.test -e` (+ `bun test` with the windmill-client fake for the trigger) against a free Confluence Cloud site (a test site) with an API token. All 13 actions + the trigger returned 2xx: full page lifecycle (create -> get -> update -> list -> delete), blog post create/update/delete, list_spaces, search_content (CQL), get_current_user, and the new_or_updated_page polling trigger.",
+			"sources": {
+				"pages": "HIGH \u2014 Pipedream actions + official v2 OpenAPI; create/get/update/list/delete all run live (2xx)",
+				"blogposts": "HIGH \u2014 Pipedream actions + official v2 OpenAPI; create/update/delete all run live (2xx)",
+				"spaces": "HIGH \u2014 Pipedream list-spaces + official v2 OpenAPI; list_spaces run live (2xx)",
+				"search": "HIGH \u2014 Pipedream search-content + official v1 REST; search_content (CQL) run live (2xx)",
+				"users": "HIGH \u2014 v1 /wiki/rest/api/user/current run live (2xx) with Basic auth",
+				"trigger": "HIGH \u2014 new_or_updated_page e2e-tested under bun test with the auto-fake; first run sets the watermark, a subsequent run emits a freshly created page"
+			},
+			"low_confidence_fields": []
+		},
+		"pagination": {
+			"pattern": "cursor",
+			"request_params": {
+				"cursor": "cursor",
+				"limit": "limit"
+			},
+			"response_fields": {
+				"next": "_links.next"
+			},
+			"default_limit": 25,
+			"notes": "v2 endpoints return an opaque cursor inside the `_links.next` relative URL (?cursor=...) and also in the Link response header. The v1 /search endpoint paginates the same way."
+		},
+		"gotchas": [
+			"Two API versions are in play: pages / blog posts / spaces use the v2 REST API (/wiki/api/v2); CQL search and current-user use the v1 REST API (/wiki/rest/api).",
+			"Auth is HTTP Basic with the Atlassian account email as the username and an API token (NOT the account password) as the password.",
+			"v2 query params are kebab-case (body-format, created-date, get-draft, root-level); v2 JSON request-body fields are camelCase (spaceId, parentId).",
+			"Updating a page or blog post requires version.number = currentVersion + 1; the update_* scripts fetch the current version and increment it automatically.",
+			"spaceId / parentId in v2 request bodies are numeric IDs passed as strings, not space keys.",
+			"DELETE returns 204 with an empty body and trashes by default; pass purge=true to permanently remove an item that is already in the trash."
+		],
+		"enums": {
+			"page_status": [
+				"current",
+				"archived",
+				"deleted",
+				"trashed",
+				"draft",
+				"historical"
+			],
+			"body_representation": [
+				"storage",
+				"atlas_doc_format"
+			],
+			"body_format_read": [
+				"storage",
+				"atlas_doc_format",
+				"view",
+				"export_view",
+				"anonymous_export_view",
+				"styled_view",
+				"editor"
+			],
+			"space_type": [
+				"global",
+				"collaboration",
+				"knowledge_base",
+				"personal"
+			],
+			"page_sort": [
+				"id",
+				"-id",
+				"created-date",
+				"-created-date",
+				"modified-date",
+				"-modified-date",
+				"title",
+				"-title"
+			]
+		},
+		"errors": {
+			"401": "Authentication failed \u2014 verify the email + API token pair and that the token has not been revoked.",
+			"404": "Resource not found, or the authenticating account lacks permission to view it (Confluence often returns 404 rather than 403 for content the user cannot access)."
+		}
+	},
+	"resource_type": {
+		"name": "confluence",
+		"description": "Confluence Cloud credentials. Authenticate with an Atlassian account email and an API token (HTTP Basic auth) against your site base URL.",
+		"schema": {
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"properties": {
+				"apiToken": {
+					"description": "API token for your Atlassian account. Create one at https://id.atlassian.com/manage-profile/security/api-tokens",
+					"type": "string"
+				},
+				"baseUrl": {
+					"description": "Base URL of your Confluence Cloud site, e.g. https://your-domain.atlassian.net (no trailing slash, no /wiki).",
+					"type": "string"
+				},
+				"email": {
+					"description": "Email of the Atlassian account used to authenticate.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"email",
+				"apiToken",
+				"baseUrl"
+			],
+			"type": "object"
+		}
+	},
+	"scripts": [
+		{
+			"version_id": 28765,
+			"app": "confluence",
+			"summary": "Create Blog Post",
+			"description": "Create a new blog post in a space.",
+			"terms": "confluence create blog post create a new blog post in a space.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Create Blog Post\n * Create a new blog post in a space. The body is supplied as a content string in the chosen representation (default \"storage\", i.e. Confluence storage HTML).\n */\nexport async function main(\n  auth: RT.Confluence,\n  space_id: string,\n  title: string,\n  body: string,\n  status: \"current\" | \"draft\" | undefined,\n  representation: \"storage\" | \"atlas_doc_format\" | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const url = new URL(`${base}/wiki/api/v2/blogposts`)\n\n  const payload = {\n    spaceId: space_id,\n    status: status ?? \"current\",\n    title,\n    body: {\n      representation: representation ?? \"storage\",\n      value: body,\n    },\n  }\n\n  const response = await fetch(url, {\n    method: \"POST\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      \"Content-Type\": \"application/json\",\n      Accept: \"application/json\",\n    },\n    body: JSON.stringify(payload),\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"body": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"representation": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"storage",
+							"atlas_doc_format"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"space_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"status": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"current",
+							"draft"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"title": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth",
+					"space_id",
+					"title",
+					"body"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28766,
+			"app": "confluence",
+			"summary": "Create Page",
+			"description": "Create a new page in a space.",
+			"terms": "confluence create page create a new page in a space.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Create Page\n * Create a new page in a space. The body is supplied as a content string in the chosen representation (default \"storage\", i.e. Confluence storage HTML).\n */\nexport async function main(\n  auth: RT.Confluence,\n  space_id: string,\n  title: string,\n  body: string,\n  status: \"current\" | \"draft\" | undefined,\n  parent_id: string | undefined,\n  representation: \"storage\" | \"atlas_doc_format\" | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const url = new URL(`${base}/wiki/api/v2/pages`)\n\n  const payload = {\n    spaceId: space_id,\n    status: status ?? \"current\",\n    title,\n    parentId: parent_id,\n    body: {\n      representation: representation ?? \"storage\",\n      value: body,\n    },\n  }\n\n  const response = await fetch(url, {\n    method: \"POST\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      \"Content-Type\": \"application/json\",\n      Accept: \"application/json\",\n    },\n    body: JSON.stringify(payload),\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"body": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"parent_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"representation": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"storage",
+							"atlas_doc_format"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"space_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"status": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"current",
+							"draft"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"title": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth",
+					"space_id",
+					"title",
+					"body"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28767,
+			"app": "confluence",
+			"summary": "Delete Blog Post",
+			"description": "Delete a blog post by its ID (moved to trash by default; purge to permanently remove).",
+			"terms": "confluence delete blog post delete a blog post by its id (moved to trash by default; purge to permanently remove).",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Delete Blog Post\n * Delete a blog post by its ID. By default the post is moved to the trash; set purge to permanently remove an already-trashed post.\n */\nexport async function main(\n  auth: RT.Confluence,\n  blog_post_id: string,\n  purge: boolean | undefined,\n  draft: boolean | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const url = new URL(`${base}/wiki/api/v2/blogposts/${blog_post_id}`)\n  if (purge !== undefined) url.searchParams.append(\"purge\", String(purge))\n  if (draft !== undefined) url.searchParams.append(\"draft\", String(draft))\n\n  const response = await fetch(url, {\n    method: \"DELETE\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  if (response.status === 204) return { success: true }\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"blog_post_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"draft": {
+						"default": null,
+						"description": "",
+						"type": "boolean"
+					},
+					"purge": {
+						"default": null,
+						"description": "",
+						"type": "boolean"
+					}
+				},
+				"required": [
+					"auth",
+					"blog_post_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28768,
+			"app": "confluence",
+			"summary": "Delete Page",
+			"description": "Delete a page by its ID (moved to trash by default; purge to permanently remove).",
+			"terms": "confluence delete page delete a page by its id (moved to trash by default; purge to permanently remove).",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Delete Page\n * Delete a page by its ID. By default the page is moved to the trash; set purge to permanently remove an already-trashed page.\n */\nexport async function main(\n  auth: RT.Confluence,\n  page_id: string,\n  purge: boolean | undefined,\n  draft: boolean | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const url = new URL(`${base}/wiki/api/v2/pages/${page_id}`)\n  if (purge !== undefined) url.searchParams.append(\"purge\", String(purge))\n  if (draft !== undefined) url.searchParams.append(\"draft\", String(draft))\n\n  const response = await fetch(url, {\n    method: \"DELETE\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  if (response.status === 204) return { success: true }\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"draft": {
+						"default": null,
+						"description": "",
+						"type": "boolean"
+					},
+					"page_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"purge": {
+						"default": null,
+						"description": "",
+						"type": "boolean"
+					}
+				},
+				"required": [
+					"auth",
+					"page_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28769,
+			"app": "confluence",
+			"summary": "Get Current User",
+			"description": "Returns the profile of the user that the API token authenticates as.",
+			"terms": "confluence get current user returns the profile of the user that the api token authenticates as.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Get Current User\n * Returns the profile of the user that the API token authenticates as (account ID, display name, email).\n */\nexport async function main(auth: RT.Confluence) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const url = new URL(`${base}/wiki/rest/api/user/current`)\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28770,
+			"app": "confluence",
+			"summary": "Get Page by ID",
+			"description": "Retrieve a single page by its ID, optionally returning its body in a specific format or a previous version.",
+			"terms": "confluence get page by id retrieve a single page by its id, optionally returning its body in a specific format or a previous version.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Get Page by ID\n * Retrieve a single page by its ID, optionally returning its body in a specific format or a previous version.\n */\nexport async function main(\n  auth: RT.Confluence,\n  page_id: string,\n  body_format:\n    | \"storage\"\n    | \"atlas_doc_format\"\n    | \"view\"\n    | \"export_view\"\n    | \"anonymous_export_view\"\n    | \"styled_view\"\n    | \"editor\"\n    | undefined,\n  version: number | undefined,\n  get_draft: boolean | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const url = new URL(`${base}/wiki/api/v2/pages/${page_id}`)\n  if (body_format !== undefined)\n    url.searchParams.append(\"body-format\", body_format)\n  if (version !== undefined) url.searchParams.append(\"version\", String(version))\n  if (get_draft !== undefined)\n    url.searchParams.append(\"get-draft\", String(get_draft))\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"body_format": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"storage",
+							"atlas_doc_format",
+							"view",
+							"export_view",
+							"anonymous_export_view",
+							"styled_view",
+							"editor"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"get_draft": {
+						"default": null,
+						"description": "",
+						"type": "boolean"
+					},
+					"page_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"version": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					}
+				},
+				"required": [
+					"auth",
+					"page_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28771,
+			"app": "confluence",
+			"summary": "Get Pages in Space",
+			"description": "Retrieve a paginated list of pages within a given space.",
+			"terms": "confluence get pages in space retrieve a paginated list of pages within a given space.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Get Pages in Space\n * Retrieve a paginated list of pages within a given space.\n */\nexport async function main(\n  auth: RT.Confluence,\n  space_id: string,\n  status: (\"current\" | \"archived\" | \"deleted\" | \"trashed\")[] | undefined,\n  title: string | undefined,\n  sort:\n    | \"id\"\n    | \"-id\"\n    | \"created-date\"\n    | \"-created-date\"\n    | \"modified-date\"\n    | \"-modified-date\"\n    | \"title\"\n    | \"-title\"\n    | undefined,\n  body_format: \"storage\" | \"atlas_doc_format\" | undefined,\n  cursor: string | undefined,\n  limit: number | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const url = new URL(`${base}/wiki/api/v2/spaces/${space_id}/pages`)\n  for (const s of status ?? []) url.searchParams.append(\"status\", s)\n  if (title !== undefined && title !== \"\")\n    url.searchParams.append(\"title\", title)\n  if (sort !== undefined) url.searchParams.append(\"sort\", sort)\n  if (body_format !== undefined)\n    url.searchParams.append(\"body-format\", body_format)\n  if (cursor !== undefined && cursor !== \"\")\n    url.searchParams.append(\"cursor\", cursor)\n  if (limit !== undefined) url.searchParams.append(\"limit\", String(limit))\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"body_format": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"storage",
+							"atlas_doc_format"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"cursor": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"limit": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"sort": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"id",
+							"-id",
+							"created-date",
+							"-created-date",
+							"modified-date",
+							"-modified-date",
+							"title",
+							"-title"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"space_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"status": {
+						"default": null,
+						"description": "",
+						"items": {
+							"enum": [
+								"current",
+								"archived",
+								"deleted",
+								"trashed"
+							],
+							"type": "string"
+						},
+						"originalType": "enum[]",
+						"type": "array"
+					},
+					"title": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth",
+					"space_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28772,
+			"app": "confluence",
+			"summary": "List Blog Posts",
+			"description": "Retrieve a paginated list of blog posts on the site, with optional filtering and sorting.",
+			"terms": "confluence list blog posts retrieve a paginated list of blog posts on the site, with optional filtering and sorting.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * List Blog Posts\n * Retrieve a paginated list of blog posts on the site, with optional filtering and sorting.\n */\nexport async function main(\n  auth: RT.Confluence,\n  status: (\"current\" | \"archived\" | \"deleted\" | \"trashed\")[] | undefined,\n  title: string | undefined,\n  sort:\n    | \"id\"\n    | \"-id\"\n    | \"created-date\"\n    | \"-created-date\"\n    | \"modified-date\"\n    | \"-modified-date\"\n    | undefined,\n  body_format: \"storage\" | \"atlas_doc_format\" | undefined,\n  cursor: string | undefined,\n  limit: number | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const url = new URL(`${base}/wiki/api/v2/blogposts`)\n  for (const s of status ?? []) url.searchParams.append(\"status\", s)\n  if (title !== undefined && title !== \"\")\n    url.searchParams.append(\"title\", title)\n  if (sort !== undefined) url.searchParams.append(\"sort\", sort)\n  if (body_format !== undefined)\n    url.searchParams.append(\"body-format\", body_format)\n  if (cursor !== undefined && cursor !== \"\")\n    url.searchParams.append(\"cursor\", cursor)\n  if (limit !== undefined) url.searchParams.append(\"limit\", String(limit))\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"body_format": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"storage",
+							"atlas_doc_format"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"cursor": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"limit": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"sort": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"id",
+							"-id",
+							"created-date",
+							"-created-date",
+							"modified-date",
+							"-modified-date"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"status": {
+						"default": null,
+						"description": "",
+						"items": {
+							"enum": [
+								"current",
+								"archived",
+								"deleted",
+								"trashed"
+							],
+							"type": "string"
+						},
+						"originalType": "enum[]",
+						"type": "array"
+					},
+					"title": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28773,
+			"app": "confluence",
+			"summary": "List Pages",
+			"description": "Retrieve a paginated list of pages on the site, with optional filtering and sorting.",
+			"terms": "confluence list pages retrieve a paginated list of pages on the site, with optional filtering and sorting.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * List Pages\n * Retrieve a paginated list of pages on the site, with optional filtering and sorting.\n */\nexport async function main(\n  auth: RT.Confluence,\n  status: (\"current\" | \"archived\" | \"deleted\" | \"trashed\")[] | undefined,\n  title: string | undefined,\n  sort:\n    | \"id\"\n    | \"-id\"\n    | \"created-date\"\n    | \"-created-date\"\n    | \"modified-date\"\n    | \"-modified-date\"\n    | \"title\"\n    | \"-title\"\n    | undefined,\n  body_format: \"storage\" | \"atlas_doc_format\" | undefined,\n  cursor: string | undefined,\n  limit: number | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const url = new URL(`${base}/wiki/api/v2/pages`)\n  for (const s of status ?? []) url.searchParams.append(\"status\", s)\n  if (title !== undefined && title !== \"\")\n    url.searchParams.append(\"title\", title)\n  if (sort !== undefined) url.searchParams.append(\"sort\", sort)\n  if (body_format !== undefined)\n    url.searchParams.append(\"body-format\", body_format)\n  if (cursor !== undefined && cursor !== \"\")\n    url.searchParams.append(\"cursor\", cursor)\n  if (limit !== undefined) url.searchParams.append(\"limit\", String(limit))\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"body_format": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"storage",
+							"atlas_doc_format"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"cursor": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"limit": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"sort": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"id",
+							"-id",
+							"created-date",
+							"-created-date",
+							"modified-date",
+							"-modified-date",
+							"title",
+							"-title"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"status": {
+						"default": null,
+						"description": "",
+						"items": {
+							"enum": [
+								"current",
+								"archived",
+								"deleted",
+								"trashed"
+							],
+							"type": "string"
+						},
+						"originalType": "enum[]",
+						"type": "array"
+					},
+					"title": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28774,
+			"app": "confluence",
+			"summary": "List Spaces",
+			"description": "Retrieve a paginated list of spaces on the site, with optional filtering by key, type, and status.",
+			"terms": "confluence list spaces retrieve a paginated list of spaces on the site, with optional filtering by key, type, and status.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * List Spaces\n * Retrieve a paginated list of spaces on the site, with optional filtering by key, type, and status.\n */\nexport async function main(\n  auth: RT.Confluence,\n  keys: string[] | undefined,\n  type: \"global\" | \"collaboration\" | \"knowledge_base\" | \"personal\" | undefined,\n  status: \"current\" | \"archived\" | undefined,\n  sort: \"id\" | \"-id\" | \"key\" | \"-key\" | \"name\" | \"-name\" | undefined,\n  cursor: string | undefined,\n  limit: number | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const url = new URL(`${base}/wiki/api/v2/spaces`)\n  if (keys !== undefined && keys.length > 0)\n    url.searchParams.append(\"keys\", keys.join(\",\"))\n  if (type !== undefined) url.searchParams.append(\"type\", type)\n  if (status !== undefined) url.searchParams.append(\"status\", status)\n  if (sort !== undefined) url.searchParams.append(\"sort\", sort)\n  if (cursor !== undefined && cursor !== \"\")\n    url.searchParams.append(\"cursor\", cursor)\n  if (limit !== undefined) url.searchParams.append(\"limit\", String(limit))\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"cursor": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"keys": {
+						"default": null,
+						"description": "",
+						"items": {
+							"type": "string"
+						},
+						"originalType": "string[]",
+						"type": "array"
+					},
+					"limit": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					},
+					"sort": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"id",
+							"-id",
+							"key",
+							"-key",
+							"name",
+							"-name"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"status": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"current",
+							"archived"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"type": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"global",
+							"collaboration",
+							"knowledge_base",
+							"personal"
+						],
+						"originalType": "enum",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28775,
+			"app": "confluence",
+			"summary": "Search Content (CQL)",
+			"description": "Search for content using the Confluence Query Language (CQL).",
+			"terms": "confluence search content (cql) search for content using the confluence query language (cql).",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Search Content (CQL)\n * Search for content using the Confluence Query Language (CQL), e.g. `type=page AND space=ENG AND text ~ \"release notes\"`.\n */\nexport async function main(\n  auth: RT.Confluence,\n  cql: string,\n  cursor: string | undefined,\n  limit: number | undefined,\n  expand: string | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const url = new URL(`${base}/wiki/rest/api/search`)\n  url.searchParams.append(\"cql\", cql)\n  if (cursor !== undefined && cursor !== \"\")\n    url.searchParams.append(\"cursor\", cursor)\n  if (limit !== undefined) url.searchParams.append(\"limit\", String(limit))\n  if (expand !== undefined && expand !== \"\")\n    url.searchParams.append(\"expand\", expand)\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"cql": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"cursor": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"expand": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"limit": {
+						"default": null,
+						"description": "",
+						"type": "number"
+					}
+				},
+				"required": [
+					"auth",
+					"cql"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28776,
+			"app": "confluence",
+			"summary": "Update Blog Post",
+			"description": "Update a blog post's title, body, or status. The current version is fetched automatically and incremented.",
+			"terms": "confluence update blog post update a blog post's title, body, or status. the current version is fetched automatically and incremented.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Update Blog Post\n * Update a blog post's title, body, or status. The current version is fetched automatically and incremented; omitted fields keep their existing values.\n */\nexport async function main(\n  auth: RT.Confluence,\n  blog_post_id: string,\n  title: string | undefined,\n  body: string | undefined,\n  status: \"current\" | \"draft\" | \"archived\" | undefined,\n  representation: \"storage\" | \"atlas_doc_format\" | undefined,\n  version_message: string | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const repr = representation ?? \"storage\"\n  const authHeader = \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`)\n\n  // Fetch the current blog post to obtain the version number and any fields not being changed.\n  const currentRes = await fetch(\n    `${base}/wiki/api/v2/blogposts/${blog_post_id}?body-format=${repr}`,\n    {\n      method: \"GET\",\n      headers: { Authorization: authHeader, Accept: \"application/json\" },\n    }\n  )\n  if (!currentRes.ok) {\n    throw new Error(`${currentRes.status} ${await currentRes.text()}`)\n  }\n  const current = (await currentRes.json()) as {\n    title: string\n    status: string\n    version: { number: number }\n    body?: { [key: string]: { value?: string } }\n  }\n\n  const payload = {\n    id: blog_post_id,\n    status: status ?? current.status,\n    title: title ?? current.title,\n    body: {\n      representation: repr,\n      value: body ?? current.body?.[repr]?.value ?? \"\",\n    },\n    version: {\n      number: current.version.number + 1,\n      message: version_message,\n    },\n  }\n\n  const response = await fetch(\n    `${base}/wiki/api/v2/blogposts/${blog_post_id}`,\n    {\n      method: \"PUT\",\n      headers: {\n        Authorization: authHeader,\n        \"Content-Type\": \"application/json\",\n        Accept: \"application/json\",\n      },\n      body: JSON.stringify(payload),\n    }\n  )\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"blog_post_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"body": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"representation": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"storage",
+							"atlas_doc_format"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"status": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"current",
+							"draft",
+							"archived"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"title": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"version_message": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth",
+					"blog_post_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28777,
+			"app": "confluence",
+			"summary": "Update Page",
+			"description": "Update a page's title, body, or status. The current version is fetched automatically and incremented.",
+			"terms": "confluence update page update a page's title, body, or status. the current version is fetched automatically and incremented.",
+			"kind": "script",
+			"language": "bunnative",
+			"content": "//native\n\n/**\n * Update Page\n * Update a page's title, body, or status. The current version is fetched automatically and incremented; omitted fields keep their existing values.\n */\nexport async function main(\n  auth: RT.Confluence,\n  page_id: string,\n  title: string | undefined,\n  body: string | undefined,\n  status: \"current\" | \"draft\" | \"archived\" | undefined,\n  representation: \"storage\" | \"atlas_doc_format\" | undefined,\n  version_message: string | undefined\n) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const repr = representation ?? \"storage\"\n  const authHeader = \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`)\n\n  // Fetch the current page to obtain the version number and any fields not being changed.\n  const currentRes = await fetch(\n    `${base}/wiki/api/v2/pages/${page_id}?body-format=${repr}`,\n    {\n      method: \"GET\",\n      headers: { Authorization: authHeader, Accept: \"application/json\" },\n    }\n  )\n  if (!currentRes.ok) {\n    throw new Error(`${currentRes.status} ${await currentRes.text()}`)\n  }\n  const current = (await currentRes.json()) as {\n    title: string\n    status: string\n    version: { number: number }\n    body?: { [key: string]: { value?: string } }\n  }\n\n  const payload = {\n    id: page_id,\n    status: status ?? current.status,\n    title: title ?? current.title,\n    body: {\n      representation: repr,\n      value: body ?? current.body?.[repr]?.value ?? \"\",\n    },\n    version: {\n      number: current.version.number + 1,\n      message: version_message,\n    },\n  }\n\n  const response = await fetch(`${base}/wiki/api/v2/pages/${page_id}`, {\n    method: \"PUT\",\n    headers: {\n      Authorization: authHeader,\n      \"Content-Type\": \"application/json\",\n      Accept: \"application/json\",\n    },\n    body: JSON.stringify(payload),\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  return await response.json()\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"body": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"page_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"representation": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"storage",
+							"atlas_doc_format"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"status": {
+						"default": null,
+						"description": "",
+						"enum": [
+							"current",
+							"draft",
+							"archived"
+						],
+						"originalType": "enum",
+						"type": "string"
+					},
+					"title": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					},
+					"version_message": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth",
+					"page_id"
+				],
+				"type": "object"
+			}
+		},
+		{
+			"version_id": 28778,
+			"app": "confluence",
+			"summary": "New or Updated Page",
+			"description": "Emits pages created or updated since the last poll, tracked via Windmill state. Optionally restrict to a single space.",
+			"terms": "confluence new or updated page emits pages created or updated since the last poll, tracked via windmill state. optionally restrict to a single space.",
+			"kind": "trigger",
+			"language": "bunnative",
+			"content": "//native\n\nimport * as wmill from \"windmill-client\"\n\n/**\n * New or Updated Page\n * Emits pages created or updated since the last poll, tracked via Windmill state. Optionally restrict to a single space.\n */\nexport async function main(auth: RT.Confluence, space_id: string | undefined) {\n  const base = auth.baseUrl.replace(/\\/$/, \"\")\n  const lastChecked: number = (await wmill.getState()) ?? 0\n\n  const path = space_id\n    ? `/wiki/api/v2/spaces/${space_id}/pages`\n    : `/wiki/api/v2/pages`\n  const url = new URL(`${base}${path}`)\n  url.searchParams.append(\"sort\", \"-modified-date\")\n  url.searchParams.append(\"limit\", \"50\")\n\n  const response = await fetch(url, {\n    method: \"GET\",\n    headers: {\n      Authorization: \"Basic \" + btoa(`${auth.email}:${auth.apiToken}`),\n      Accept: \"application/json\",\n    },\n  })\n\n  if (!response.ok) {\n    throw new Error(`${response.status} ${await response.text()}`)\n  }\n\n  const data = (await response.json()) as {\n    results?: { version?: { createdAt?: string } }[]\n  }\n  const pages = data.results ?? []\n\n  const ts = (p: { version?: { createdAt?: string } }) =>\n    p.version?.createdAt ? Date.parse(p.version.createdAt) : 0\n  const maxTs = pages.reduce((m, p) => Math.max(m, ts(p)), 0)\n\n  // First run: set the watermark to the newest page seen and don't emit a backlog.\n  if (!lastChecked) {\n    if (maxTs) await wmill.setState(maxTs)\n    return []\n  }\n\n  const fresh = pages\n    .filter((p) => ts(p) > lastChecked)\n    .sort((a, b) => ts(a) - ts(b))\n\n  if (maxTs > lastChecked) {\n    await wmill.setState(maxTs)\n  }\n\n  return fresh\n}\n",
+			"schema": {
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"properties": {
+					"auth": {
+						"default": null,
+						"description": "",
+						"format": "resource-confluence",
+						"type": "object"
+					},
+					"space_id": {
+						"default": null,
+						"description": "",
+						"originalType": "string",
+						"type": "string"
+					}
+				},
+				"required": [
+					"auth"
+				],
+				"type": "object"
+			}
+		}
+	]
+}

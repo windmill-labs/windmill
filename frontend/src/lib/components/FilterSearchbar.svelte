@@ -303,11 +303,15 @@
 
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
-	import { inputBaseClass, inputBorderClass, inputSizeClasses } from './text_input/TextInput.svelte'
+	import {
+		inputBaseClass,
+		inputBorderClass,
+		inputLeadingClasses,
+		inputSizeClasses
+	} from './text_input/TextInput.svelte'
 	import { MinusIcon, SearchIcon } from 'lucide-svelte'
 	import { assignObjInPlace, clone } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
-	import SimpleEditor from './SimpleEditor.svelte'
 	import TaggedTextInput from './TaggedTextInput.svelte'
 	import { DebouncedTempValue, useTransformedSyncedValue } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
@@ -339,6 +343,14 @@
 		hideDropdownOnFreeText?: boolean
 		// Notified whenever the dropdown's effective visibility changes
 		onDropdownVisibleChange?: (visible: boolean) => void
+		size?: 'sm' | 'md' | 'lg'
+		// On the right the icon gives way to the clear button once there is text; on the left
+		// it stays put.
+		searchIconPosition?: 'left' | 'right'
+		// Caps the suggestions dropdown, which otherwise matches the searchbar's width.
+		dropdownMaxWidth?: number
+		// Gap in px between the searchbar and the dropdown below it.
+		dropdownOffsetY?: number
 	}
 
 	type SchemaT = FilterSchemaRec // TODO: Generic
@@ -351,7 +363,11 @@
 		autofocus,
 		hideDropdownOnFreeText = false,
 		onDropdownVisibleChange,
-		inputId
+		inputId,
+		size = 'md',
+		searchIconPosition = 'right',
+		dropdownMaxWidth,
+		dropdownOffsetY = 0
 	}: Props<SchemaT> = $props()
 
 	let _value = new DebouncedTempValue(
@@ -702,7 +718,7 @@
 	class={twMerge(
 		'flex items-center rounded-md bg-surface-input overflow-clip',
 		inputBorderClass({ error: errors.length > 0, forceFocus: open }),
-		ButtonType.UnifiedHeightClasses.md,
+		ButtonType.UnifiedHeightClasses[size],
 		className
 	)}
 	onmousedown={(e) => {
@@ -716,6 +732,9 @@
 	}}
 	bind:this={inputElement}
 >
+	{#if searchIconPosition === 'left'}
+		<SearchIcon size={16} class="ml-2.5 shrink-0 text-hint" />
+	{/if}
 	<TaggedTextInput
 		bind:this={taggedTextInput}
 		id={inputId}
@@ -732,7 +751,14 @@
 		class={twMerge(
 			'overflow-x-auto !pr-24 bg-surface-input outline-none scrollbar-hidden text-nowrap flex-1 mr-2 mt-0.5',
 			inputBaseClass,
-			inputSizeClasses.md
+			inputSizeClasses[size],
+			// The editable's own 2px top margin is what centres the text at md height, where its box
+			// is shorter than the row. At sm the two are the same height, so that margin only pushes
+			// the text below centre: drop it and take the leading the shared table defines, which is
+			// the row's height less its padding.
+			size === 'sm' && twMerge('!mt-0', inputLeadingClasses.sm),
+			size === 'lg' && '!pt-[0.7rem]',
+			searchIconPosition === 'left' && '!pl-1.5'
 		)}
 		{placeholder}
 		onKeyDown={(e) => {
@@ -752,7 +778,7 @@
 	/>
 	{#if asText.val}
 		<CloseButton small class="mr-1.5" onClick={() => (_value.current = {})} />
-	{:else}
+	{:else if searchIconPosition === 'right'}
 		<div class="mr-3">
 			<SearchIcon size={16} class="text-hint" />
 		</div>
@@ -762,7 +788,11 @@
 <GenericDropdown
 	open={dropdownVisible}
 	instantClose={hideDropdownOnFreeText}
-	getInputRect={() => inputElement?.getBoundingClientRect() ?? new DOMRect()}
+	getInputRect={() => {
+		const r = inputElement?.getBoundingClientRect() ?? new DOMRect()
+		const width = dropdownMaxWidth ? Math.min(r.width, dropdownMaxWidth) : r.width
+		return new DOMRect(r.x, r.y, width, r.height + dropdownOffsetY)
+	}}
 	innerClass="!max-h-[25rem]"
 	strictWidth
 >
@@ -863,20 +893,23 @@
 		</div>
 	{:else if filter.type === 'string' && filter.format === 'json'}
 		<div class="px-2 pb-2">
-			<SimpleEditor
-				autofocus={String(value[currentTag!] ?? '').length === 0}
-				lang="json"
-				autoHeight
-				small
-				bind:code={
-					() => String(value[currentTag!] ?? ''),
-					(v) => {
-						setValueForCurrentTag(v ?? '')
-						taggedTextInput?.preventCursorMoveOnNextSync()
+			<!-- Dynamic: monaco would otherwise load with every list page that has a searchbar. -->
+			{#await import('./SimpleEditor.svelte') then SimpleEditor}
+				<SimpleEditor.default
+					autofocus={String(value[currentTag!] ?? '').length === 0}
+					lang="json"
+					autoHeight
+					small
+					bind:code={
+						() => String(value[currentTag!] ?? ''),
+						(v) => {
+							setValueForCurrentTag(v ?? '')
+							taggedTextInput?.preventCursorMoveOnNextSync()
+						}
 					}
-				}
-				class="border border-border-light rounded min-h-[4rem]"
-			/>
+					class="border border-border-light rounded min-h-[4rem]"
+				/>
+			{/await}
 		</div>
 	{:else if filter.type === 'string'}
 		{#if menuItems.length}

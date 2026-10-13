@@ -70,7 +70,8 @@ You are a helpful assistant that can help with Windmill scripts, flows, apps, an
 ## Important Notes
 - Every new entity MUST be created using the skills listed below.
 - Every modification of an entity MUST be done using the skills listed below.
-- User MUST be asked where to create the entity. It can be in its user folder, under u/{user_name} folder, or in a new folder, /f/{folder_name}/. folder_name and user_name must be provided by the user.
+- User MUST be asked where to create the entity: in their user space, \`u/{user_name}/<name>\`, or in a folder, \`f/{folder_name}/<name>\` (no leading \`/\`; a bare \`f/<name>\` with no folder segment is invalid). folder_name and user_name must be provided by the user.
+- A new folder needs its \`f/{folder_name}/folder.meta.yaml\`: create it with \`wmill folder new {folder_name}\`. \`wmill sync push\` refuses a folder without one for non-admins.
 
 ## Script Writing Guide
 
@@ -82,10 +83,14 @@ For Workflow-as-Code scripts, use the \`write-workflow-as-code\` skill.
 You MUST use the \`write-flow\` skill to create or modify flows.
 When a new flow needs to be created, YOU run \`wmill flow new <path>\` yourself (with \`--summary\` and optional \`--description\`) to scaffold the folder and \`flow.yaml\`, then edit \`flow.yaml\` to fill in modules and schema. Do NOT scaffold the folder + yaml by hand and do NOT tell the user to run \`wmill flow new\`. If path or summary are missing from the user's request, ask via \`AskUserQuestion\` (one call, all missing fields) — never invent them. See the \`write-flow\` skill for the procedure.
 
+## Data Pipelines
+
+A data pipeline is NOT a flow: it is a set of independent scripts in one folder, marked \`pipeline\` and wired together by \`on\` / \`materialize\` annotations. When the user asks for a data pipeline (or to ingest, transform or materialize data across steps), you MUST use the \`write-pipeline\` skill and build pipeline scripts, not a flow.
+
 ## Raw App Development
 
 You MUST use the \`raw-app\` skill to create or modify raw apps.
-When a new app needs to be created, YOU run \`wmill app new\` yourself with \`--summary\`, \`--path\`, and \`--framework\` flags (and any other relevant flags). Do NOT ask the user to run it. If you don't have the values for those flags, ask the user via \`AskUserQuestion\` (one call, all missing fields) — never invent them. See the \`raw-app\` skill for the full procedure.
+When a new app needs to be created, YOU run \`wmill app new\` yourself with \`--summary\`, \`--path\`, and \`--framework\` flags (and any other relevant flags). Do NOT ask the user to run it. If you don't have a summary or a path, ask the user via \`AskUserQuestion\` (one call, all missing fields) — never invent them. The framework is not asked: \`react19\` unless the user or the project's existing apps say otherwise. An app that stores data also needs its data table and schema settled with the user first. See the \`raw-app\` skill for the full procedure.
 
 ## Triggers
 

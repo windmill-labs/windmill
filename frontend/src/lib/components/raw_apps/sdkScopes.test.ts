@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { hasStoredSdkConsent, storeSdkConsent } from './sdkScopes'
+import { hasStoredSdkConsent, movePreviewSdkConsent, storeSdkConsent } from './sdkScopes'
 
 describe('stored frontend SDK consent', () => {
 	beforeEach(() => localStorage.clear())
@@ -18,6 +18,17 @@ describe('stored frontend SDK consent', () => {
 		expect(hasStoredSdkConsent('b@w.dev', 'ws', 'u/a/app', ['users:read'])).toBe(false)
 		expect(hasStoredSdkConsent('a@w.dev', 'ws', 'u/a/other', ['users:read'])).toBe(false)
 		expect(hasStoredSdkConsent('a@w.dev', 'other', 'u/a/app', ['users:read'])).toBe(false)
+	})
+
+	it('keeps the editor preview and the deployed app apart, and moves preview consent', () => {
+		storeSdkConsent('a@w.dev', 'ws', 'u/a/app', ['users:read'])
+		expect(hasStoredSdkConsent('a@w.dev', 'ws', 'u/a/app', ['users:read'], true)).toBe(false)
+		storeSdkConsent('a@w.dev', 'ws', 'u/a/draft_1', ['users:read'], true)
+		expect(hasStoredSdkConsent('a@w.dev', 'ws', 'u/a/draft_1', ['users:read'])).toBe(false)
+
+		movePreviewSdkConsent('a@w.dev', 'ws', 'u/a/draft_1', 'u/a/real')
+		expect(hasStoredSdkConsent('a@w.dev', 'ws', 'u/a/real', ['users:read'], true)).toBe(true)
+		expect(hasStoredSdkConsent('a@w.dev', 'ws', 'u/a/draft_1', ['users:read'], true)).toBe(false)
 	})
 
 	it('treats unreadable storage as no consent', () => {

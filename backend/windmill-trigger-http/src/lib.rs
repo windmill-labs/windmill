@@ -394,32 +394,85 @@ pub fn invalidate_routers() {
     HTTP_ROUTERS_INVALIDATIONS.fetch_add(1, Ordering::Relaxed);
 }
 
+async fn invalidation_pending() -> bool {
+    HTTP_ROUTERS_INVALIDATIONS.load(Ordering::Relaxed)
+        != HTTP_ROUTERS_CACHE.read().await.invalidations
+}
+
+async fn routers_loaded() -> bool {
+    HTTP_ROUTERS_CACHE.read().await.version != 0
+}
+
+/// `refresh_routers` for a process that has loaded its routers; a process that has not loads them
+/// on its first `/r` request instead, so a change never makes it read `http_trigger`. Returns
+/// whether the routers were rebuilt. A failure is marked for the refresh loop to retry.
+pub async fn refresh_loaded_routers(db: &DB, force: bool) -> Result<bool> {
+    if !routers_loaded().await {
+        // A first load running concurrently may have read the rows before this change committed.
+        invalidate_routers();
+        return Ok(false);
+    }
+    match refresh_routers(db, force).await {
+        Ok((rebuilt, _)) => Ok(rebuilt),
+        Err(err) => {
+            invalidate_routers();
+            Err(err)
+        }
+    }
+}
+
+const REFRESH_TICK: std::time::Duration = std::time::Duration::from_secs(60);
+/// Trigger changes normally reach every process as a `notify_http_trigger_change` event, which
+/// forces a rebuild. A process can skip one: the event poll moves past ids that committed out of
+/// order, and a deleted or disabled trigger then stays routed on it until the next forced rebuild.
+/// That rebuild has to be forced, since the skipped transaction took its version before the one
+/// already cached, so the version gate cannot see it.
+const FORCED_REBUILD_EVERY_TICKS: u32 = 5;
+
+/// `eager` loads the routers at startup and keeps retrying until they load. Otherwise they load
+/// on the first `/r` request, and the loop only keeps them fresh from then on.
 pub async fn refresh_routers_loop(
     db: &DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    eager: bool,
 ) -> () {
-    match refresh_routers(db, false).await {
-        Ok(_) => {
-            tracing::info!("Loaded HTTP routers");
-        }
-        Err(err) => {
-            tracing::error!("Error loading HTTP routers: {err:#}");
-        }
-    };
+    if eager {
+        match refresh_routers(db, false).await {
+            Ok(_) => {
+                tracing::info!("Loaded HTTP routers");
+            }
+            Err(err) => {
+                tracing::error!("Error loading HTTP routers: {err:#}");
+            }
+        };
+    }
     let db = db.clone();
+    // Spread the forced rebuilds of processes started together.
+    let mut tick: u32 = rand::random_range(0..FORCED_REBUILD_EVERY_TICKS);
     tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = killpill_rx.recv() => {
                     break;
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
-                    match refresh_routers(&db, false).await {
-                        Ok((true, _)) => {
+                _ = tokio::time::sleep(REFRESH_TICK) => {
+                    tick = (tick + 1) % FORCED_REBUILD_EVERY_TICKS;
+                    let loaded = routers_loaded().await;
+                    let force = loaded && tick == 0;
+                    if loaded {
+                        if !force && !invalidation_pending().await {
+                            continue;
+                        }
+                    } else if !eager {
+                        continue;
+                    }
+                    match refresh_routers(&db, force).await {
+                        Ok((true, _)) if !force => {
                             tracing::info!("Refreshed HTTP routers");
                         }
                         Err(err) => {
                             tracing::error!("Error refreshing HTTP routers: {err:#}");
+                            invalidate_routers();
                         }
                         _ => {}
                     }

@@ -2,7 +2,7 @@
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import { getContext, tick, untrack } from 'svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
-	import type { InputTransform } from '$lib/gen'
+	import { ApiError, type InputTransform } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
 	import { chatMemoryId } from '../global/core'
 	import { createInlineScriptSession } from './inlineScriptsUtils'
@@ -174,7 +174,19 @@
 				previewArgs.val = args
 			}
 			// Call the UI test function which opens preview panel
-			return await onTestFlow?.(conversationId ?? chatMemoryId(flowStore.val.value))
+			try {
+				return await onTestFlow?.(conversationId ?? chatMemoryId(flowStore.val.value))
+			} catch (e) {
+				// The flow chat is still answering in that conversation, and the server takes one
+				// turn at a time. Said plainly here: the raw refusal names a job the model has
+				// no use for.
+				if (e instanceof ApiError && e.status === 409) {
+					throw new Error(
+						'That chat is still answering an earlier message; wait for it to finish before testing again.'
+					)
+				}
+				throw e
+			}
 		},
 
 		getLintErrors: async (moduleId: string): Promise<ScriptLintResult> => {

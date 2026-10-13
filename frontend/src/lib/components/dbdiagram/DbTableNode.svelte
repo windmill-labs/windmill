@@ -41,7 +41,7 @@
 <div
 	class={twMerge(
 		'rounded-md border bg-surface-tertiary shadow-sm transition-opacity duration-150 overflow-hidden',
-		dimmed ? 'opacity-20' : 'opacity-100',
+		dimmed ? 'opacity-50' : 'opacity-100',
 		isTarget
 			? 'border-border-accent'
 			: lit && highlight.tables

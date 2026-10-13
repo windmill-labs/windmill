@@ -20,16 +20,22 @@
 		WMILL_TS_PATH,
 		genWmillTs,
 		normalizeRawAppRuntimeLogs,
+		createRawAppBuildTracker,
+		RAW_APP_BUILD_WAIT_MS,
 		type Runnable,
 		type RawAppRuntimeLogEntry,
 		type RawAppRuntimeLogRequester,
 		type RawAppRunSummary,
 		type RawAppRunsProvider,
-		type RawAppScreenshotRequester
+		type RawAppScreenshotRequester,
+		RAW_APP_SANDBOX_FLAGS,
+		RAW_APP_PREVIEW_RELAY,
+		rawAppStorageKey,
+		readRawAppStorage,
+		applyRawAppStorageOp
 	} from './utils'
 	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
 	import InlineElementPrompt from './InlineElementPrompt.svelte'
-	import RawAppCoepWarning from './RawAppCoepWarning.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -45,7 +51,14 @@
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
-	import { dbSchemas } from '$lib/stores'
+	import { dbSchemas, userStore } from '$lib/stores'
+	import RawAppSdkConsent from './RawAppSdkConsent.svelte'
+	import {
+		hasStoredSdkConsent,
+		movePreviewSdkConsent,
+		sdkConsentCovers,
+		storeSdkConsent
+	} from './sdkScopes'
 	import {
 		MousePointerSquareDashed,
 		RefreshCw,
@@ -62,7 +75,6 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
-	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -73,7 +85,7 @@
 		appDatatableRole
 	} from './dataTableRefUtils'
 	import { datatableReference } from '../dbTypes'
-	import { randomUUID } from '$lib/utils/uuid'
+	import { randomSecret, randomUUID } from '$lib/utils/uuid'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -143,6 +155,8 @@
 		 *  it as `draft_path` so the home row shows the friendly name, not `draft_{uuid}`. */
 		pendingDraftPath?: string | undefined
 		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
+		/** `Exit & see details`: see RawAppEditorHeader. */
+		onDetails?: (e: { path: string }) => void
 		onResetToDeployed?: () => void | Promise<void>
 		/** The app_version the draft forked from, for the deploy-time "new version
 		 *  deployed" guard: deploying is refused with a confirmation while it is not
@@ -187,6 +201,8 @@
 		// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
 		// session preview to save vertical room.
 		condensedHeader?: boolean
+		/** True for the route's own editor: its top bar becomes the page header. */
+		ownsPageHeader?: boolean
 	}
 
 	let {
@@ -210,6 +226,7 @@
 		autosavePath = undefined,
 		defaultSplitWithPreview = true,
 		pendingDraftPath = $bindable(undefined),
+		onDetails,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -226,6 +243,7 @@
 		onRestore,
 		onSavedNewAppPath,
 		condensedHeader = false,
+		ownsPageHeader = false,
 		version = undefined,
 		onTakeLatest = undefined,
 		draftBaseVersion = undefined
@@ -276,17 +294,6 @@
 	/** The Deployed↔Current diff, for the route's stale-draft prompt. */
 	export function openDiffDrawer() {
 		return header?.openDiffDrawer()
-	}
-
-	/** Hand this app off to a fresh AI session, seeding `seedPrompt` and sending
-	 * it on arrival. Exposed for the template picker's "Start in AI session": the
-	 * route owns the prompt, but the draft persistence the preview depends on
-	 * lives here. False when there is no path to open yet, so the caller can fall
-	 * back rather than swallow the click. */
-	export async function openInSession(seedPrompt: string): Promise<boolean> {
-		if (!sessionOpen) return false
-		await openSourceInSession(sessionOpen, { seedPrompt, autoSend: true })
-		return true
 	}
 
 	// Convert to object format for child components
@@ -382,9 +389,82 @@
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 	const PREVIEW_SHELL_URL = '/ui_builder/app-preview.html'
+	// The served shell is `CSP: sandbox` (opaque origin). An app without sandbox
+	// isolation runs same-origin once deployed, so its preview loads a per-mount
+	// blob: copy instead — the same split as `unsandboxedRawAppHtml`, and like it
+	// with no `<base>`, so the app resolves URLs as it will once deployed.
+	let previewBlobUrl: string | undefined = $state(undefined)
+	onMount(() => {
+		let url: string | undefined
+		let destroyed = false
+		fetch(PREVIEW_SHELL_URL)
+			.then((res) => {
+				if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+				return res.text()
+			})
+			.then((html) => {
+				if (destroyed) return
+				url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+				previewBlobUrl = url
+			})
+			.catch((e) => sendUserToast(`Could not load the app preview: ${e}`, true))
+		return () => {
+			destroyed = true
+			if (url) URL.revokeObjectURL(url)
+		}
+	})
+	// An app with sandbox isolation previews the way it runs once deployed: in the
+	// served, opaque-origin shell, framed with the deployed wrapper's flags. The nonce
+	// in its URL authenticates its `windmill:ready`, as in `RawAppPreview`.
+	const sandboxed = $derived(policy?.sandbox === true)
+	const previewStorageKey = $derived(rawAppStorageKey(opWorkspace ?? '', path, true))
+	const handshakeNonce = randomSecret()
+	const sandboxedShellUrl = `${PREVIEW_SHELL_URL}?wm_hs=${handshakeNonce}`
+	const previewShellUrl = $derived(sandboxed ? sandboxedShellUrl : previewBlobUrl)
+	// The pop-out of a sandboxed preview: a same-origin page framing the shell. A
+	// top-level window can't be sandboxed by its opener, and the opener can't address
+	// an opaque-origin window safely. It relays the frame's messages, and their
+	// ports, to the editor, and the editor's replies back down. Relayed messages
+	// carry our origin, so they travel wrapped: listeners that trust a same-origin
+	// message must not see the isolated app's as their own.
+	let previewControllerUrl: string | undefined = undefined
+	// Editor-to-controller only, never relayed to the app: the consent prompt lives in
+	// the editor, so the pop-out says why it is blank.
+	const PREVIEW_NOTICE = 'wm:previewNotice'
+	onDestroy(() => {
+		if (previewControllerUrl) URL.revokeObjectURL(previewControllerUrl)
+	})
+	function getPreviewControllerUrl(): string {
+		previewControllerUrl ??= URL.createObjectURL(
+			new Blob(
+				[
+					`<!DOCTYPE html><html><head><meta charset="utf-8"><title>App preview</title>
+<link rel="icon" href="${window.location.origin}/logo.svg">
+<style>html,body{margin:0;height:100%}iframe{display:block;border:0;width:100%;height:100%}
+#n{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;text-align:center;font:14px system-ui,sans-serif;color-scheme:light dark;background:Canvas;color:CanvasText}#n[hidden]{display:none}</style>
+<script>
+addEventListener('message', function (e) {
+  var frame = document.querySelector('iframe').contentWindow
+  if (e.source === frame && opener) opener.postMessage({ type: '${RAW_APP_PREVIEW_RELAY}', data: e.data }, location.origin, e.ports)
+  else if (e.source === opener && e.data && e.data.type === '${PREVIEW_NOTICE}') {
+    var n = document.getElementById('n')
+    n.textContent = e.data.text || ''
+    n.hidden = !e.data.text
+  } else if (e.source === opener) frame.postMessage(e.data, '*')
+})
+<\/script></head><body><div id="n" hidden></div><iframe src="${window.location.origin}${sandboxedShellUrl}" sandbox="${RAW_APP_SANDBOX_FLAGS}" referrerpolicy="no-referrer"></iframe></body></html>`
+				],
+				{ type: 'text/html' }
+			)
+		)
+		return previewControllerUrl
+	}
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
-	let coepWarning: RawAppCoepWarning | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
+	// Sandboxed only: the handshake's port, the one channel to the preview that
+	// can't reach a document app code navigated the frame to.
+	let previewPort: MessagePort | undefined = undefined
+	let externalPreviewPort: MessagePort | undefined = undefined
 	let lastBuild: { css: string; js: string } | undefined = undefined
 	// Detached preview tab/window rendering the same app-preview bundle as the
 	// inline pane. Kept live-synced: every build is replayed into it until the
@@ -396,6 +476,10 @@
 	let externalPreviewReady = $state(false)
 	let inspectorEnabled = $state(false)
 	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
+	// rolldown's wasm build uses shared memory, which only exists in a cross-origin
+	// isolated document. Windmill never serves the editor isolated, so the switch
+	// only shows behind a reverse proxy that adds COOP/COEP to the whole site.
+	const rolldownAvailable = globalThis.crossOriginIsolated === true
 
 	// Build/bundler logs forwarded from the UI Builder iframe. We render
 	// them as an overlay inside the preview pane (right side) so they're
@@ -404,13 +488,27 @@
 
 	// Latest UI Builder error; cleared on next successful build.
 	let buildError = $state<string | undefined>(undefined)
+	const buildTracker = createRawAppBuildTracker()
+	// The preview shell can be ready before the UI Builder has the files, so a fresh
+	// editor counts as building: reads made then would see an empty page.
+	buildTracker.start()
+	const BUILD_PENDING_TEXT = `The app is still building (or its build never started, e.g. no index entrypoint file): no build result arrived within ${RAW_APP_BUILD_WAIT_MS / 1000} seconds, so the preview shows an older build or nothing yet. Call get_app_runtime_logs to check the build, then retry.`
+	// A failed build never reaches the preview, which keeps the last good one, if any.
+	const buildFailedText = (error: string) =>
+		`The latest build failed, so the preview does not include the latest edits (it shows the last build that succeeded, or nothing if none has). Fix the build first. Build error:\n${error}`
+	const SDK_CONSENT_PENDING_TEXT =
+		'The preview is waiting for the user to approve the permissions the app declares in policy.frontend_sdk_scopes, so the app code is not running and the page is empty. This is not a bug in the app: do not change the code. Ask the user to approve the permissions in the preview, then retry.'
+	const SDK_STARTING_TEXT =
+		'The preview is still loading the permissions the app declares in policy.frontend_sdk_scopes, so the app code has not started yet. Retry in a moment.'
+	const PREVIEW_SETTLE_MS = 1000
+	let editorDestroyed = false
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
 	let runtimeError = $state<string | undefined>(undefined)
 	// Set when a build ran cleanly but never mounted anything into #root — the
 	// entrypoint defines a component without ever mounting it. Cleared on next build.
 	let emptyRender = $state(false)
 	// The repair hint above has to match the app's framework: only React apps have
-	// an `index.tsx` and `createRoot`; Svelte and Vue mount from `index.ts`. Keyed
+	// an `index.tsx` and `createRoot`; Svelte mounts from `index.ts`. Keyed
 	// off file extensions rather than exact template filenames, which users rename.
 	let mountHint = $derived.by(() => {
 		const paths = Object.keys(files ?? {}).map((p) => p.replace(/^\//, ''))
@@ -420,9 +518,6 @@
 				entrypoint: entrypoint ?? 'index.ts',
 				call: "mount(App, { target: document.getElementById('root')! })"
 			}
-		}
-		if (paths.some((p) => p.endsWith('.vue'))) {
-			return { entrypoint: entrypoint ?? 'index.ts', call: "createApp(App).mount('#root')" }
 		}
 		return {
 			entrypoint: entrypoint ?? 'index.tsx',
@@ -907,6 +1002,7 @@
 		if (!target) return
 		iframeFiles = { ...newFiles }
 		iframeFocusPending = undefined
+		buildTracker.start()
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -926,6 +1022,7 @@
 		iframeFiles = { ...newFiles }
 		const focus = iframeFocusPending === pathToSelect
 		iframeFocusPending = undefined
+		buildTracker.start()
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -1338,11 +1435,35 @@
 		) {
 			externalPreviewReady = true
 			feedExternalPreview()
-			// The detached window is cross-origin isolated like the inline preview,
-			// so blocked external resources warrant the same COEP warning.
-			coepWarning?.attachTo(externalPreviewWindow)
 			return
 		}
+
+		const relayed = e.source === externalPreviewWindow && e.data?.type === RAW_APP_PREVIEW_RELAY
+		const data = relayed ? e.data.data : e.data
+		// A sandboxed shell came up, inline or (relayed by its controller) popped out.
+		if (data?.type === 'windmill:ready') {
+			const port = e.ports?.[0]
+			if (!sandboxed || !port || data.nonce !== handshakeNonce) return
+			if (e.source === previewIframe?.contentWindow) {
+				previewPort = port
+				onPreviewShellReady()
+			} else if (relayed) {
+				externalPreviewPort = port
+				externalPreviewReady = true
+				feedExternalPreview()
+			}
+			return
+		}
+		// A sandboxed app's localStorage write, inline or popped out.
+		if (
+			data?.type === 'wm_ls_op' &&
+			sandboxed &&
+			(relayed || e.source === previewIframe?.contentWindow)
+		) {
+			applyRawAppStorageOp(previewStorageKey, data)
+			return
+		}
+		if (relayed) return
 
 		// Two children speak to us now: the UI Builder iframe (source editor)
 		// and the preview iframe (rendered user app). Gate by source so they
@@ -1357,6 +1478,9 @@
 			lastBuild = { css: e.data.css, js: e.data.js }
 			feedPreviewIframe(lastBuild)
 			syncExternalPreview()
+			// Give the fed app a moment to run, so a console read after the wait sees its output.
+			const gen = buildTracker.generation
+			setTimeout(() => buildTracker.settle(gen), PREVIEW_SETTLE_MS)
 			return
 		}
 
@@ -1377,11 +1501,25 @@
 		// `message: undefined` arrives on the next successful build and clears the banner.
 		if (fromUiBuilder && e.data.type === 'buildError') {
 			buildError = typeof e.data.message === 'string' ? e.data.message : undefined
+			// A successful build settles once the preview has it (see `preview` above).
+			if (buildError !== undefined) buildTracker.settle()
 			return
 		}
 
-		if (fromPreview && e.data.type === 'runtimeLogsResponse') {
-			resolvePendingRuntimeLogRequest(e.data.requestId, normalizeRawAppRuntimeLogs(e.data.logs))
+		if (fromPreview && typeof e.data.requestId === 'string') {
+			resolvePendingPreviewRequest(e.data.requestId, e.data)
+			return
+		}
+		if (fromPreview && e.data.type === 'previewScroll') {
+			updateInlinePromptPos()
+			return
+		}
+		// Escape inside the preview exits inspect mode, and also dismisses a lingering
+		// green "selected" overlay after a pick (which auto-disables hover).
+		if (fromPreview && e.data.type === 'previewEscape') {
+			if (inspectorEnabled || inspectorElement || selectedDomSelectors.length > 0) {
+				disableInspector()
+			}
 			return
 		}
 
@@ -1503,61 +1641,78 @@
 		}
 	}
 
+	// Our own origin, or the handshake port when sandboxed — never '*': user app code
+	// can navigate the preview elsewhere, and the build can carry app source/secrets.
+	function postToPreview(msg: Record<string, unknown>) {
+		if (sandboxed) previewPort?.postMessage(msg)
+		else previewIframe?.contentWindow?.postMessage(msg, window.location.origin)
+	}
+
 	function postToExternalPreview(msg: Record<string, unknown>) {
 		if (!externalPreviewWindow || externalPreviewWindow.closed) {
 			externalPreviewWindow = null
 			externalPreviewReady = false
 			return
 		}
-		// Restrict to our own origin: the detached window loads same-origin
-		// app-preview.html, but user app code can navigate it elsewhere — don't
-		// post the build (potential app source/secrets) to a cross-origin doc.
-		externalPreviewWindow.postMessage(msg, window.location.origin)
+		if (sandboxed) externalPreviewPort?.postMessage(msg)
+		else externalPreviewWindow.postMessage(msg, window.location.origin)
 	}
 
-	// `app-preview.html` evaluates the js we post, so prefixing the env is what a
-	// bundled `windmill-client` needs — it reads `window.process.env` at module
-	// load. Gated and scoped exactly like a deployed app — sandbox off or no
-	// scopes means no env at all — so preview hits the same 403s, and the same
-	// misconfiguration, as the deployed bundle.
-
-	// Stated on every payload, tokenless included: the preview shell reuses one
-	// window across builds, so omitting it would leave an old token in place.
-	// Deleting rather than blanking matches a deployed app with no scopes.
-	const NO_SDK_ENV_JS = 'try { delete window.process } catch (_) {}\n'
-	let previewSdkEnvJs = $state(NO_SDK_ENV_JS)
-	// Identifies the request whose answer is still wanted. Toggling scopes starts a
-	// new mint while an older one is in flight, and an out-of-order answer would
-	// otherwise hand the preview the wrong scope set — or restore a token after all
-	// scopes were removed.
+	// The shell turns this into `window.process.env`, which a bundled
+	// `windmill-client` reads at module load. Gated and scoped exactly like a
+	// deployed app — sandbox off or no scopes means no env at all — so preview hits
+	// the same 403s, and the same misconfiguration, as the deployed bundle. Sent with
+	// every build, tokenless included: the shell reuses one realm across builds, so
+	// omitting it would leave an old token in place.
+	type PreviewSdk = { token: string; baseUrl: string; workspace: string }
+	let previewSdk: PreviewSdk | undefined = undefined
+	// The setup the preview last started from; an unchanged one is not redone.
 	let previewSdkKey: string | undefined = undefined
+	// Bumped on every new setup: only the newest mint's answer is used. Toggling scopes
+	// starts a new mint while an older one is in flight, and toggling back recreates the
+	// same key, so a key check alone would let an out-of-order answer hand the preview
+	// the wrong scope set, restore a removed token, or start a preview since declined.
+	let previewSdkGeneration = 0
 	// Holds the build back between dropping a credential and settling its
 	// replacement, so the app mounts once — with the final credential — instead of
 	// once tokenless and again tokenful, running mount-time side effects twice.
 	let previewSdkPending = $state(false)
+	// Holds the app back (with `previewSdkPending`) until the viewer answers.
+	let sdkPrompt = $state<{ scopes: string[]; ws: string; declined: boolean } | undefined>(undefined)
+	// What Continue granted in this editor session, kept the way a loaded deployed
+	// app keeps its token: only a scope beyond it asks again.
+	let sessionSdkConsent: { ws: string; scopes: string[] } | undefined = undefined
 
 	/** Discard the running app. The shell resets the DOM but keeps the JavaScript
 	 * realm, so only a reload drops the old bundle's timers, listeners and the
 	 * token its client captured at module load. */
 	function restartPreviewRealm() {
-		if (!lastBuild) return // nothing running yet
-		previewIframeLoaded = false
-		if (previewIframe) previewIframe.src = PREVIEW_SHELL_URL
+		if (!previewShellUrl) return
+		if (lastBuild) {
+			previewIframeLoaded = false
+			previewPort = undefined
+			if (previewIframe) previewIframe.src = previewShellUrl
+		}
+		// Even with nothing built yet: toggling isolation swaps the kind of page the
+		// detached window must hold, and only this puts the right one there.
 		if (externalPreviewWindow && !externalPreviewWindow.closed) {
 			externalPreviewReady = false
+			externalPreviewPort = undefined
 			// User app code can navigate this window elsewhere, which makes its
 			// location cross-origin and unreachable — that document holds no token.
 			try {
-				externalPreviewWindow.location.replace(PREVIEW_SHELL_URL)
+				externalPreviewWindow.location.replace(
+					sandboxed ? getPreviewControllerUrl() : previewShellUrl
+				)
 			} catch (_) {}
 		}
 	}
 
 	/** Settle the credential and let the app start: the reloaded shells replay the
-	 * build themselves (the iframe from its `load` handler, the detached window
-	 * from `appPreviewReady`), so this only covers a shell already back up. */
-	function applyPreviewSdkEnv(js: string) {
-		previewSdkEnvJs = js
+	 * build themselves (on `load` or their handshake), so this only covers a shell
+	 * already back up. */
+	function applyPreviewSdk(sdk: PreviewSdk | undefined) {
+		previewSdk = sdk
 		previewSdkPending = false
 		if (lastBuild) feedPreviewIframe(lastBuild)
 		syncExternalPreview()
@@ -1566,43 +1721,82 @@
 	$effect(() => {
 		// Frontend SDK access is sandbox-only, so isolation off gets no credential
 		// here either, however the policy's scope list reads.
-		const scopes = policy?.sandbox === true ? (policy?.frontend_sdk_scopes ?? []) : []
+		const scopes = sandboxed ? (policy?.frontend_sdk_scopes ?? []) : []
 		const ws = opWorkspace
-		const key = `${ws ?? ''}|${scopes.join(',')}`
+		// `sandboxed` too: toggling it swaps the shell, which is a new realm.
+		const key = `${sandboxed}|${ws ?? ''}|${scopes.join(',')}`
 		if (key === previewSdkKey) return
 		previewSdkKey = key
+		previewSdkGeneration++
 		// Drop the old credential before asking for its replacement, never after:
 		// a mint is asynchronous, and until it answers the running preview — and
 		// any build fed meanwhile — would keep scopes the policy just removed, or
 		// a token for the workspace we just left.
 		const willMint = scopes.length > 0 && !!ws
 		previewSdkPending = willMint
-		previewSdkEnvJs = NO_SDK_ENV_JS
+		previewSdk = undefined
+		sdkPrompt = undefined
 		restartPreviewRealm()
-		if (willMint) mintPreviewSdkToken(scopes, ws, key)
+		if (!willMint) return
+		// Ask before the app's code runs, as the deployed app does: the token acts
+		// as whoever has the editor open.
+		const granted =
+			(sessionSdkConsent?.ws === ws && sdkConsentCovers(sessionSdkConsent.scopes, scopes)) ||
+			untrack(() => hasStoredSdkConsent($userStore?.email ?? '', ws, path, scopes, true))
+		if (granted) {
+			mintPreviewSdkToken(scopes, ws)
+		} else {
+			sdkPrompt = { scopes, ws, declined: false }
+			if (externalPreviewWindow && !externalPreviewWindow.closed) {
+				untrack(() => select({ kind: 'preview' }))
+			}
+		}
 	})
 
-	async function mintPreviewSdkToken(scopes: string[], ws: string, key: string) {
+	$effect(() => {
+		sdkPrompt?.declined
+		untrack(syncExternalPreviewNotice)
+	})
+
+	function syncExternalPreviewNotice() {
+		if (!sandboxed || !externalPreviewWindow || externalPreviewWindow.closed) return
+		const text = !sdkPrompt
+			? ''
+			: sdkPrompt.declined
+				? 'The preview is blocked until you grant the permissions this app declares. You can review them in the editor window.'
+				: 'This app is waiting for you to approve its permissions in the editor window.'
+		externalPreviewWindow.postMessage({ type: PREVIEW_NOTICE, text }, window.location.origin)
+	}
+
+	async function onSdkConsentContinue(dontAskAgain: boolean) {
+		if (!sdkPrompt) return
+		const { scopes, ws } = sdkPrompt
+		sdkPrompt = undefined
+		// Recorded on the click, as the deployed app does, so a scope edit reverted while
+		// this mint is in flight is still approved and does not ask again.
+		sessionSdkConsent = { ws, scopes }
+		if (!(await mintPreviewSdkToken(scopes, ws))) return
+		const viewer = $userStore?.email
+		if (dontAskAgain && viewer) storeSdkConsent(viewer, ws, path, scopes, true)
+	}
+
+	async function mintPreviewSdkToken(scopes: string[], ws: string) {
+		const generation = previewSdkGeneration
 		try {
 			const token = await AppService.mintPreviewSdkToken({
 				workspace: ws,
 				requestBody: { path, scopes }
 			})
-			if (key !== previewSdkKey) return
-			applyPreviewSdkEnv(
-				`window.process = { env: ${JSON.stringify({
-					WM_RAW_APP: 'true',
-					WM_TOKEN: token,
-					BASE_URL: window.location.origin,
-					WM_WORKSPACE: ws
-				}).replace(/</g, '\\u003c')} };\n`
-			)
+			if (generation !== previewSdkGeneration) return false
+			applyPreviewSdk({ token, baseUrl: window.location.origin, workspace: ws })
+			return true
 		} catch (e) {
 			// Already tokenless — the effect cleared the env before calling us — so
 			// this only releases the build. The key stays set, so a failed mint is not
 			// retried until the scopes or workspace actually change.
 			console.warn('Could not mint a preview SDK token', e)
-			if (key === previewSdkKey) applyPreviewSdkEnv(NO_SDK_ENV_JS)
+			if (generation === previewSdkGeneration) applyPreviewSdk(undefined)
+			return false
 		}
 	}
 
@@ -1612,7 +1806,9 @@
 			postToExternalPreview({
 				type: 'preview',
 				css: lastBuild.css,
-				js: previewSdkEnvJs + lastBuild.js
+				js: lastBuild.js,
+				sdk: previewSdk,
+				storage: previewStorage()
 			})
 		}
 	}
@@ -1623,16 +1819,23 @@
 	function feedPreviewIframe(build: { css: string; js: string }) {
 		// Between dropping a credential and settling its replacement the shell stays
 		// blank; whichever settles last — the mint or the shell's own `load` — starts
-		// the app. Same for a shell still reloading: its `load` handler replays.
+		// the app. Same for a shell still reloading: it replays once ready.
 		if (previewSdkPending || !previewIframeLoaded) return
 		runtimeError = undefined
 		emptyRender = false
-		// Same-origin app-preview.html, and the payload now carries a token — address
-		// it to our origin rather than '*', as the detached preview already does.
-		previewIframe?.contentWindow?.postMessage(
-			{ type: 'preview', css: build.css, js: previewSdkEnvJs + build.js },
-			window.location.origin
-		)
+		postToPreview({
+			type: 'preview',
+			css: build.css,
+			js: build.js,
+			sdk: previewSdk,
+			storage: previewStorage()
+		})
+	}
+
+	// The shell seeds a fresh document's storage shim from this; unsandboxed
+	// previews use real storage and get none.
+	function previewStorage() {
+		return sandboxed ? readRawAppStorage(previewStorageKey) : undefined
 	}
 
 	// Full (re)feed of the detached window: theme first, then the build. Used
@@ -1641,16 +1844,19 @@
 	// `syncExternalPreview` alone (the theme hasn't changed).
 	function feedExternalPreview() {
 		postToExternalPreview({ type: 'setDarkMode', dark: darkMode, variant: darkVariant })
+		syncExternalPreviewNotice()
 		syncExternalPreview()
 	}
 
-	onDestroy(() => {
-		// Don't leave a detached preview behind when the editor unmounts: it
-		// would stop receiving builds and, once refreshed, has no opener to
-		// re-feed it — a permanently blank orphan.
+	// Don't leave a detached preview behind when the editor goes away, by
+	// unmounting or by its tab reloading or closing (`pagehide`, which skips
+	// `onDestroy`): it would stop receiving builds, and its document is a blob
+	// URL owned by this page, so refreshing it gives "not found".
+	function closeExternalPreview() {
 		if (externalPreviewWindow && !externalPreviewWindow.closed) externalPreviewWindow.close()
 		externalPreviewWindow = null
-	})
+	}
+	onDestroy(closeExternalPreview)
 
 	function openExternalPreview() {
 		// Reuse an already-open window instead of spawning duplicates.
@@ -1661,13 +1867,22 @@
 		}
 		// Scope the window name per app path so two open editors don't fight over
 		// (or take over / close) one shared OS-level preview window.
-		const win = window.open(PREVIEW_SHELL_URL, `windmillRawAppPreview:${encodeURIComponent(path)}`)
+		if (!previewShellUrl) {
+			sendUserToast('The app preview is not available', true)
+			return
+		}
+		const win = window.open(
+			sandboxed ? getPreviewControllerUrl() : previewShellUrl,
+			`windmillRawAppPreview:${encodeURIComponent(path)}`
+		)
 		if (!win) {
 			sendUserToast('Could not open the preview window (popup blocked?)', true)
 			return
 		}
 		externalPreviewWindow = win
 		externalPreviewReady = false
+		// The sandboxed shell announces itself through its controller's relay.
+		if (sandboxed) return
 		// Initial feed: fires once when the freshly opened tab loads. This is the
 		// only feed path against an app-preview.html that predates the
 		// `appPreviewReady` handshake, so the window isn't blank on first open
@@ -1677,9 +1892,6 @@
 		win.addEventListener('load', () => {
 			externalPreviewReady = true
 			feedExternalPreview()
-			// Attach here too: against an artifact that predates the handshake, this
-			// is the only place the freshly opened window is ever seen loaded.
-			coepWarning?.attachTo(win)
 		})
 	}
 
@@ -1699,62 +1911,104 @@
 		})
 	}
 
-	const RUNTIME_LOGS_TIMEOUT_MS = 2000
-	type PendingRuntimeLogRequest = {
-		resolve: (entries: RawAppRuntimeLogEntry[] | undefined) => void
+	// The preview may be an opaque-origin document, so everything the editor reads
+	// from it is a request the shell answers, correlated by requestId.
+	const PREVIEW_REQUEST_TIMEOUT_MS = 2000
+	const SCREENSHOT_TIMEOUT_MS = 30_000
+	type PendingPreviewRequest = {
+		resolve: (response: any) => void
 		timer: ReturnType<typeof setTimeout>
 	}
-	const pendingRuntimeLogReqs = new Map<string, PendingRuntimeLogRequest>()
+	const pendingPreviewReqs = new Map<string, PendingPreviewRequest>()
 
-	function resolvePendingRuntimeLogRequest(
-		requestId: string,
-		entries: RawAppRuntimeLogEntry[] | undefined
-	) {
-		const pending = pendingRuntimeLogReqs.get(requestId)
+	function resolvePendingPreviewRequest(requestId: string, response: any) {
+		const pending = pendingPreviewReqs.get(requestId)
 		if (!pending) return
 		clearTimeout(pending.timer)
-		pendingRuntimeLogReqs.delete(requestId)
-		pending.resolve(entries)
+		pendingPreviewReqs.delete(requestId)
+		pending.resolve(response)
 	}
 
-	const requestRuntimeLogs: RawAppRuntimeLogRequester = (limit) => {
-		const win = previewIframe?.contentWindow
-		if (!win || !previewIframeLoaded) return Promise.resolve(undefined)
+	/** Resolves with the shell's answer, or `undefined` when there is no loaded
+	 * preview to ask or it didn't answer in time. */
+	function requestFromPreview(
+		type: string,
+		payload: Record<string, unknown>,
+		timeoutMs = PREVIEW_REQUEST_TIMEOUT_MS
+	): Promise<any> {
+		if (!previewIframe || !previewIframeLoaded) return Promise.resolve(undefined)
 		const requestId = randomUUID()
-		return new Promise<RawAppRuntimeLogEntry[] | undefined>((resolve) => {
-			const timer = setTimeout(() => {
-				resolvePendingRuntimeLogRequest(requestId, undefined)
-			}, RUNTIME_LOGS_TIMEOUT_MS)
-			pendingRuntimeLogReqs.set(requestId, { resolve, timer })
-			win.postMessage({ type: 'getRuntimeLogs', requestId, limit }, '*')
+		return new Promise((resolve) => {
+			const timer = setTimeout(() => resolvePendingPreviewRequest(requestId, undefined), timeoutMs)
+			pendingPreviewReqs.set(requestId, { resolve, timer })
+			postToPreview({ type, requestId, ...payload })
 		})
 	}
 
-	// Live DOM inspection for the session chat. Same-origin: the preview iframe is a
-	// same-origin document (see the load listener below that reads its contentWindow),
-	// so we read `contentDocument` directly — no postMessage, no ui_builder change. The
-	// element is re-read on every call, so the model always sees the current render.
-	const requestDomQuery: RawAppDomRequester = async (query: RawAppDomQuery) => {
-		const doc = previewIframe?.contentDocument
-		if (!doc || !previewIframeLoaded) return undefined
-		const selector = query.selector?.trim()
-		let el: Element | null
-		let matchCount: number
-		if (selector) {
-			let matches: NodeListOf<Element>
-			try {
-				matches = doc.querySelectorAll(selector)
-			} catch (e) {
-				return {
-					text: `Invalid CSS selector "${selector}": ${e instanceof Error ? e.message : String(e)}`
-				}
+	const requestRuntimeLogs: RawAppRuntimeLogRequester = async (limit) => {
+		await buildTracker.wait()
+		if (editorDestroyed) {
+			return {
+				entries: undefined,
+				buildError: undefined,
+				buildPending: false,
+				buildLogs: '',
+				sdkConsentPending: false
 			}
-			matchCount = matches.length
-			el = matches[0] ?? null
-		} else {
-			el = doc.body
-			matchCount = el ? 1 : 0
 		}
+		return {
+			entries: await requestPreviewConsoleLogs(limit),
+			buildError,
+			buildPending: buildTracker.pending,
+			buildLogs: logs,
+			sdkConsentPending: sdkPrompt !== undefined
+		}
+	}
+
+	async function requestPreviewConsoleLogs(
+		limit: number
+	): Promise<RawAppRuntimeLogEntry[] | undefined> {
+		const res = await requestFromPreview('getRuntimeLogs', { limit })
+		return res ? normalizeRawAppRuntimeLogs(res.logs) : undefined
+	}
+
+	/** Rebuilds the element the shell serialized, in an inert document: its scripts
+	 * don't run and its resources don't load. `<template>` keeps context-bound tags
+	 * (`<td>`, `<li>`) intact but drops `<html>`/`<body>`, which DOMParser keeps. */
+	function parsePreviewElement(outerHTML: string, tagName: string): Element | null {
+		if (tagName === 'html' || tagName === 'body' || tagName === 'head') {
+			const doc = new DOMParser().parseFromString(outerHTML, 'text/html')
+			return tagName === 'html' ? doc.documentElement : doc[tagName]
+		}
+		const template = document.createElement('template')
+		template.innerHTML = outerHTML
+		return template.content.firstElementChild
+	}
+
+	// Live DOM inspection for the session chat. The element is re-read on every call,
+	// so the model always sees the current render.
+	const requestDomQuery: RawAppDomRequester = async (query: RawAppDomQuery) => {
+		await buildTracker.wait()
+		if (editorDestroyed) return undefined
+		if (buildTracker.pending) return { text: BUILD_PENDING_TEXT }
+		if (sdkPrompt) return { text: SDK_CONSENT_PENDING_TEXT }
+		if (previewSdkPending) return { text: SDK_STARTING_TEXT }
+		const res = await readPreviewDom(query)
+		return res && buildError !== undefined
+			? { text: `${buildFailedText(buildError)}\n\n${res.text}` }
+			: res
+	}
+
+	const readPreviewDom: RawAppDomRequester = async (query: RawAppDomQuery) => {
+		const selector = query.selector?.trim()
+		const res = await requestFromPreview('domRead', { selector })
+		if (!res) return undefined
+		if (typeof res.error === 'string') {
+			return { text: `Invalid CSS selector "${selector}": ${res.error}` }
+		}
+		const matchCount: number = res.matchCount ?? 0
+		const el =
+			typeof res.outerHTML === 'string' ? parsePreviewElement(res.outerHTML, res.tagName) : null
 		if (!el) {
 			return {
 				text: `No element matches selector "${selector}". It may not be rendered yet, or the selector is wrong. Try a broader selector or omit it to read the whole page.`
@@ -1803,7 +2057,7 @@
 	// ---- Inline "prompt this element" mini-composer (session preview only) ----
 	// Anchored over the most-recently selected element in the live preview. It's a
 	// host overlay (position: fixed in the top document) computed from the element's
-	// rect inside the same-origin preview iframe, repositioned as the preview scrolls.
+	// rect inside the preview iframe, repositioned as the preview scrolls.
 	let inlinePromptDismissed = $state(false)
 	let inlinePromptPos = $state<{ x: number; y: number } | undefined>(undefined)
 	let inlinePromptLabel = $state('')
@@ -1813,38 +2067,33 @@
 			: undefined
 	)
 
-	function shortElementLabel(el: Element): string {
+	function shortElementLabel(el: { tagName: string; id: string; className: string }): string {
 		const tag = el.tagName.toLowerCase()
 		const id = el.id ? `#${el.id}` : ''
-		const cls =
-			typeof el.className === 'string'
-				? el.className
-						.trim()
-						.split(/\s+/)
-						.filter((c) => c && !c.startsWith('inspector-'))[0]
-				: undefined
+		const cls = el.className
+			.trim()
+			.split(/\s+/)
+			.filter((c) => c && !c.startsWith('inspector-'))[0]
 		return `${tag}${id}${cls ? `.${cls}` : ''}`
 	}
 
-	function updateInlinePromptPos() {
+	// Scrolls ask faster than the shell answers; only the latest answer is applied.
+	let inlinePromptPosSeq = 0
+	async function updateInlinePromptPos() {
+		const seq = ++inlinePromptPosSeq
 		const sel = inlinePromptSelector
-		const doc = previewIframe?.contentDocument
-		if (!sel || !doc || !previewIframeLoaded || inlinePromptDismissed) {
+		if (!sel || !previewIframe || !previewIframeLoaded || inlinePromptDismissed) {
 			inlinePromptPos = undefined
 			return
 		}
-		let el: Element | null
-		try {
-			el = doc.querySelector(sel)
-		} catch (_) {
-			el = null
-		}
-		if (!el) {
+		const el = await requestFromPreview('elementRect', { selector: sel })
+		if (seq !== inlinePromptPosSeq || !previewIframe) return
+		if (!el?.rect) {
 			inlinePromptPos = undefined
 			return
 		}
-		const r = el.getBoundingClientRect()
-		const ir = previewIframe!.getBoundingClientRect()
+		const r = el.rect
+		const ir = previewIframe.getBoundingClientRect()
 		// Hide while the element is scrolled outside the preview's visible area.
 		if (r.bottom < 0 || r.top > ir.height || r.right < 0 || r.left > ir.width) {
 			inlinePromptPos = undefined
@@ -1877,20 +2126,18 @@
 
 	$effect(() => {
 		// Recompute on selection change, preview (re)load, or dismiss; and keep the
-		// overlay pinned as the preview (or the host) scrolls/resizes.
+		// overlay pinned as the host scrolls/resizes. The preview's own scrolls arrive
+		// as `previewScroll` messages.
 		inlinePromptSelector
 		selectedDomSelectors
 		previewIframeLoaded
 		inlinePromptDismissed
 		updateInlinePromptPos()
 		if (!previewIframe || !previewIframeLoaded) return
-		const win = previewIframe.contentWindow
 		const onScroll = () => updateInlinePromptPos()
-		win?.addEventListener('scroll', onScroll, true)
 		window.addEventListener('scroll', onScroll, true)
 		window.addEventListener('resize', onScroll)
 		return () => {
-			win?.removeEventListener('scroll', onScroll, true)
 			window.removeEventListener('scroll', onScroll, true)
 			window.removeEventListener('resize', onScroll)
 		}
@@ -1914,111 +2161,47 @@
 		return out.reverse()
 	}
 
-	// Only values whose non-wrapping counterpart collapses whitespace identically.
-	// `pre-line`/`break-spaces` have no such counterpart: forcing them to nowrap
-	// would eat their preserved newlines, so they are left to re-wrap.
-	const NON_WRAPPING_EQUIVALENT: Record<string, string> = {
-		normal: 'nowrap',
-		'pre-wrap': 'pre'
-	}
-
-	// getClientRects yields a rect per contained node, not per line box, so the
-	// count alone says nothing: `a <b>b</b>` is two rects on one line. Rects
-	// sharing a line overlap vertically, and `top` alone would split a line that
-	// mixes font sizes — so count vertically disjoint runs.
-	function countLines(range: Range): number {
-		const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 || r.height > 0)
-		if (rects.length === 0) return 0
-		rects.sort((a, b) => a.top - b.top)
-		let lines = 1
-		let lineBottom = rects[0].bottom
-		for (const r of rects) {
-			if (r.top >= lineBottom) {
-				lines++
-				lineBottom = r.bottom
-			} else {
-				lineBottom = Math.max(lineBottom, r.bottom)
-			}
-		}
-		return lines
-	}
-
-	// A box that shrink-wraps its text can have zero sub-pixel slack (a 208.59px box
-	// holding a 208.59px text run). The capture re-runs layout in whole pixels, so
-	// the text no longer fits, wraps, and is then clipped out of the box entirely.
-	// Pinning runs that are already single-line is a no-op on the live DOM but stops
-	// the re-layout from re-deciding where they break.
-	function pinSingleLineText(root: HTMLElement): () => void {
-		const doc = root.ownerDocument
-		const view = doc.defaultView
-		if (!view) return () => {}
-		// Measure every candidate before mutating any of them: interleaving reads and
-		// writes forces a synchronous reflow per element.
-		const pending: Array<[HTMLElement, string]> = []
-		const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
-		let node: Node | null
-		while ((node = walker.nextNode())) {
-			const el = node as HTMLElement
-			if (!(el instanceof view.HTMLElement)) continue
-			const hasOwnText = Array.from(el.childNodes).some(
-				(c) => c.nodeType === Node.TEXT_NODE && (c.textContent ?? '').trim() !== ''
-			)
-			if (!hasOwnText) continue
-			const replacement = NON_WRAPPING_EQUIVALENT[view.getComputedStyle(el).whiteSpace]
-			if (!replacement) continue
-			const range = doc.createRange()
-			range.selectNodeContents(el)
-			if (countLines(range) !== 1) continue // already wraps — leave its breaks alone
-			pending.push([el, replacement])
-		}
-		const restores = pending.map(([el, replacement]) => {
-			const prev = el.style.getPropertyValue('white-space')
-			const prio = el.style.getPropertyPriority('white-space')
-			el.style.setProperty('white-space', replacement, 'important')
-			return () => {
-				if (prev) el.style.setProperty('white-space', prev, prio)
-				else el.style.removeProperty('white-space')
-			}
-		})
-		return () => restores.forEach((r) => r())
-	}
-
-	// Capture the live preview as a PNG data URL. The preview iframe
-	// (/ui_builder/app-preview.html) is same-origin with no sandbox, so its rendered
-	// document is reachable and can be serialized from here. There is no native
-	// element-screenshot API; modern-screenshot reconstructs the DOM into an SVG
-	// foreignObject, so a WebGL canvas is only captured when its context was created
-	// with preserveDrawingBuffer. Lazy-imported so the library only loads on demand.
+	// Capture the live preview as a PNG data URL, taken by the shell with
+	// modern-screenshot: there is no native element-screenshot API, so it
+	// reconstructs the DOM into an SVG foreignObject, and a WebGL canvas is only
+	// captured when its context was created with preserveDrawingBuffer.
 	const captureScreenshot: RawAppScreenshotRequester = async () => {
-		const target = previewIframe?.contentDocument?.body
-		if (!previewIframe || !previewIframeLoaded || !target) {
-			throw new Error('App preview is not ready')
-		}
+		await buildTracker.wait()
+		if (editorDestroyed) throw new Error('The app preview was closed')
+		if (buildTracker.pending) throw new Error(BUILD_PENDING_TEXT)
+		if (sdkPrompt) throw new Error(SDK_CONSENT_PENDING_TEXT)
+		if (previewSdkPending) throw new Error(SDK_STARTING_TEXT)
+		if (buildError !== undefined) throw new Error(buildFailedText(buildError))
+		const body = await requestFromPreview('elementRect', { selector: 'body' })
+		if (!body?.rect) throw new Error('App preview is not ready')
+		const { width, height } = body.rect
 		// Collapsing the preview leaves the iframe mounted and populated at zero
-		// width, which passes every check above and then fails inside the rasteriser
-		// as an opaque decode error. Name the cause so the agent can act on it.
-		if (!target.clientWidth || !target.clientHeight) {
+		// width, which then fails inside the rasteriser as an opaque decode error.
+		// Name the cause so the agent can act on it.
+		if (!width || !height) {
 			throw new Error(
 				'The app preview is collapsed, so there is nothing to capture. Ask the user to expand the preview panel, then try again.'
 			)
 		}
-		const { domToPng } = await import('modern-screenshot')
 		// Above CSS resolution for small previews (a 1× capture of a ~900px preview
 		// reads blurry next to the live render), sub-1× for oversized bodies — see
 		// captureScale. maximumCanvasSize is the belt over that math: the rasterised
-		// box can exceed the body's client size, and an unbounded canvas on a tall
-		// scrolling app can freeze the tab before normalize ever bounds the pixels.
-		const scale = captureScale(Math.max(target.clientWidth, target.clientHeight))
-		const restore = pinSingleLineText(target)
-		try {
-			return await domToPng(target, {
-				backgroundColor: '#ffffff',
-				scale,
-				maximumCanvasSize: MAX_IMAGE_EDGE
-			})
-		} finally {
-			restore()
-		}
+		// box can exceed the body's size, and an unbounded canvas on a tall scrolling
+		// app can freeze the tab before normalize ever bounds the pixels.
+		const res = await requestFromPreview(
+			'screenshot',
+			{
+				options: {
+					backgroundColor: '#ffffff',
+					scale: captureScale(Math.max(width, height)),
+					maximumCanvasSize: MAX_IMAGE_EDGE
+				}
+			},
+			SCREENSHOT_TIMEOUT_MS
+		)
+		if (!res) throw new Error('The app preview did not return a screenshot')
+		if (typeof res.error === 'string') throw new Error(res.error)
+		return res.dataUrl
 	}
 
 	onMount(() => {
@@ -2031,8 +2214,10 @@
 			onRunsProvider?.(undefined)
 			onDomRequester?.(undefined)
 			onScreenshotRequester?.(undefined)
-			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
-				resolvePendingRuntimeLogRequest(requestId, undefined)
+			for (const requestId of Array.from(pendingPreviewReqs.keys()))
+				resolvePendingPreviewRequest(requestId, undefined)
+			editorDestroyed = true
+			buildTracker.release()
 		}
 	})
 
@@ -2059,30 +2244,25 @@
 			iframeLoaded = true
 		})
 	})
+	function onPreviewShellReady() {
+		previewIframeLoaded = true
+		// Replay the last build so the preview repopulates without
+		// waiting for the user to trigger another bundle.
+		if (lastBuild) {
+			feedPreviewIframe(lastBuild)
+		}
+	}
 	$effect(() => {
-		previewIframe?.addEventListener('load', () => {
-			previewIframeLoaded = true
-			// Replay the last build so the preview repopulates without
-			// waiting for the user to trigger another bundle.
-			if (lastBuild) {
-				feedPreviewIframe(lastBuild)
-			}
-			// Escape inside the preview exits inspect mode — the keydown fires in
-			// the iframe's document, so the parent window listener can't see it.
-			// We also want Escape to dismiss a lingering green "selected" overlay
-			// after the user picked an element (which auto-disables hover).
-			previewIframe?.contentWindow?.addEventListener(
-				'keydown',
-				(e) => {
-					if (
-						e.key === 'Escape' &&
-						(inspectorEnabled || inspectorElement || selectedDomSelectors.length > 0)
-					) {
-						disableInspector()
-					}
-				},
-				true
-			)
+		const el = previewIframe
+		if (!el) return
+		// A new frame (sandbox isolation toggled) starts unloaded, port-less.
+		untrack(() => {
+			previewIframeLoaded = false
+			previewPort = undefined
+		})
+		// A sandboxed shell is ready on its handshake, not on `load`.
+		el.addEventListener('load', () => {
+			if (!sandboxed) onPreviewShellReady()
 		})
 	})
 	$effect(() => {
@@ -2094,11 +2274,8 @@
 				'*'
 			)
 		}
-		if (previewIframe && previewIframeLoaded) {
-			previewIframe.contentWindow?.postMessage(
-				{ type: 'setDarkMode', dark: darkMode, variant: darkVariant },
-				'*'
-			)
+		if (previewIframeLoaded) {
+			postToPreview({ type: 'setDarkMode', dark: darkMode, variant: darkVariant })
 		}
 		postToExternalPreview({ type: 'setDarkMode', dark: darkMode, variant: darkVariant })
 	})
@@ -2113,11 +2290,8 @@
 		// the harness renders one highlight per selector. Re-posts on every
 		// selection change and on preview (re)load.
 		const selectors = selectedDomSelectors
-		if (previewIframe && previewIframeLoaded) {
-			previewIframe.contentWindow?.postMessage(
-				{ type: 'inspectorSetSelection', selectors: [...selectors] },
-				'*'
-			)
+		if (previewIframeLoaded) {
+			postToPreview({ type: 'inspectorSetSelection', selectors: [...selectors] })
 		}
 	})
 	$effect(() => {
@@ -2141,7 +2315,7 @@
 	function clearInspectorSelection() {
 		inspectorElement = undefined
 		// Inspector lives in the preview iframe, so clear its overlay there.
-		previewIframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
+		postToPreview({ type: 'inspectorClear' })
 	}
 
 	// Folders aren't selectable in the tree, so this only ever gets files — except
@@ -2269,8 +2443,8 @@
 		// `inspectorDisable` only stops hover/click; the green "selected"
 		// overlay from a prior pick persists until we explicitly clear it.
 		// Escape should reset both, so the iframe goes back to its idle look.
-		previewIframe?.contentWindow?.postMessage({ type: 'inspectorDisable' }, '*')
-		previewIframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
+		postToPreview({ type: 'inspectorDisable' })
+		postToPreview({ type: 'inspectorClear' })
 		inspectorElement = undefined
 		// Session mode: clear the chips too. Emptying the selection hides the
 		// inline prompt (it's driven by the chips) and drops the highlights (the
@@ -2367,7 +2541,7 @@
 	}
 </script>
 
-<svelte:window onmessage={listener} onkeydown={handleKeydown} />
+<svelte:window onmessage={listener} onkeydown={handleKeydown} onpagehide={closeExternalPreview} />
 <DarkModeObserver
 	bind:darkMode
 	on:change={() => {
@@ -2383,7 +2557,7 @@
 	bind:jobsById
 	{runnables}
 	{path}
-	gateJobIds={false}
+	gateJobIds={sandboxed}
 	extraSourceWindow={() => externalPreviewWindow}
 />
 <div
@@ -2403,7 +2577,12 @@
 		{onTakeLatest}
 		{draftBaseVersion}
 		{onRestore}
-		{onSavedNewAppPath}
+		onSavedNewAppPath={(newAppPath) => {
+			if (opWorkspace && $userStore?.email) {
+				movePreviewSdkConsent($userStore.email, opWorkspace, path, newAppPath)
+			}
+			onSavedNewAppPath?.(newAppPath)
+		}}
 		{policy}
 		{diffDrawer}
 		{newApp}
@@ -2420,6 +2599,7 @@
 		{getBundle}
 		{onNavigate}
 		{onDeploy}
+		{onDetails}
 		{onResetToDeployed}
 		{loadedFromDraft}
 		{othersDraftsCount}
@@ -2432,6 +2612,7 @@
 		sidebarCollapsed={sidebarCollapsed.val}
 		onToggleSidebar={() => (sidebarCollapsed.val = !sidebarCollapsed.val)}
 		{condensedHeader}
+		{ownsPageHeader}
 	/>
 
 	<RawAppYamlEditor
@@ -2620,21 +2801,23 @@
 								>
 									{#snippet trailing()}
 										<div class="flex items-center gap-1 px-2">
-											<Button
-												variant="subtle"
-												unifiedSize="sm"
-												title="Switch bundler"
-												onClick={() => {
-													const next = bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
-													bundlerType = next
-													iframe?.contentWindow?.postMessage(
-														{ type: 'setBundlerType', bundlerType: next },
-														'*'
-													)
-												}}
-											>
-												{bundlerType}
-											</Button>
+											{#if rolldownAvailable}
+												<Button
+													variant="subtle"
+													unifiedSize="sm"
+													title="Switch bundler"
+													onClick={() => {
+														const next = bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
+														bundlerType = next
+														iframe?.contentWindow?.postMessage(
+															{ type: 'setBundlerType', bundlerType: next },
+															'*'
+														)
+													}}
+												>
+													{bundlerType}
+												</Button>
+											{/if}
 											<Button
 												variant="subtle"
 												unifiedSize="sm"
@@ -2653,10 +2836,7 @@
 														disableInspector()
 													} else {
 														inspectorEnabled = true
-														previewIframe?.contentWindow?.postMessage(
-															{ type: 'inspectorEnable' },
-															'*'
-														)
+														postToPreview({ type: 'inspectorEnable' })
 													}
 												}}
 											/>
@@ -2698,14 +2878,48 @@
 										</div>
 									{/snippet}
 								</DraggableTabs>
-								<iframe
-									bind:this={previewIframe}
-									title="App preview"
-									src={PREVIEW_SHELL_URL}
-									class="w-full flex-1 block"
-								></iframe>
-								<RawAppCoepWarning bind:this={coepWarning} iframe={previewIframe} />
-								{#if buildError}
+								<!-- Not mounted before the shell is: a src-less iframe fires `load`
+								     for about:blank, which would mark the preview ready. Keyed so
+								     toggling isolation builds a new frame: a frame's sandbox flags
+								     only apply to its next navigation. -->
+								{#if previewShellUrl}
+									{#key sandboxed}
+										<iframe
+											bind:this={previewIframe}
+											title="App preview"
+											src={previewShellUrl}
+											sandbox={sandboxed ? RAW_APP_SANDBOX_FLAGS : undefined}
+											referrerpolicy={sandboxed ? 'no-referrer' : undefined}
+											class="w-full flex-1 block"
+										></iframe>
+									{/key}
+								{/if}
+								{#if sdkPrompt}
+									<!-- top-10 leaves the tab bar usable. -->
+									<div class="absolute top-10 inset-x-0 bottom-0 z-30 bg-surface overflow-auto">
+										{#if sdkPrompt.declined}
+											<div class="px-4 mt-20 max-w-xl mx-auto flex flex-col items-start gap-4">
+												<p class="text-sm text-secondary">
+													The preview is blocked until you grant the permissions this app declares.
+												</p>
+												<Button
+													variant="default"
+													unifiedSize="md"
+													onclick={() => sdkPrompt && (sdkPrompt.declined = false)}
+												>
+													Review permissions
+												</Button>
+											</div>
+										{:else}
+											<RawAppSdkConsent
+												scopes={sdkPrompt.scopes}
+												declineLabel="Decline"
+												onContinue={onSdkConsentContinue}
+												onDecline={() => sdkPrompt && (sdkPrompt.declined = true)}
+											/>
+										{/if}
+									</div>
+								{:else if buildError}
 									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
 									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->
 									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">

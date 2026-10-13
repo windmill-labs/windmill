@@ -47,6 +47,9 @@ pub async fn upload_image_to_s3(
     })
 }
 
+// Bounds each attachment's download before base64 expansion; provider limits may be lower.
+const MAX_S3_MEDIA_BYTES: usize = 30 * 1024 * 1024;
+
 /// Download an S3 image and convert it to a base64 data URL.
 ///
 /// The caller must provide an AuthedClient authorized for `workspace_id`.
@@ -57,7 +60,12 @@ pub async fn download_and_encode_s3_image(
 ) -> Result<(String, String), Error> {
     // Download the image from S3
     let image_bytes = client
-        .download_s3_file(workspace_id, &image.s3, image.storage.clone())
+        .download_s3_file(
+            workspace_id,
+            &image.s3,
+            image.storage.clone(),
+            Some(MAX_S3_MEDIA_BYTES),
+        )
         .await
         .map_err(|e| Error::internal_err(format!("Failed to download S3 image: {}", e)))?;
 

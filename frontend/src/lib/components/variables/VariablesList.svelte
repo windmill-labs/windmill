@@ -38,7 +38,8 @@
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
 	import { enterpriseLicense, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite, isOwner, truncate } from '$lib/utils'
+	import { isOwner, truncate } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import {
 		Plus,
@@ -65,6 +66,7 @@
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const editRights = useEditRights()
 	const hosted = useHostedPage()
 
 	function editVariable(path: string) {
@@ -206,7 +208,7 @@
 		const result = (await VariableService.listVariable(apiParams)).map((x) => {
 			return {
 				canWrite:
-					canWrite(x.path, x.extra_perms!, operatingUser.current) &&
+					editRights.canEditItem('variable', x.path, x.extra_perms) &&
 					x.workspace_id == $operatingWorkspace,
 				...x
 			}

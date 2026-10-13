@@ -3,7 +3,7 @@
 	import { page } from '$app/state'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Alert } from '$lib/components/common'
-	import { WindmillIcon } from '$lib/components/icons'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -31,7 +31,7 @@
 </script>
 
 <!-- svelte-ignore missing_declaration -->
-<CenteredModal title="Subscription upgrade {success ? 'succeeded' : 'failed'}">
+<CenteredModal title="Subscription upgrade {success ? 'succeeded' : 'failed'}" inPage>
 	{#if !success}
 		<div class="my-2">
 			<Alert type="error" title="Checkout failed">

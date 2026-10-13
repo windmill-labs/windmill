@@ -29,14 +29,16 @@ export type InsertKind =
 	| 'approval'
 	| 'end'
 	| 'aiagent'
+	| 'aidecision'
 	| 'mcpTool'
 	| 'websearchTool'
 	| 'aiAgentTool'
+	| 'aiDecisionTool'
 
 export type InlineScript = {
 	language: RawScript['language']
 	kind: Script['kind']
-	subkind: 'pgsql' | 'flow' | 'claudesandbox'
+	subkind: 'pgsql' | 'flow' | 'claudesandbox' | 'pisandbox'
 	summary?: string
 	instructions?: string
 }

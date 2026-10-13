@@ -173,10 +173,33 @@ struct JobProgressSetRequest {
 }
 
 async fn set_job_progress(
+    authed: windmill_api_auth::ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Json(JobProgressSetRequest { percent, flow_job_id }): Json<JobProgressSetRequest>,
 ) -> error::JsonResult<()> {
+    // A restricted job token reaches this route without a scope only for its own job
+    // (`is_own_job_runtime_route`), so the flow it reports progress to must be its own too.
+    if let (Some(flow_job_id), Some(token_job), Some(_)) =
+        (flow_job_id, authed.job_id, &authed.scopes)
+    {
+        let own_flow = sqlx::query_scalar!(
+            "SELECT $2 IN (parent_job, root_job, flow_innermost_root_job) FROM v2_job
+            WHERE id = $1 AND workspace_id = $3",
+            token_job,
+            flow_job_id,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+        if !own_flow {
+            return Err(error::Error::PermissionDenied(format!(
+                "flow job {flow_job_id} is not this job's flow"
+            )));
+        }
+    }
     // If flow_job_id exists, than we should modify flow_status of corresponding module
     // Individual jobs and flows are handled differently
     if let Some(flow_job_id) = flow_job_id {

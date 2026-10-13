@@ -411,6 +411,8 @@
 		errorIteration = 0
 		currentId = testId
 		scriptProgress = undefined
+		notfound = false
+		loadError = undefined
 
 		// Replay mode: feed recorded events instead of real SSE
 		const replay = getActiveReplay()
@@ -727,6 +729,9 @@
 						}),
 						noLogs
 					)
+					// The completed-job branch below returns before the end of this block.
+					notfound = false
+					loadError = undefined
 
 					callbacks?.change?.(job)
 				}

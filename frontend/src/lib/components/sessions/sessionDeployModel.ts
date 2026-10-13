@@ -1,7 +1,7 @@
 import type { UserDraftItemKind } from '$lib/gen'
 import type { DraftItem } from '$lib/workspaceDrafts.svelte'
 import type { Kind } from '$lib/utils_deployable'
-import { maskKey } from './modifiedItemsMask'
+import { foldedIntoPipelineRow, maskKey } from './modifiedItemsMask'
 
 // Unified item model for the session Review & Deploy surface. This is the pure,
 // UI-free core: every item the session touched is either a pending **draft** or
@@ -128,6 +128,7 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 			if (sep < 0) continue
 			const udk = k.slice(0, sep) as UserDraftItemKind
 			const path = k.slice(sep + 1)
+			if (foldedIntoPipelineRow(mask, udk, path)) continue
 			seen.add(k)
 			out.push({
 				key: k,
@@ -172,6 +173,7 @@ export function maskOnlyCandidates(
 		if (sep < 0) continue
 		const udk = k.slice(0, sep) as UserDraftItemKind
 		const path = k.slice(sep + 1)
+		if (foldedIntoPipelineRow(mask, udk, path)) continue
 		out.push({ key: k, draftKind: udk, deployKind: deployKindOf(udk, udk === 'raw_app'), path })
 	}
 	return out

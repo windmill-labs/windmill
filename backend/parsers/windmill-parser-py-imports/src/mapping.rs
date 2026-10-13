@@ -383,5 +383,10 @@ pub static SHORT_IMPORTS_MAP: PyMap = phf_map! {
     "vt" => "vt-py",
     "grpc" => "grpcio",
     "serpapi" => "google-search-results",
+    "pptx" => "python-pptx",
+    "OpenSSL" => "pyOpenSSL",
+    "win32api" => "pywin32",
+    "ruamel" => "ruamel.yaml",
+    "speech-recognition" => "SpeechRecognition",
     // Add new entry here ^
 };

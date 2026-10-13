@@ -756,6 +756,13 @@ async fn test_compare_workspaces_trigger_and_schedule(db: Pool<Postgres>) -> any
     )
     .execute(&db)
     .await?;
+    // The scheduler's missed-occurrence counters only ever move on the enabled side.
+    sqlx::query(
+        "UPDATE schedule SET late_run_streak = 1, missed_occurrences = 2, last_missed_at = NOW()
+         WHERE workspace_id = 'test-workspace' AND path = 'f/sch/runtime_only'",
+    )
+    .execute(&db)
+    .await?;
 
     // ------ Schedule: config change (script_path) in fork. Should diff.
     sqlx::query!(

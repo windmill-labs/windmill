@@ -208,6 +208,11 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         workspace_id: &str,
     ) -> BackendResult<Self::Auth>;
 
+    /// An opaque value that changes whenever the workspace's live scripts or flows are
+    /// added, removed, moved or redeployed, compared across polls to detect tool-list
+    /// changes.
+    async fn runnable_list_fingerprint(&self, workspace_id: &str) -> BackendResult<String>;
+
     // ─────────────────────────────────────────────────────────────────
     // Endpoint Tools
     // ─────────────────────────────────────────────────────────────────

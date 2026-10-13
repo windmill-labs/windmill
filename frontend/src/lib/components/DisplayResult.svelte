@@ -7,7 +7,6 @@
 	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
-	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
 	import { Badge, Button, Drawer, DrawerContent } from './common'
@@ -22,7 +21,6 @@
 		Database,
 		Loader2
 	} from 'lucide-svelte'
-	import DucklakeResultPreview from './assets/AssetGraph/DucklakeResultPreview.svelte'
 	import DataTestsResult from './DataTestsResult.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
@@ -255,7 +253,7 @@
 	)
 	let resultDownloadHref = $derived(
 		resultApiPath
-			? `${base}/api${resultApiPath}`
+			? `/api${resultApiPath}`
 			: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`
 	)
 	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
@@ -857,7 +855,6 @@
 							{workspaceId}
 							{jobId}
 							{nodeId}
-							{base}
 							{result}
 							{disableTooltips}
 							on:open-drawer={() => openDrawer()}
@@ -1105,11 +1102,15 @@
 							/>
 							{#if showMaterializedPreview}
 								<div class="border rounded-md h-80 min-h-0 overflow-hidden">
-									<DucklakeResultPreview
-										assetUri={m.materialized}
-										partition={m.partition}
-										class="h-full"
-									/>
+									<!-- Dynamic: the DuckDB preview reaches ~450 modules (data table editor, low-code
+									     components), and every page that shows a job result imports this file. -->
+									{#await import('./assets/AssetGraph/DucklakeResultPreview.svelte') then DucklakeResultPreview}
+										<DucklakeResultPreview.default
+											assetUri={m.materialized}
+											partition={m.partition}
+											class="h-full"
+										/>
+									{/await}
 								</div>
 							{/if}
 						</div>

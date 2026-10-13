@@ -13,7 +13,8 @@
 	import { VARIABLES_PATH } from './sessions/previewPaths'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite } from '$lib/utils'
+	import { canEditItem } from '$lib/editRights'
+	import { userWorkspaces } from '$lib/stores'
 	import { Save } from 'lucide-svelte'
 	import VariableForm from './VariableForm.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
@@ -141,8 +142,12 @@
 		if (!selected || !edit) return true
 		const perms = extraPerms[selected]
 		if (!perms || !acting.resolved(selected)) return undefined
-		return canWrite(editPath ?? '', perms, acting.in(selected))
+		return canEditVariableIn(selected, perms)
 	})
+	function canEditVariableIn(ws: string, perms: Record<string, boolean>): boolean {
+		const settings = $userWorkspaces.find((w) => w.id === ws)?.operator_settings
+		return canEditItem('variable', editPath ?? '', perms, acting.in(ws), settings)
+	}
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
@@ -305,7 +310,7 @@
 	const dirtyCanWrite = $derived(
 		dirtyWorkspaces.every((ws) => {
 			const perms = extraPerms[ws]
-			return !perms || canWrite(editPath ?? '', perms, acting.in(ws))
+			return !perms || canEditVariableIn(ws, perms)
 		})
 	)
 
@@ -412,6 +417,19 @@
 		if (s) s.variable.value = getV.value ?? ''
 		if (ini) ini.variable.value = getV.value ?? ''
 		form?.setCode(getV.value ?? '')
+	}
+
+	// Re-securing hides the deployed value again, back to the state before it was loaded.
+	// A value the user typed is theirs to keep: it is what the next save deploys.
+	function onSecretChange(isSecret: boolean): void {
+		if (!isSecret || !selected || !existedInitially[selected]) return
+		const s = states[selected]?.draft
+		const ini = initialStates[selected]
+		if (!s || !ini?.variable.is_secret) return
+		if (s.variable.value !== '' && s.variable.value !== ini.variable.value) return
+		s.variable.value = ''
+		ini.variable.value = ''
+		form?.setCode('')
 	}
 
 	async function save(): Promise<void> {
@@ -572,6 +590,10 @@
 						can_write={can_write === true}
 						{edit}
 						onLoadSecret={loadSecret}
+						{onSecretChange}
+						deployedSecret={!!selected &&
+							!!existedInitially[selected] &&
+							!!initialStates[selected]?.variable.is_secret}
 						workspace={selected}
 						actingUser={acting.in(selected) ?? null}
 					/>

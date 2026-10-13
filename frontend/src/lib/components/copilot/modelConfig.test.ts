@@ -21,6 +21,13 @@ describe('workspace context window overrides', () => {
 		expect(getConfiguredModelContextWindow('openai', 'qwen-local', overrides)).toBeUndefined()
 		expect(getEffectiveModelContextWindow('openai', 'qwen-local', overrides)).toBe(128_000)
 	})
+
+	it('knows the gpt-6 and Claude 5.5 windows, so they do not compact at the assumed one', () => {
+		expect(getConfiguredModelContextWindow('openai', 'gpt-6-sol', undefined)).toBe(1_050_000)
+		expect(getConfiguredModelContextWindow('anthropic', 'claude-sonnet-5-5', undefined)).toBe(
+			1_000_000
+		)
+	})
 })
 
 describe('usesAnthropicMessagesApi', () => {

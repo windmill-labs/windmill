@@ -113,6 +113,11 @@ pub enum WacPark {
 /// handler — falls back to `now() - started_at`. Left pointing at the first segment,
 /// that fallback reports the whole sleep or approval wait as execution time.
 ///
+/// The first park keeps that first start in `extras.wac_first_started_at`, so the
+/// completed row can still say when the workflow began and how long it took overall
+/// (`Completion::execute`). The queue row's `started_at` stays per segment. The inline
+/// checkpoint requeue clears `started_at` on its own and keeps the first start the same way.
+///
 /// Call it before any write to the parent's `v2_job_status` row in the same
 /// transaction: a child's completion locks the queue row and then the status row
 /// (`record_child_completion`), and taking them the other way round here can
@@ -156,7 +161,10 @@ pub async fn suspend_wac_parent(
 
     sqlx::query!(
         "UPDATE v2_job_queue
-         SET suspend = $3, suspend_until = now() + make_interval(secs => $4), started_at = null
+         SET suspend = $3, suspend_until = now() + make_interval(secs => $4), started_at = null,
+             extras = CASE WHEN started_at IS NULL OR extras ? 'wac_first_started_at' THEN extras
+                 ELSE jsonb_set(COALESCE(extras, '{}'::jsonb), '{wac_first_started_at}', to_jsonb(started_at))
+             END
          WHERE id = $1 AND workspace_id = $2",
         job_id,
         w_id,
@@ -489,6 +497,16 @@ pub fn is_wac_v2(lang: Option<ScriptLang>, content: &str) -> bool {
     }
 }
 
+/// Whether a job in `lang` can be a workflow-as-code v2 entrypoint at all, before its
+/// content is known. Must cover every language `is_wac_v2` accepts: a missing one
+/// repeats the job header in the logs on every replay.
+pub fn lang_supports_wac_v2(lang: Option<ScriptLang>) -> bool {
+    matches!(
+        lang,
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) | Some(ScriptLang::Python3)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -512,5 +530,12 @@ export default workflow(async function main(x: number) { return x; });"#;
             Some(ScriptLang::Bun),
             "export async function main() {}"
         ));
+
+        for lang in [ScriptLang::Bun, ScriptLang::Bunnative, ScriptLang::Python3] {
+            assert!(lang_supports_wac_v2(Some(lang)));
+        }
+        assert!(!lang_supports_wac_v2(Some(ScriptLang::Deno)));
+        assert!(!lang_supports_wac_v2(Some(ScriptLang::Bash)));
+        assert!(!lang_supports_wac_v2(None));
     }
 }

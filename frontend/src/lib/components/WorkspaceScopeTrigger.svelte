@@ -2,8 +2,8 @@
 	import { userWorkspaces, type UserWorkspace } from '$lib/stores'
 	import { findWorkspaceRoot } from '$lib/utils/workspaceHierarchy'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
-	import { Badge, Button } from '$lib/components/common'
-	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+	import { Button } from '$lib/components/common'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import { Building, ChevronDown, EllipsisVertical, GitFork } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { type Item } from '$lib/utils'
@@ -171,12 +171,12 @@
 			{#if pendingFork}
 				<span class="shrink-0 opacity-70 font-normal">(new)</span>
 			{:else if currentWs?.is_dev_workspace}
-				<Badge
-					color="dark-blue"
-					small
-					class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
-					>{devBadgeText(currentWs.dev_workspace_label)}</Badge
-				>
+				<DevWorkspaceBadge
+					label={currentWs.dev_workspace_label}
+					color={color ?? (pendingFork ? undefined : currentWs.color)}
+					fallbackClass="dark:bg-surface-accent-primary text-white dark:text-white"
+					class="text-3xs px-1 py-0"
+				/>
 			{/if}
 		{/if}
 	</Button>

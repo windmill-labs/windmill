@@ -14,6 +14,7 @@
 		ADMIN_DATATABLE_ROLE,
 		datatableNameTakesRole,
 		defaultMigrationRole,
+		namedDefaultRole,
 		type DbInput
 	} from '../dbTypes'
 	import type { PendingRowAction, SelectedTable } from '../DBManager.svelte'
@@ -173,15 +174,15 @@
 			return rolesOfCurrent?.permissioned ? selectedRole : undefined
 		}
 		const entry = datatableTree.current.find((t) => t.datatable_name === datatable)
-		return entry?.permissioned ? entry.default_role : undefined
+		return entry?.permissioned ? namedDefaultRole(entry.default_role) : undefined
 	}
 
 	function defaultRoleOf(datatable: string): string | undefined {
 		if (datatable === selectedDatatable && rolesOfCurrent?.permissioned) {
-			return rolesOfCurrent.default_role
+			return namedDefaultRole(rolesOfCurrent.default_role)
 		}
 		const entry = datatableTree.current.find((t) => t.datatable_name === datatable)
-		return entry?.permissioned ? entry.default_role : undefined
+		return entry?.permissioned ? namedDefaultRole(entry.default_role) : undefined
 	}
 
 	const tableDatatable = (t: SelectedTable) => t.datatable ?? selectedDatatable
@@ -256,11 +257,14 @@
 		selectedRole = undefined
 	}
 
-	export function openDrawer() {
+	/** Opens on `at` when given, a data table and optionally one of its schemas. */
+	export function openDrawer(at?: { datatable: string; schema?: string }) {
 		resetSelection()
-		selectedSchemaKey = undefined
+		selectedSchemaKey = at?.schema
 		selectedTableKey = undefined
-		selectDatatable(datatables.current.includes('main') ? 'main' : datatables.current[0])
+		selectDatatable(
+			at?.datatable ?? (datatables.current.includes('main') ? 'main' : datatables.current[0])
+		)
 		expand = false
 		open = true
 	}

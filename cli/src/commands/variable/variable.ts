@@ -108,7 +108,8 @@ export interface VariableFile {
  * plaintext value a user authored by hand.
  *
  * Mirrors the server guard (windmill-store/src/variables.rs): workspace
- * ciphertext (AES-256-CBC, base64) is standard base64 decoding to a non-zero
+ * ciphertext (AES-256-GCM or legacy AES-256-CBC, base64) is standard base64
+ * decoding to a non-zero
  * multiple of the 16-byte block size. External secret-backend markers
  * ($vault:/$aws_sm:/$azure_kv:) are stored verbatim too, so they count as
  * already-encrypted. This is a shape check only — it never decrypts.

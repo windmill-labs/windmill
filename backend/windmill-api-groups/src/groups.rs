@@ -473,25 +473,15 @@ async fn update_igroup(
     require_super_admin(&db, &authed).await?;
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    let exists_opt = sqlx::query("SELECT 1 FROM instance_group WHERE name = $1")
-        .bind(name.clone())
-        .fetch_optional(&mut *tx)
-        .await?;
-    not_found_if_none(exists_opt, "instance_group", name.clone())?;
+    let old_role_opt = sqlx::query_scalar!(
+        "SELECT instance_role FROM instance_group WHERE name = $1 FOR UPDATE",
+        &name
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let old_role = not_found_if_none(old_role_opt, "instance_group", name.clone())?;
 
     let validated_role = validate_instance_role(&igroup_update.instance_role)?;
-
-    // Fetch old role before updating so we can detect changes
-    let old_role = if igroup_update.instance_role.is_some() {
-        sqlx::query_scalar!(
-            "SELECT instance_role FROM instance_group WHERE name = $1",
-            &name
-        )
-        .fetch_one(&mut *tx)
-        .await?
-    } else {
-        None
-    };
 
     sqlx::query("UPDATE instance_group SET summary = $1, instance_role = $2 WHERE name = $3")
         .bind(igroup_update.new_summary)
@@ -500,8 +490,9 @@ async fn update_igroup(
         .execute(&mut *tx)
         .await?;
 
-    // If instance_role actually changed, propagate to all group members
-    if igroup_update.instance_role.is_some() && old_role != validated_role {
+    // An omitted or null instance_role is stored as NULL above, so it revokes like any other
+    // change: members must be recomputed whenever the stored role differs.
+    if old_role != validated_role {
         propagate_instance_group_roles(&name, &mut tx).await?;
     }
 
@@ -667,21 +658,19 @@ async fn delete_igroup(
 
     // FOR UPDATE: the group row is the group-level mutex, taken before the workspace
     // advisory locks (see reconcile_workspace_instance_groups).
-    let group_role = sqlx::query_scalar!(
+    sqlx::query_scalar!(
         "SELECT instance_role FROM instance_group WHERE name = $1 FOR UPDATE",
         &name
     )
     .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
+    .await?;
 
-    let affected_members: Vec<String> = if group_role.is_some() {
+    // Collected whatever the group's current role: a member can still hold a role this group
+    // granted before it was cleared.
+    let affected_members: Vec<String> =
         sqlx::query_scalar!("SELECT email FROM email_to_igroup WHERE igroup = $1", &name)
             .fetch_all(&mut *tx)
-            .await?
-    } else {
-        vec![]
-    };
+            .await?;
 
     // Captured and advisory-locked before the settings update strips the group from them.
     #[cfg(feature = "private")]

@@ -11,6 +11,8 @@ use crate::{
 
 #[derive(sqlx::FromRow, Clone, Serialize, Deserialize, Hash, Debug)]
 pub struct NewWorkspaceDependencies {
+    /// Trusted as-is by `create`: a caller deserializing this from a request must first check it
+    /// against the workspace the caller is authorized in.
     pub workspace_id: String,
     pub language: ScriptLang,
     pub name: Option<String>,

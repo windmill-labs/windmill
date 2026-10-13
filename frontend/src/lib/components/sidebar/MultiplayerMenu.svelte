@@ -10,7 +10,7 @@
 	import { page } from '$app/stores'
 	import { slide } from 'svelte/transition'
 	import { buildWsUrl } from '$lib/wsUrl'
-	import { signMultiplayerRequest } from '$lib/components/debug'
+	import { signMultiplayerRequest } from '$lib/components/debug/debugUtils'
 
 	let awareness: Awareness | undefined = $state(undefined)
 	let wsProvider: WebsocketProvider | undefined = undefined

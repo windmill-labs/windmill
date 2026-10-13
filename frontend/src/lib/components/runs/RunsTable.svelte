@@ -13,7 +13,6 @@
 		Wrench
 	} from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
 	import './runs-grid.css'
 	import { useKeyPressed } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -21,6 +20,9 @@
 	import DropdownMenu, { type Props as DropdownMenuProps } from '../DropdownMenu.svelte'
 	import { clickOutside, isJobCancelable, isJobReRunnable, isJobResolvable } from '$lib/utils'
 	import { goto } from '$lib/navigation'
+	import { useHostedPage } from '../hostedPage'
+	import { useOperatingUser, useOperatingWorkspace } from '../operatingWorkspace.svelte'
+	import { withWorkspaceParam } from '../sessions/sessionMode.svelte'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 
 	interface Props {
@@ -81,6 +83,7 @@
 				if (nextJob?.type === 'date') nextJob = flatJobs?.[idx + (key === 'ArrowDown' ? 2 : -2)]
 				if (nextJob?.type !== 'job') return
 				selectedIds = [nextJob.job.id]
+				dispatch('select')
 				e.preventDefault()
 			}
 		}
@@ -200,6 +203,16 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	const hosted = useHostedPage()
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+
+	// Under a host the link opens where it decides, in the workspace the run belongs to: the
+	// document's own router would leave the host for the navigation workspace.
+	function open(href: string) {
+		if (!hosted) goto(href)
+		else hosted.openLink(withWorkspaceParam(href, selectedWorkspace ?? $operatingWorkspace))
+	}
 
 	let scrollToIndex = $state(0)
 
@@ -271,7 +284,7 @@
 			actions.push({
 				label: 'Show run details',
 				icon: ExternalLinkIcon,
-				onClick: () => goto(`/run/${selectedIds[0]}`)
+				onClick: () => open(`/run/${selectedIds[0]}`)
 			})
 			const job = flatJobs?.find(
 				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === selectedIds[0]
@@ -281,14 +294,20 @@
 					actions.push({
 						label: 'Go to script page',
 						icon: Code2Icon,
-						onClick: () => goto(`/scripts/get/${job.job.script_hash}`)
+						onClick: () =>
+							open(
+								// A host addresses an item by its path, and pins a version in the query.
+								hosted
+									? `/scripts/get/${job.job.script_path}?version=${job.job.script_hash}`
+									: `/scripts/get/${job.job.script_hash}`
+							)
 					})
 				}
 				if (job.job.job_kind === 'flow') {
 					actions.push({
 						label: 'Go to flow page',
 						icon: BarsStaggered,
-						onClick: () => goto(`/flows/get/${job.job.script_path}`)
+						onClick: () => open(`/flows/get/${job.job.script_path}`)
 					})
 				}
 			}
@@ -313,7 +332,7 @@
 				onHover: (hover) => (hoveredDropdownAction = hover ? 'cancel' : null)
 			})
 		// Operators are rejected by the endpoint, so offering the action would only 403.
-		const canResolve = !$userStore?.operator
+		const canResolve = !operatingUser.current?.operator
 		const resolvable = canResolve ? selectedIdsPossibleActions.resolvableJobIds.length : 0
 		const unresolvable = canResolve ? selectedIdsPossibleActions.unresolvableJobIds.length : 0
 		if (resolvable)
@@ -400,7 +419,7 @@
 							? jobCountString(jobs.length + externalJobs.length, lastFetchWentToEnd)
 							: ''}<Tooltip>{externalJobs.length} jobs obscured</Tooltip>
 					</div>
-				{:else if $workspaceStore !== 'admins' && omittedObscuredJobs}
+				{:else if $operatingWorkspace !== 'admins' && omittedObscuredJobs}
 					<div class="flex flex-row">
 						{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
 						<Popover>

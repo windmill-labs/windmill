@@ -17,7 +17,9 @@ use windmill_api_auth::{
 };
 use windmill_common::db::DB;
 use windmill_common::per_minute_counter::PerMinuteCounter;
-use windmill_common::ssrf::{private_git_host_allowed, private_git_host_hint, GitRemoteCaller};
+use windmill_common::ssrf::{
+    is_private_ip, private_git_host_allowed, private_git_host_hint, GitRemoteCaller,
+};
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
@@ -206,6 +208,25 @@ pub struct ListableResource {
     pub is_draft: Option<bool>,
 }
 
+/// A row of the resource listing: the resource as a single read returns it, plus what only the
+/// listing carries.
+#[derive(FromRow, Serialize)]
+pub struct ListedResource {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub resource: ListableResource,
+    /// An `ai_agent`'s `memory` setting, the one part of its value a listing shows: whether it
+    /// keeps a conversation decides how it is offered. `value` stays unlisted for every type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub agent_memory: Option<serde_json::Value>,
+    /// On a draft-only row, the path its editor has staged when it differs from the storage path
+    /// (a new item parked at `u/{user}/draft_{uuid}`), as the other kinds' listings report it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_path: Option<String>,
+}
+
 #[derive(Deserialize)]
 pub struct CreateResource {
     pub path: String,
@@ -322,7 +343,7 @@ async fn list_resources(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<ListableResource>> {
+) -> JsonResult<Vec<ListedResource>> {
     let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("resource")
@@ -344,6 +365,7 @@ async fn list_resources(
             "resource.labels",
             "folder_labels(resource.workspace_id, resource.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
+            "CASE WHEN resource.resource_type = 'ai_agent' THEN resource.value->'memory' END as agent_memory",
         ])
         // Scalar EXISTS flags the authed user's per-user draft without fanning rows out.
         .field(
@@ -428,11 +450,11 @@ async fn list_resources(
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
-    let mut rows = sqlx::query_as::<_, ListableResource>(&sql)
+    let mut rows = sqlx::query_as::<_, ListedResource>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
-        .filter(|r| allowed(&r.path))
+        .filter(|r| allowed(&r.resource.path))
         .collect::<Vec<_>>();
 
     tx.commit().await?;
@@ -467,14 +489,18 @@ async fn list_resources(
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
             // ResourceEditor's `ResourceState`: { path, description, args, labels?, wsSpecific, resource_type? }
-            let path = v
-                .get("path")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_string();
-            if path.is_empty() || !allowed(&path) {
+            // Listed at the draft's key rather than its `path`: an editor keys the draft on the path
+            // it opened, which is the only one a draft read can find, while `path` moves on rename.
+            // The staged `path` is reported beside it as `draft_path`.
+            let path = row.path;
+            if !allowed(&path) {
                 continue;
             }
+            let draft_path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .filter(|p| !p.is_empty() && *p != path)
+                .map(str::to_string);
             let description = v
                 .get("description")
                 .and_then(|x| x.as_str())
@@ -505,8 +531,13 @@ async fn list_resources(
                 })
             });
             let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
+            let agent_memory = if resource_type == "ai_agent" {
+                value.as_ref().and_then(|a| a.get("memory")).cloned()
+            } else {
+                None
+            };
 
-            rows.push(ListableResource {
+            let resource = ListableResource {
                 workspace_id: w_id.clone(),
                 path,
                 value,
@@ -528,7 +559,8 @@ async fn list_resources(
                 draft_only: Some(true),
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
-            });
+            };
+            rows.push(ListedResource { resource, agent_memory, draft_path });
         }
     }
 
@@ -810,6 +842,7 @@ pub async fn get_resource_value_interpolated_internal<'a>(
             token_for_context,
             0,
             &used_job_context,
+            Some(path),
         )
         .await?;
         if let Some(identity) = cache_identity.as_deref() {
@@ -849,8 +882,27 @@ pub async fn transform_json_value(
         token,
         depth,
         &used_job_context,
+        None,
     )
     .await
+}
+
+/// RLS resolves a reference as the token's user, not as the token: a token scoped to one
+/// resource would otherwise read, through that resource, every variable or resource its
+/// user can. Job tokens carry no scopes, so what a runnable resolves is unaffected.
+/// `resource_path` is the resource being expanded: its own linked secrets
+/// ([`is_owned_linked_var`]) are covered by the read of it.
+fn check_interpolation_scope(
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
+    domain: &str,
+    path: &str,
+    resource_path: Option<&str>,
+) -> Result<()> {
+    match db_with_opt_authed.authed() {
+        Some(_) if resource_path.is_some_and(|r| is_owned_linked_var(r, path)) => Ok(()),
+        Some(authed) => check_scopes(authed, || format!("{domain}:read:{path}")),
+        None => Ok(()),
+    }
 }
 
 /// Like [`transform_json_value`], but records into `used_job_context` whether the value
@@ -866,6 +918,7 @@ pub async fn transform_json_value_tracked(
     token: Option<&str>,
     depth: u8,
     used_job_context: &std::sync::atomic::AtomicBool,
+    resource_path: Option<&str>,
 ) -> Result<Value> {
     if depth >= MAX_RESOURCE_INTERPOLATION_DEPTH {
         return Err(Error::internal_err(format!(
@@ -875,6 +928,7 @@ pub async fn transform_json_value_tracked(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
+            check_interpolation_scope(db_with_opt_authed, "variables", path, resource_path)?;
 
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
@@ -883,6 +937,7 @@ pub async fn transform_json_value_tracked(
         }
         Value::String(y) if y.starts_with("$jsonvar:") => {
             let path = y.strip_prefix("$jsonvar:").unwrap();
+            check_interpolation_scope(db_with_opt_authed, "variables", path, resource_path)?;
 
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
@@ -898,6 +953,7 @@ pub async fn transform_json_value_tracked(
                     "Invalid resource path: {path}"
                 )));
             }
+            check_interpolation_scope(db_with_opt_authed, "resources", path, None)?;
             let mut tx: Transaction<'_, Postgres> = db_with_opt_authed.begin().await?;
             let v = sqlx::query_scalar!(
                 "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
@@ -917,6 +973,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    Some(path),
                 )
                 .await
             } else {
@@ -1016,6 +1073,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    resource_path,
                 )
                 .await?;
             }
@@ -1040,6 +1098,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    resource_path,
                 )
                 .await?;
                 m.insert(a.clone(), v);
@@ -3505,38 +3564,6 @@ struct GitRepositoryResource {
     branch: Option<String>,
 }
 
-/// Checks whether an IP address belongs to a private, loopback, link-local, or
-/// otherwise reserved range that should not be reachable from git operations.
-fn is_private_or_reserved_ip(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                // RFC 1122 "this network": the whole /8, not just the
-                // unspecified address `is_unspecified()` matches — stacks that
-                // map 0.x.y.z onto the local host make `0.0.0.1` a bypass.
-                || v4.octets()[0] == 0 // 0.0.0.0/8
-                || v4.is_broadcast()
-                // 100.64.0.0/10 (Carrier-grade NAT / CGNAT)
-                || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64)
-        }
-        IpAddr::V6(v6) => {
-            let seg = v6.segments();
-            v6.is_loopback()
-                || v6.is_unspecified()
-                // fc00::/7 (unique local address) — std has no stable is_unique_local()
-                || (seg[0] & 0xfe00) == 0xfc00
-                // fe80::/10 (link-local) — std has no stable is_unicast_link_local()
-                || (seg[0] & 0xffc0) == 0xfe80
-                // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the inner v4
-                || v6.to_ipv4_mapped().map_or(false, |v4| {
-                    is_private_or_reserved_ip(&IpAddr::V4(v4))
-                })
-        }
-    }
-}
-
 /// Extracts the hostname from a git URL.
 ///
 /// Handles standard URLs (`https://host/path`, `ssh://user@host/path`) and
@@ -3706,7 +3733,7 @@ async fn validate_git_url(url: &str, caller: GitRemoteCaller) -> Result<()> {
 
     // Check literal IP addresses
     if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_private_or_reserved_ip(&ip) {
+        if is_private_ip(&ip) {
             return Err(Error::BadRequest(format!(
                 "Git URLs targeting private or reserved IP addresses are not allowed.{hint}"
             )));
@@ -3729,7 +3756,7 @@ async fn validate_git_url(url: &str, caller: GitRemoteCaller) -> Result<()> {
             )));
         }
         for addr in addrs {
-            if is_private_or_reserved_ip(&addr.ip()) {
+            if is_private_ip(&addr.ip()) {
                 return Err(Error::BadRequest(format!(
                     "Git URL hostname resolves to a private or reserved IP address.{hint}"
                 )));
@@ -4983,73 +5010,6 @@ mod tests {
             extract_host_from_git_url("file:///etc/passwd"),
             Some("".to_string()).filter(|s| !s.is_empty())
         );
-    }
-
-    #[test]
-    fn test_is_private_or_reserved_ip() {
-        use std::net::IpAddr;
-        // Loopback
-        assert!(is_private_or_reserved_ip(
-            &"127.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"127.0.0.2".parse::<IpAddr>().unwrap()
-        ));
-        // Private ranges
-        assert!(is_private_or_reserved_ip(
-            &"10.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"172.16.0.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"192.168.1.1".parse::<IpAddr>().unwrap()
-        ));
-        // Link-local / cloud metadata
-        assert!(is_private_or_reserved_ip(
-            &"169.254.169.254".parse::<IpAddr>().unwrap()
-        ));
-        // CGNAT
-        assert!(is_private_or_reserved_ip(
-            &"100.64.0.1".parse::<IpAddr>().unwrap()
-        ));
-        // "This network" 0.0.0.0/8, not just the unspecified address
-        assert!(is_private_or_reserved_ip(
-            &"0.0.0.0".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"0.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        // IPv6 loopback
-        assert!(is_private_or_reserved_ip(&"::1".parse::<IpAddr>().unwrap()));
-        // IPv6 unique local address (fc00::/7)
-        assert!(is_private_or_reserved_ip(
-            &"fd00::1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"fc00::1".parse::<IpAddr>().unwrap()
-        ));
-        // IPv6 link-local (fe80::/10)
-        assert!(is_private_or_reserved_ip(
-            &"fe80::1".parse::<IpAddr>().unwrap()
-        ));
-        // IPv4-mapped IPv6
-        assert!(is_private_or_reserved_ip(
-            &"::ffff:127.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        // Public IPs should pass
-        assert!(!is_private_or_reserved_ip(
-            &"8.8.8.8".parse::<IpAddr>().unwrap()
-        ));
-        assert!(!is_private_or_reserved_ip(
-            &"140.82.121.4".parse::<IpAddr>().unwrap()
-        ));
-        // Public IPv6 should pass
-        assert!(!is_private_or_reserved_ip(
-            &"2606:2800:220:1:248:1893:25c8:1946"
-                .parse::<IpAddr>()
-                .unwrap()
-        ));
     }
 
     // A caller let through to private hosts must still hit the scheme check.

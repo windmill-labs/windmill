@@ -51,30 +51,17 @@ const TWO_HUNDRED: &str = "200.html";
 /// Check if the original path requires cross-origin isolation headers.
 ///
 /// CANONICAL COEP RATIONALE (the dev-server mirror in `frontend/vite.config.js`
-/// and the navigation guards in `frontend/src/routes/(root)/(logged)/+layout.svelte`
-/// point here): the headers are needed for SharedArrayBuffer and TypeScript
-/// workers (raw app editor at `/apps_raw/edit|add`, in-browser bundler at
-/// `/ui_builder/`). The raw app *viewer* (`/apps_raw/get/`) must NOT get them:
-/// COEP `require-corp` blocks the viewed app's cross-origin subresources
-/// (external images, embeds) that lack CORP — and since headers stick to the
-/// document, apps would break on a page reload while working when reached via
-/// client-side navigation.
-///
-/// Public apps (`/public/` and custom paths `/a/`) opt in via the `wm_coep`
-/// query param: a public (raw) app must set COEP to be embeddable as an iframe
-/// inside a cross-origin-isolated page (which requires the embedded document to
-/// also set COEP). It is opt-in rather than always-on because cross-origin
-/// isolation also blocks subresources without CORP (e.g. external image URLs
-/// or embeds used by classic apps), so we only enable it when the embedder
-/// explicitly requests it.
+/// points here). Only public apps (`/public/` and custom paths `/a/`) ever get
+/// them, and only when they opt in via the `wm_coep` query param: a public (raw)
+/// app must set COEP to be embeddable as an iframe inside a cross-origin-isolated
+/// page (which requires the embedded document to also set COEP). It is opt-in
+/// rather than always-on because COEP `require-corp` blocks subresources without
+/// CORP (external image URLs, embeds), and since headers stick to the document,
+/// isolating an SPA route leaks into every page reached from it client-side.
 #[cfg(feature = "static_frontend")]
 fn needs_cross_origin_isolation(original_path: &str, query: Option<&str>) -> bool {
-    // no trailing slash on edit/add: matches the +layout.svelte guards
-    original_path.starts_with("/apps_raw/edit")
-        || original_path.starts_with("/apps_raw/add")
-        || original_path.starts_with("/ui_builder/")
-        || ((original_path.starts_with("/public/") || original_path.starts_with("/a/"))
-            && query_has_flag(query, "wm_coep"))
+    (original_path.starts_with("/public/") || original_path.starts_with("/a/"))
+        && query_has_flag(query, "wm_coep")
 }
 
 /// Returns true if `query` contains the given flag key (with or without a
@@ -98,8 +85,6 @@ fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<
                 .header(header::CONTENT_TYPE, mime.as_ref())
                 .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 
-            // Add cross-origin isolation headers only for paths that need them
-            // (apps_raw editor needs SharedArrayBuffer for TypeScript workers)
             if needs_cross_origin_isolation(original_path, query) {
                 res = res
                     .header("Cross-Origin-Opener-Policy", "same-origin")
@@ -113,6 +98,21 @@ fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<
             // header is seen on the first fetch.
             if original_path.starts_with("/user/") {
                 res = res.header("X-Robots-Tag", "noindex, nofollow");
+            }
+
+            // The raw-app preview shell evaluates whatever js is posted to it, so it is
+            // only ever served opaque-origin, with the deployed app wrapper's exact flags
+            // (`get_raw_app_data`). Matched on the embedded file, not the request path,
+            // so `//ui_builder/...` is covered. A sandboxed app's editor preview loads it
+            // as served, framed with the same flags (`RAW_APP_SANDBOX_FLAGS` in the
+            // frontend); an unsandboxed one loads a same-origin blob: copy.
+            if path == "ui_builder/app-preview.html" {
+                res = res.header(
+                    header::CONTENT_SECURITY_POLICY,
+                    "sandbox allow-scripts allow-forms allow-popups \
+                     allow-popups-to-escape-sandbox allow-downloads allow-modals \
+                     allow-top-navigation",
+                );
             }
 
             // Add Content-Security-Policy header for static assets when policy is set
@@ -167,12 +167,13 @@ mod tests {
 
     #[test]
     fn test_needs_cross_origin_isolation() {
-        // editor + bundler are always isolated, regardless of query
-        assert!(needs_cross_origin_isolation("/apps_raw/edit/foo", None));
-        assert!(needs_cross_origin_isolation("/apps_raw/add", None));
-        assert!(needs_cross_origin_isolation("/ui_builder/index.html", None));
-
-        // the raw app viewer must NOT be isolated
+        // the raw app editor, its UI builder frames and the viewer are never isolated
+        assert!(!needs_cross_origin_isolation("/apps_raw/edit/foo", None));
+        assert!(!needs_cross_origin_isolation("/apps_raw/add", None));
+        assert!(!needs_cross_origin_isolation(
+            "/ui_builder/index.html",
+            None
+        ));
         assert!(!needs_cross_origin_isolation(
             "/apps_raw/get/u/foo/bar",
             None

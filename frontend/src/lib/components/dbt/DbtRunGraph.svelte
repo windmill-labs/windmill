@@ -11,7 +11,7 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import { previewDbtRows } from './previewRows'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { appendViewToken } from '$lib/viewToken'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
@@ -66,6 +66,8 @@
 		onResume?: () => Promise<unknown> | void
 	} = $props()
 
+	const operatingWorkspace = useOperatingWorkspace()
+
 	// The graph endpoint is folder-scoped; a script outside `f/` has no folder and
 	// falls back to the whole workspace, which the filter below narrows anyway.
 	let folder = $derived(scriptPath.startsWith('f/') ? scriptPath.split('/')[1] : undefined)
@@ -82,7 +84,7 @@
 	// own snapshot with nothing left to fetch again and correct it.
 	let graphSeq = 0
 	async function load() {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws) return
 		const gen = runGen
 		const seq = ++graphSeq
@@ -128,7 +130,7 @@
 	// one answer. `generation` is this page's own: a response that outlives a
 	// navigation between runs would colour the next one's models.
 	const runStatus = useDbtRunStatus({
-		workspace: () => $workspaceStore,
+		workspace: () => $operatingWorkspace,
 		jobId: () => jobId,
 		running: () => running,
 		result: () => result,
@@ -495,7 +497,7 @@
 	}
 
 	async function runPreview() {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		const dbt = selectedDbt
 		if (!ws || !dbt) return
 		// Keyed on the ARGUMENTS too, not the model alone: on the script page the
@@ -731,18 +733,16 @@
 			     exactly like a project with no warehouse identity. -->
 			No models stored for this version of the project.
 			{#if scriptHash}
-				A version's graph is written by its deploy, so this is what a deploy still in
-				flight looks like — it fills in when that job lands.
+				A version's graph is written by its deploy, so this is what a deploy still in flight looks
+				like — it fills in when that job lands.
 			{/if}
-			A project that brings its own <span class="font-mono">profiles.yml</span> without naming
-			a <span class="font-mono">profile.warehouse</span> also has no warehouse identity to key
-			models on, and stores none.
+			A project that brings its own <span class="font-mono">profiles.yml</span> without naming a
+			<span class="font-mono">profile.warehouse</span> also has no warehouse identity to key models on,
+			and stores none.
 		{/if}
 	</div>
 {:else}
-	<div
-		class="overflow-hidden flex flex-col {fill ? 'h-full' : 'border rounded'}"
-	>
+	<div class="overflow-hidden flex flex-col {fill ? 'h-full' : 'border rounded'}">
 		{#if relationDrift > 0}
 			<div class="shrink-0 px-2 py-1 text-2xs text-secondary border-b bg-surface-secondary">
 				{relationDrift}

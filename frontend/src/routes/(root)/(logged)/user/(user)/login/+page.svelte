@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 
@@ -14,7 +13,7 @@
 	import { emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
-	import { WindmillIcon } from '$lib/components/icons'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { clearStores } from '$lib/storeUtils'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import Login from '$lib/components/Login.svelte'
@@ -111,7 +110,7 @@
 					goto(rd ?? '/')
 				}
 				// See (root)/+layout.svelte for why /projects/import skips the picker.
-			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith(`${base}/projects/import`)) {
+			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith('/projects/import')) {
 				goto(rd)
 			} else if (rd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)

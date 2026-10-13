@@ -515,10 +515,14 @@ pub enum JobPayload {
         concurrency_settings: ConcurrencySettings,
         debouncing_settings: DebouncingSettings,
         labels: Option<Vec<String>>,
+        /// The script's `job_token_scopes` setting, read with the rest of the payload.
+        job_token_scopes: Option<Vec<String>>,
     },
     FlowNode {
         id: FlowNodeId,
         path: String,
+        /// See [`crate::flow_status::FlowStatus::no_inherited_flow_env`].
+        no_inherited_flow_env: bool,
     },
     FlowScript {
         id: FlowNodeId,
@@ -577,6 +581,8 @@ pub enum JobPayload {
         apply_preprocessor: bool,
         version: i64,
         labels: Option<Vec<String>>,
+        /// The flow's `job_token_scopes` setting, read with the rest of the payload.
+        job_token_scopes: Option<Vec<String>>,
     },
     RestartedFlow {
         completed_job_id: Uuid,
@@ -713,6 +719,10 @@ pub struct OnBehalfOf {
 }
 
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
+
+/// Job-arg key carrying a preview's module code. Only `push` writes it, from
+/// `RawCode::modules`: a caller-supplied one is dropped there.
+pub const MODULES_ARG: &str = "_MODULES";
 
 /// Reserved job-arg key holding the inbound W3C `traceparent` captured from the
 /// request that enqueued the job (run endpoints). It rides the `args` jsonb like

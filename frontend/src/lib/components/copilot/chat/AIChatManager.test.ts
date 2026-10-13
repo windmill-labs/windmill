@@ -24,7 +24,6 @@ vi.mock('$app/navigation', () => ({
 	afterNavigate: vi.fn(),
 	beforeNavigate: vi.fn()
 }))
-vi.mock('$app/paths', () => ({ base: '', assets: '' }))
 
 const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),
@@ -33,7 +32,7 @@ const mocks = vi.hoisted(() => ({
 	sendUserToast: vi.fn(),
 	getOpenaiClient: vi.fn(),
 	getAnthropicClient: vi.fn(),
-	getNonStreamingCompletion: vi.fn(),
+	getStreamedCompletionText: vi.fn(),
 	runChatLoop: vi.fn(),
 	listResource: vi.fn(),
 	getJob: vi.fn(),
@@ -127,6 +126,7 @@ vi.mock('$lib/aiStore', () => ({
 	// `sendRequest` reads it before anything else, so a test that goes through a real turn
 	// rather than driving the manager directly needs it present and enabled.
 	copilotInfo: writable({ enabled: true, workspaceDisabled: false, aiModels: [] }),
+	copilotSessionModel: writable(undefined),
 	getCurrentModel: mocks.getCurrentModel,
 	tryGetCurrentModel: mocks.tryGetCurrentModel,
 	getCombinedCustomPrompt: () => '',
@@ -142,7 +142,8 @@ vi.mock('../lib', () => ({
 		getOpenaiClient: mocks.getOpenaiClient,
 		getAnthropicClient: mocks.getAnthropicClient
 	},
-	getNonStreamingCompletion: mocks.getNonStreamingCompletion
+	getStreamedCompletionText: mocks.getStreamedCompletionText,
+	providerSupportsWebSearch: (provider: string) => provider === 'openai' || provider === 'anthropic'
 }))
 
 vi.mock('./api/apiTools', () => ({
@@ -587,6 +588,27 @@ describe('AIChatManager request errors', () => {
 			'Failed to send request: provider quota exceeded',
 			true
 		)
+	})
+})
+
+describe('AIChatManager provider tools', () => {
+	it('lists web search exactly when a turn would attach it', () => {
+		const manager = new AIChatManager()
+		const withModel = (provider: string) =>
+			mocks.tryGetCurrentModel.mockReturnValue({ provider, model: 'm' })
+
+		withModel('anthropic')
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+		expect(manager.providerTools.map((t) => t.name)).toEqual(['Web search'])
+		// Never mixed into what the request path dispatches.
+		expect(manager.availableTools.map((t) => t.def.function.name)).not.toContain('web_search')
+
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(false)
+		expect(manager.providerTools).toEqual([])
+
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+		withModel('mistral')
+		expect(manager.providerTools).toEqual([])
 	})
 })
 
@@ -3061,14 +3083,14 @@ describe('AIChatManager context compaction', () => {
 	it('compacts the stored history before sending once reported usage projects over the trigger', async () => {
 		const manager = new AIChatManager()
 		manager.messages = [
-			{ role: 'user', content: 'a'.repeat(400_000) }, // ~100k estimated tokens
-			{ role: 'assistant', content: 'b'.repeat(400_000) }, // ~100k
+			{ role: 'user', content: 'a'.repeat(1_200_000) }, // ~300k estimated tokens
+			{ role: 'assistant', content: 'b'.repeat(1_200_000) }, // ~300k
 			{ role: 'user', content: 'c'.repeat(400) },
 			{ role: 'assistant', content: 'd'.repeat(400) }
 		]
-		// Provider fact: 850k used. Projected past the 800k trigger, so ~150k
-		// must be freed to come back to the 700k target — the first user +
-		// assistant pair (~200k estimated).
+		// Provider fact: 850k used. Projected past the 800k trigger, so ~350k
+		// must be freed to come back to the 500k target — the first user +
+		// assistant pair (~600k estimated).
 		manager.contextUsage = 850_000
 		manager.instructions = 'next question'
 		const saveChat = vi.spyOn(manager.historyManager, 'saveChat')
@@ -3086,7 +3108,7 @@ describe('AIChatManager context compaction', () => {
 		// compaction-time save) so a rolled-back turn keeps a consistent value
 		// 4th arg: the modified-items mask rides on every save (undefined here —
 		// this bare manager never initialised tracking).
-		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 650_000, undefined)
+		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 250_000, undefined)
 		// At commit, the no-report turn clears the stored value; the readable
 		// number falls back to estimating the now-tiny compacted history
 		expect(manager.contextUsage).toBeUndefined()
@@ -3327,7 +3349,7 @@ describe('AIChatManager context compaction', () => {
 	it('summarizes the older prefix and keeps the recent tail verbatim', async () => {
 		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
-		mocks.getNonStreamingCompletion.mockResolvedValue(
+		mocks.getStreamedCompletionText.mockResolvedValue(
 			'<analysis>scratchpad</analysis><summary>SUMMARY TEXT</summary>'
 		)
 		const manager = new AIChatManager()
@@ -3337,8 +3359,8 @@ describe('AIChatManager context compaction', () => {
 
 		// The prefix (the four OLD messages) was sent to the summarizer, followed
 		// by the summary-instruction user message.
-		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
-		const summaryReq = mocks.getNonStreamingCompletion.mock.calls[0][0]
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
+		const summaryReq = mocks.getStreamedCompletionText.mock.calls[0][0]
 		expect(summaryReq).toHaveLength(5)
 		expect(summaryReq[0].content).toContain('OLD1')
 		expect(summaryReq[3].content).toContain('OLD4')
@@ -3369,7 +3391,7 @@ describe('AIChatManager context compaction', () => {
 	it('carries folded-away message files on the summary', async () => {
 		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
-		mocks.getNonStreamingCompletion.mockResolvedValue(
+		mocks.getStreamedCompletionText.mockResolvedValue(
 			'<analysis>s</analysis><summary>SUM</summary>'
 		)
 		const manager = new AIChatManager()
@@ -3400,7 +3422,7 @@ describe('AIChatManager context compaction', () => {
 	it('never lands the tail boundary on a screenshot follow-up that has no display counterpart', async () => {
 		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
-		mocks.getNonStreamingCompletion.mockResolvedValue('<summary>SUMMARY TEXT</summary>')
+		mocks.getStreamedCompletionText.mockResolvedValue('<summary>SUMMARY TEXT</summary>')
 		const manager = new AIChatManager()
 		manager.messages = [
 			{ role: 'user', content: 'OLD1' + 'a'.repeat(100_000) },
@@ -3448,7 +3470,7 @@ describe('AIChatManager context compaction', () => {
 	it('falls back to drop-oldest when summarization fails', async () => {
 		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
-		mocks.getNonStreamingCompletion.mockRejectedValue(new Error('summary boom'))
+		mocks.getStreamedCompletionText.mockRejectedValue(new Error('summary boom'))
 		const manager = new AIChatManager()
 		seedForSummary(manager)
 
@@ -3456,7 +3478,7 @@ describe('AIChatManager context compaction', () => {
 
 		// Summarization was attempted, then the request still went out — via
 		// drop-oldest, so no summary boundary anywhere.
-		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
 		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
 		const sent = mocks.runChatLoop.mock.calls[0][0].messages
 		expect(sent[0].content).not.toContain('continued from a previous conversation')
@@ -3478,7 +3500,7 @@ describe('AIChatManager context compaction', () => {
 		await manager.sendRequest()
 
 		// A two-message prefix isn't worth a summary round-trip.
-		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+		expect(mocks.getStreamedCompletionText).not.toHaveBeenCalled()
 		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
 	})
 
@@ -3487,7 +3509,7 @@ describe('AIChatManager context compaction', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
 		// The user hits Stop while the summary request is in flight: it aborts the
 		// turn's controller and rejects.
-		mocks.getNonStreamingCompletion.mockImplementation(async (_msgs: any, ac: AbortController) => {
+		mocks.getStreamedCompletionText.mockImplementation(async (_msgs: any, ac: AbortController) => {
 			ac.abort('user_cancelled')
 			throw new Error('aborted')
 		})
@@ -3507,7 +3529,7 @@ describe('AIChatManager context compaction', () => {
 		// Summarization was attempted and aborted, but the abort must NOT trigger a
 		// destructive drop-oldest fallback: the full prefix survives and the unsent
 		// turn is rolled back to the pre-send history (the head pair is still there).
-		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
 		expect(manager.messages).toHaveLength(6)
 		expect(manager.messages[0].content).toContain('OLD1')
 		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
@@ -3542,7 +3564,7 @@ describe('AIChatManager manual compaction', () => {
 	}
 
 	it('folds the whole history into a single summary boundary, keeping nothing verbatim', async () => {
-		mocks.getNonStreamingCompletion.mockResolvedValue('<summary>MANUAL SUMMARY</summary>')
+		mocks.getStreamedCompletionText.mockResolvedValue('<summary>MANUAL SUMMARY</summary>')
 		const manager = new AIChatManager()
 		seedExchange(manager)
 		manager.contextUsage = 123
@@ -3551,15 +3573,15 @@ describe('AIChatManager manual compaction', () => {
 		await manager.compactManually()
 
 		// The summarizer saw the entire history, then the summary instruction.
-		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
-		const summaryReq = mocks.getNonStreamingCompletion.mock.calls[0][0]
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
+		const summaryReq = mocks.getStreamedCompletionText.mock.calls[0][0]
 		expect(summaryReq).toHaveLength(5)
 		expect(summaryReq[0].content).toBe('q1')
 		expect(summaryReq[3].content).toBe('a2')
 		expect(summaryReq[4].content).toContain('detailed summary')
-		// The summarizer's output must stay capped: without it the model default
-		// applies and the Anthropic SDK rejects the non-streaming call pre-flight.
-		expect(mocks.getNonStreamingCompletion.mock.calls[0][2]).toEqual({ maxTokensCap: 8000 })
+		// The summarizer's output must stay capped at the budget reserved for the
+		// summary: without it the model default applies.
+		expect(mocks.getStreamedCompletionText.mock.calls[0][2]).toEqual({ maxTokensCap: 8000 })
 
 		// Nothing kept verbatim: messages collapse to just the summary user message.
 		expect(manager.messages).toHaveLength(1)
@@ -3585,13 +3607,13 @@ describe('AIChatManager manual compaction', () => {
 
 		await manager.compactManually()
 
-		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+		expect(mocks.getStreamedCompletionText).not.toHaveBeenCalled()
 		expect(mocks.sendUserToast).toHaveBeenCalledWith('Nothing to compact yet.')
 		expect(manager.messages).toHaveLength(1)
 	})
 
 	it('leaves history untouched when the user stops mid-summary', async () => {
-		mocks.getNonStreamingCompletion.mockImplementation(async (_msgs: any, ac: AbortController) => {
+		mocks.getStreamedCompletionText.mockImplementation(async (_msgs: any, ac: AbortController) => {
 			ac.abort('user_cancelled')
 			throw new Error('aborted')
 		})
@@ -3608,7 +3630,7 @@ describe('AIChatManager manual compaction', () => {
 	})
 
 	it('routes the /compact session command to manual compaction instead of the model', async () => {
-		mocks.getNonStreamingCompletion.mockResolvedValue('<summary>VIA COMMAND</summary>')
+		mocks.getStreamedCompletionText.mockResolvedValue('<summary>VIA COMMAND</summary>')
 		const manager = new AIChatManager()
 		manager.isSessionChat = true
 		seedExchange(manager)
@@ -3620,13 +3642,13 @@ describe('AIChatManager manual compaction', () => {
 		expect(sent).toBe(true)
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
 		// ...it ran the summarizer and compacted in place, clearing the composer.
-		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
 		expect(manager.displayMessages[0]).toMatchObject({ role: 'summary', content: 'VIA COMMAND' })
 		expect(manager.instructions).toBe('')
 	})
 
 	it('auto-sends a message queued while compaction was running', async () => {
-		mocks.getNonStreamingCompletion.mockResolvedValue('<summary>S</summary>')
+		mocks.getStreamedCompletionText.mockResolvedValue('<summary>S</summary>')
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			const message = { role: 'assistant' as const, content: 'done' }
 			config.addedMessages?.push(message)
@@ -3646,7 +3668,7 @@ describe('AIChatManager manual compaction', () => {
 		await manager.compactManually()
 
 		// Compaction ran once, then the queued message went out as a real turn.
-		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
 		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
 		const sent = mocks.runChatLoop.mock.calls[0][0].messages
 		expect(sent[sent.length - 1].content).toContain('follow-up question')
@@ -3664,7 +3686,7 @@ describe('AIChatManager manual compaction', () => {
 		// without ever reaching the model...
 		expect(sent).toBe(true)
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
-		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+		expect(mocks.getStreamedCompletionText).not.toHaveBeenCalled()
 		// ...it reset the conversation and cleared the composer.
 		expect(manager.displayMessages).toEqual([])
 		expect(manager.messages).toEqual([])
@@ -3735,7 +3757,7 @@ describe('AIChatManager manual compaction', () => {
 
 		// Without the session-chat command surface, /compact is a normal message.
 		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
-		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+		expect(mocks.getStreamedCompletionText).not.toHaveBeenCalled()
 	})
 
 	it('shadows a selected skill that collides with a built-in command', () => {
@@ -4306,11 +4328,15 @@ describe('DOM selector chips scoped by app path', () => {
 describe('AIChatManager.waitForPipelineHelpers', () => {
 	function fakePipelineHelpers(): PipelineAIChatHelpers {
 		return {
+			getFolder: () => 'f',
+			hasDrafts: () => false,
 			getPipelineContext: () => ({ folder: 'f', mode: 'edit', nodes: [], assets: [] }),
 			getNodeBody: async () => undefined,
 			proposeNode: async () => ({ path: '', detectedReads: [], detectedWrites: [] }),
 			editNode: async () => ({ detectedReads: [], detectedWrites: [] }),
 			removeProposedNode: async () => {},
+			unconfiguredTriggers: async () => [],
+			setNodeTrigger: async () => ({ path: '', replaced: false }),
 			testNode: async () => undefined
 		}
 	}
@@ -4318,16 +4344,28 @@ describe('AIChatManager.waitForPipelineHelpers', () => {
 	it('resolves true immediately when a pipeline editor is already registered', async () => {
 		const manager = new AIChatManager()
 		manager.setPipelineHelpers(fakePipelineHelpers())
-		await expect(manager.waitForPipelineHelpers(1000)).resolves.toBe(true)
+		await expect(manager.waitForPipelineHelpers(undefined, 1000)).resolves.toBe(true)
 	})
 
 	it('resolves true once a pipeline editor registers', async () => {
 		const manager = new AIChatManager()
 		let outcome: boolean | undefined
-		const wait = manager.waitForPipelineHelpers(1000).then((v) => (outcome = v))
+		const wait = manager.waitForPipelineHelpers(undefined, 1000).then((v) => (outcome = v))
 		await Promise.resolve()
 		expect(outcome).toBeUndefined()
 		manager.setPipelineHelpers(fakePipelineHelpers())
+		await wait
+		expect(outcome).toBe(true)
+	})
+
+	it('waits for the editor of the requested folder, not any editor', async () => {
+		const manager = new AIChatManager()
+		manager.setPipelineHelpers(fakePipelineHelpers())
+		let outcome: boolean | undefined
+		const wait = manager.waitForPipelineHelpers('sales', 1000).then((v) => (outcome = v))
+		await Promise.resolve()
+		expect(outcome).toBeUndefined()
+		manager.setPipelineHelpers({ ...fakePipelineHelpers(), getFolder: () => 'sales' })
 		await wait
 		expect(outcome).toBe(true)
 	})
@@ -4337,7 +4375,7 @@ describe('AIChatManager.waitForPipelineHelpers', () => {
 	// than silently claim success.
 	it('resolves false after the timeout when no editor ever registers', async () => {
 		const manager = new AIChatManager()
-		await expect(manager.waitForPipelineHelpers(10)).resolves.toBe(false)
+		await expect(manager.waitForPipelineHelpers(undefined, 10)).resolves.toBe(false)
 	})
 })
 

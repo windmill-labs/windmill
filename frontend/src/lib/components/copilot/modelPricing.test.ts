@@ -35,6 +35,16 @@ describe('resolveModelPrice', () => {
 		expect(resolveModelPrice('googleai', 'gemini-3.7-flash', undefined)).toBeUndefined()
 	})
 
+	it('prices Claude 5.5 flat and leaves the tiered gpt-6 unpriced', () => {
+		expect(resolveModelPrice('anthropic', 'claude-opus-5-5', undefined)?.price).toMatchObject({
+			input: 4,
+			output: 20,
+			cacheRead: 0.2
+		})
+		expect(resolveModelPrice('anthropic', 'claude-sonnet-5-5', undefined)?.price.input).toBe(2)
+		expect(resolveModelPrice('openai', 'gpt-6-sol', undefined)).toBeUndefined()
+	})
+
 	it('reports an unknown model as unpriced rather than guessing', () => {
 		expect(resolveModelPrice('customai', 'some-in-house-model', undefined)).toBeUndefined()
 	})

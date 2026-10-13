@@ -458,6 +458,8 @@ export async function deployItem(
           path,
           requestBody: {
             ...flow,
+            // Sent even when unset: the backend keeps a restriction an omitted field leaves out.
+            job_token_scopes: flow.job_token_scopes ?? null,
             preserve_on_behalf_of: preserveOnBehalfOf,
             on_behalf_of_email: onBehalfOf,
             // Usernames are per-workspace, so the source's principal names nobody in
@@ -471,6 +473,8 @@ export async function deployItem(
           workspace: workspaceTo,
           requestBody: {
             ...flow,
+            // Sent even when unset: the backend keeps a restriction an omitted field leaves out.
+            job_token_scopes: flow.job_token_scopes ?? null,
             preserve_on_behalf_of: preserveOnBehalfOf,
             on_behalf_of_email: onBehalfOf,
             // Usernames are per-workspace, so the source's principal names nobody in
@@ -498,6 +502,7 @@ export async function deployItem(
         requestBody: {
           ...script,
           lock: script.lock,
+          job_token_scopes: script.job_token_scopes ?? null,
           parent_hash: parentHash,
           preserve_on_behalf_of: preserveOnBehalfOf,
           on_behalf_of_email: onBehalfOf,
@@ -611,6 +616,7 @@ export async function deployItem(
             value: variable.value ?? "",
             is_secret: variable.is_secret,
             description: variable.description ?? "",
+            labels: variable.labels,
             // Sent as an explicit null when the source has no expiry: an absent key means
             // "leave the stored date alone", which would strand the target on a date the
             // source has already moved or cleared.
@@ -626,6 +632,7 @@ export async function deployItem(
             value: variable.value ?? "",
             is_secret: variable.is_secret,
             description: variable.description ?? "",
+            labels: variable.labels,
             value_expires_at: variable.value_expires_at ?? null,
           },
         });
@@ -643,6 +650,7 @@ export async function deployItem(
             path,
             value: resource.value ?? "",
             description: resource.description ?? "",
+            labels: resource.labels,
           },
         });
       } else {
@@ -653,6 +661,7 @@ export async function deployItem(
             value: resource.value ?? "",
             resource_type: resource.resource_type,
             description: resource.description ?? "",
+            labels: resource.labels,
           },
         });
       }
@@ -694,6 +703,9 @@ export async function deployItem(
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
+            // A folder stores cleared labels as NULL and reads back without the field, so an
+            // absent value has to be sent as [] or the target keeps labels the source removed.
+            labels: folder.labels ?? [],
           },
         });
       } else {
@@ -704,6 +716,7 @@ export async function deployItem(
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
+            labels: folder.labels,
           },
         });
       }
@@ -886,6 +899,7 @@ export async function getItemValue(
         summary: flow.summary,
         description: flow.description,
         value: flow.value,
+        job_token_scopes: flow.job_token_scopes ?? null,
       };
     } else if (kind === "script") {
       const script = await provider.getScriptByPath({ workspace, path });
@@ -895,6 +909,7 @@ export async function getItemValue(
         schema: script.schema,
         summary: script.summary,
         language: script.language,
+        job_token_scopes: script.job_token_scopes ?? null,
       };
     } else if (kind === "app" || kind === "raw_app") {
       return await provider.getAppByPath({ workspace, path });

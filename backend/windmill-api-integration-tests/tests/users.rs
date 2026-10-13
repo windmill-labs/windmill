@@ -993,3 +993,56 @@ async fn test_drafts_follow_their_owner_without_a_fkey(db: Pool<Postgres>) -> an
 
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_impersonation_session_is_never_refreshed(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api/users", server.addr.port());
+    let get = |token: &'static str, path: &str| {
+        client()
+            .get(format!("{base}/{path}"))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+    };
+
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, email, label, expiration)
+         VALUES (encode(sha256('IMPERSONATION_TOKEN'::bytea), 'hex'), 'IMPERSONAT',
+                 'test2@windmill.dev', 'impersonation:test@windmill.dev', now() + interval '1 day')",
+    )
+    .execute(&db)
+    .await?;
+    let refreshed = get("IMPERSONATION_TOKEN", "refresh_token")
+        .await?
+        .text()
+        .await?;
+    assert_eq!(refreshed, "this session cannot be refreshed");
+
+    // Once the row is gone, as when the monitor sweeps an expired one, the auth cache still
+    // accepts the token for a while.
+    sqlx::query("DELETE FROM token WHERE label LIKE 'impersonation:%'")
+        .execute(&db)
+        .await?;
+    assert_eq!(get("IMPERSONATION_TOKEN", "whoami").await?.status(), 200);
+    let refreshed = get("IMPERSONATION_TOKEN", "refresh_token")
+        .await?
+        .text()
+        .await?;
+    assert_eq!(refreshed, "this session cannot be refreshed");
+
+    let sessions: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM token WHERE email = 'test2@windmill.dev' AND label = 'session'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(sessions, 0);
+
+    let refreshed = get("SECRET_TOKEN_3", "refresh_token").await?.text().await?;
+    assert_eq!(
+        refreshed, "token refreshed",
+        "an ordinary token still refreshes"
+    );
+
+    Ok(())
+}

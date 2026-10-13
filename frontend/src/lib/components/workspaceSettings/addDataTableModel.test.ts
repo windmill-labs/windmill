@@ -23,6 +23,7 @@ const getSettingsMock = vi.fn()
 const editDataTableConfigMock = vi.fn()
 const testDataTableConnectionMock = vi.fn()
 const setupCustomInstanceDbMock = vi.fn()
+const createExternalInstanceDbMock = vi.fn()
 vi.mock('$lib/gen', () => ({
 	VariableService: {
 		existsVariable: (...a: any[]) => existsVariableMock(...a),
@@ -36,7 +37,10 @@ vi.mock('$lib/gen', () => ({
 		createResource: vi.fn(),
 		updateResource: vi.fn()
 	},
-	SettingService: { setupCustomInstanceDb: (...a: any[]) => setupCustomInstanceDbMock(...a) },
+	SettingService: {
+		setupCustomInstanceDb: (...a: any[]) => setupCustomInstanceDbMock(...a),
+		createExternalInstancePgDatabase: (...a: any[]) => createExternalInstanceDbMock(...a)
+	},
 	WorkspaceService: {
 		getSettings: (...a: any[]) => getSettingsMock(...a),
 		editDataTableConfig: (...a: any[]) => editDataTableConfigMock(...a),
@@ -236,6 +240,48 @@ describe('runSetup rolling the instance row back', () => {
 		expect(result.rowWritten).toBe(false)
 		const lastWrite = editDataTableConfigMock.mock.calls.at(-1)?.[0]
 		expect(lastWrite.requestBody.settings.datatables).not.toHaveProperty('main')
+	})
+})
+
+// A database on the external cluster belongs to whoever created it, and the endpoint refuses a
+// name it already holds. Skipping the create on any registered name is how a run ends up
+// attached to somebody else's data without the sharing warning the existing-database branch
+// shows -- so only the databases this run made may make a retry skip it.
+describe('runSetup creating a database on the external cluster', () => {
+	function creatingExternal(): WizardState {
+		const state = newWizardState({ name: 'main', projectName: 'x', folder: 'f/team' })
+		state.provider = 'external_instance'
+		state.external = { mode: 'create', dbName: 'dt_new' }
+		return state
+	}
+	const externalDeps = (createdExternalDbs: string[] = []) =>
+		({
+			workspace: 'w',
+			onProgress: () => {},
+			claims: noClaims,
+			username: 'alice',
+			createdProjects: [],
+			createdExternalDbs
+		}) as any
+
+	beforeEach(() => {
+		vi.clearAllMocks()
+		getSettingsMock.mockResolvedValue({ datatable: { datatables: {} } })
+		editDataTableConfigMock.mockResolvedValue(undefined)
+		testDataTableConnectionMock.mockResolvedValue({ can_create_table: true })
+	})
+
+	it('creates the database on a first attempt', async () => {
+		const result = await runSetup(creatingExternal(), externalDeps())
+		expect(result.ok).toBe(true)
+		expect(createExternalInstanceDbMock).toHaveBeenCalledTimes(1)
+		expect(result.createdExternalDbs).toContain('dt_new')
+	})
+
+	it('skips the create only for a database it made itself', async () => {
+		const result = await runSetup(creatingExternal(), externalDeps(['dt_new']))
+		expect(result.ok).toBe(true)
+		expect(createExternalInstanceDbMock).not.toHaveBeenCalled()
 	})
 })
 

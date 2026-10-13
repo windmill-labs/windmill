@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
+	import { CornerDownLeft, History, Loader2, X } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
 	import { runScriptAndPollResult } from './jobs/utils'
 	import { writingJobOptions } from './jobs/writingJob'
@@ -7,9 +7,9 @@
 	import { untrack } from 'svelte'
 	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { getDatabaseArg, getDbType } from './dbOps'
 	import type { DbInput } from './dbTypes'
+	import type { DBSchema } from '$lib/stores'
 	import { wrapDucklakeQuery } from './ducklake'
 	import { splitSqlStatements, pruneComments } from './sqlDdl'
 	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
@@ -32,6 +32,11 @@
 		workspace?: string | undefined
 		/** Worker tag the queries run on instead of the language's native one. */
 		tag?: string | undefined
+		/** Editor content to start from instead of the placeholder query. */
+		initialCode?: string
+		onCodeChange?: (code: string) => void
+		/** The database's schema, for completing table and column names. */
+		schema?: DBSchema
 	}
 	let {
 		input,
@@ -39,7 +44,10 @@
 		placeholderTableName,
 		onSchemaChange,
 		workspace = undefined,
-		tag = undefined
+		tag = undefined,
+		initialCode,
+		onCodeChange,
+		schema
 	}: Props = $props()
 	let ws = $derived(workspace ?? $operatingWorkspace)
 	let dbType = $derived(getDbType(input))
@@ -54,7 +62,7 @@
 	let ddlGuard = $state<DdlMigrationGuard | undefined>(undefined)
 
 	const DEFAULT_SQL = 'SELECT * FROM _'
-	let code = $state(DEFAULT_SQL)
+	let code = $state(untrack(() => initialCode) ?? DEFAULT_SQL)
 
 	/** Seed the editor from outside, e.g. a query composed in a drawer. */
 	export function setCode(newCode: string) {
@@ -187,42 +195,74 @@
 		}
 	}
 	let editor = $state<any | null>(null)
+	let historyOpen = $state(true)
 </script>
 
-<Splitpanes>
-	<Pane class="relative">
-		{#await import('$lib/components/Editor.svelte')}
-			<Loader2 class="animate-spin" />
-		{:then Module}
-			<Module.default
-				bind:this={editor}
-				bind:code
-				scriptLang="mysql"
-				class="w-full h-full"
-				cmdEnterAction={run}
-			/>
-		{/await}
-		<Button
-			wrapperClasses="absolute z-10 bottom-2 right-6"
-			variant="accent"
-			destructive={isRunning}
-			shortCut={{ Icon: CornerDownLeft }}
-			on:click={() => run()}
-		>
-			{isRunning ? 'Running...' : 'Run'}
-		</Button>
-	</Pane>
-	<Pane size={24} minSize={16}>
-		<StepHistory
-			staticInputs={runHistory}
-			on:select={(e) => {
-				const data = e.detail as (typeof runHistory)[number]
-				editor?.setCode(data.code)
-				onData(data.result, data.code)
-			}}
+<div class="relative h-full w-full">
+	{#await import('$lib/components/Editor.svelte')}
+		<Loader2 class="animate-spin" />
+	{:then Module}
+		<Module.default
+			bind:this={editor}
+			bind:code={() => code, (v) => ((code = v), onCodeChange?.(v))}
+			scriptLang="mysql"
+			sqlSchema={schema}
+			class="w-full h-full"
+			cmdEnterAction={run}
 		/>
-	</Pane>
-</Splitpanes>
+	{/await}
+	<Button
+		wrapperClasses="absolute z-10 bottom-2 right-6"
+		variant="accent"
+		destructive={isRunning}
+		shortCut={{ Icon: CornerDownLeft }}
+		on:click={() => run()}
+	>
+		{isRunning ? 'Running...' : 'Run'}
+	</Button>
+	<!-- Floats over the editor rather than taking a pane of its own, so the query keeps the
+		 full width. -->
+	{#if historyOpen}
+		<div
+			class="absolute right-6 top-3 z-10 flex h-96 w-72 flex-col overflow-hidden rounded-lg border bg-surface-tertiary shadow-md"
+			style="max-height: calc(100% - 4.5rem)"
+		>
+			<div class="flex items-center justify-between border-b py-1 pl-3 pr-1">
+				<span class="text-xs font-semibold text-emphasis">Run history</span>
+				<Button
+					variant="subtle"
+					unifiedSize="xs"
+					iconOnly
+					startIcon={{ icon: X }}
+					title="Hide run history"
+					onClick={() => (historyOpen = false)}
+				/>
+			</div>
+			<div class="min-h-0 flex-1 overflow-auto">
+				<StepHistory
+					staticInputs={runHistory}
+					on:select={(e) => {
+						const data = e.detail as (typeof runHistory)[number]
+						editor?.setCode(data.code)
+						onData(data.result, data.code)
+					}}
+				/>
+			</div>
+		</div>
+	{:else}
+		<div class="absolute right-6 top-3 z-10">
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				iconOnly
+				btnClasses="bg-surface-tertiary"
+				startIcon={{ icon: History }}
+				title="Show run history"
+				onClick={() => (historyOpen = true)}
+			/>
+		</div>
+	{/if}
+</div>
 
 {#if datatableName && ws}
 	<DdlMigrationGuard

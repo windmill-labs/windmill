@@ -36,6 +36,8 @@ export type FlowBuilderWhitelabelCustomUi = {
 	languages?: (SupportedLanguage | 'docker' | 'bunnative')[]
 	scriptFork?: boolean
 	scriptEdit?: boolean
+	/** Set to false to hide the inline step's "Save to workspace" button. */
+	saveToWorkspace?: boolean
 	tagEdit?: boolean
 	editorBar?: EditorBarUi
 	downloadLogs?: boolean

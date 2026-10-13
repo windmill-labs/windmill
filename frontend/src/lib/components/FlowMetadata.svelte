@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { type Job } from '$lib/gen'
-	import { base } from '$lib/base'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import { flowPathToHref } from '$lib/scripts'
 	import { displayDate, truncateRev } from '$lib/utils'
@@ -58,7 +57,7 @@
 					<BarsStaggered size={SMALL_ICON_SIZE} class="min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Step of flow
-						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+						<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}>
 							{truncateRev(job.parent_job, 18)}
 						</a>
 					</span>
@@ -68,7 +67,7 @@
 					<Bot size={SMALL_ICON_SIZE} class="min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Triggered by parent
-						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+						<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}>
 							{job.parent_job}</a
 						>
 					</span>
@@ -96,7 +95,7 @@
 			{@const stem = `${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = isScript
-				? `${base}/${stem}/get/${job?.script_hash}`
+				? `/${stem}/get/${job?.script_hash}`
 				: flowPathToHref(job?.script_path ?? '')}
 			<div class="flex flex-row gap-2 items-center">
 				{#if isScript}
@@ -128,6 +127,6 @@
 	</div>
 	<div class="text-secondary text-2xs pt-2 whitespace-nowrap">
 		run id:
-		<a href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}> {job.id} </a>
+		<a href={`/run/${job.id}?workspace=${job.workspace_id}`}> {job.id} </a>
 	</div>
 </div>

@@ -6,7 +6,7 @@ edition.workspace = true
 
 [features]
 default = []
-bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "dep:aws-credential-types", "dep:aws-smithy-types", "dep:aws-config"]
+bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "dep:aws-credential-types", "dep:aws-smithy-types", "dep:aws-config", "windmill-common/aws_auth"]
 mcp = ["dep:windmill-mcp"]
 
 [lib]
@@ -28,6 +28,7 @@ eventsource-stream.workspace = true
 futures.workspace = true
 http.workspace = true
 mime_guess.workspace = true
+rand.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

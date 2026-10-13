@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { type AlertType, classes, icons } from './model'
+	import { type AlertAction, type AlertType, classes, icons } from './model'
+	import Button from '../button/Button.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
@@ -16,6 +17,8 @@
 		bgClass?: string | undefined
 		bgStyle?: string | undefined
 		iconClass?: string | undefined
+		/** Drop the type's icon; the text starts at the alert's edge. */
+		hideIcon?: boolean
 		iconStyle?: string | undefined
 		titleClass?: string | undefined
 		titleStyle?: string | undefined
@@ -23,6 +26,9 @@
 		descriptionStyle?: string | undefined
 		class?: string | undefined
 		isCollapsed?: boolean
+		/** Buttons under the body, colored to match the alert's type. They stay visible while a
+		 * collapsible alert is collapsed. */
+		actions?: AlertAction[]
 		children?: import('svelte').Snippet
 	}
 
@@ -37,6 +43,7 @@
 		bgClass = undefined,
 		bgStyle = undefined,
 		iconClass = undefined,
+		hideIcon = false,
 		iconStyle = undefined,
 		titleClass = undefined,
 		titleStyle = undefined,
@@ -44,6 +51,7 @@
 		descriptionStyle = undefined,
 		class: classNames = undefined,
 		isCollapsed = $bindable(true),
+		actions = [],
 		children
 	}: Props = $props()
 
@@ -63,7 +71,7 @@
 <div
 	class={twMerge(
 		notRounded ? '' : 'rounded-md',
-		size === 'sm' ? 'p-4' : 'p-3',
+		size === 'sm' ? 'px-3 py-2' : 'px-2.5 py-1.5',
 		classes[type].bgClass,
 		bgClass,
 		classNames
@@ -73,14 +81,16 @@
 	<div class="flex flex-row items-center">
 		<!-- shrink-0: the badge's min-content width is the 16px icon, so without it a
 		     narrow container squeezes the circle into an oval. -->
-		<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full">
-			<SvelteComponent
-				class={twMerge(classes[type].iconClass, iconClass)}
-				style={iconStyle}
-				size={16}
-			/>
-		</div>
-		<div class={twMerge('ml-1 w-full')}>
+		{#if !hideIcon}
+			<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full">
+				<SvelteComponent
+					class={twMerge(classes[type].iconClass, iconClass)}
+					style={iconStyle}
+					size={16}
+				/>
+			</div>
+		{/if}
+		<div class={twMerge(!hideIcon && 'ml-1', 'w-full')}>
 			{#if hasTitleRow}
 				<div class={twMerge('w-full flex flex-row items-center justify-between')}>
 					<span
@@ -116,6 +126,24 @@
 					style={descriptionStyle}
 				>
 					{@render children?.()}
+				</div>
+			{/if}
+
+			{#if actions.length > 0}
+				<div class={twMerge('flex flex-wrap gap-2', hasTitleRow || children ? 'mt-2' : '')}>
+					{#each actions as action}
+						<Button
+							unifiedSize={size === 'sm' ? 'sm' : 'xs'}
+							variant={action.variant ?? 'default'}
+							tone={type}
+							startIcon={action.startIcon}
+							disabled={action.disabled}
+							loading={action.loading}
+							onClick={action.onClick}
+						>
+							{action.label}
+						</Button>
+					{/each}
 				</div>
 			{/if}
 		</div>

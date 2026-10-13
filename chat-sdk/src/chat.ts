@@ -1,9 +1,11 @@
 import {
+  TurnRunningError,
   WindmillApiError,
   WindmillChatApi,
   type ConversationKind,
   type FlowConversation,
-  type FlowConversationMessage
+  type FlowConversationMessage,
+  type RunningTurn
 } from './api'
 import { resolveConfig, type ResolvedConfig } from './config'
 import { followJob } from './follow'
@@ -38,6 +40,8 @@ const PERSIST_DEBOUNCE_MS = 250
 /** Messages persist from spawned tasks that can land just after the flow completes. */
 const RECONCILE_ATTEMPTS = 3
 const RECONCILE_DELAY_MS = 400
+/** Rows per read of what a turn wrote; a fuller page is read on from its last row. */
+const ROWS_PAGE = 100
 
 interface Turn {
   controller: AbortController
@@ -73,6 +77,11 @@ class ChatImpl implements Chat {
   /** The kind the caller last listed, so the refresh after a new turn lists the same rows. */
   #conversationKind: ConversationKind | undefined
   #persistTimer: ReturnType<typeof setTimeout> | undefined
+  /** Settles once the selected conversation's first page has been read. */
+  #selecting: Promise<void> = Promise.resolve()
+  /** Bumped whenever a turn is taken or the conversation is left: a read that started before
+   * it describes a conversation this chat has moved past. */
+  #epoch = 0
 
   constructor(options: ChatOptions) {
     this.#config = resolveConfig(options)
@@ -141,6 +150,7 @@ class ChatImpl implements Chat {
       streamedText: false
     }
     this.#turn = turn
+    this.#epoch++
 
     const timestamp = now()
     const conversation: Conversation = this.#state.conversations.find(
@@ -186,6 +196,109 @@ class ChatImpl implements Chat {
       turn.jobId = this.#config.run
         ? await this.#config.run(args, context)
         : await this.#api.runFlow(this.#config.flowPath, args, context)
+    } catch (e) {
+      try {
+        // Nothing of this message reached the server, whether the conversation was already
+        // answering one sent elsewhere or an attachment never uploaded: the message is taken
+        // back rather than shown as a failed turn, and the caller gets the reason.
+        if (e instanceof TurnRunningError || !turn.started) {
+          this.#withdrawTurn(turn)
+          throw e
+        }
+        // stop() and a conversation switch abort the turn and settle the state themselves.
+        if (turn.controller.signal.aborted || isAbortError(e)) return
+        this.#failTurn(turn, e)
+        return
+      } finally {
+        if (this.#turn === turn) this.#turn = undefined
+      }
+    }
+    await this.#followTurn(turn, isNew)
+  }
+
+  resumeTurn = async ({ jobId, userSeq }: RunningTurn): Promise<void> => {
+    const conversationId = this.#state.conversationId
+    if (!conversationId || this.#turn) return
+    if (this.#state.history !== 'server') {
+      if (this.#state.status === 'submitted') this.#set({ status: 'idle' })
+      return
+    }
+    const turn: Turn = {
+      controller: new AbortController(),
+      conversationId,
+      userMessageId: '',
+      jobId,
+      // Its run was asked for elsewhere and is already going: there is nothing to withdraw,
+      // and the conversation it belongs to is listed.
+      isNew: false,
+      started: true,
+      withdrawn: false,
+      streamedText: false
+    }
+    this.#turn = turn
+    this.#epoch++
+    this.#set({ status: 'submitted', error: undefined })
+    try {
+      // The conversation's first page may still be on its way; it would land over the turn.
+      await this.#selecting
+      if (!this.#turnActive(turn)) return
+      // A listing is a snapshot: the turn it named can have ended and another one started
+      // since. The newest user message this chat holds names the turn to follow instead —
+      // following the one the listing named would drop the newer turn's rows and leave the
+      // chat idle while it runs.
+      const newest = this.#latestUserAfter(userSeq)
+      if (newest) {
+        if (!newest.jobId) {
+          // Its row is written and its run is not named yet: there is nothing to follow, so
+          // it is left to the next listing to name the turn that runs now.
+          if (this.#turn === turn) this.#turn = undefined
+          this.#set({ status: 'idle' })
+          return
+        }
+        turn.jobId = newest.jobId
+        userSeq = newest.seq!
+      }
+      // The stream replays the turn from its start, so what this chat shows of it goes and
+      // comes back as it replays: its rows, and what an earlier follow of it streamed or
+      // failed with, its own unread question included. The message that started it stays:
+      // it is the turn's anchor, and a long turn can have pushed it off the page this chat
+      // opened on. An earlier turn's answer that only its flow result gave has no row and so
+      // no seq; it names that turn's job, and it stays wherever the fallback put it.
+      const held = this.#state.messages
+      const at = held.findIndex((m) => m.seq === userSeq)
+      let user = at === -1 ? undefined : held[at]
+      let messages = held.filter((m, i) => {
+        if (m.seq !== undefined) return m.seq < userSeq
+        if (m.pending || m.jobId === turn.jobId) return false
+        return m.jobId !== undefined || (at !== -1 && i < at)
+      })
+      if (user) messages = [...messages, user]
+      if (!user) {
+        const [row] = await this.#api.listMessages(conversationId, {
+          afterSeq: userSeq - 1,
+          perPage: 1,
+          signal: turn.controller.signal
+        })
+        if (!this.#turnActive(turn)) return
+        if (row?.created_seq !== userSeq || row.message_type !== 'user') {
+          throw new Error('windmill-chat: the message that started the running turn is gone')
+        }
+        user = fromRow(row)
+        messages = [...messages, user]
+      }
+      turn.userMessageId = user.id
+      this.#set({ messages })
+    } catch (e) {
+      if (!(turn.controller.signal.aborted || isAbortError(e))) this.#failTurn(turn, e)
+      if (this.#turn === turn) this.#turn = undefined
+      return
+    }
+    await this.#followTurn(turn, false)
+  }
+
+  async #followTurn(turn: Turn, isNew: boolean): Promise<void> {
+    let nextTurn: RunningTurn | undefined
+    try {
       const stopPolling = this.#state.history === 'server' ? this.#startPolling(turn) : () => {}
       let result: unknown
       try {
@@ -193,7 +306,7 @@ class ChatImpl implements Chat {
       } finally {
         stopPolling()
       }
-      await this.#finishTurn(turn, result, isNew)
+      nextTurn = await this.#finishTurn(turn, result, isNew)
     } catch (e) {
       if (!turn.started) {
         // Nothing ran: the message is withdrawn rather than shown as a failed turn, and the
@@ -208,6 +321,7 @@ class ChatImpl implements Chat {
     } finally {
       if (this.#turn === turn) this.#turn = undefined
     }
+    if (nextTurn) await this.resumeTurn(nextTurn)
   }
 
   stop = async (): Promise<void> => {
@@ -249,8 +363,14 @@ class ChatImpl implements Chat {
     })
   }
 
-  selectConversation = async (conversationId: string): Promise<void> => {
-    if (conversationId === this.#state.conversationId) return
+  selectConversation = (conversationId: string): Promise<void> => {
+    if (conversationId === this.#state.conversationId) return this.#selecting
+    const selecting = this.#select(conversationId)
+    this.#selecting = selecting.catch(() => {})
+    return selecting
+  }
+
+  async #select(conversationId: string): Promise<void> {
     this.#leaveConversation()
     this.#page = 1
     this.#set({
@@ -379,14 +499,74 @@ class ChatImpl implements Chat {
       })
       if (this.#state.conversationId !== conversationId) return
       const known = new Set(this.#state.messages.map((m) => m.serverId ?? m.id))
+      // Pages count back from the newest row, so rows written since the first page shift
+      // newer rows into this one; and a resumed turn drops the rows it replays. Only what
+      // is older than everything held belongs above it.
+      const oldest = this.#state.messages.reduce<number | undefined>(
+        (min, m) => (m.seq !== undefined && (min === undefined || m.seq < min) ? m.seq : min),
+        undefined
+      )
+      const older = rows
+        .map(fromRow)
+        .filter((m) => !known.has(m.id) && (oldest === undefined || m.seq! < oldest))
       this.#page = page
       this.#set({
-        messages: [...rows.map(fromRow).filter((m) => !known.has(m.id)), ...this.#state.messages],
+        messages: [...older, ...this.#state.messages],
         hasMoreMessages: rows.length === this.#config.pageSize
       })
     } finally {
       if (this.#state.conversationId === conversationId) this.#set({ loadingMessages: false })
     }
+  }
+
+  refreshMessages = async (): Promise<void> => {
+    const conversationId = this.#state.conversationId
+    if (
+      !conversationId ||
+      this.#turn ||
+      this.#state.history !== 'server' ||
+      this.#state.loadingMessages
+    ) {
+      return
+    }
+    const newestBefore = latestSeq(this.#state.messages)
+    const failure = lastFailureShown(this.#state.messages)
+    // A turn that starts and ends while these rows are read, or the conversation being left
+    // and opened again, leaves the chat holding messages this read knows nothing about, and
+    // the rows would land under them rather than in their own place. They are left to the
+    // next read, which sees the conversation as it is now.
+    const epoch = this.#epoch
+    await this.#syncFromServer(conversationId, () => this.#epoch === epoch)
+    if (this.#epoch !== epoch) return
+    if (!failure || this.#state.conversationId !== conversationId) return
+    if (!this.#state.messages.some((m) => m.id === failure.id)) return
+    // The turn this chat lost may have been carried to its end elsewhere, which only a row
+    // this read brought can say, and only one of that turn's own: an agent writes its answer
+    // from a task the run does not wait for, so an earlier turn's answer can commit after
+    // this turn's question and would otherwise settle it with someone else's answer. The
+    // failed turn's job is on the message it left; unknown jobs accept the row, as everywhere
+    // else the turn's jobs are read.
+    const jobs = failure.jobId ? await this.#turnJobIds(failure.jobId) : undefined
+    if (this.#state.conversationId !== conversationId) return
+    const held = this.#state.messages
+    if (!held.some((m) => m.id === failure.id)) return
+    const answered = held.some(
+      (m) =>
+        m.seq !== undefined &&
+        m.seq > newestBefore &&
+        m.role === 'assistant' &&
+        m.success &&
+        (jobs === undefined || m.jobId === undefined || jobs.has(m.jobId))
+    )
+    if (!answered) return
+    // A turn that ran, or failed, while those jobs were read owns the state now: this one's
+    // failure still goes, since its answer is here, but that turn's outcome stands.
+    const settles =
+      this.#state.status === 'error' && lastFailureShown(held)?.id === failure.id
+    this.#set({
+      messages: held.filter((m) => m.id !== failure.id),
+      ...(settles ? { status: 'idle' as const, error: undefined } : {})
+    })
   }
 
   destroy = (): void => {
@@ -398,7 +578,10 @@ class ChatImpl implements Chat {
   async #follow(turn: Turn, onStreamStart: () => void): Promise<unknown> {
     let started = false
     for await (const event of followJob(this.#api, turn.jobId!, { signal: turn.controller.signal })) {
-      if (event.type === 'completed') return event.result
+      if (event.type === 'completed') {
+        if (event.streamLost) this.#dropCutRound(turn)
+        return event.result
+      }
       if (!started) {
         started = true
         // Persisted rows for the streaming step would duplicate what is streaming.
@@ -407,6 +590,19 @@ class ChatImpl implements Chat {
       this.#applyEvents(turn, event.events)
     }
     throw new Error('windmill-chat: the job stream ended before the flow completed')
+  }
+
+  /**
+   * The stream failed while a round's text was arriving, so that text stops wherever the
+   * connection did. It goes: the persisted rows or, without them, the flow result give
+   * the whole answer instead. Rounds a tool call closed were complete and stay.
+   */
+  #dropCutRound(turn: Turn): void {
+    if (!this.#turnActive(turn)) return
+    const cut = turn.assistantId
+    turn.assistantId = undefined
+    turn.streamedText = false
+    if (cut) this.#set({ messages: this.#state.messages.filter((m) => m.id !== cut) })
   }
 
   #applyEvents(turn: Turn, events: AgentStreamEvent[]): void {
@@ -506,18 +702,20 @@ class ChatImpl implements Chat {
     this.#set({ messages, status: 'streaming' })
   }
 
-  async #finishTurn(turn: Turn, result: unknown, isNew: boolean): Promise<void> {
+  async #finishTurn(turn: Turn, result: unknown, isNew: boolean): Promise<RunningTurn | undefined> {
     if (!this.#turnActive(turn)) return
     if (this.#state.history === 'server') {
-      turn.jobIds = await this.#turnJobIds(turn)
+      turn.jobIds = await this.#turnJobIds(turn.jobId!, turn.controller.signal)
       if (!this.#turnActive(turn)) return
       const reconciled = await this.#reconcileTurn(turn)
       if (!this.#turnActive(turn)) return
       if (reconciled) {
-        this.#set({ status: 'idle' })
+        const nextTurn = this.#nextTurnAfter(turn)
+        this.#set({ status: nextTurn ? 'submitted' : 'idle' })
         this.#config.onFinish?.({ conversationId: turn.conversationId, jobId: turn.jobId, messages: this.#state.messages })
         if (isNew) await this.loadConversations().catch(() => {})
-        return
+        if (!this.#turnActive(turn)) return
+        return nextTurn
       }
       // Server history just proved unreadable: the turn completes as local history.
     }
@@ -540,9 +738,13 @@ class ChatImpl implements Chat {
         messages = [...messages, assistantMessage(answer, true, turn.jobId)]
       }
     }
-    this.#set({ messages: finalized(messages), status: 'idle' })
+    const nextTurn = this.#state.history === 'server' ? this.#nextTurnAfter(turn) : undefined
+    this.#set({ messages: finalized(messages), status: nextTurn ? 'submitted' : 'idle' })
     this.#persistLocal()
     this.#config.onFinish?.({ conversationId: turn.conversationId, jobId: turn.jobId, messages: this.#state.messages })
+    // `onFinish` can switch conversation, and the next turn belongs to this one.
+    if (!this.#turnActive(turn)) return
+    return nextTurn
   }
 
   /**
@@ -561,11 +763,7 @@ class ChatImpl implements Chat {
     for (let attempt = 1; attempt <= RECONCILE_ATTEMPTS; attempt++) {
       let rows: FlowConversationMessage[]
       try {
-        rows = await this.#api.listMessages(turn.conversationId, {
-          afterSeq: this.#lastSeq(),
-          perPage: 100,
-          signal: turn.controller.signal
-        })
+        rows = await this.#rowsAfterLastSeq(turn.conversationId, turn.controller.signal)
       } catch (e) {
         if (isAbortError(e)) throw e
         if (this.#fallBackToLocal(e)) return false
@@ -592,22 +790,26 @@ class ChatImpl implements Chat {
    * a badly delayed one can invert that order at the cost of the reconcile
    * retries). The content is not compared with the flow result: an image answer, a
    * structured one and a forwarded agent result are all persisted in a shape the
-   * result does not reproduce. Rows carrying a job id belong to the turn when the
-   * job is one of the turn's, which leaves out an earlier turn whose job outlived
-   * `stop()` (a token without `jobs:write` cannot cancel it); a tool row without one
-   * (an MCP call runs inside the agent step) belongs to whatever turn is under way.
+   * result does not reproduce. A row belongs to the turn when it was created after
+   * the user message and, when it carries a job id, the job is one of the turn's. The
+   * server refuses a turn while the previous run is queued, but an agent writes its
+   * answer row from a task the run does not wait for, so that row can still land after
+   * the next user message; its job says whose it is. A tool row without a job (an MCP
+   * call runs inside the agent step) belongs to the turn under way. Until the user
+   * message's own row has been read, its position in the list stands in for its seq.
    */
   #answered(turn: Turn): boolean {
     const messages = this.#state.messages
     const from = messages.findIndex((m) => m.id === turn.userMessageId)
+    const userSeq = messages[from]?.seq
     const ownJob = (m: ChatMessage) =>
       turn.jobIds === undefined || (m.jobId === undefined ? m.role === 'tool' : turn.jobIds.has(m.jobId))
     let latest: ChatMessage | undefined
-    for (let i = from + 1; i < messages.length; i++) {
-      const m = messages[i]
-      if (m.seq === undefined || m.role === 'user' || !ownJob(m)) continue
+    messages.forEach((m, i) => {
+      if (m.seq === undefined || m.role === 'user' || !ownJob(m)) return
+      if (userSeq !== undefined ? m.seq <= userSeq : i <= from) return
       if (latest === undefined || m.seq > latest.seq!) latest = m
-    }
+    })
     return latest?.role === 'assistant'
   }
 
@@ -615,22 +817,29 @@ class ChatImpl implements Chat {
    * The flow job plus every step job it ran, the failure and preprocessor steps
    * included (a failure handler's answer is persisted under its own job), and the
    * jobs an agent step's tool calls ran as (a tool row is persisted under its own
-   * job too). Unknown when the read fails.
+   * job too). A failed read is retried like the rows are; unknown when it keeps
+   * failing or the credential may not read jobs. Unknown accepts every row after the
+   * question: refusing them would leave a token without job access with no turn ever
+   * answered, each one finished a second time from its result.
    */
-  async #turnJobIds(turn: Turn): Promise<Set<string> | undefined> {
-    try {
-      const job = await this.#api.getFlowJob(turn.jobId!, turn.controller.signal)
-      const ids = new Set([turn.jobId!])
-      const status = job.flow_status
-      for (const m of [...(status?.modules ?? []), status?.failure_module, status?.preprocessor_module]) {
-        if (m?.job) ids.add(m.job)
-        for (const j of m?.flow_jobs ?? []) ids.add(j)
-        for (const a of m?.agent_actions ?? []) if (a.job_id) ids.add(a.job_id)
+  async #turnJobIds(jobId: string, signal?: AbortSignal): Promise<Set<string> | undefined> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const job = await this.#api.getFlowJob(jobId, signal)
+        const ids = new Set([jobId])
+        const status = job.flow_status
+        for (const m of [...(status?.modules ?? []), status?.failure_module, status?.preprocessor_module]) {
+          if (m?.job) ids.add(m.job)
+          for (const j of m?.flow_jobs ?? []) ids.add(j)
+          for (const a of m?.agent_actions ?? []) if (a.job_id) ids.add(a.job_id)
+        }
+        return ids
+      } catch (e) {
+        if (isAbortError(e)) throw e
+        const refused = e instanceof WindmillApiError && e.status >= 400 && e.status < 500
+        if (refused || attempt === RECONCILE_ATTEMPTS) return undefined
+        await sleep(RECONCILE_DELAY_MS, signal)
       }
-      return ids
-    } catch (e) {
-      if (isAbortError(e)) throw e
-      return undefined
     }
   }
 
@@ -689,11 +898,7 @@ class ChatImpl implements Chat {
         }
         if (stopped) return
         try {
-          const rows = await this.#api.listMessages(turn.conversationId, {
-            afterSeq: this.#lastSeq(),
-            perPage: 100,
-            signal
-          })
+          const rows = await this.#rowsAfterLastSeq(turn.conversationId, signal)
           if (!stopped && this.#turnActive(turn)) this.#mergeRows(rows)
         } catch {
           // transient; the completion reconciliation catches up
@@ -706,12 +911,22 @@ class ChatImpl implements Chat {
     }
   }
 
-  async #syncFromServer(conversationId: string): Promise<void> {
-    const rows = await this.#api.listMessages(conversationId, {
-      afterSeq: this.#lastSeq(),
-      perPage: 100
-    })
+  /** Every row created after the newest one held, however many pages that takes. */
+  async #rowsAfterLastSeq(conversationId: string, signal?: AbortSignal): Promise<FlowConversationMessage[]> {
+    const rows: FlowConversationMessage[] = []
+    let afterSeq = this.#lastSeq()
+    while (true) {
+      const page = await this.#api.listMessages(conversationId, { afterSeq, perPage: ROWS_PAGE, signal })
+      rows.push(...page)
+      if (page.length < ROWS_PAGE) return rows
+      afterSeq = page[page.length - 1].created_seq
+    }
+  }
+
+  async #syncFromServer(conversationId: string, stillCurrent?: () => boolean): Promise<void> {
+    const rows = await this.#rowsAfterLastSeq(conversationId)
     if (this.#turn || this.#state.conversationId !== conversationId) return
+    if (stillCurrent && !stillCurrent()) return
     this.#mergeRows(rows)
     this.#set({ messages: finalized(this.#state.messages) })
   }
@@ -828,6 +1043,21 @@ class ChatImpl implements Chat {
     return this.#turn === turn && this.#state.conversationId === turn.conversationId
   }
 
+  #latestUserAfter(userSeq: number): ChatMessage | undefined {
+    return this.#state.messages.reduce<ChatMessage | undefined>(
+      (found, message) =>
+        message.role === 'user' && message.seq !== undefined && message.seq > (found?.seq ?? userSeq) ? message : found,
+      undefined
+    )
+  }
+
+  #nextTurnAfter(turn: Turn): RunningTurn | undefined {
+    const userSeq = this.#state.messages.find((message) => message.id === turn.userMessageId)?.seq
+    if (userSeq === undefined) return undefined
+    const next = this.#latestUserAfter(userSeq)
+    return next?.jobId && next.seq !== undefined ? { jobId: next.jobId, userSeq: next.seq } : undefined
+  }
+
   /** Stops following the current answer; the flow itself keeps running. */
   #detachTurn(): void {
     const turn = this.#turn
@@ -842,6 +1072,7 @@ class ChatImpl implements Chat {
    * written out now rather than on the debounce that may never fire.
    */
   #leaveConversation(): void {
+    this.#epoch++
     if (this.#turn) {
       this.#detachTurn()
       this.#set({ messages: finalized(this.#state.messages), status: 'idle' })
@@ -857,6 +1088,20 @@ class ChatImpl implements Chat {
       this.#persistTimer = setTimeout(() => this.#persistLocal(), PERSIST_DEBOUNCE_MS)
     }
   }
+}
+
+/** The failure this chat is showing: the message `#failTurn` left, which is never a row. */
+function lastFailureShown(messages: readonly ChatMessage[]): ChatMessage | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.seq === undefined && m.success === false) return m
+  }
+  return undefined
+}
+
+/** The newest row seq a list holds; 0 when it holds none. */
+function latestSeq(messages: readonly ChatMessage[]): number {
+  return messages.reduce((newest, m) => (m.seq !== undefined && m.seq > newest ? m.seq : newest), 0)
 }
 
 function fromRow(row: FlowConversationMessage): ChatMessage {
@@ -898,7 +1143,10 @@ function fromConversation(row: FlowConversation): Conversation {
     title: row.title ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    isTest: row.is_test
+    isTest: row.is_test,
+    runningTurn: row.running_turn
+      ? { jobId: row.running_turn.job_id, userSeq: row.running_turn.user_seq }
+      : undefined
   }
 }
 

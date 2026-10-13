@@ -81,6 +81,7 @@ mod prepare_deps;
 mod python_executor;
 #[cfg(feature = "python")]
 mod python_versions;
+mod resource_metrics;
 pub mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;

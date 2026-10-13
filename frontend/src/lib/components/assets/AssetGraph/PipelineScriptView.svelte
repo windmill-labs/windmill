@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { AssetKind, Script } from '$lib/gen'
-	import { CalendarClock, Loader2, Play, Upload, Zap } from 'lucide-svelte'
+	import { CalendarClock, Code2, Loader2, Play, Upload, Zap } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import PipelineRunForm from './PipelineRunForm.svelte'
@@ -44,6 +44,12 @@
 		// "green / ready" state and seeds the whole-pipeline run. `isValid` is the
 		// full-schema validity (all required fields, not just the S3 file).
 		onArgsChange?: (path: string, args: Record<string, any>, isValid: boolean) => void
+		// Just the run form and the runs, without the source: what a data-upload
+		// click asks for. `onShowScript` switches to the script itself.
+		inputsOnly?: boolean
+		onShowScript?: () => void
+		// `onRun` previews a draft's own content, so a draft can run too.
+		runsDrafts?: boolean
 	}
 
 	let {
@@ -57,8 +63,12 @@
 		runsPendingJobId,
 		onRunCompleted,
 		initialArgs,
-		onArgsChange
+		onArgsChange,
+		inputsOnly = false,
+		onShowScript,
+		runsDrafts = false
 	}: Props = $props()
+	let runBlockedByDraft = $derived(isDraft && !runsDrafts)
 
 	// Seed once from the persisted args (see initialArgs). Cloned so the run
 	// form mutates its own copy, not the page's stored snapshot.
@@ -139,7 +149,7 @@
 </script>
 
 <div class="flex flex-col h-full">
-	{#if isDraft}
+	{#if runBlockedByDraft}
 		<div
 			class="shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-900/60 text-amber-700 dark:text-amber-400"
 		>
@@ -168,13 +178,24 @@
 							{/if}
 						</span>
 						<div class="flex items-center gap-1.5">
+							{#if inputsOnly && onShowScript}
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									startIcon={{ icon: Code2 }}
+									onclick={onShowScript}
+									title="Show the script instead of its inputs"
+								>
+									Open script
+								</Button>
+							{/if}
 							{#if hasCascade}
 								<Button
 									variant="accent-secondary"
 									unifiedSize="sm"
 									startIcon={{ icon: running ? Loader2 : Zap }}
 									onclick={() => run(true)}
-									disabled={isDraft || running || !runValid}
+									disabled={runBlockedByDraft || running || !runValid}
 									title={`Run this script with these inputs, then run its ${downstreamCount} downstream pipeline script${downstreamCount === 1 ? '' : 's'} in order`}
 								>
 									Run + downstream
@@ -185,8 +206,8 @@
 								unifiedSize="sm"
 								startIcon={{ icon: running ? Loader2 : Play }}
 								onclick={() => run(false)}
-								disabled={isDraft || running || !runValid || !onRun}
-								title={isDraft
+								disabled={runBlockedByDraft || running || !runValid || !onRun}
+								title={runBlockedByDraft
 									? 'Deploy this draft to run it for real'
 									: hasCascade
 										? 'Run just this step — downstream scripts are not triggered'
@@ -210,9 +231,11 @@
 						{/key}
 					{/if}
 				</div>
-				<div class="flex-1 min-h-0 overflow-auto text-xs p-3">
-					<HighlightCode code={script.content ?? ''} language={script.language} />
-				</div>
+				{#if !inputsOnly}
+					<div class="flex-1 min-h-0 overflow-auto text-xs p-3">
+						<HighlightCode code={script.content ?? ''} language={script.language} />
+					</div>
+				{/if}
 			</div>
 		</Pane>
 		<Pane size={45} minSize={20}>

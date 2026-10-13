@@ -1,0 +1,215 @@
+use serde_json::json;
+use serial_test::serial;
+use sqlx::{Pool, Postgres};
+use windmill_common::workspaces::invalidate_operator_rights_cache;
+use windmill_test_utils::*;
+
+/// Every test here must be `#[serial]`. The rights cache is process-global and keyed by workspace
+/// id alone, while `sqlx::test` gives each test its own database under this same id — so two
+/// running at once can answer each other's reads from one cached entry, and a withdrawal in one
+/// database reads as granted in the other.
+const WS: &str = "test-workspace";
+
+fn operator_client() -> reqwest::Client {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::AUTHORIZATION,
+        reqwest::header::HeaderValue::from_str("Bearer OPERATOR_TOKEN_1").unwrap(),
+    );
+    reqwest::ClientBuilder::new()
+        .default_headers(headers)
+        .build()
+        .unwrap()
+}
+
+fn new_schedule(path: &str) -> serde_json::Value {
+    json!({
+        "path": path,
+        "schedule": "0 0 * * * *",
+        "timezone": "UTC",
+        "script_path": "u/operator/some_script",
+        "is_flow": false,
+        "enabled": false,
+    })
+}
+
+/// Saves `body` as the workspace's operator settings and drops the local cache entry, which a test
+/// flipping the setting out of band has to do itself — the notify trigger only reaches other
+/// processes.
+async fn set_settings(api: &str, body: serde_json::Value) -> anyhow::Result<u16> {
+    let resp = reqwest::Client::new()
+        .post(format!("{api}/workspaces/operator_settings"))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&body)
+        .send()
+        .await?;
+    let status = resp.status().as_u16();
+    invalidate_operator_rights_cache(WS);
+    Ok(status)
+}
+
+/// Granted unless withdrawn, and a payload that omits the key leaves the stored value alone.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
+async fn test_operator_manage_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/{WS}");
+    let c = operator_client();
+
+    // Never configured: the right is held.
+    let resp = c
+        .post(format!("{api}/schedules/create"))
+        .json(&new_schedule("u/operator/sched_default"))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    // Both polarities: a 403 alone would equally be the route's own ownership check refusing.
+    let share = async || -> anyhow::Result<(u16, String)> {
+        let resp = c
+            .post(format!("{api}/acls/add/schedule/u/operator/sched_default"))
+            .json(&json!({"owner": "u/alice", "write": true}))
+            .send()
+            .await?;
+        Ok((resp.status().as_u16(), resp.text().await?))
+    };
+    let (status, body) = share().await?;
+    assert_eq!(status, 200, "{body}");
+
+    // An admin withdraws it.
+    assert_eq!(
+        set_settings(&api, json!({"manage_schedules": false})).await?,
+        200
+    );
+
+    // 403 is a contract, not an incidental status - see `check_operator_can_manage`.
+    let resp = c
+        .post(format!("{api}/schedules/create"))
+        .json(&new_schedule("u/operator/sched_withdrawn"))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 403, "{}", resp.text().await?);
+
+    let (status, body) = share().await?;
+    assert_eq!(status, 403, "{body}");
+
+    // The gate refuses on `is_operator` alone, so one over-broad condition costs every admin their
+    // schedule and trigger writes. The admin call above proves nothing: its route is not gated.
+    let resp = reqwest::Client::new()
+        .post(format!("{api}/schedules/create"))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&new_schedule("u/admin/sched_admin"))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    // A payload omitting the key must not restore it.
+    assert_eq!(set_settings(&api, json!({"runs": true})).await?, 200);
+
+    let resp = c
+        .post(format!("{api}/schedules/create"))
+        .json(&new_schedule("u/operator/sched_still_withdrawn"))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 403, "{}", resp.text().await?);
+
+    // Nor withdraw a stored grant.
+    assert_eq!(
+        set_settings(&api, json!({"manage_schedules": true})).await?,
+        200
+    );
+    assert_eq!(set_settings(&api, json!({"runs": true})).await?, 200);
+
+    let resp = c
+        .post(format!("{api}/schedules/create"))
+        .json(&new_schedule("u/operator/sched_restored"))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    Ok(())
+}
+
+/// The trigger gate is a layer over the whole trigger router rather than a check inside each
+/// handler, because a trigger kind may register routes of its own beside the shared CRUD ones.
+/// Bulk HTTP creation is exactly that: it inserts directly and never enters the shared create
+/// handler, so a per-handler check missed it. Asserting both polarities is what proves the route
+/// is reached and gated rather than merely absent - a route that did not exist would answer 404,
+/// not 403.
+#[cfg(feature = "http_trigger")]
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
+async fn test_manage_triggers_covers_a_route_outside_the_shared_handler(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/{WS}");
+    let c = operator_client();
+
+    let bulk = json!([{
+        "path": "u/operator/bulk",
+        "script_path": "u/operator/some_script",
+        "is_flow": false,
+        "route_path": "bulk_route",
+        "request_type": "async",
+        "authentication_method": "none",
+        "http_method": "post",
+        "is_static_website": false,
+        // Non-admins may only create routes under the workspace prefix.
+        "workspaced_route": true,
+    }]);
+
+    let create_many = async || -> anyhow::Result<(u16, String)> {
+        let resp = c
+            .post(format!("{api}/http_triggers/create_many"))
+            .json(&bulk)
+            .send()
+            .await?;
+        Ok((resp.status().as_u16(), resp.text().await?))
+    };
+
+    // Capture is a separate router with its own layer, so a reshuffle of the nesting can drop it.
+    let set_capture = async || -> anyhow::Result<(u16, String)> {
+        let resp = c
+            .post(format!("{api}/capture/set_config"))
+            .json(&json!({
+                "trigger_kind": "webhook",
+                "path": "u/operator/some_script",
+                "is_flow": false,
+            }))
+            .send()
+            .await?;
+        Ok((resp.status().as_u16(), resp.text().await?))
+    };
+
+    // Held by default: the route is reached and does its own work.
+    let (status, body) = create_many().await?;
+    assert_eq!(status, 201, "{body}");
+    let (status, body) = set_capture().await?;
+    assert_eq!(status, 200, "{body}");
+
+    assert_eq!(
+        set_settings(&api, json!({"manage_triggers": false})).await?,
+        200
+    );
+
+    let (status, body) = create_many().await?;
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = set_capture().await?;
+    assert_eq!(status, 403, "{body}");
+
+    // Moving captures re-points existing configs between runnables, so it is gated too; the
+    // builders skip it while the right is withdrawn.
+    let resp = c
+        .post(format!("{api}/capture/move/script/u/operator/draft_path"))
+        .json(&json!({"new_path": "u/operator/some_script"}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 403, "{}", resp.text().await?);
+
+    Ok(())
+}

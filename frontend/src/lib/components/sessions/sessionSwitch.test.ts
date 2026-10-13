@@ -259,15 +259,21 @@ describe('takeNewSessionSeed', () => {
 		rememberNavRoute('/flows/edit/u/me/my_flow?workspace=ws')
 		expect(takeNewSessionSeed()).toEqual({
 			url: '/flows/edit/u/me/my_flow?workspace=ws',
-			route: { kind: 'flow', raw_app: false, itemPath: 'u/me/my_flow' }
+			kind: 'flow',
+			path: 'u/me/my_flow'
 		})
 		// A dismissed or taken offer is not repeated until the user leaves again.
 		expect(takeNewSessionSeed()).toBeUndefined()
 		rememberNavRoute('/apps_raw/edit/f/team/dashboard?workspace=ws')
-		expect(takeNewSessionSeed()?.route).toEqual({
-			kind: 'app',
-			raw_app: true,
-			itemPath: 'f/team/dashboard'
+		expect(takeNewSessionSeed()).toMatchObject({ kind: 'app', path: 'f/team/dashboard' })
+	})
+
+	it('offers the pipeline the user came from, named by its folder', () => {
+		rememberNavRoute('/pipeline/crm?workspace=ws')
+		expect(takeNewSessionSeed()).toEqual({
+			url: '/pipeline/crm?workspace=ws',
+			kind: 'pipeline',
+			path: 'f/crm'
 		})
 	})
 

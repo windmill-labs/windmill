@@ -103,9 +103,9 @@ pub fn filter_schema_by_input_transforms(
             .get_mut("properties")
             .and_then(|p| p.as_object_mut())
         {
-            for key in &keys_to_remove {
-                properties.remove(key);
-            }
+            // `remove` swaps the last entry into the freed slot, so removing in set order
+            // would leave the survivors in a different order on every run.
+            properties.retain(|key, _| !keys_to_remove.contains(key));
         }
 
         // Also remove from required array
@@ -209,6 +209,7 @@ pub async fn add_message_to_conversation(
     db: &DB,
     conversation_id: &Uuid,
     job_id: Option<Uuid>,
+    turn_job_id: Uuid,
     message_content: &str,
     message_type: MessageType,
     step_name: &Option<String>,
@@ -220,6 +221,7 @@ pub async fn add_message_to_conversation(
         &mut tx,
         *conversation_id,
         job_id,
+        turn_job_id,
         &message_content,
         message_type,
         step_name.as_deref(),
@@ -568,7 +570,7 @@ pub async fn load_mcp_tools(
         // is not allowed to read (resources:read:{path}). Reading through the raw
         // db pool here would bypass the authorization enforced by the regular MCP
         // tools API (get_mcp_tools) and act as a confused deputy.
-        let mcp_resource = client
+        let mut mcp_resource = client
             .get_resource_value::<McpResource>(path)
             .await
             .map_err(|e| {
@@ -612,6 +614,18 @@ pub async fn load_mcp_tools(
         } else {
             None
         };
+
+        // Header secrets go through the same permissioned path as the token.
+        for (name, value) in mcp_resource.headers.iter_mut().flatten() {
+            if let Some(var_path) = value.strip_prefix("$var:") {
+                *value = client.get_variable_value(var_path).await.map_err(|e| {
+                    Error::internal_err(format!(
+                        "Failed to resolve variable {} for header {} of MCP resource {}: {}",
+                        var_path, name, resource_name, e
+                    ))
+                })?;
+            }
+        }
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);
@@ -718,6 +732,7 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
                     FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
                     FlowModuleValue::FlowScript { input_transforms, .. } => input_transforms,
                     FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+                    FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
                     _ => return false,
                 };
 
@@ -732,4 +747,33 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
         }
         false
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tool's schema sits in the prompt prefix the provider caches on, so the
+    /// parameters left for the model must keep their order on every run.
+    #[test]
+    fn filtering_preset_inputs_keeps_the_remaining_property_order() {
+        let keys = ["a", "b", "c", "d", "e", "f", "g", "h"];
+        let props = keys
+            .iter()
+            .map(|k| format!(r#""{k}":{{"type":"string"}}"#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let schema =
+            RawValue::from_string(format!(r#"{{"type":"object","properties":{{{props}}}}}"#))
+                .unwrap();
+        let preset = ["a", "c", "f"]
+            .iter()
+            .map(|k| (k.to_string(), InputTransform::Static { value: to_raw_value(&1) }))
+            .collect();
+
+        let filtered = filter_schema_by_input_transforms(schema, &preset).unwrap();
+        let value: serde_json::Value = serde_json::from_str(filtered.get()).unwrap();
+        let remaining: Vec<&String> = value["properties"].as_object().unwrap().keys().collect();
+        assert_eq!(remaining, ["b", "d", "e", "g", "h"]);
+    }
 }

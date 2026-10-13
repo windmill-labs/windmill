@@ -33,6 +33,7 @@ import StripeIcon from './StripeIcon.svelte'
 import TelegramIcon from './TelegramIcon.svelte'
 import FunkwhaleIcon from './FunkwhaleIcon.svelte'
 import GdocsIcon from './GdocsIcon.svelte'
+import GchatIcon from './GchatIcon.svelte'
 import NextcloudIcon from './NextcloudIcon.svelte'
 import NetsuiteIcon from './NetsuiteIcon.svelte'
 import FaunadbIcon from './FaunadbIcon.svelte'
@@ -386,6 +387,7 @@ export const APP_TO_ICON_COMPONENT = {
 	helper: WindmillIcon,
 	windmillhub: WindmillIcon,
 	gdocs: GdocsIcon,
+	gchat: GchatIcon,
 	ocs: NextcloudIcon,
 	faunadb: FaunadbIcon,
 	clickhouse: ClickhouseIcon,
@@ -715,6 +717,7 @@ export {
 	DatadogIcon,
 	FunkwhaleIcon,
 	GdocsIcon,
+	GchatIcon,
 	FaunadbIcon,
 	ClickhouseIcon,
 	OpenaiIcon,

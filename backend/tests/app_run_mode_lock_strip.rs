@@ -238,3 +238,65 @@ async fn test_run_mode_rejects_traversal_component(db: Pool<Postgres>) -> anyhow
 
     Ok(())
 }
+
+/// A deployed app's inline script (`app_script` id) runs as an `appscript` job whose
+/// path job identity reads (OIDC `sub`), so it is derived server-side there too.
+#[sqlx::test(fixtures("base"))]
+async fn test_app_script_run_derives_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let app_path = "u/test-user/appscript_path";
+    let pin = rawscript_pin(CONTENT);
+    let resp = authed(client().post(format!("{ws}/apps/create")), "SECRET_TOKEN")
+        .json(&json!({
+            "path": app_path,
+            "summary": "",
+            "value": {},
+            "policy": {
+                "execution_mode": "viewer",
+                "triggerables_v2": { format!("comp:{pin}"): { "static_inputs": {}, "one_of_inputs": {} } }
+            }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "create app: {}", resp.text().await?);
+
+    let sha = pin.trim_start_matches("rawscript/").to_string();
+    let script_id: i64 = sqlx::query_scalar(
+        "INSERT INTO app_script (app, hash, code, code_sha256)
+         SELECT id, $2, $3, $2 FROM app WHERE path = $1 RETURNING id",
+    )
+    .bind(app_path)
+    .bind(&sha)
+    .bind(CONTENT)
+    .fetch_one(&db)
+    .await?;
+
+    let resp = authed(
+        client().post(format!("{ws}/apps_u/execute_component/{app_path}")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&json!({
+        "args": {},
+        "component": "comp",
+        "id": script_id,
+        "raw_code": { "language": "python3", "content": "", "path": CALLER_PATH }
+    }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, 200, "deployed app script run must be accepted: {body}");
+    let uuid = uuid::Uuid::parse_str(body.trim())?;
+    let (_, _, _, _, runnable_path) = job_fields(&db, uuid).await?;
+    assert_eq!(
+        runnable_path.as_deref(),
+        Some(format!("{app_path}/comp").as_str()),
+        "an app_script run must not take the caller's path"
+    );
+
+    Ok(())
+}

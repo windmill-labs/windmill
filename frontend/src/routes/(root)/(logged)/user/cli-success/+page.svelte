@@ -8,4 +8,4 @@
 	goto('/')
 </script>
 
-<CenteredModal title="Redirecting to Home" loading={true}></CenteredModal>
+<CenteredModal title="Redirecting to Home" loading={true} inPage></CenteredModal>

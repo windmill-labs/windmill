@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT parent_job, root_job, flow_innermost_root_job FROM v2_job\n                WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "parent_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "root_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "flow_innermost_root_job",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "2b40bde4c0f78a689ec7e0f5b2600311ac84b3f0a0229729b770bcf3cc55f03c"
+}

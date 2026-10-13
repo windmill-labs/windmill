@@ -6,26 +6,76 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-//! The instance's data table role catalog.
+//! The instance's data table role catalogs.
 //!
-//! A data table role is a real Postgres login role on the Windmill cluster, named exactly as the
-//! user named it, shared by every instance database. Windmill decides who may ask for a role (the
-//! per-data-table tenant lists in [`crate::workspaces`]); Postgres decides what the role may then
-//! touch. The catalog here is only the first half's vocabulary plus the cluster provisioning.
+//! A data table role is a real Postgres login role on one cluster — Windmill's own, or the external
+//! instance cluster — named exactly as the user named it, shared by every database Windmill manages
+//! on that cluster. Each cluster has its own catalog: a role exists where it was created and nowhere
+//! else. Windmill decides who may ask for a role (the per-data-table tenant lists in
+//! [`crate::workspaces`]); Postgres decides what the role may then touch. The catalog here is only
+//! the first half's vocabulary plus the cluster provisioning.
 //!
 //! Entries are keyed by a generated id so a rename moves nothing else: tenants name the id.
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     error::{Error, Result},
+    workspaces::DataTableCatalogResourceType,
     DB,
 };
+
+/// The cluster a role catalog belongs to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DatatableRoleCluster {
+    /// Windmill's own Postgres, behind `instance` data tables.
+    #[default]
+    Instance,
+    /// The external instance cluster, behind `external_instance` data tables.
+    ExternalInstance,
+}
+
+impl DatatableRoleCluster {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Instance => "instance",
+            Self::ExternalInstance => "external_instance",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "instance" => Ok(Self::Instance),
+            "external_instance" => Ok(Self::ExternalInstance),
+            other => Err(Error::BadRequest(format!(
+                "Unknown data table role cluster '{other}': expected instance or external_instance"
+            ))),
+        }
+    }
+
+    /// The cluster whose roles a data table on `kind` can use. `None` for a resource-backed one,
+    /// which is never under roles.
+    pub fn of(kind: DataTableCatalogResourceType) -> Option<Self> {
+        match kind {
+            DataTableCatalogResourceType::Instance => Some(Self::Instance),
+            DataTableCatalogResourceType::ExternalInstance => Some(Self::ExternalInstance),
+            DataTableCatalogResourceType::Postgresql => None,
+        }
+    }
+}
 
 /// The connection every data table resolved to before roles existed (`custom_instance_user`). It
 /// owns every pre-existing object, so it is a reserved name rather than a catalog entry: never
 /// created, renamed or dropped.
 pub const ADMIN_DATATABLE_ROLE: &str = "admin";
+
+/// Stands in a data table's `default_role` for "none": a connection that names no role then holds
+/// its viewer's roles only, and is refused without any. `$` is outside both the role-name charset
+/// and the catalog ids, and a server predating it refuses it as a role the data table lacks.
+pub const NO_DEFAULT_DATATABLE_ROLE: &str = "$none";
 
 /// The login the admin connection uses, and the role every created role is granted to — that
 /// membership is what later lets it `ALTER ... OWNER TO` a role and drop it.
@@ -76,7 +126,12 @@ fn is_reserved_role_name(name: &str) -> bool {
         || lower.starts_with("pg_")
         || lower.starts_with("windmill_")
         || lower.starts_with("custom_instance_")
+        || lower.starts_with(ROLE_SET_LOGIN_PREFIX)
 }
+
+/// Prefix of the logins Windmill creates for a connection made as several roles at once. Reserved,
+/// so no data table role can be created under, renamed to or taken over at such a name.
+pub const ROLE_SET_LOGIN_PREFIX: &str = "wm_set_";
 
 /// The charset is what makes every downstream interpolation safe: the name reaches Postgres as a
 /// quoted identifier, a `-- role <name>` annotation, and a `?role=` query parameter.
@@ -164,28 +219,42 @@ pub async fn lock_instance_databases_governance<'a>(
 /// need the names — but callers MUST NOT let `pwd` reach a response, a log line, an audit record
 /// or an export. Nothing about who may call it: the credential is the whole risk, and `Debug` is
 /// hand-written to redact it for the same reason.
-pub async fn read_role_catalog(db: &DB) -> Result<DatatableRoleCatalog> {
-    crate::datatable_roles_oss::read_role_catalog(db).await
+pub async fn read_role_catalog(
+    db: &DB,
+    cluster: DatatableRoleCluster,
+) -> Result<DatatableRoleCatalog> {
+    crate::datatable_roles_oss::read_role_catalog(db, cluster).await
 }
 
 /// As [`read_role_catalog`], reading inside the caller's transaction so the value is the one
 /// [`lock_role_catalog`] is protecting. Same disclosure contract.
 pub async fn read_role_catalog_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    cluster: DatatableRoleCluster,
 ) -> Result<DatatableRoleCatalog> {
-    crate::datatable_roles_oss::read_role_catalog_tx(tx).await
+    crate::datatable_roles_oss::read_role_catalog_tx(tx, cluster).await
 }
 
-/// Record a role, in the caller's transaction so it commits with the `CREATE ROLE` it describes.
+/// The cluster a role belongs to, or `None` if no role has this id.
+pub async fn role_cluster(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: &str,
+) -> Result<Option<DatatableRoleCluster>> {
+    crate::datatable_roles_oss::role_cluster(tx, id).await
+}
+
+/// Record a role, in the caller's transaction. On Windmill's own cluster that commits it with the
+/// `CREATE ROLE` it describes; on the external cluster the role already exists by then.
 ///
 /// Authorization: writes a generated Postgres credential. Callers MUST restrict this to superadmin
 /// paths and MUST hold [`lock_role_catalog`] on `tx`.
 pub async fn insert_role_catalog_entry(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     id: &str,
+    cluster: DatatableRoleCluster,
     role: &InstanceDatatableRole,
 ) -> Result<()> {
-    crate::datatable_roles_oss::insert_role_catalog_entry(tx, id, role).await
+    crate::datatable_roles_oss::insert_role_catalog_entry(tx, id, cluster, role).await
 }
 
 /// Update a role's recorded name, login flag and password. Same contract as
@@ -215,7 +284,7 @@ pub fn role_id_by_name<'a>(catalog: &'a DatatableRoleCatalog, name: &str) -> Res
         .find(|(_, role)| role.name == name)
         .ok_or_else(|| {
             Error::NotFound(format!(
-                "'{name}' is not a data table role of this instance. Defined roles: {}.",
+                "'{name}' is not a data table role of this database's cluster. Defined roles: {}.",
                 catalog
                     .values()
                     .map(|r| r.name.as_str())
@@ -231,70 +300,98 @@ pub fn role_id_by_name<'a>(catalog: &'a DatatableRoleCatalog, name: &str) -> Res
     Ok(entry.0.as_str())
 }
 
-/// Every instance database the registry knows about. Role provisioning has to reach all of them:
-/// a role that cannot `CONNECT` to a database is refused by Postgres before any grant matters.
+/// Every database Windmill manages on `cluster`. Role provisioning has to reach all of them: a role
+/// that cannot `CONNECT` to a database is refused by Postgres before any grant matters.
 ///
-/// Authorization: checks nothing, and names every instance database across all workspaces. Callers
+/// Authorization: checks nothing, and names every managed database across all workspaces. Callers
 /// MUST be superadmin-gated or keep the names server-side; never return them to a workspace caller.
-pub async fn registered_instance_databases(db: &DB) -> Result<Vec<String>> {
-    crate::datatable_roles_oss::registered_instance_databases(db).await
+pub async fn registered_instance_databases(
+    db: &DB,
+    cluster: DatatableRoleCluster,
+) -> Result<Vec<String>> {
+    crate::datatable_roles_oss::registered_instance_databases(db, cluster).await
 }
 
-/// `CONNECT` on `dbname` for every enabled role, and none for `PUBLIC`. Run at role creation, at
-/// database creation, and lazily whenever an instance data table is administered, so a database
-/// provisioned before a role existed is repaired rather than left silently unreachable.
+/// `CONNECT` on `dbname` for every enabled role of `cluster`, and none for `PUBLIC`. Run at role
+/// creation, at database creation, and lazily whenever a managed data table is administered, so a
+/// database provisioned before a role existed is repaired rather than left silently unreachable.
 ///
 /// Authorization: rewrites a database's ACL with the server's own credentials and checks nothing.
 /// Callers MUST have authorized administration of `dbname` — superadmin, or an admin of the
 /// workspace governing a data table on it.
-pub async fn converge_connect_grants(db: &DB, dbname: &str) -> Result<()> {
-    crate::datatable_roles_oss::converge_connect_grants(db, dbname).await
+pub async fn converge_connect_grants(
+    db: &DB,
+    cluster: DatatableRoleCluster,
+    dbname: &str,
+) -> Result<()> {
+    crate::datatable_roles_oss::converge_connect_grants(db, cluster, dbname).await
 }
 
-/// As [`converge_connect_grants`], with a catalog the caller already read. Same contract.
+/// As [`converge_connect_grants`], with the catalog of `cluster` the caller already read. Same
+/// contract.
 pub async fn converge_connect_grants_with(
     db: &DB,
+    cluster: DatatableRoleCluster,
     dbname: &str,
     catalog: &DatatableRoleCatalog,
 ) -> Result<()> {
-    crate::datatable_roles_oss::converge_connect_grants_with(db, dbname, catalog).await
+    crate::datatable_roles_oss::converge_connect_grants_with(db, cluster, dbname, catalog).await
 }
 
-/// `CREATE ROLE <name> LOGIN PASSWORD ...; GRANT <name> TO custom_instance_user`, and `CONNECT` on
-/// every registered database. No privileges beyond that — an admin grants them through SQL or the
-/// ACL editor.
+/// `CREATE ROLE <name> LOGIN PASSWORD ...; GRANT <name> TO custom_instance_user` on `cluster`. No
+/// privileges beyond that — an admin grants them through SQL or the ACL editor.
+///
+/// A role of that name that already exists is refused with a 409, unless `take_over`: then its
+/// password is replaced and it is managed from here on like one created here. A role holding
+/// cluster-wide privileges, or inheriting another role's, is refused either way, since every tenant
+/// would get them. Returns whether an existing role was taken over: undoing a failed take-over
+/// must not drop a role that was there before.
+///
+/// On Windmill's own cluster the DDL runs on `tx`, so it commits with the catalog row. The external
+/// cluster is another server: the role is created there before `tx` commits, and callers MUST drop
+/// it again ([`drop_datatable_role`]) if `tx` then fails to commit.
 ///
 /// Authorization: creates a cluster-wide Postgres login. Callers MUST restrict this to superadmin
-/// paths, and MUST hold [`lock_role_catalog`] on the same transaction.
-pub async fn create_instance_role(
+/// paths, and MUST hold [`lock_role_catalog`] on `tx`.
+pub async fn create_datatable_role(
+    db: &DB,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    cluster: DatatableRoleCluster,
     name: &str,
     password: &str,
-) -> Result<()> {
-    crate::datatable_roles_oss::create_instance_role(tx, name, password).await
+    take_over: bool,
+) -> Result<bool> {
+    crate::datatable_roles_oss::create_datatable_role(db, tx, cluster, name, password, take_over)
+        .await
 }
 
 /// Authorization: alters a cluster-wide Postgres login. Callers MUST restrict this to superadmin
-/// paths, and MUST hold [`lock_role_catalog`] on the same transaction.
-pub async fn set_instance_role_login(
+/// paths, and MUST hold [`lock_role_catalog`] on `tx`.
+pub async fn set_datatable_role_login(
+    db: &DB,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    cluster: DatatableRoleCluster,
     name: &str,
     enabled: bool,
 ) -> Result<()> {
-    crate::datatable_roles_oss::set_instance_role_login(tx, name, enabled).await
+    crate::datatable_roles_oss::set_datatable_role_login(db, tx, cluster, name, enabled).await
 }
 
-/// A rename discards an md5-hashed password, so the caller has to hand over a fresh one.
+/// A rename discards an md5-hashed password, so the caller has to hand over a fresh one. On the
+/// external cluster the rename lands before `tx` commits, and callers MUST rename it back if `tx`
+/// then fails to commit.
 ///
 /// Authorization: renames a cluster-wide Postgres login. Callers MUST restrict this to superadmin
-/// paths, and MUST hold [`lock_role_catalog`] on the same transaction.
-pub async fn rename_instance_role(
+/// paths, and MUST hold [`lock_role_catalog`] on `tx`.
+pub async fn rename_datatable_role(
+    db: &DB,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    cluster: DatatableRoleCluster,
     from: &str,
     to: &str,
     password: &str,
 ) -> Result<()> {
-    crate::datatable_roles_oss::rename_instance_role(tx, from, to, password).await
+    crate::datatable_roles_oss::rename_datatable_role(db, tx, cluster, from, to, password).await
 }
 
 /// A role owning anything in any database blocks its own `DROP ROLE`, and both its objects and the
@@ -302,8 +399,9 @@ pub async fn rename_instance_role(
 /// registry. An unreachable database aborts the whole delete: dropping the role while one database
 /// still holds objects owned by it leaves those objects owned by a numeric OID nobody can name.
 ///
-/// Each pass runs as the instance's own Postgres user rather than `custom_instance_user`, which
-/// owns the databases and can therefore revoke a grant whoever made it. `custom_instance_user`
+/// Each pass runs as the cluster's administrator rather than `custom_instance_user`: on Windmill's
+/// own cluster the instance's Postgres user, on the external one its configured admin login. Both
+/// own the databases and can therefore revoke a grant whoever made it. `custom_instance_user`
 /// could only undo what it granted itself, so a privilege planted by an operator in psql — the
 /// ordinary way privileges reach a role — would survive and block the drop.
 ///
@@ -311,16 +409,26 @@ pub async fn rename_instance_role(
 /// MUST restrict this to superadmin paths, and MUST hold [`lock_role_catalog`] on `tx`.
 ///
 /// The per-database passes open their own connections and cannot join `tx`; the lock is what keeps
-/// a concurrent mutation out while they run. Only the final `DROP ROLE` is on `tx`, so it commits
-/// or rolls back with the catalog write that forgets the role. Those passes commit as they go, so
-/// callers MUST have disabled the role in an earlier committed transaction: a failure part-way
-/// then leaves a disabled role to retry, not an enabled one already stripped in some databases.
-pub async fn drop_instance_role(
+/// a concurrent mutation out while they run. On Windmill's own cluster only the final `DROP ROLE`
+/// is on `tx`, so it commits or rolls back with the catalog write that forgets the role; on the
+/// external cluster it runs there, and tolerates a role already gone so a retry after a failed
+/// commit can finish. The passes commit as they go, so callers MUST have disabled the role in an
+/// earlier committed transaction: a failure part-way then leaves a disabled role to retry, not an
+/// enabled one already stripped in some databases.
+pub async fn drop_datatable_role(
     db: &DB,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    cluster: DatatableRoleCluster,
     name: &str,
 ) -> Result<()> {
-    crate::datatable_roles_oss::drop_instance_role(db, tx, name).await
+    crate::datatable_roles_oss::drop_datatable_role(db, tx, cluster, name).await
+}
+
+/// Drop the logins made for a connection as several roles at once that nobody has connected with
+/// for a month, on every cluster. They are made again on demand, so this only bounds how many
+/// exist. Safe to call from any server at any time: it serializes on the role catalog lock.
+pub async fn sweep_unused_role_set_logins(db: &DB) -> Result<()> {
+    crate::datatable_roles_oss::sweep_unused_role_set_logins(db).await
 }
 
 #[cfg(test)]

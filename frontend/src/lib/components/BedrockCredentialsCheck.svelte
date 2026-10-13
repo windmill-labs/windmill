@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { JobService, type FlowValue } from '$lib/gen'
+	import { enterpriseLicense } from '$lib/stores'
 	import { tryEvery } from '$lib/utils'
 	import { Check, LoaderCircle, Server, X, Cpu } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
@@ -179,6 +180,11 @@
 	<p class="text-xs text-secondary">
 		Check if AWS credentials are available from the environment. If available, you do not need to
 		configure credentials manually.
+		{#if $enterpriseLicense}
+			To attribute usage to the job or user that made the request instead, set
+			<span class="font-mono">oidcRoleArn</span> to an IAM role Windmill assumes through its OIDC provider,
+			and set a region alongside it.
+		{/if}
 	</p>
 
 	<div class="grid grid-cols-2 gap-3">
