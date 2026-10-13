@@ -111,6 +111,12 @@ lazy_static::lazy_static! {
                     (20260909163047, include_str!(
                         "../../migrations/20260909163047_workspace_delete_cascade_indexes.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    // The widening fails every query the previous release's still-running
+                    // servers prepared on the column; `variables::widen_variable_value` does it
+                    // once they are gone.
+                    (20261012213357, include_str!(
+                        "../../migrations/20261012213357_widen_variable_value.up.sql"
+                    ).replace("ALTER TABLE variable ALTER COLUMN value TYPE VARCHAR(15040);", "")),
                     ].into_iter().collect();
 }
 

@@ -153,6 +153,10 @@ impl From<anyhow::Error> for Error {
 impl From<sqlx::Error> for Error {
     #[track_caller]
     fn from(e: sqlx::Error) -> Self {
+        if crate::db::is_stale_cached_plan(&e) {
+            tracing::warn!("a schema change invalidated cached statements, reopening the database connections: {e}");
+            crate::db::retire_connections_opened_before_now();
+        }
         Self::SqlErr { error: e, location: prettify_location(std::panic::Location::caller()) }
     }
 }
