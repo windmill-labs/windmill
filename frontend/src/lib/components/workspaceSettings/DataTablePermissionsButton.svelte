@@ -87,6 +87,8 @@
 	const pgInstanceName = $derived(pgInstanceNameOf(info?.cluster))
 	const unusedRoles = $derived(availableRoles.filter((r) => !roles.some((row) => row.id === r.id)))
 	const confirmationModal = createAsyncConfirmationModal()
+	// Every member of the governing workspace, as the tenant lists spell it.
+	const EVERYONE_TENANT = '*'
 	let aclEditor = $state<PgAclEditor | undefined>(undefined)
 
 	const hasUnsavedChanges = $derived(
@@ -111,9 +113,13 @@
 					(a, b) => Number(b.id === ADMIN_DATATABLE_ROLE) - Number(a.id === ADMIN_DATATABLE_ROLE)
 				)
 			// A data table never put under roles comes back with none; admin is what turning the toggle
-			// on starts from.
+			// on starts from, open to everyone so that turning it on changes nothing by itself.
 			if (!loaded.some((r) => r.id === ADMIN_DATATABLE_ROLE)) {
-				loaded.unshift({ id: ADMIN_DATATABLE_ROLE, name: ADMIN_DATATABLE_ROLE, tenants: [] })
+				loaded.unshift({
+					id: ADMIN_DATATABLE_ROLE,
+					name: ADMIN_DATATABLE_ROLE,
+					tenants: [EVERYONE_TENANT]
+				})
 			}
 			info = res
 			catalog = undefined
@@ -137,7 +143,7 @@
 				FolderService.listFolderNames({ workspace: ws })
 			])
 			tenantItems = [
-				{ value: '*', label: 'Everyone', group: 'Anyone in the workspace' },
+				{ value: EVERYONE_TENANT, label: 'Everyone', group: 'Anyone in the workspace' },
 				...users.map((u) => ({ value: `u/${u}`, label: u, group: 'Users' })),
 				...groups.map((g) => ({ value: `g/${g}`, label: g, group: 'Groups' })),
 				...folders.map((f) => ({ value: `f/${f}`, label: f, group: 'Folders' }))
@@ -236,6 +242,9 @@
 	const defaultsToAdmin = $derived(defaultRoleId === ADMIN_DATATABLE_ROLE)
 	const hasNoDefault = $derived(defaultRoleId === NO_DEFAULT_DATATABLE_ROLE)
 	const hasOtherRoles = $derived(roles.some((r) => r.id !== ADMIN_DATATABLE_ROLE))
+	const adminOpenToEveryone = $derived(
+		!!roles.find((r) => r.id === ADMIN_DATATABLE_ROLE)?.tenants.includes(EVERYONE_TENANT)
+	)
 
 	async function save() {
 		saving = true
@@ -334,7 +343,7 @@
 					options={{
 						right: 'Put this data table under roles',
 						rightTooltip:
-							'Off, every job connects as admin — the connection that owns every table. On, every job resolves to a role, and a caller no tenant covers is refused.'
+							'Off, every job connects as admin — the connection that owns every table. On, every job resolves to a role, and a caller no tenant covers is refused. It starts with admin open to everyone, so turning it on changes nothing until the roles are edited.'
 					}}
 				/>
 
@@ -506,7 +515,16 @@
 						</tbody>
 					</DataTable>
 
-					{#if defaultsToAdmin && hasOtherRoles}
+					{#if adminOpenToEveryone}
+						<Alert type="warning" title="Everyone can connect as admin" size="xs">
+							Every member of the workspace may use admin{defaultsToAdmin
+								? ', and a job that names no role connects as it, exactly as with roles off'
+								: ' by naming it'}. admin owns every table: it reads every row and ignores grants
+							and row-level security. Once the other roles are set up, remove Everyone from admin's
+							tenants{defaultsToAdmin ? ' and choose another default, or none' : ''}.
+						</Alert>
+					{/if}
+					{#if defaultsToAdmin && hasOtherRoles && !adminOpenToEveryone}
 						<Alert type="warning" title="The default role is admin" size="xs">
 							A job that names no role connects as admin when it runs as a workspace admin or as one
 							of admin's tenants, which covers every viewer of an app an admin published. admin owns
