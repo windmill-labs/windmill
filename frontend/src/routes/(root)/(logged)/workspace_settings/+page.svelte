@@ -386,6 +386,25 @@
 	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
 	let yamlMode = $state(false)
+	let yamlEditor: WorkspaceSettingsYaml | undefined = $state(undefined)
+	let confirmLeaveYaml = $state(false)
+
+	function yamlHasUnsavedChanges() {
+		const changes = yamlEditor?.unsavedChanges()
+		return !!changes && hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
+	}
+
+	// The check runs in the binding's setter, before the editor unmounts. A refused change still
+	// leaves the toggle's checkbox unchecked, so the toggle is remounted to show the mode again.
+	let yamlToggleKey = $state(0)
+	function setYamlMode(on: boolean) {
+		if (!on && yamlMode && yamlHasUnsavedChanges()) {
+			yamlToggleKey++
+			confirmLeaveYaml = true
+			return
+		}
+		yamlMode = on
+	}
 
 	async function reloadAfterYamlApply() {
 		await Promise.all([
@@ -1198,6 +1217,9 @@
 
 	// Combined function to check for unsaved changes across all tabs
 	function getAllUnsavedChanges() {
+		if (yamlMode) {
+			return yamlEditor?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
+		}
 		switch (tab) {
 			case 'windmill_data_tables':
 				return dataTableSettingsComponent?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
@@ -1528,7 +1550,7 @@
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
 						{:else if yamlMode && canAdmin}
-							<WorkspaceSettingsYaml onApplied={reloadAfterYamlApply} />
+							<WorkspaceSettingsYaml bind:this={yamlEditor} onApplied={reloadAfterYamlApply} />
 						{:else if tab == 'users'}
 							{#if canAdmin}
 								<WorkspaceUserSettings />
@@ -2458,9 +2480,26 @@ export async function main(
 	tabMode={true}
 />
 
+<ConfirmationModal
+	open={confirmLeaveYaml}
+	title="Unsaved changes detected"
+	confirmationText="Discard changes"
+	onConfirmed={() => {
+		confirmLeaveYaml = false
+		yamlMode = false
+	}}
+	onCanceled={() => {
+		confirmLeaveYaml = false
+	}}
+>
+	<span>Leaving YAML mode discards the changes you made in the editor.</span>
+</ConfirmationModal>
+
 {#snippet settingsActions()}
 	{#if canAdmin}
-		<Toggle bind:checked={yamlMode} options={{ right: 'YAML' }} size="sm" />
+		{#key yamlToggleKey}
+			<Toggle bind:checked={() => yamlMode, setYamlMode} options={{ right: 'YAML' }} size="sm" />
+		{/key}
 	{/if}
 	{#if $superadmin}
 		<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>

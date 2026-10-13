@@ -150,6 +150,13 @@
 		warnings = []
 	}
 
+	export function unsavedChanges() {
+		return {
+			savedValue: { code: initialCode },
+			modifiedValue: { code: editor?.getCode() ?? code }
+		}
+	}
+
 	function formatValue(v: unknown): string {
 		if (v === null || v === undefined) return 'unset'
 		const s = typeof v === 'string' ? v : JSON.stringify(v)
