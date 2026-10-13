@@ -218,10 +218,23 @@
 		}
 	}
 
-	function removeRole(role: EditedRole) {
+	async function removeRole(role: EditedRole) {
+		if (defaultRoleId === role.id) {
+			const confirmed = await confirmationModal.ask({
+				title: 'Remove the default role?',
+				children: `Jobs that name no role connect as ${role.name ?? role.id}. Without it they connect as admin, which reads every row and ignores grants and row-level security.`,
+				confirmationText: 'Remove and default to admin',
+				type: 'danger'
+			})
+			if (!confirmed) return
+			defaultRoleId = ADMIN_DATATABLE_ROLE
+		}
 		roles = roles.filter((r) => r.id !== role.id)
-		if (defaultRoleId === role.id) defaultRoleId = ADMIN_DATATABLE_ROLE
 	}
+
+	const defaultRoleName = $derived(roles.find((r) => r.id === defaultRoleId)?.name ?? defaultRoleId)
+	const defaultsToAdmin = $derived(defaultRoleId === ADMIN_DATATABLE_ROLE)
+	const hasOtherRoles = $derived(roles.some((r) => r.id !== ADMIN_DATATABLE_ROLE))
 
 	async function save() {
 		saving = true
@@ -391,8 +404,9 @@
 								<Cell head>
 									Default
 									<Tooltip>
-										The role a job gets when it names none — no `-- role` annotation, no `?role=` in
-										the reference. Callers still have to be one of its tenants.
+										The role a job gets when it names none: no `-- role` annotation, no `?role=` in
+										the reference. Callers still have to be one of its tenants. Unless it is admin,
+										the other roles the person running the job is a tenant of are added to it.
 									</Tooltip>
 								</Cell>
 								<Cell head last />
@@ -466,6 +480,20 @@
 							{/if}
 						</tbody>
 					</DataTable>
+
+					{#if defaultsToAdmin && hasOtherRoles}
+						<Alert type="warning" title="Jobs that name no role connect as admin" size="xs">
+							admin owns every table, so it reads every row and ignores grants and row-level
+							security. The roles above only apply to jobs that name one. Make another role the
+							default to have them apply to every job.
+						</Alert>
+					{:else if !defaultsToAdmin}
+						<span class="text-xs text-secondary">
+							A job that names no role connects as
+							<span class="font-mono">{defaultRoleName}</span>, plus every other role here that the
+							person running it is a tenant of. A job that names a role connects as that role alone.
+						</span>
+					{/if}
 				{/if}
 			</div>
 

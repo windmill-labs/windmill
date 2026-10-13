@@ -87,7 +87,6 @@ export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
 
 export interface DatatableOptions {
     role?: string;
-    as?: "viewer";
 }
 export declare function datatable(name?: string, opts?: DatatableOptions): DatatableSqlTemplateFunction;
 export declare function ducklake(name: string): SqlTemplateFunction;

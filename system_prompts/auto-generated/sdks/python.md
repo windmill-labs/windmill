@@ -488,13 +488,10 @@ def send_teams_message(conversation_id: str, text: str, success: bool = True, ca
 #     role: Connect as this data table role instead of the data table's default one.
 #         Only meaningful on a data table under roles, and only for a role you are a
 #         tenant of.
-#     as_viewer: Connect with every role of the job's viewer at once: the user of the
-#         app the job runs for, or whoever ran the script. The server resolves who that
-#         is. Cannot be combined with role.
 # 
 # Returns:
 #     DataTableClient instance
-def datatable(name: str = 'main', *, role: Optional[str] = None, as_viewer: bool = False)
+def datatable(name: str = 'main', *, role: Optional[str] = None)
 
 # Get a DuckLake client for DuckDB queries.
 # 

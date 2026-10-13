@@ -27,7 +27,6 @@ use windmill_common::worker::{
 };
 use windmill_common::workspaces::{
     get_datatable_resource_from_db, parse_datatable_ref, parse_datatable_ref_for, DatatableAccess,
-    DATATABLE_VIEWER_ROLE,
 };
 use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
 use windmill_parser::{Arg, Typ};
@@ -1172,23 +1171,6 @@ fn do_postgresql_inner<'a>(
     Ok(result_f.boxed())
 }
 
-/// The annotation wins over a `?role=` in the reference, but naming a role while the reference
-/// asks for the viewer's is refused: either reading would connect as something the other half of
-/// the request did not ask for.
-fn requested_datatable_role<'a>(
-    annotated: Option<&'a str>,
-    uri_role: Option<&'a str>,
-) -> error::Result<Option<&'a str>> {
-    if annotated.is_some() && uri_role == Some(DATATABLE_VIEWER_ROLE) {
-        return Err(Error::BadRequest(
-            "The query names a data table role (`-- role`) while its data table reference asks \
-             for the viewer's roles (`?as=viewer`). Use one or the other."
-                .to_string(),
-        ));
-    }
-    Ok(annotated.or(uri_role))
-}
-
 pub async fn do_postgresql(
     job: &MiniPulledJob,
     client: &AuthedClient,
@@ -1231,7 +1213,7 @@ pub async fn do_postgresql(
                             client,
                             name,
                             &job.workspace_id,
-                            requested_datatable_role(annotated.as_deref(), uri_role)?,
+                            annotated.as_deref().or(uri_role),
                             &job.id,
                         )
                         .await?
@@ -1243,7 +1225,7 @@ pub async fn do_postgresql(
                             db,
                             &job.workspace_id,
                             &name,
-                            requested_datatable_role(annotated.as_deref(), uri_role.as_deref())?,
+                            annotated.as_deref().or(uri_role.as_deref()),
                             DatatableAccess::PermissionedAs {
                                 permissioned_as: &job.permissioned_as,
                                 email: &job.permissioned_as_email,

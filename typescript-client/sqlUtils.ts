@@ -111,12 +111,6 @@ export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
 export interface DatatableOptions {
   /** The data table role to connect as. Omit to get the data table's default role. */
   role?: string;
-  /**
-   * `"viewer"` connects with every role of the job's viewer at once: the user of the app the job
-   * runs for, or whoever ran the script. The server resolves who that is; it cannot be combined
-   * with `role`.
-   */
-  as?: "viewer";
 }
 
 // ---------------------------------------------------------------------------
@@ -146,27 +140,17 @@ const ROLE_NAME_RE = /^[A-Za-z0-9_-]{1,63}$/;
 function datatableProvider(
   name: string,
   schema?: string,
-  opts?: DatatableOptions
+  role?: string
 ): SqlProvider {
-  const role = opts?.role;
   if (role !== undefined && !ROLE_NAME_RE.test(role)) {
     throw new Error(
       `Invalid data table role '${role}': only letters, digits, '_' and '-' are allowed`
     );
   }
-  const as = opts?.as;
-  if (as !== undefined && as !== "viewer") {
-    throw new Error(`Invalid data table option as: '${as}': the only value is 'viewer'`);
-  }
-  if (as !== undefined && role !== undefined) {
-    throw new Error("A data table is used as a role or as the viewer, not both");
-  }
   return {
     providerName: "datatable",
     language: "postgresql",
-    // In the reference rather than an annotation: a worker that does not know `?as=` refuses
-    // the reference, where it would skip an annotation and connect as the default role.
-    extraArgs: { database: `datatable://${name}${as ? "?as=viewer" : ""}` },
+    extraArgs: { database: `datatable://${name}` },
     annotations: () => (role !== undefined ? `-- role ${role}\n` : ""),
     formatArgDecl: (argNum) => `-- $${argNum} arg${argNum}`,
     formatArgUsage: (argNum, explicitType, inferredType) =>
@@ -364,8 +348,6 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
  * @param name - Database/datatable name (default: "main")
  * @param opts.role - Connect as this data table role instead of the data table's default one.
  *   Only meaningful on a data table under roles, and only for a role you are a tenant of.
- * @param opts.as - `"viewer"` connects with every role of the job's viewer at once, so row-level
- *   security policies see the user of the app rather than its publisher.
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -378,16 +360,13 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
  * @example
  * // Read through a restricted role
  * let sql = wmill.datatable("main", { role: "analytics" })
- * @example
- * // In an app's backend runnable: read what the app's viewer may read
- * let sql = wmill.datatable("main", { as: "viewer" })
  */
 export function datatable(
   name: string = "main",
   opts?: DatatableOptions
 ): DatatableSqlTemplateFunction {
   let { name: n, schema } = parseName(name);
-  let provider = datatableProvider(n, schema, opts);
+  let provider = datatableProvider(n, schema, opts?.role);
   let sqlFn = buildSqlTemplateFunction(provider) as DatatableSqlTemplateFunction;
   // `.query(sql, ...params)` is for SQL strings that already contain
   // positional placeholders ($1, $2, ...). We DON'T go through the template

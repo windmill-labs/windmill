@@ -1589,12 +1589,6 @@ pub struct DataTableRoleTenants {
 /// Every member of the governing workspace.
 pub const DATATABLE_TENANT_WILDCARD: &str = "*";
 
-/// Stands in the `role` of a resolution for "every role the job's viewer is a tenant of", which
-/// callers write as `?as=viewer`. `$` is outside the role-name charset, so no role can be named
-/// this, and a server predating it refuses it as an unknown role rather than resolving the
-/// default one.
-pub const DATATABLE_VIEWER_ROLE: &str = "$viewer";
-
 /// How deep a chain of pointer entries may go before it is called a loop. Data tables are not
 /// expected to chain at all — a fork points at its parent — so this only has to be generous
 /// enough to survive a fork of a fork.
@@ -2222,11 +2216,11 @@ pub async fn can_use_datatable_role_in_governing_workspace(
 /// The resolved role **logs in as itself**. Never `SET ROLE`: a script could `RESET ROLE` its way
 /// back to admin.
 ///
-/// [`DATATABLE_VIEWER_ROLE`] resolves for the job's viewer rather than its owner: the roles whose
-/// tenant lists name the viewer, one login holding all of them. Being an admin adds none, and
-/// `admin` is never among them, so an app's viewer cannot be handed the connection that owns the
-/// tables and bypasses row-level security. A viewer with no role, or a job with none recorded, is
-/// refused.
+/// A default role other than `admin` is a floor rather than the whole connection: a resolution
+/// naming no role also holds the roles whose tenant lists name the job's viewer, as one login that
+/// is a member of each. Being an admin adds none and `admin` is never among them, so a viewer
+/// cannot be handed the connection that owns the tables and bypasses row-level security. A named
+/// role is that role alone.
 pub async fn get_datatable_resource_from_db(
     db: &DB,
     w_id: &str,
@@ -2493,36 +2487,22 @@ pub async fn parse_datatable_ref_for(
 /// A query string that does not parse is an error rather than an absent role. Falling back would
 /// resolve the reference to the data table's default role, so `?Role=analytics` or a mistyped
 /// `?role=` would quietly connect as something the caller did not ask for — the same trap as a
-/// malformed `-- role` annotation.
-///
-/// The one other parameter is `?as=viewer`, which asks for every role of the job's viewer instead
-/// of one by name and comes back as [`DATATABLE_VIEWER_ROLE`].
+/// malformed `-- role` annotation, and `role` is the only parameter a reference takes.
 pub fn parse_datatable_ref(reference: &str) -> Result<(&str, Option<&str>)> {
     let (name, query) = reference.split_once('?').unwrap_or((reference, ""));
     let mut role = None;
     for param in query.split('&').filter(|p| !p.is_empty()) {
         let (key, value) = param.split_once('=').unwrap_or((param, ""));
-        let as_viewer = key.eq_ignore_ascii_case("as");
-        if !as_viewer && !key.eq_ignore_ascii_case("role") {
+        if !key.eq_ignore_ascii_case("role") {
             return Err(Error::BadRequest(format!(
                 "Data table reference '{name}' carries an unknown parameter '{key}'. \
-                 It takes `?role=<name>` or `?as=viewer`."
+                 The only one it takes is `?role=<name>`."
             )));
         }
         if role.is_some() {
             return Err(Error::BadRequest(format!(
-                "Data table reference '{name}' takes one `role` or `as=viewer`, not several."
+                "Data table reference '{name}' names a role more than once."
             )));
-        }
-        if as_viewer {
-            if value != "viewer" {
-                return Err(Error::BadRequest(format!(
-                    "Data table reference '{name}' has a malformed `as` parameter '{value}'. \
-                     Write it as `?as=viewer`."
-                )));
-            }
-            role = Some(DATATABLE_VIEWER_ROLE);
-            continue;
         }
         if value.is_empty() || !is_datatable_role_name(value) {
             return Err(Error::BadRequest(format!(
@@ -3851,22 +3831,13 @@ mod tests {
             ("sales", Some("analytics"))
         );
 
-        assert_eq!(
-            parse_datatable_ref("sales?as=viewer").unwrap(),
-            ("sales", Some(DATATABLE_VIEWER_ROLE))
-        );
-
         // A query string that does not parse is refused rather than read as "no role": resolving
         // it to the data table's default would connect as a login the caller never asked for.
-        // The viewer cannot be asked for through `role`, nor together with one.
         for malformed in [
             "sales?role=",
             "sales?role=an;alytics",
             "sales?x=1&role=analytics",
             "sales?role=a&role=b",
-            "sales?as=owner",
-            "sales?as=viewer&role=analytics",
-            "sales?role=$viewer",
         ] {
             assert!(
                 parse_datatable_ref(malformed).is_err(),

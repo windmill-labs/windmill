@@ -183,7 +183,7 @@ data:
 - `<datatable>/<table>` — Specific table in public schema
 - `<datatable>/<schema>:<table>` — Table in specific schema
 
-**Roles:** when a datatable is under roles, its queries run as a role, which only reaches what it was granted. `roles` records the role the app uses each datatable through; the app's code must pass the same role: `wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python. A datatable without an entry is used as its default role. To use a datatable with the roles of whoever is viewing the app rather than one fixed role, pass `{ as: 'viewer' }` (`as_viewer=True` in Python) instead of a role.
+**Roles:** when a datatable is under roles, its queries run as a role, which only reaches what it was granted. `roles` records the role the app uses each datatable through; the app's code must pass the same role: `wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python. A datatable without an entry is used as its default role, plus the roles of whoever is using the app unless that default is `admin`.
 
 ## SQL Migrations (sql_to_apply/)
 

@@ -7,12 +7,10 @@ Import: `import wmill`
 # Args:
 #     name: Database name (default: "main")
 #     role: Connect as this data table role instead of the data table's default one.
-#     as_viewer: Connect with every role of the job's viewer at once: the user of the app
-#         the job runs for, or whoever ran the script. Cannot be combined with role.
 # 
 # Returns:
 #     DataTableClient instance
-def datatable(name: str = 'main', *, role: Optional[str] = None, as_viewer: bool = False) -> DataTableClient
+def datatable(name: str = 'main', *, role: Optional[str] = None) -> DataTableClient
 
 # Client for executing SQL queries against Windmill DataTables.
 class DataTableClient:
@@ -22,8 +20,7 @@ class DataTableClient:
     #     client: Windmill client instance
     #     name: DataTable name
     #     role: Data table role to connect as, or None for the data table's default
-    #     as_viewer: Connect with every role of the job's viewer instead of one role
-    def __init__(client: Windmill, name: str, role: Optional[str] = None, as_viewer: bool = False)
+    def __init__(client: Windmill, name: str, role: Optional[str] = None)
 
     # Execute a SQL query against the DataTable.
     # 

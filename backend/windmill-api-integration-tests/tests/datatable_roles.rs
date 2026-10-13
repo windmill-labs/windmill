@@ -1850,18 +1850,17 @@ async fn cleanup_waits_out_a_save_racing_it_for_an_instance_database(
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
-async fn connecting_as_the_viewer_takes_the_roles_that_name_them_and_no_other(
+async fn a_connection_naming_no_role_holds_the_default_one_and_the_viewers(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
-    use windmill_common::workspaces::{
-        get_datatable_resource_from_db, DatatableAccess, DATATABLE_VIEWER_ROLE,
-    };
+    use windmill_common::workspaces::{get_datatable_resource_from_db, DatatableAccess};
 
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let suffix: String = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
     let names = [
+        format!("wmtest_floor_{suffix}"),
         format!("wmtest_emea_{suffix}"),
         format!("wmtest_amer_{suffix}"),
     ];
@@ -1871,18 +1870,27 @@ async fn connecting_as_the_viewer_takes_the_roles_that_name_them_and_no_other(
          WHERE r.rolname = $1 AND m.rolname LIKE 'wm\\_set\\_%'";
 
     // The job is the app publisher's in every case: only the viewer the server recorded differs.
-    let as_viewer = |viewer: Option<&'static str>| {
+    let connect = |role: Option<&'static str>, viewer: Option<&'static str>| {
         get_datatable_resource_from_db(
             &db,
             "test-workspace",
             "main",
-            Some(DATATABLE_VIEWER_ROLE),
+            role,
             DatatableAccess::PermissionedAs {
                 permissioned_as: "u/test-user",
                 email: "test@windmill.dev",
                 end_user_email: viewer,
             },
         )
+    };
+    let set_permissions = |default_role: String, roles: Value| {
+        sqlx::query(
+            "UPDATE workspace_settings
+             SET datatable = jsonb_set(datatable, '{datatables,main,permissions}', $1)
+             WHERE workspace_id = 'test-workspace'",
+        )
+        .bind(json!({ "default_role": default_role, "roles": roles }))
+        .execute(&db)
     };
 
     let outcome = async {
@@ -1897,55 +1905,71 @@ async fn connecting_as_the_viewer_takes_the_roles_that_name_them_and_no_other(
                 .await?;
             ids.push(created["id"].as_str().unwrap().to_string());
         }
-        // `test-user-2` is named by both roles, one of them through a group, and by `admin`;
-        // `test-user-3` by one; the workspace admin `test-user` by none.
-        sqlx::query(
-            "UPDATE workspace_settings
-             SET datatable = jsonb_set(datatable, '{datatables,main,permissions,roles}', $1)
-             WHERE workspace_id = 'test-workspace'",
-        )
-        .bind(json!({
+        // `test-user-2` is named by both regional roles, one of them through a group, and by
+        // `admin`; `test-user-3` by one; the workspace admin `test-user` by neither.
+        let roles = json!({
             "admin": {"tenants": ["u/test-user-2"]},
-            (ids[0].as_str()): {"tenants": ["u/test-user-2", "u/test-user-3"]},
-            (ids[1].as_str()): {"tenants": ["g/analysts"]},
-        }))
-        .execute(&db)
-        .await?;
+            (ids[0].as_str()): {"tenants": ["*"]},
+            (ids[1].as_str()): {"tenants": ["u/test-user-2", "u/test-user-3"]},
+            (ids[2].as_str()): {"tenants": ["g/analysts"]},
+        });
+        set_permissions(ids[0].clone(), roles.clone()).await?;
         sqlx::query(
             "INSERT INTO usr_to_group (workspace_id, usr, group_)
              VALUES ('test-workspace', 'test-user-2', 'analysts')",
         )
         .execute(&db)
         .await?;
+        let member_of = |login: String| async {
+            let mut roles: Vec<String> = sqlx::query_scalar(
+                "SELECT r.rolname::text FROM pg_auth_members am
+                 JOIN pg_roles r ON r.oid = am.roleid JOIN pg_roles m ON m.oid = am.member
+                 WHERE m.rolname = $1",
+            )
+            .bind(login)
+            .fetch_all(&db)
+            .await?;
+            roles.sort();
+            Ok::<_, anyhow::Error>(roles)
+        };
 
-        let both = as_viewer(Some("test2@windmill.dev")).await?;
-        let login = both["user"].as_str().unwrap().to_string();
+        let all = connect(None, Some("test2@windmill.dev")).await?;
+        let login = all["user"].as_str().unwrap().to_string();
         assert!(login.starts_with("wm_set_"), "{login}");
-        let mut member_of: Vec<String> = sqlx::query_scalar(
-            "SELECT r.rolname::text FROM pg_auth_members am
-             JOIN pg_roles r ON r.oid = am.roleid JOIN pg_roles m ON m.oid = am.member
-             WHERE m.rolname = $1",
-        )
-        .bind(&login)
-        .fetch_all(&db)
-        .await?;
-        member_of.sort();
         let mut expected = names.to_vec();
         expected.sort();
         assert_eq!(
-            member_of, expected,
-            "the login holds exactly the viewer's roles"
+            member_of(login.clone()).await?,
+            expected,
+            "the login holds the default role and the viewer's, and not `admin`"
         );
-        assert_eq!(as_viewer(Some("test2@windmill.dev")).await?, both);
+        assert_eq!(connect(None, Some("test2@windmill.dev")).await?, all);
 
-        let one = as_viewer(Some("test3@windmill.dev")).await?;
-        assert_eq!(one["user"], names[0].as_str(), "one role is its own login");
+        let two = connect(None, Some("test3@windmill.dev")).await?;
+        let mut expected = names[..2].to_vec();
+        expected.sort();
+        assert_eq!(
+            member_of(two["user"].as_str().unwrap().to_string()).await?,
+            expected
+        );
 
-        // An admin may use every role, the one owning the tables included. As a viewer they get
-        // what names them, which here is nothing.
-        assert!(as_viewer(Some("test@windmill.dev")).await.is_err());
-        // No recorded viewer must not fall back to the job's owner.
-        assert!(as_viewer(None).await.is_err());
+        // An admin may use every role, the one owning the tables included. As a viewer they add
+        // what names them, which here is nothing; nor does a job with no viewer recorded.
+        for viewer in [Some("test@windmill.dev"), None] {
+            assert_eq!(connect(None, viewer).await?["user"], names[0].as_str());
+        }
+        // A named role is that role alone, whoever is viewing.
+        let named: &'static str = Box::leak(names[1].clone().into_boxed_str());
+        assert_eq!(
+            connect(Some(named), Some("test2@windmill.dev")).await?["user"],
+            names[1].as_str()
+        );
+        // A default of `admin` is the connection it always was: the viewer's roles are not added.
+        set_permissions("admin".to_string(), roles.clone()).await?;
+        let admin = connect(None, Some("test2@windmill.dev")).await?;
+        assert_eq!(admin, connect(Some("admin"), None).await?);
+        assert!(!admin["user"].as_str().unwrap().starts_with("wm_"));
+        set_permissions(ids[0].clone(), roles).await?;
 
         // A set login nobody connects with any more is dropped, a recent one is kept, and a
         // dropped one is made again for the next viewer who needs it.
@@ -1965,13 +1989,13 @@ async fn connecting_as_the_viewer_takes_the_roles_that_name_them_and_no_other(
         windmill_common::datatable_roles::sweep_unused_role_set_logins(&db).await?;
         assert!(!exists().await?, "an unused set login was kept");
         assert_eq!(
-            as_viewer(Some("test2@windmill.dev")).await?["user"],
+            connect(None, Some("test2@windmill.dev")).await?["user"],
             login.as_str()
         );
 
         // A disabled role must not stay reachable through a login that is a member of it.
         authed(
-            client().post(format!("{roles_url}/{}", ids[1])),
+            client().post(format!("{roles_url}/{}", ids[2])),
             "SECRET_TOKEN",
         )
         .json(&json!({ "enabled": false }))
@@ -1984,8 +2008,10 @@ async fn connecting_as_the_viewer_takes_the_roles_that_name_them_and_no_other(
                 .fetch_one(&db)
                 .await?;
         assert!(!can_login, "{login} still logs in with a disabled role");
-        let remaining = as_viewer(Some("test2@windmill.dev")).await?;
-        assert_eq!(remaining["user"], names[0].as_str());
+        assert_eq!(
+            connect(None, Some("test2@windmill.dev")).await?["user"],
+            two["user"]
+        );
         Ok::<_, anyhow::Error>(())
     }
     .await;
