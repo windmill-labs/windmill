@@ -552,9 +552,14 @@ describe('a step linked to a saved agent', () => {
 	})
 
 	it('does not show the saved effort for steps that fix different ones', () => {
-		const effort = (value: string) => linked({ reasoning_effort: { type: 'static', value } })
+		const effort = (value: string) =>
+			linked({
+				model: { type: 'javascript', expr: 'flow_input.model' },
+				reasoning_effort: { type: 'static', value }
+			})
 		const wiring = resolveAgentModelWiring([effort('low'), effort('medium')], saved)!
 		expect(wiredFieldValue(wiring, {}, 'reasoning_effort')).toBeUndefined()
+		expect(wiredFieldValue(wiring, {}, 'model')).toBe('claude-sonnet-4-5')
 	})
 
 	it('cannot be read until the agent has loaded, or with an expression it cannot place', () => {
