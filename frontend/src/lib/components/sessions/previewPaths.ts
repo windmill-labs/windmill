@@ -156,7 +156,13 @@ export const pageKey = (path: string) => `page:${path}`
 /** Strip the query and hash from a preview path so it can be matched against
  * `PREVIEW_PAGES` / parsed as an item route. */
 export function barePath(path: string): string {
-	return path.split('?')[0].split('#')[0] || '/'
+	// The router serves `/runs/` as `/runs`, and links are written both ways.
+	return (
+		path
+			.split('?')[0]
+			.split('#')[0]
+			.replace(/(.)\/+$/, '$1') || '/'
+	)
 }
 
 /** Which side of an item a route addresses: `/edit/` builds it, `/get/` shows the

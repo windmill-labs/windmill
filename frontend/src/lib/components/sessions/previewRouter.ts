@@ -203,9 +203,7 @@ export function canonicalizeObservedLoc(loc: string): string {
 	try {
 		const u = new URL(loc, 'http://_')
 		for (const p of INJECTED_PARAMS) u.searchParams.delete(p)
-		// The router serves `/runs/` as `/runs`, and links are written both ways.
-		const pathname = u.pathname.length > 1 ? u.pathname.replace(/\/+$/, '') : u.pathname
-		return pathname + u.search + u.hash
+		return u.pathname + u.search + u.hash
 	} catch {
 		return loc
 	}

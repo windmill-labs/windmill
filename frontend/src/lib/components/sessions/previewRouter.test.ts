@@ -333,6 +333,7 @@ describe('resolvePreviewTab', () => {
 	})
 
 	it('tells two runs lists apart by their filters, trailing slash or not', () => {
+		expect(resolvePreviewTab('/runs/?status=failure')).toEqual({ kind: 'pagelist', path: '/runs' })
 		expect(showsView('/runs/?schedule_path=a', '/runs/?schedule_path=b')).toBe(false)
 		expect(showsView('/runs?schedule_path=a', '/runs/?schedule_path=a')).toBe(true)
 		expect(showsView('/runs/f/a/b?status=failure', '/runs/f/a/b')).toBe(false)

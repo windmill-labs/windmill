@@ -50,12 +50,29 @@
 			? { pathname: loc, search: '' }
 			: { pathname: loc.slice(0, at), search: loc.slice(at) }
 	}
+	// The location this page last wrote itself, and the one it was last moved to from outside.
+	let ownLoc: string | undefined
+	let movedTo: string | undefined
+	let moves = 0
+	// Bumped when the location moves other than by the page's own write. Derived rather than
+	// effected: it has to flip in the same flush as the location, before the page's own
+	// effects read the new query and write their defaults back over the stored preferences.
+	const moved = $derived.by(() => {
+		const loc = whereIs(tab)
+		if (loc !== ownLoc && loc !== movedTo) {
+			movedTo = loc
+			moves++
+		}
+		return moves
+	})
 	const host: HostedPage = {
 		get search() {
 			return locationParts().search
 		},
 		setSearch(search) {
-			runtime.previewTabs.observeLocation(tab.id, locationParts().pathname + search)
+			ownLoc = locationParts().pathname + search
+			movedTo = undefined
+			runtime.previewTabs.observeLocation(tab.id, ownLoc)
 		},
 		openItem(itemPath) {
 			const ref = pageItemForListPath(path, itemPath)
@@ -162,9 +179,8 @@
 				<Module.default triggerKind={listed.triggerKind} />
 			{/await}
 		{:else if runsOf !== undefined}
-			<!-- Keyed on the commanded URL, which the page's own filter writes never touch: a
-			     re-point remounts it, so it seeds the filters the user keeps stored again. -->
-			{#key tab.url}
+			<!-- A move from outside remounts it, so it seeds the filters the user keeps stored. -->
+			{#key moved}
 				{#await import('$lib/components/RunsPage.svelte')}
 					{@render loading()}
 				{:then Module}
