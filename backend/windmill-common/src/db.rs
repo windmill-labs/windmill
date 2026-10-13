@@ -327,3 +327,8 @@ pub fn connection_is_retired(age: std::time::Duration) -> bool {
     let cutoff = RETIRE_CONNECTIONS_OPENED_BEFORE_MS.load(std::sync::atomic::Ordering::Relaxed);
     cutoff != 0 && (PROCESS_START.elapsed().saturating_sub(age).as_millis() as u64) < cutoff
 }
+
+/// Time since this process first used its database pool.
+pub fn process_uptime() -> std::time::Duration {
+    PROCESS_START.elapsed()
+}

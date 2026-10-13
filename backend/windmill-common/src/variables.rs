@@ -410,13 +410,19 @@ pub fn variable_value_widen_pending() -> bool {
     CipherFormat::current() == CipherFormat::V2 && !VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed)
 }
 
-/// Widen `variable.value` to [`VARIABLE_VALUE_WIDTH`]. Not a migration: changing a column's
-/// type, even its length, fails every statement a live process prepared on it until its
-/// connection closes. It waits for v2 writes, gated on a worker version that retires such
-/// connections on the first failure, so no process too old to recover is still running.
-async fn widen_variable_value(db: &DB) -> error::Result<()> {
+/// Servers report no version, so the worker version gate alone cannot see a server of the
+/// previous release; its rollout is assumed done once this server has been up this long.
+const VARIABLE_VALUE_WIDEN_MIN_UPTIME: std::time::Duration =
+    std::time::Duration::from_secs(30 * 60);
+
+/// Widen `variable.value` to [`VARIABLE_VALUE_WIDTH`], or `false` when it is too early to.
+/// Not a migration: changing a column's type, even its length, fails every statement a live
+/// process prepared on it until its connection closes. It waits for v2 writes, gated on a
+/// worker version that retires such connections on the first failure, so that no process too
+/// old to recover is still running.
+async fn widen_variable_value(db: &DB) -> error::Result<bool> {
     if VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed) {
-        return Ok(());
+        return Ok(true);
     }
     // varchar's typmod is its length + 4, -1 when unbounded.
     let typmod: i32 = sqlx::query_scalar(
@@ -425,6 +431,9 @@ async fn widen_variable_value(db: &DB) -> error::Result<()> {
     .fetch_one(db)
     .await?;
     if typmod >= 0 && typmod - 4 < VARIABLE_VALUE_WIDTH {
+        if crate::db::process_uptime() < VARIABLE_VALUE_WIDEN_MIN_UPTIME {
+            return Ok(false);
+        }
         tracing::info!("widening variable.value to VARCHAR({VARIABLE_VALUE_WIDTH})");
         let mut tx = db.begin().await?;
         // Queued behind a long transaction, the ALTER would block every variable read meanwhile.
@@ -440,7 +449,7 @@ async fn widen_variable_value(db: &DB) -> error::Result<()> {
         crate::db::retire_connections_opened_before_now();
     }
     VARIABLE_VALUE_WIDENED.store(true, Ordering::Relaxed);
-    Ok(())
+    Ok(true)
 }
 
 /// Widen `variable.value` for v2 values, then re-encrypt the secret variables still in the
@@ -460,11 +469,15 @@ pub async fn upgrade_legacy_secret_variables(db: &DB) {
     }
     // Cleared on drop, so a pass that panics does not stop every later one in this process.
     let _running = Running;
-    if let Err(e) = widen_variable_value(db).await {
-        tracing::warn!(
-            "secret encryption upgrade: widening variable.value failed, retrying later: {e:#}"
-        );
-        return;
+    match widen_variable_value(db).await {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(e) => {
+            tracing::warn!(
+                "secret encryption upgrade: widening variable.value failed, retrying later: {e:#}"
+            );
+            return;
+        }
     }
     if legacy_secret_upgrade_pending() {
         upgrade_legacy_secret_variables_pass(db).await;
