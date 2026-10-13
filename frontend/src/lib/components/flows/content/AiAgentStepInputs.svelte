@@ -296,9 +296,9 @@
 		if (spec.key !== 'reasoning_effort')
 			return `Saved on the agent: ${savedProvider.model || 'none'}`
 		if (!modelIsExpression && effortCapability?.known && !effortCapability.supported) {
-			return `${effortModel} does not take a reasoning effort.`
+			return `${effortModel} does not take a reasoning effort`
 		}
-		return `Saved on the agent: ${savedProvider.reasoning_effort || 'none'}. Left empty, the model runs at its default.`
+		return `Saved on the agent: ${savedProvider.reasoning_effort || 'none'}`
 	}
 
 	function fieldSchema(key: string) {

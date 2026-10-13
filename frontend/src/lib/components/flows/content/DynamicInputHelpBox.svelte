@@ -24,7 +24,8 @@
 		Help
 	</Button>
 	{#if hint}
-		<span class="text-hint">{hint}</span>
+		<!-- Nudged down to the 4px a hint keeps from its input; the row itself sits flush. -->
+		<span class="relative top-1 text-hint">{hint}</span>
 	{/if}
 </div>
 
