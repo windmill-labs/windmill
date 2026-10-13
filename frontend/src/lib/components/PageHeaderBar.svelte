@@ -93,7 +93,10 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		})
 	})
 	const stage = $derived(BAR_STAGES[fit.stage])
-	onDestroy(pageHeader.provideActionFold(() => fit.fold))
+	/** The level alone: `fit` is a new object on every recompute, and the attachment re-measuring
+	 *  on each one would feed itself. */
+	const fold = $derived(fit.fold)
+	onDestroy(pageHeader.provideActionFold(() => fold))
 
 	// Re-attached whenever the fold level, the page or the actions' version changes, so the first
 	// reading there is taken even when the row comes out exactly as wide as it was before.
@@ -104,7 +107,10 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		const version = actionsVersion
 		const widths = actionWidthsByVersion[version] ?? []
 		const seen = widths[fold]
-		const next = seen !== undefined && seen !== width ? [] : [...widths]
+		// Unchanged, nothing is written: a write recomputes `fit`, and a reading that always wrote
+		// kept the bar measuring every frame.
+		if (seen === width) return
+		const next = seen !== undefined ? [] : [...widths]
 		next[fold] = width
 		actionWidthsByVersion[version] = next
 	}
@@ -310,7 +316,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		     bar and run to its right edge, and they stretch its full height because that surface
 		     sits on the bottom edge. -->
 			<div
-				{@attach measureActions(fit.fold, actionsEpoch, actionsVersion)}
+				{@attach measureActions(fold, actionsEpoch, actionsVersion)}
 				class={twMerge(
 					'flex',
 					// pl-4: the gap between the breadcrumb and the filling surface is bare bar, so it
