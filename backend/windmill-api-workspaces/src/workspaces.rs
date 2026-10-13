@@ -1765,6 +1765,23 @@ async fn set_slack_oauth_config(
             "Both client ID and client secret are required".to_string(),
         ));
     }
+    // A settings.yaml pulled by `wmill sync` holds the secret encrypted, and a CLI that
+    // predates the settings document pushes it here as it reads it.
+    let mut req = req;
+    if let Some(ciphertext) = req
+        .slack_oauth_client_secret
+        .strip_prefix(windmill_common::variables::SETTINGS_ENCRYPTED_PREFIX)
+    {
+        req.slack_oauth_client_secret = windmill_common::variables::build_crypt(&db, &w_id)
+            .await?
+            .decrypt_str(ciphertext)
+            .map_err(|_| {
+                Error::BadRequest(
+                    "The Slack client secret is encrypted with a different workspace key"
+                        .to_string(),
+                )
+            })?;
+    }
 
     let mut tx = db.begin().await?;
 
@@ -14735,4 +14752,106 @@ async fn set_ws_specific(
         "Set workspace-specific={} for {} {}",
         body.value, body.item_kind, body.path
     ))
+}
+
+/// A setting the workspace settings document writes, each through the endpoint that owns it,
+/// so applying a document validates, audits and has the side effects of the matching UI save.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsEdit {
+    Webhook,
+    AutoInvite,
+    InstanceGroups,
+    ErrorHandler,
+    SuccessHandler,
+    LargeFileStorage,
+    GitSync,
+    DefaultScripts,
+    DefaultApp,
+    Color,
+    OperatorSettings,
+    Datatable,
+    SlackCommand,
+    SetSlackOAuth,
+    DeleteSlackOAuth,
+    Ducklake,
+    DbtWarehouses,
+    DeployUi,
+    GuestAccess,
+    GuestJwtKey,
+    PublicAppRateLimit,
+    AddAdminsAndDevelopersToForks,
+}
+
+fn settings_edit_body<T: serde::de::DeserializeOwned>(
+    edit: SettingsEdit,
+    body: serde_json::Value,
+) -> Result<Json<T>> {
+    serde_json::from_value(body)
+        .map(Json)
+        .map_err(|e| Error::BadRequest(format!("Invalid value for {edit:?}: {e}")))
+}
+
+/// Returns the endpoint's JSON response, or `null` for one that answers with prose.
+pub async fn apply_settings_edit(
+    authed: ApiAuthed,
+    db: DB,
+    w_id: String,
+    edit: SettingsEdit,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
+    use SettingsEdit::*;
+    let a = authed.clone();
+    let (d, p) = (Extension(db), Path(w_id));
+    match edit {
+        Webhook => edit_webhook(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        AutoInvite => edit_auto_invite(a, d, p, settings_edit_body(edit, body)?).await?,
+        InstanceGroups => edit_instance_groups(a, d, p, settings_edit_body(edit, body)?).await?,
+        ErrorHandler => {
+            edit_error_handler(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        SuccessHandler => edit_success_handler(a, d, p, settings_edit_body(edit, body)?).await?,
+        LargeFileStorage => {
+            edit_large_file_storage_config(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        GitSync => edit_git_sync_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        DefaultScripts => {
+            edit_default_scripts(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        #[cfg(feature = "enterprise")]
+        DefaultApp => edit_default_app(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        #[cfg(not(feature = "enterprise"))]
+        DefaultApp => edit_default_app(a, d, p, settings_edit_body(edit, body)?).await?,
+        Color => change_workspace_color(a, p, d, settings_edit_body(edit, body)?).await?,
+        OperatorSettings => {
+            update_operator_settings(a, p, d, settings_edit_body(edit, body)?).await?
+        }
+        Datatable => {
+            let Json(result) =
+                edit_datatable_config(a, d, p, authed, settings_edit_body(edit, body)?).await?;
+            return serde_json::to_value(result).map_err(|e| Error::internal_err(e.to_string()));
+        }
+        SlackCommand => {
+            edit_slack_command(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        SetSlackOAuth => set_slack_oauth_config(a, d, p, settings_edit_body(edit, body)?).await?,
+        DeleteSlackOAuth => delete_slack_oauth_config(a, d, p).await?,
+        Ducklake => edit_ducklake_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        DbtWarehouses => {
+            edit_dbt_warehouses(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        #[cfg(feature = "enterprise")]
+        DeployUi => edit_deploy_ui_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        #[cfg(not(feature = "enterprise"))]
+        DeployUi => edit_deploy_ui_config(a, d, p).await?,
+        GuestAccess => edit_guest_access(a, d, p, settings_edit_body(edit, body)?).await?,
+        GuestJwtKey => edit_guest_jwt_key(a, d, p, settings_edit_body(edit, body)?).await?,
+        PublicAppRateLimit => {
+            edit_public_app_rate_limit(d, p, a, settings_edit_body(edit, body)?).await?
+        }
+        AddAdminsAndDevelopersToForks => {
+            edit_add_admins_and_developers_to_forks(a, d, p, settings_edit_body(edit, body)?)
+                .await?
+        }
+    };
+    Ok(serde_json::Value::Null)
 }

@@ -58,7 +58,32 @@ export interface SimplifiedSettings {
   slack_command_script?: string;
   slack_oauth_client_id?: string;
   slack_oauth_client_secret?: string;
+  ducklake?: any;
+  dbt_warehouses?: any;
+  deploy_ui?: any;
+  teams_command_script?: string | null;
+  public_app_execution_limit_per_minute?: number | null;
+  guest_access_enabled?: boolean;
+  guest_jwt_public_key?: string | null;
+  guest_jwt_jwks_url?: string | null;
+  error_handler_fallback_to_instance_alerts?: boolean;
+  add_admins_and_developers_to_forks?: boolean;
 }
+
+/** Settings the server manages only when settings.yaml states them: a file written before
+ * they existed must neither clear them nor show as differing from the workspace. */
+export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
+  "ducklake",
+  "dbt_warehouses",
+  "deploy_ui",
+  "teams_command_script",
+  "public_app_execution_limit_per_minute",
+  "guest_access_enabled",
+  "guest_jwt_public_key",
+  "guest_jwt_jwks_url",
+  "error_handler_fallback_to_instance_alerts",
+  "add_admins_and_developers_to_forks",
+] as const;
 
 // Legacy settings interface for reading old settings.yaml files
 interface LegacySimplifiedSettings {
@@ -108,6 +133,9 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
   if (settings.slack_command_script !== undefined) result.slack_command_script = settings.slack_command_script;
   if (settings.slack_oauth_client_id !== undefined) result.slack_oauth_client_id = settings.slack_oauth_client_id;
   if (settings.slack_oauth_client_secret !== undefined) result.slack_oauth_client_secret = settings.slack_oauth_client_secret;
+  for (const key of SETTINGS_MANAGED_ONLY_WHEN_PRESENT) {
+    if (settings[key] !== undefined) (result as any)[key] = settings[key];
+  }
 
   // Handle auto_invite: check if already grouped or needs migration
   if (settings.auto_invite && typeof settings.auto_invite === "object") {
@@ -177,6 +205,10 @@ export async function pushWorkspaceSettings(
 ) {
   // Migrate local settings from legacy format if needed
   localSettings = migrateToGroupedFormat(localSettings);
+
+  if (await applySettingsDocument(workspace, localSettings)) {
+    return;
+  }
 
   try {
     const remoteSettings = await wmill.getSettings({
@@ -475,6 +507,37 @@ export async function pushWorkspaceSettings(
       await wmill.deleteWorkspaceSlackOauthConfig({ workspace });
     }
   }
+}
+
+/** Applies settings.yaml server-side, which owns the rules for what an omitted or null setting
+ * means. Returns false on a server that predates the settings document. */
+async function applySettingsDocument(
+  workspace: string,
+  document: SimplifiedSettings,
+): Promise<boolean> {
+  let result;
+  try {
+    result = await wmill.applyWorkspaceSettingsDocument({
+      workspace,
+      requestBody: { document: document as unknown as Record<string, unknown>, replace: true },
+    });
+  } catch (err: any) {
+    if (err?.status === 404) {
+      return false;
+    }
+    throw new Error(`Failed to apply workspace settings: ${err?.body ?? err}`);
+  }
+  if (result.changes.length > 0) {
+    log.debug(
+      `Updated workspace settings: ${result.changes.map((c) => c.key).join(", ")}`,
+    );
+  } else {
+    log.debug(`Workspace settings are up to date`);
+  }
+  for (const warning of result.warnings ?? []) {
+    log.warn(warning);
+  }
+  return true;
 }
 
 export interface PushWorkspaceKeyOptions {
