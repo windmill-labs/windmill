@@ -115,6 +115,14 @@ export function replaceInlineScripts(
   }
   return [];
 }
+/** `parent_version` is the editor's stale-draft base: a version id that changes on
+ * every deploy and means nothing in another workspace, so it is kept out of the
+ * tracked file and out of what a push deploys. */
+export function stripEditorState(app: any) {
+  if (app?.value && typeof app.value == "object") {
+    delete app.value.parent_version;
+  }
+}
 export function isExecutionModeAnonymous(app: any) {
   return app?.["policy"]?.["execution_mode"] == "anonymous";
 }
@@ -294,6 +302,7 @@ export async function pushApp(
   }
   const path = localPath + "app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
+  stripEditorState(localApp);
   const isolation = statedIsolation(localApp, false);
 
   replaceInlineScripts(localApp.value, localPath, true);
