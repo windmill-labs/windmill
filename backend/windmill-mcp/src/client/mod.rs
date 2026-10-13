@@ -29,6 +29,41 @@ pub struct McpClient {
     client: RunningService<RoleClient, InitializeRequestParams>,
     /// Cached list of available tools from the server
     available_tools: Vec<McpTool>,
+    server_url: ServerUrl,
+}
+
+/// The server url may carry a key in its path or query, and transport errors
+/// quote it in full. Errors end up in job results, readable by users who cannot
+/// read the resource, so they only ever show the origin.
+struct ServerUrl {
+    /// As written and as `reqwest` prints it, longest first.
+    forms: Vec<String>,
+    origin: String,
+}
+
+impl ServerUrl {
+    fn new(url: &str) -> Self {
+        let mut forms = vec![url.to_string()];
+        let origin = match reqwest::Url::parse(url) {
+            Ok(parsed) => {
+                if parsed.as_str() != url {
+                    forms.push(parsed.as_str().to_string());
+                }
+                parsed.origin().ascii_serialization()
+            }
+            Err(_) => "<redacted>".to_string(),
+        };
+        forms.sort_by_key(|f| std::cmp::Reverse(f.len()));
+        Self { forms, origin }
+    }
+
+    fn redact(&self, error: anyhow::Error) -> anyhow::Error {
+        let mut message = format!("{error:#}");
+        for form in &self.forms {
+            message = message.replace(form, &self.origin);
+        }
+        anyhow::anyhow!(message)
+    }
 }
 
 impl McpClient {
@@ -95,6 +130,8 @@ impl McpClient {
             .build()
             .context("Failed to build HTTP client")?;
 
+        let server_url = ServerUrl::new(&resource.url);
+
         // Create the HTTP transport with custom client
         let config = StreamableHttpClientTransportConfig::with_uri(resource.url.as_str());
         let transport = StreamableHttpClientTransport::with_client(reqwest_client, config);
@@ -110,16 +147,18 @@ impl McpClient {
         let client = client_info
             .serve(transport)
             .await
-            .context("Failed to connect to MCP server")?;
+            .context("Failed to connect to MCP server")
+            .map_err(|e| server_url.redact(e))?;
 
         // Immediately fetch available tools
         let available_tools = client
             .list_tools(Default::default())
             .await
-            .context("Failed to list tools from MCP server")?
+            .context("Failed to list tools from MCP server")
+            .map_err(|e| server_url.redact(e))?
             .tools;
 
-        Ok(Self { client, available_tools })
+        Ok(Self { client, available_tools, server_url })
     }
 
     /// Get the list of available tools from the MCP server
@@ -142,7 +181,8 @@ impl McpClient {
             .client
             .call_tool(params)
             .await
-            .context(format!("Failed to call MCP tool: {}", name))?;
+            .context(format!("Failed to call MCP tool: {}", name))
+            .map_err(|e| self.server_url.redact(e))?;
 
         // Convert the result to a JSON value
         // MCP tools return ToolResult which contains content array
@@ -260,6 +300,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A real `reqwest` connection error quotes the url it was sent to, in its
+    /// own normalized spelling: neither that nor the url as written may survive.
+    #[tokio::test]
+    async fn server_url_redacts_transport_errors_to_the_origin() {
+        // Port 1 refuses the connection; the uppercase host makes the
+        // normalized form differ from the written one.
+        let written = "http://LOCALHOST:1/mcp/PATH_KEY?key=QUERY_KEY";
+        let error = reqwest::Client::new()
+            .get(written)
+            .send()
+            .await
+            .expect_err("nothing listens on port 1");
+
+        let msg = ServerUrl::new(written)
+            .redact(anyhow::Error::new(error).context(format!("connecting to {written}")))
+            .to_string();
+
+        assert!(
+            !msg.contains("PATH_KEY") && !msg.contains("QUERY_KEY"),
+            "the url's path and query must not appear: {msg}"
+        );
+        assert!(
+            msg.contains("http://localhost:1"),
+            "the origin should stay for debugging: {msg}"
+        );
     }
 
     /// Regression test: `from_resource` must refuse to connect to a URL that

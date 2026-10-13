@@ -615,16 +615,9 @@ pub async fn load_mcp_tools(
             None
         };
 
-        // The url can hold a variable too: some MCP servers carry their key in
-        // the url, so storing it inline would mean keeping a secret in plain
-        // text. Only the headers and the token were resolved, so a `$var:`
-        // reference reached the url parser verbatim and failed with "relative
-        // URL without a base". Resolved through the same permissioned path.
-        let url_var_path = mcp_resource
-            .url
-            .strip_prefix("$var:")
-            .map(|path| path.to_string());
-        if let Some(var_path) = url_var_path {
+        // Some MCP servers carry their key in the url, so it can be a variable
+        // too, resolved through the same permissioned path as the token.
+        if let Some(var_path) = mcp_resource.url.strip_prefix("$var:").map(str::to_string) {
             mcp_resource.url = client.get_variable_value(&var_path).await.map_err(|e| {
                 Error::internal_err(format!(
                     "Failed to resolve variable {} for url of MCP resource {}: {}",
@@ -786,7 +779,12 @@ mod tests {
                 .unwrap();
         let preset = ["a", "c", "f"]
             .iter()
-            .map(|k| (k.to_string(), InputTransform::Static { value: to_raw_value(&1) }))
+            .map(|k| {
+                (
+                    k.to_string(),
+                    InputTransform::Static { value: to_raw_value(&1) },
+                )
+            })
             .collect();
 
         let filtered = filter_schema_by_input_transforms(schema, &preset).unwrap();
