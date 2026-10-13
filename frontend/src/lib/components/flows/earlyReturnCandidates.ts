@@ -11,7 +11,7 @@ export type EarlyReturnCandidate = {
 
 // Inside a branch to one, these return a list of jobs, and the sync wait loop only resolves the
 // success of a list from the top-level run's modules. A loop's inner steps run once per iteration
-// and so cannot be an early return node either.
+// and so are not offered either.
 const NOT_NESTABLE = new Set(['branchall', 'forloopflow', 'whileloopflow'])
 
 export function earlyReturnCandidates(modules: FlowModule[]): EarlyReturnCandidate[] {

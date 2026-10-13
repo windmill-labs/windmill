@@ -2256,18 +2256,19 @@ impl StreamNotifier {
             false
         };
 
-        // An early-return node inside a branch that is not taken never runs, so the flow's last
-        // step streams in its place. It must not replace the stream of one that did run.
-        let keep_existing = early_return_node_id.is_some() && !is_early_return;
+        // An early-return step inside a branch that is not taken never runs, so the flow's last
+        // step streams in its place. One that did run has a leaf job on the root, streamed or not,
+        // and the last step must not take the stream from it.
+        let unless_ran = early_return_node_id.filter(|_| !is_early_return);
 
         if is_early_return || check_if_last_step(&db, Some(parent_job), root_job).await? {
             sqlx::query!(r#"
                     UPDATE v2_job_status
                     SET flow_status = jsonb_set(flow_status, array['stream_job'], to_jsonb($1::UUID::TEXT))
-                    WHERE id = $2 AND NOT ($3 AND flow_status ? 'stream_job')"#,
+                    WHERE id = $2 AND NOT COALESCE(flow_leaf_jobs ? $3, false)"#,
                     job_id,
                     root_job,
-                    keep_existing
+                    unless_ran
                 )
                 .execute(&db)
                 .await?;

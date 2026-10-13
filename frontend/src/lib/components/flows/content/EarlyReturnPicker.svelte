@@ -39,12 +39,11 @@
 	</Select>
 	{#if value && !selected}
 		<span class="text-2xs text-red-600 dark:text-red-400">
-			Step {value} cannot be an early return node, so sync calls return the flow's final result. Pick
-			another step.
+			Step {value} is not one of the steps above. Pick another step.
 		</span>
 	{:else if selected && !selected.deterministic}
 		<span class="text-2xs text-secondary">
-			This node only runs if its branch is taken. Otherwise, sync calls return the flow's final
+			This step only runs if its branch is taken. Otherwise, sync calls return the flow's final
 			result.
 		</span>
 	{/if}
