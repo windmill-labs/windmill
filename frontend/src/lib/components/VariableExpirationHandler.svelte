@@ -389,8 +389,8 @@
 					Send test message
 				</Button>
 				<p class="text-2xs text-secondary">
-					Runs the handler now against a placeholder variable, as g/variable_expiration_handler.
-					Save the handler first: the test runs what is stored.
+					Runs the handler now with the channel selected above, against a placeholder variable, as
+					g/variable_expiration_handler.
 				</p>
 				{#if testJob !== undefined}
 					<div class="flex items-center gap-2 p-4 rounded-md bg-surface-tertiary">

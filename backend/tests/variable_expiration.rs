@@ -396,3 +396,29 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// The test-message endpoint runs whatever runnable it is given as the handler group, which
+/// may hold write access to secrets, so a non-admin must not reach it.
+#[sqlx::test(fixtures("base"))]
+async fn test_run_test_job_endpoint_is_admin_only(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let path = "u/test-user/expiry_handler";
+    seed_handler_script(&db, path).await?;
+
+    let status = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{}/api/w/{WS}/workspaces/run_variable_expiration_test_job",
+            server.addr.port()
+        ))
+        .bearer_auth("SECRET_TOKEN_2")
+        .json(&serde_json::json!({ "handler_path": format!("script/{path}") }))
+        .send()
+        .await?
+        .status()
+        .as_u16();
+
+    assert_eq!(status, 403);
+    assert_eq!(queued_handler_jobs(&db, path).await?, 0);
+    Ok(())
+}
