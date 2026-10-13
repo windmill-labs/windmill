@@ -24,7 +24,6 @@ use axum::{
     Extension, Json, Router,
 };
 use futures::{StreamExt, TryStreamExt};
-use magic_crypt::MagicCryptTrait;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::sync::Arc;
@@ -36,6 +35,7 @@ use windmill_api_workspaces::workspaces::sessions_retention_days;
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
 use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key, WorkspaceCrypt};
+use windmill_common::workspace_crypt::MAX_BYTES_OVERHEAD;
 use windmill_object_store::object_store_reexports::{
     ObjectStore, ObjectStoreError, Path as ObjectPath, PutPayload,
 };
@@ -47,9 +47,9 @@ const PULL_BODY_LIMIT: usize = 64 * 1024;
 /// A pull answer larger than this hands the remaining ids back as `deferred`.
 const PULL_RESPONSE_BUDGET: usize = 32 * 1024 * 1024;
 const MAX_HEAD_BYTES: usize = 1024 * 1024;
-/// What the cipher adds to a plaintext at most (a block of padding): an object stored at a
-/// cap is that much larger than the cap when read back.
-const CIPHER_PADDING: usize = 16;
+/// What the cipher adds to a plaintext at most: an object stored at a cap is that much larger
+/// than the cap when read back.
+const CIPHER_PADDING: usize = MAX_BYTES_OVERHEAD;
 /// The browser bounds an image to a 1568 px edge and re-encodes past 700 KB; this is
 /// well above what that produces.
 const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -214,7 +214,7 @@ impl Backend {
     }
 
     fn seal(&self, plaintext: &[u8]) -> Vec<u8> {
-        self.mc.encrypt_bytes_to_bytes(plaintext)
+        self.mc.encrypt_bytes(plaintext)
     }
 
     /// Bytes written.
@@ -255,7 +255,7 @@ impl Backend {
         // apart beyond the cipher's padding check, which a wrong key passes now and then.
         match self
             .mc
-            .decrypt_bytes_to_bytes(&bytes)
+            .decrypt_bytes(&bytes)
             .ok()
             .and_then(|plaintext| String::from_utf8(plaintext).ok())
         {
