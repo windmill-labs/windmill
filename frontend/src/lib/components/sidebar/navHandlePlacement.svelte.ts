@@ -6,6 +6,13 @@ let opener: (() => void) | undefined
 // Closing it once the pointer is off both the handle and the card, which the layout owns because
 // the card is its markup.
 let hoverClose: { schedule: () => void; cancel: () => void } | undefined
+type CardState = {
+	isOpen: () => boolean
+	isPinned: () => boolean
+	pin: () => void
+	close: () => void
+}
+let card: CardState | undefined
 
 // Where the card's top edge goes: the header's bottom edge, so the two meet in a line rather than
 // the card starting at whatever height the control that opened it happens to have. Measured at open
@@ -21,10 +28,34 @@ export const navHandleSlot = {
 	get cardTop(): number {
 		return cardTop
 	},
-	/** The root layout owns the card, so it registers how to open and hover-close it. */
-	setOpener(open: () => void, close?: { schedule: () => void; cancel: () => void }) {
+	/** The card is open and pinned, so the handle shows as selected. Reactive. */
+	get pinned(): boolean {
+		return !!card?.isOpen() && card.isPinned()
+	},
+	/** The root layout owns the card, so it registers how to open, pin, close and hover-close it. */
+	setOpener(
+		open: () => void,
+		close?: { schedule: () => void; cancel: () => void },
+		state?: CardState
+	) {
 		opener = open
 		hoverClose = close
+		card = state
+	},
+	/**
+	 * A click on the handle pins the card, opening it first if it is closed: a pinned card stays
+	 * when the pointer leaves, until a press on the page, Esc, or the next click here closes it. A
+	 * card the pointer opened is not pinned yet, so the click that follows the hover pins it — and
+	 * a touch tap, which sends that mouseenter just before its click, pins it too.
+	 */
+	toggle(anchor?: Element | null) {
+		if (card?.isOpen() && card.isPinned()) {
+			card.close()
+			return
+		}
+		if (!card?.isOpen()) this.open(anchor)
+		hoverClose?.cancel()
+		card?.pin()
 	},
 	/** Pointer left the handle: close, unless it lands on the card before the delay is up. */
 	scheduleClose() {

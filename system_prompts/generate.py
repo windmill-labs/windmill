@@ -1696,6 +1696,12 @@ TOPICS: dict[str, dict] = {
         'chat_helper': 'getPipelinePrompt',
         'parts': ['pipeline-base.md'],
     },
+    'datatable': {
+        'skill': 'datatables',
+        'description': "MUST use when changing a data table's schema, writing or running its migrations, or working with its roles and permissions.",
+        'chat_helper': 'getDatatablePrompt',
+        'parts': ['datatable.md'],
+    },
     'cli_commands': {
         'skill': 'cli-commands',
         'description': 'MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`.',
@@ -1715,6 +1721,7 @@ CHAT_CONSTANTS = {
     'resources.md': 'RESOURCES_BASE',
     'raw-app.md': 'RAW_APP_BASE',
     'pipeline-base.md': 'PIPELINE_BASE',
+    'datatable.md': 'DATATABLE_BASE',
     'workflow-as-code.md': 'WORKFLOW_AS_CODE_BASE',
     'flow-chat-special-modules.md': 'FLOW_CHAT_SPECIAL_MODULES',
 }
@@ -2650,6 +2657,11 @@ export function getPipelinePrompt(): string {
   __RETURN_pipeline__
 }
 
+// Helper for data table schema changes, migrations and permissions (chat consumers)
+export function getDatatablePrompt(): string {
+  __RETURN_datatable__
+}
+
 // Helper to get the datatable SQL SDK reference (wmill.datatable()).
 // Pass a language to get only that SDK; omit it to get both.
 export function getDatatableSdkReference(language?: string): string {
@@ -2711,6 +2723,7 @@ export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
 export declare function getRawAppPrompt(language?: string): string;
 export declare function getPipelinePrompt(): string;
+export declare function getDatatablePrompt(): string;
 export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;
 """

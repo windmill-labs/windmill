@@ -2758,6 +2758,7 @@ async fn transform_attach_datatable(
                 DatatableAccess::PermissionedAs {
                     permissioned_as: &job.permissioned_as,
                     email: &job.permissioned_as_email,
+                    end_user_email: job.permissioned_as_end_user_email.as_deref(),
                 },
             )
             .await?

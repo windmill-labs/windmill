@@ -178,7 +178,7 @@ async function generate(): Promise<Record<string, string>> {
 		index[subject] = {}
 		const byText = new Map<string, string>()
 		for (const language of languages) {
-			const text = await getInstructions(subject, language, undefined, true)
+			const text = await getInstructions(subject, language, undefined, false, true)
 			let id = byText.get(text)
 			if (!id) {
 				id = `${subject}${language ? '.' + language : ''}`

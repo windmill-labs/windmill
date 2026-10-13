@@ -6,8 +6,8 @@ use regex::Regex;
 use serde_json::{json, Map, Value};
 
 use super::runs::{backgrounded_summary, run_script_preview, wait_budget, wait_job};
-use super::workspace::path_enc;
-use super::{array, enc, js_str, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult};
+use super::workspace::{api_message, path_enc};
+use super::{array, enc, js_str, non_null, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult};
 
 pub(super) const TOOLS: &[&str] = &[
     "list_datatables",
@@ -16,6 +16,10 @@ pub(super) const TOOLS: &[&str] = &[
     "list_data_metrics",
     "list_ducklakes",
     "get_db_schema",
+    "list_datatable_migrations",
+    "create_datatable_migration",
+    "run_datatable_migrations",
+    "rollback_datatable_migration",
 ];
 
 pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult {
@@ -30,6 +34,10 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
             .await
             .unwrap_or_else(|e| format!("Error listing DuckLake catalogs: {e}"))),
         "get_db_schema" => get_db_schema(ctx, args).await,
+        "list_datatable_migrations" => list_datatable_migrations(ctx, args).await,
+        "create_datatable_migration" => create_datatable_migration(ctx, args).await,
+        "run_datatable_migrations" => run_datatable_migrations(ctx, args).await,
+        "rollback_datatable_migration" => rollback_datatable_migration(ctx, args).await,
         _ => unreachable!("{name} is not a data tool"),
     }
 }
@@ -273,6 +281,314 @@ fn format_datatable_sql_completion(job: &Value, datatable_name: &str) -> String 
     json!({ "success": false, "error": error }).to_string()
 }
 
+/// The optional `version` argument: a migration's timestamp.
+fn version_arg(args: &Value) -> Result<Option<i64>, String> {
+    match args.get("version") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v
+            .as_i64()
+            .or_else(|| v.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64))
+            .map(Some)
+            .ok_or_else(|| "`version` must be an integer".to_string()),
+    }
+}
+
+/// `workspaces/<endpoint>/<datatable>`, the shape of every migration route.
+fn migrations_path(ctx: &Ctx<'_>, endpoint: &str, datatable_name: &str) -> String {
+    ctx.ws(&format!("workspaces/{endpoint}/{}", enc(datatable_name)))
+}
+
+async fn migrations_status(ctx: &Ctx<'_>, datatable_name: &str) -> Result<Value, String> {
+    ctx.get(&migrations_path(
+        ctx,
+        "datatable_migrations_status",
+        datatable_name,
+    ))
+    .await
+    .map_err(|e| api_message(&e).to_string())
+}
+
+/// `POST` without a body: applying and rolling back take their target from the query.
+async fn post_migrations(ctx: &Ctx<'_>, path: &str) -> Result<Value, String> {
+    let text = ctx
+        .request("POST", path, None)
+        .await
+        .map_err(|e| api_message(&e).to_string())?;
+    serde_json::from_str(&text).map_err(|e| format!("unexpected response: {e}"))
+}
+
+fn migration_label(version: &Value, name: &Value) -> String {
+    format!("{} ({})", js_str(version), js_str(name))
+}
+
+fn labels(migrations: Option<&Value>) -> String {
+    array(migrations)
+        .iter()
+        .map(|m| migration_label(&m["version"], &m["name"]))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn migration_status(status: &Value) -> &'static str {
+    match status.as_str() {
+        Some("ran") => "applied",
+        Some("not_run") => "pending",
+        _ => "unknown",
+    }
+}
+
+/// The body of a leading comment line that attempts a `-- role` annotation.
+fn role_attempt(line: &str) -> Option<&str> {
+    let body = line.strip_prefix("--")?.trim_start();
+    let after = body
+        .get(..4)
+        .filter(|w| w.eq_ignore_ascii_case("role"))
+        .map(|_| &body[4..])?;
+    match after.chars().next() {
+        Some(c) if !(c.is_whitespace() || c == ':' || c == '=') => None,
+        _ => Some(after),
+    }
+}
+
+/// `sql` declaring `role`: the server reads the role a migration runs as from a `-- role <name>`
+/// annotation in its leading comment block, so any attempt there is replaced by one on top.
+fn with_migration_role(sql: &str, role: Option<&str>) -> String {
+    let Some(role) = role else {
+        return sql.to_string();
+    };
+    let lines: Vec<&str> = sql.split('\n').collect();
+    let leading = lines
+        .iter()
+        .position(|l| !l.trim().is_empty() && !l.trim().starts_with("--"))
+        .unwrap_or(lines.len());
+    let rest = lines[..leading]
+        .iter()
+        .filter(|l| role_attempt(l.trim()).is_none())
+        .chain(&lines[leading..])
+        .skip_while(|l| l.trim().is_empty());
+    std::iter::once(format!("-- role {role}"))
+        .chain(rest.map(|l| l.to_string()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+async fn list_datatable_migrations(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let datatable_name = str_arg(args, "datatable_name")?;
+    let version = version_arg(args)?;
+    let status = match migrations_status(ctx, datatable_name).await {
+        Ok(status) => status,
+        Err(e) => return Ok(format!("Error listing migrations: {e}")),
+    };
+    if !truthy(status.get("enabled")) {
+        return Ok(format!("Migrations are not enabled on datatable \"{datatable_name}\": its schema is changed with plain SQL and there is no history to list. Enabling them is a workspace admin's decision, made in Workspace settings → Data Tables."));
+    }
+    let migrations = array(status.get("migrations"));
+    let Some(version) = version else {
+        let mut out = Map::new();
+        out.insert(
+            "migrations".into(),
+            migrations
+                .iter()
+                .map(|m| {
+                    json!({
+                        "version": m["timestamp"],
+                        "name": m["name"],
+                        "status": migration_status(&m["status"]),
+                    })
+                })
+                .collect(),
+        );
+        if truthy(status.get("error")) {
+            out.insert("error".into(), status["error"].clone());
+        }
+        return Ok(pretty(&Value::Object(out)));
+    };
+    let Some(migration) = migrations
+        .iter()
+        .find(|m| m["timestamp"].as_i64() == Some(version))
+    else {
+        return Ok(format!(
+            "No migration {version} on datatable \"{datatable_name}\""
+        ));
+    };
+    let mut out = Map::new();
+    out.insert("version".into(), version.into());
+    out.insert("name".into(), migration["name"].clone());
+    out.insert(
+        "status".into(),
+        migration_status(&migration["status"]).into(),
+    );
+    out.insert("code_up".into(), migration["code_up"].clone());
+    if let Some(code_down) = non_null(migration.get("code_down")) {
+        out.insert("code_down".into(), code_down.clone());
+    }
+    Ok(pretty(&Value::Object(out)))
+}
+
+/// Saves the definition and answers its version, or the message the tool returns instead.
+async fn save_migration(
+    ctx: &Ctx<'_>,
+    datatable_name: &str,
+    version: Option<i64>,
+    mut definition: Map<String, Value>,
+) -> Result<Result<i64, String>, String> {
+    let Some(version) = version else {
+        let created = ctx
+            .post(
+                &migrations_path(ctx, "create_datatable_migration", datatable_name),
+                Value::Object(definition),
+            )
+            .await?;
+        return created["timestamp"]
+            .as_i64()
+            .map(Ok)
+            .ok_or_else(|| "the created migration has no version".to_string());
+    };
+    // The server inserts at a version it does not know, which would wedge a new migration
+    // into the middle of the history, and stores a down left out as none.
+    let status = migrations_status(ctx, datatable_name).await?;
+    let existing = array(status.get("migrations"))
+        .iter()
+        .find(|m| m["timestamp"].as_i64() == Some(version));
+    let Some(existing) = existing.filter(|m| m["status"] == "not_run") else {
+        return Ok(Err(format!("Migration {version} is not a pending migration of datatable \"{datatable_name}\", so it cannot be rewritten. Omit `version` to add a new migration.")));
+    };
+    definition.insert("timestamp".into(), version.into());
+    if let Some(code_down) = non_null(existing.get("code_down")) {
+        definition
+            .entry("code_down")
+            .or_insert_with(|| code_down.clone());
+    }
+    ctx.post(
+        &migrations_path(ctx, "upsert_datatable_migration", datatable_name),
+        Value::Object(definition),
+    )
+    .await?;
+    Ok(Ok(version))
+}
+
+/// The labels of the migrations before `version` that are not applied yet.
+async fn earlier_pending(
+    ctx: &Ctx<'_>,
+    datatable_name: &str,
+    version: i64,
+) -> Result<Vec<String>, String> {
+    let status = migrations_status(ctx, datatable_name).await?;
+    let earlier: Vec<&Value> = array(status.get("migrations"))
+        .iter()
+        .filter(|m| m["timestamp"].as_i64().is_some_and(|t| t < version))
+        .collect();
+    // Unreadable is not pending: reporting it so would send the user to apply migrations
+    // that already ran.
+    if truthy(status.get("error")) {
+        return Err(js_str(&status["error"]));
+    }
+    if earlier.iter().any(|m| m["status"] == "unknown") {
+        return Err("the applied migrations could not be read".to_string());
+    }
+    Ok(earlier
+        .into_iter()
+        .filter(|m| m["status"] == "not_run")
+        .map(|m| migration_label(&m["timestamp"], &m["name"]))
+        .collect())
+}
+
+async fn create_datatable_migration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let datatable_name = str_arg(args, "datatable_name")?;
+    let name = str_arg(args, "name")?;
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(format!(
+            "Invalid `name` '{name}': only letters, digits, '_' and '-' are allowed"
+        ));
+    }
+    let role = role_arg(args)?;
+    let version = version_arg(args)?;
+
+    let mut definition = Map::new();
+    definition.insert("name".into(), name.into());
+    definition.insert(
+        "code_up".into(),
+        with_migration_role(str_arg(args, "code_up")?, role).into(),
+    );
+    if let Some(code_down) = opt_str_arg(args, "code_down") {
+        // A rollback has to run as the role that created what it drops.
+        definition.insert(
+            "code_down".into(),
+            with_migration_role(code_down, role).into(),
+        );
+    }
+    let version = match save_migration(ctx, datatable_name, version, definition).await {
+        Ok(Ok(version)) => version,
+        Ok(Err(message)) => return Ok(message),
+        Err(e) => return Ok(format!("Error saving migration: {}", api_message(&e))),
+    };
+    let label = format!("{version} ({name})");
+    if args.get("apply") == Some(&Value::Bool(false)) {
+        return Ok(format!(
+            "Saved migration {label} as pending. It is not applied yet."
+        ));
+    }
+
+    // Applying it alone would run it ahead of migrations it may depend on.
+    let earlier = match earlier_pending(ctx, datatable_name, version).await {
+        Ok(earlier) => earlier,
+        Err(e) => return Ok(format!("Saved migration {label} as pending, but could not check what else is pending, so it was not applied: {e}")),
+    };
+    if !earlier.is_empty() {
+        return Ok(format!("Saved migration {label} as pending without applying it: earlier migrations are not applied yet ({}) and it may depend on them. Tell the user, then apply them all in order with run_datatable_migrations.", earlier.join(", ")));
+    }
+
+    let run = format!(
+        "{}?only={version}",
+        migrations_path(ctx, "run_datatable_migrations", datatable_name)
+    );
+    Ok(match post_migrations(ctx, &run).await {
+        Ok(_) => format!("Applied migration {label} on datatable \"{datatable_name}\"."),
+        Err(e) => format!("Migration {label} is saved but failed to apply: {e}. It stays pending and blocks later migrations. If nothing of it was applied, fix it by calling this tool again with version {version}; otherwise, or to drop it, tell the user, who can edit or delete it in Workspace settings → Data Tables."),
+    })
+}
+
+async fn run_datatable_migrations(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let datatable_name = str_arg(args, "datatable_name")?;
+    let path = migrations_path(ctx, "run_datatable_migrations", datatable_name);
+    Ok(match post_migrations(ctx, &path).await {
+        Ok(result) => {
+            let applied = array(result.get("applied"));
+            if applied.is_empty() {
+                format!("No pending migration to apply on datatable \"{datatable_name}\".")
+            } else {
+                format!(
+                    "Applied {} migration(s) on datatable \"{datatable_name}\": {}.",
+                    applied.len(),
+                    labels(result.get("applied"))
+                )
+            }
+        }
+        Err(e) => format!("Error applying migrations: {e}. Migrations before the failing one may have been applied: list them to see."),
+    })
+}
+
+async fn rollback_datatable_migration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let datatable_name = str_arg(args, "datatable_name")?;
+    let version = version_arg(args)?.ok_or("Missing required number argument `version`")?;
+    let path = format!(
+        "{}?only={version}",
+        migrations_path(ctx, "rollback_datatable_migrations", datatable_name)
+    );
+    Ok(match post_migrations(ctx, &path).await {
+        Ok(result) if array(result.get("rolled_back")).is_empty() => format!("Migration {version} is not applied on datatable \"{datatable_name}\", so there is nothing to roll back."),
+        Ok(result) => format!(
+            "Rolled back migration {} on datatable \"{datatable_name}\". It is pending again.",
+            labels(result.get("rolled_back"))
+        ),
+        Err(e) => format!("Error rolling back: {e}"),
+    })
+}
+
 const POSTGRESQL_SCHEMA_QUERY: &str = "
 SELECT table_name, column_name, udt_name, column_default, is_nullable, nsp.nspname AS table_schema FROM information_schema.columns
 RIGHT JOIN pg_namespace nsp ON table_schema = nsp.nspname WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
@@ -497,6 +813,18 @@ mod tests {
             r#"{"empty":{},"other":{"u":[["x","bool",false]]}}"#
         );
         assert_eq!(stringify_db_schema("postgresql", &json!({})), None);
+    }
+
+    #[test]
+    fn migration_role_replaces_a_leading_annotation_only() {
+        assert_eq!(with_migration_role("BEGIN;\nEND;", None), "BEGIN;\nEND;");
+        assert_eq!(
+            with_migration_role(
+                "\n-- note\n--ROLE: old;\n-- roles kept\nBEGIN;\n-- role below\nEND;",
+                Some("app_rw")
+            ),
+            "-- role app_rw\n-- note\n-- roles kept\nBEGIN;\n-- role below\nEND;"
+        );
     }
 
     #[test]

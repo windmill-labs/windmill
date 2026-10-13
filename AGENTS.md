@@ -33,6 +33,9 @@ Open-source platform for internal tools, workflows, API integrations, background
   administers behind `external_instance` data tables and Ducklake catalogs: its invariants (one
   lifecycle lock, managed-object markers, the setup gate, per-cluster roles, fork copy ownership)
   and how to run one locally
+- **Data table viewer roles**: `docs/datatable-viewer-roles.md`, on what a connection naming no
+  role holds: the default role as a floor, where the viewer comes from, why an admin's roles are
+  not the viewer's, the per-role-set logins and the order their rows and logins are written in
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
 - **Operator write rights**: `docs/operator-write-rights.md` — which `operator_settings` flags are
   enforced rather than cosmetic, and why a right that is granted-unless-withdrawn needs `Option`

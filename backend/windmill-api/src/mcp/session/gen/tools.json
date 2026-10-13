@@ -211,12 +211,12 @@
 	},
 	{
 		"name": "get_instructions",
-		"description": "Get authoring guidance for scripts, flows, data pipelines, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.",
+		"description": "Get authoring guidance for scripts, flows, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.",
 		"parameters": {
 			"type": "object",
 			"properties": {
 				"subject": {
-					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
+					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
 					"type": "string",
 					"enum": [
 						"script",
@@ -2243,6 +2243,115 @@
 			"required": [
 				"datatable_name",
 				"sql"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "list_datatable_migrations",
+		"description": "List a datatable's migrations in order, each with its version, name and whether it is applied or pending. Pass `version` to read one migration's SQL.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"datatable_name": {
+					"description": "The datatable the migrations belong to, e.g. \"main\".",
+					"type": "string"
+				},
+				"version": {
+					"description": "Return the SQL of this one migration instead of the list.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"datatable_name"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "create_datatable_migration",
+		"description": "Change the schema of a datatable that has migrations enabled: saves the change as a new migration and applies it. One that fails to apply stays saved as pending: call this again with its `version` to fix it.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"datatable_name": {
+					"description": "The datatable the migrations belong to, e.g. \"main\".",
+					"type": "string"
+				},
+				"name": {
+					"description": "Short name of the change, e.g. \"add_refunds_table\". Letters, digits, \"_\" and \"-\" only.",
+					"type": "string",
+					"pattern": "^[A-Za-z0-9_-]+$"
+				},
+				"code_up": {
+					"description": "The SQL that makes the change. Wrap the statements in `BEGIN; ... END;` so they apply atomically, unless one of them cannot run in a transaction.",
+					"type": "string"
+				},
+				"code_down": {
+					"description": "The SQL that undoes `code_up`. Without it the migration cannot be rolled back, so provide it whenever the change is reversible.",
+					"type": "string"
+				},
+				"role": {
+					"description": "The datatable role the migration runs as, on a datatable that has roles. Omit to run as admin, which only the datatable admins may do.",
+					"type": "string",
+					"pattern": "^[A-Za-z0-9_-]{1,63}$"
+				},
+				"version": {
+					"description": "Rewrite this migration instead of adding one: only for a pending migration, typically the one that just failed to apply.",
+					"type": "number"
+				},
+				"apply": {
+					"description": "Set false to save the migration as pending without running it. Defaults to true.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"datatable_name",
+				"name",
+				"code_up"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "run_datatable_migrations",
+		"description": "Apply a datatable's pending migrations, oldest first. It stops at the first one that fails.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"datatable_name": {
+					"description": "The datatable the migrations belong to, e.g. \"main\".",
+					"type": "string"
+				}
+			},
+			"required": [
+				"datatable_name"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "rollback_datatable_migration",
+		"description": "Undo one applied migration of a datatable by running its down SQL. The migration stays in the list as pending.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"datatable_name": {
+					"description": "The datatable the migrations belong to, e.g. \"main\".",
+					"type": "string"
+				},
+				"version": {
+					"description": "The applied migration to undo, normally the most recent one, as listed.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"datatable_name",
+				"version"
 			],
 			"additionalProperties": false
 		},
