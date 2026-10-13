@@ -448,7 +448,7 @@
   },
   "outlook": {
     "req_body_auth": true,
-    "scopes": ["offline_access", "User.Read", "Mail.Send"],
+    "scopes": ["offline_access", "User.Read", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Contacts.ReadWrite"],
     "scope_options": [
       { "value": "offline_access", "label": "Stay connected (refresh token)" },
       { "value": "User.Read", "label": "Read your profile" },
@@ -474,7 +474,7 @@
       "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
       "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
       "req_body_auth": true,
-      "scopes": ["offline_access", "User.Read", "Mail.Send"]
+      "scopes": ["offline_access", "User.Read", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Contacts.ReadWrite"]
     }
   }
 }
