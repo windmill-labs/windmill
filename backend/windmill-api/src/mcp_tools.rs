@@ -125,8 +125,10 @@ async fn connect_mcp_client(
         None
     };
 
-    // Header secrets go through the same permissioned path as the token.
-    for value in mcp_resource.headers.iter_mut().flatten().map(|(_, v)| v) {
+    // The URL and header secrets go through the same permissioned path as the token.
+    for value in std::iter::once(&mut mcp_resource.url)
+        .chain(mcp_resource.headers.iter_mut().flatten().map(|(_, v)| v))
+    {
         if let Some(var_path) = value.strip_prefix("$var:") {
             check_scopes(authed, || format!("variables:read:{}", var_path))?;
             let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));

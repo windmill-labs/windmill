@@ -47,12 +47,14 @@ describe('resolveSessionAccess', () => {
 		const caps = await capabilitiesFor({})
 		expect([...caps].sort()).toEqual([
 			'deploy',
+			'manage_apps',
 			'manage_code',
 			'manage_flows',
 			'manage_schedules',
 			'manage_triggers',
 			'run_flow_preview',
 			'run_preview',
+			'write_app_draft',
 			'write_draft',
 			'write_flow_draft',
 			'write_resource_draft',
@@ -101,6 +103,7 @@ describe('resolveSessionAccess', () => {
 				'deploy',
 				'manage_schedules',
 				'manage_triggers',
+				'write_app_draft',
 				'write_draft',
 				'write_flow_draft',
 				'write_resource_draft',
@@ -138,6 +141,27 @@ describe('resolveSessionAccess', () => {
 			'manage_triggers',
 			'run_flow_preview',
 			'write_flow_draft',
+			'write_resource_draft',
+			'write_schedule_draft',
+			'write_trigger_draft',
+			'write_variable_draft'
+		])
+	})
+
+	// apps.rs and drafts.rs let an app builder through; nothing runs an app preview server-side.
+	it('gives an app builder operator the app capabilities alone', () => {
+		const caps = capabilitiesForRole({
+			isAdmin: false,
+			operator: true,
+			deployRulesPass: true,
+			operatorSettings: { builder_apps: true }
+		})
+		expect([...caps].sort()).toEqual([
+			'deploy',
+			'manage_apps',
+			'manage_schedules',
+			'manage_triggers',
+			'write_app_draft',
 			'write_resource_draft',
 			'write_schedule_draft',
 			'write_trigger_draft',
