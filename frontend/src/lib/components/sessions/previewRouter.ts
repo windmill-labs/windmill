@@ -3,7 +3,8 @@ import {
 	AUDIT_LOGS_PATH,
 	FOLDERS_PATH,
 	GROUPS_PATH,
-	isPageItemListPath,
+	isPreviewListPath,
+	isRunsListPath,
 	pageItemForListPath,
 	pageItemListPath,
 	pageItemPageHref,
@@ -259,9 +260,14 @@ function pageRequestParamTable(): Record<string, readonly string[]> {
 	})
 }
 
+// The page whose filters a path takes: one item's runs filter as every run does.
+function filterPageOf(path: string): string {
+	return isRunsListPath(path) ? RUNS_PATH : path
+}
+
 /** The query params a request can set on `path` — empty for a page that takes none. */
 export function pageRequestParams(path: string): readonly string[] {
-	return pageRequestParamTable()[barePath(path)] ?? []
+	return pageRequestParamTable()[filterPageOf(barePath(path))] ?? []
 }
 
 /** What a preview location means, read against the page it points at. */
@@ -298,7 +304,7 @@ export function describeLocation(loc: string): PreviewLocation {
 	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
 	return {
 		identity: path,
-		view: requestedParams(query, pageRequestParamTable()[path]),
+		view: requestedParams(query, pageRequestParamTable()[filterPageOf(path)]),
 		anchor: drawerAnchorFor(canonical) ?? ''
 	}
 }
@@ -331,7 +337,7 @@ export function showsView(observed: string, commanded: string): boolean {
 	const y = describeLocation(commanded)
 	if (x.identity !== y.identity || x.anchor !== y.anchor) return false
 	if (x.view === y.view) return true
-	const seeded = PAGE_SEEDED_PARAMS[x.identity]
+	const seeded = PAGE_SEEDED_PARAMS[filterPageOf(x.identity)]
 	if (!seeded?.length) return false
 	// Both views come out of `requestedParams` already sorted and encoded, so they compare
 	// as strings once the seeded params are dropped. One direction only: the page may add
@@ -476,9 +482,9 @@ export function previewLocationLabel(url: string): string {
 	if (page) return page.label
 	const trigger = triggerLabelForPath(url)
 	if (trigger) return trigger
-	const run = barePath(url).match(/^\/run\/([^/?#]+)/)
+	const run = parseRunRoute(url)
 	// Job ids are time-ordered, so runs started moments apart share their head.
-	if (run) return `Run ${decodeURIComponent(run[1]).slice(-8)}`
+	if (run) return `Run ${run.jobId.slice(-8)}`
 	// The runs of one item, as a detail page's Runs button links them.
 	const itemRuns = barePath(url).match(/^\/runs\/(.+)$/)
 	if (itemRuns) return `Runs · ${decodeURIComponent(itemRuns[1]).split('/').pop()}`
@@ -571,6 +577,25 @@ export function pendingRunIdOf(url: string): string | undefined {
 	return new URL(url, 'http://x').searchParams.get('pending_run') ?? undefined
 }
 
+/** The run a `/run/<id>` location shows, in the workspace its query names (the opener's,
+ * when it names none). */
+export function parseRunRoute(
+	url: string
+): { jobId: string; workspace?: string; viewToken: boolean } | null {
+	const m = barePath(url).match(/^\/run\/([^/?#]+)$/)
+	if (!m) return null
+	try {
+		const query = new URL(url, 'http://_').searchParams
+		return {
+			jobId: decodeURIComponent(m[1]),
+			workspace: query.get('workspace') || undefined,
+			viewToken: query.has('view_token')
+		}
+	} catch {
+		return null
+	}
+}
+
 export function runFormUrl(toolCallId: string, label: string): string {
 	return `runform:${encodeURIComponent(toolCallId)}#${encodeURIComponent(label)}`
 }
@@ -596,7 +621,8 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // flow, raw app) mounts its per-(kind,path) cell editor on `/edit/` and its viewer
 // on `/get/`; a `/pipeline/<folder>` route mounts the data-pipeline graph editor of
 // that folder (`path` is the folder); the list page of a page item kind mounts that
-// list; everything
+// list, and so does the runs list; a `/run/<id>` route without a share token mounts that
+// run's page; everything
 // else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
@@ -605,6 +631,7 @@ export type PreviewSlot =
 	| { kind: 'runform'; toolCallId: string }
 	| { kind: 'pageitem'; ref: PageItemRef }
 	| { kind: 'pagelist'; path: string }
+	| { kind: 'run'; jobId: string; workspace?: string }
 	| { kind: 'iframe' }
 
 export function resolvePreviewTab(url: string): PreviewSlot {
@@ -615,7 +642,13 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	const pageItem = parsePageItemRoute(url)
 	if (pageItem) return { kind: 'pageitem', ref: pageItem }
 	const route = barePath(url)
-	if (isPageItemListPath(route)) return { kind: 'pagelist', path: route }
+	if (isPreviewListPath(route)) return { kind: 'pagelist', path: route }
+	const run = parseRunRoute(url)
+	// A share link's token authorizes every request of the window that installs it, so a run
+	// opened through one keeps a frame of its own rather than lending the token to the session.
+	if (run && !run.viewToken) {
+		return { kind: 'run', jobId: run.jobId, ...(run.workspace && { workspace: run.workspace }) }
+	}
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
@@ -649,6 +682,7 @@ export function workspacePageHref(location: string): string | undefined {
 		case 'editor':
 		case 'viewer':
 		case 'pagelist':
+		case 'run':
 		case 'iframe':
 			return location
 		default: {

@@ -97,15 +97,14 @@
 			? (new URL(tab.url, 'http://x').searchParams.get('version') ?? undefined)
 			: undefined
 	)
-	// The chat tool call this tab was opened to answer, read the same way and for the same
-	// reason. Re-pointing the tab rebuilds its url without it, so a tab sent anywhere else —
-	// another item, another version — stops carrying the call rather than answering it from a
-	// page it was never confirmed against.
-	const pendingRunId = $derived(
-		slot.kind === 'viewer'
-			? (new URL(tab.url, 'http://x').searchParams.get('pending_run') ?? undefined)
-			: undefined
-	)
+	// What a run's `Run again` hands the deployed page it opens: the run's args in the
+	// fragment, and for a dbt run the failure it could resume instead.
+	const viewerUrl = $derived(slot.kind === 'viewer' ? new URL(tab.url, 'http://x') : undefined)
+	// The chat tool call this tab was opened to answer rides in the same query. Re-pointing
+	// the tab rebuilds its url without it, so a tab sent anywhere else — another item,
+	// another version — stops carrying the call rather than answering it from a page it was
+	// never confirmed against.
+	const pendingRunId = $derived(viewerUrl?.searchParams.get('pending_run') ?? undefined)
 
 	// The path an editor reports is its deployed one, which a staged rename can make
 	// differ from this tab's — so the view opens on what actually exists.
@@ -156,6 +155,7 @@
 	// A page item's editor reads its draft only when it loads, so a reload remounts it.
 	let pageItemReloadNonce = $state(0)
 	let pageListReloadNonce = $state(0)
+	let runReloadNonce = $state(0)
 
 	export function reload() {
 		// A live editor shares the runtime store the chat mutates, so generic chat
@@ -175,6 +175,10 @@
 		}
 		if (slot.kind === 'pagelist') {
 			pageListReloadNonce++
+			return
+		}
+		if (slot.kind === 'run') {
+			runReloadNonce++
 			return
 		}
 		try {
@@ -403,6 +407,8 @@
 						path={itemPath}
 						version={pinnedVersion}
 						{pendingRunId}
+						locationHash={viewerUrl?.hash}
+						dbtRetryFrom={viewerUrl?.searchParams.get('dbt_retry_from') ?? undefined}
 						{workspaceId}
 						tabId={tab.id}
 						container={overlayHostEl}
@@ -450,6 +456,29 @@
 					{workspaceId}
 					container={overlayHostEl}
 					reloadNonce={pageListReloadNonce}
+				/>
+			{/await}
+		{/if}
+	</div>
+{:else if slot.kind === 'run' && mounted && runtime}
+	<div
+		bind:this={overlayHostEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+	>
+		{#if overlayHostEl}
+			{#await import('./RunViewerView.svelte')}
+				{@render editorLoading()}
+			{:then Module}
+				<!-- A run stays in the workspace it ran in, which the tab's URL names: the
+				     session's own can change under an open tab (a staged fork committing). -->
+				<Module.default
+					{runtime}
+					jobId={slot.jobId}
+					workspaceId={slot.workspace ?? workspaceId}
+					tabId={tab.id}
+					container={overlayHostEl}
+					reloadNonce={runReloadNonce}
 				/>
 			{/await}
 		{/if}

@@ -4449,6 +4449,24 @@ pub async fn monitor_db(
         }
     };
 
+    // Drop the data table role set logins nobody has connected with for a month. Every ~40 min,
+    // spawned for the same reason as the credential maintenance above: it opens a connection per
+    // managed database for each login it drops.
+    let datatable_role_set_sweep_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(240) {
+            if let Some(db) = conn.as_sql() {
+                let db = db.clone();
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        windmill_common::datatable_roles::sweep_unused_role_set_logins(&db).await
+                    {
+                        tracing::error!("Error sweeping unused data table role set logins: {e}");
+                    }
+                });
+            }
+        }
+    };
+
     // Re-encrypt the legacy-format secret variables once new values are written in AES-256-GCM.
     // Every ~5 min until one pass has gone through every workspace; spawned so a large instance
     // does not hold up the join below.
@@ -4538,6 +4556,7 @@ pub async fn monitor_db(
         cleanup_scheduled_job_deletions_f,
         git_auto_pull_f,
         git_credential_maintenance_f,
+        datatable_role_set_sweep_f,
         ai_session_retention_f,
         legacy_secret_upgrade_f,
         pipeline_freshness_watchdog_f,

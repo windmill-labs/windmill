@@ -538,8 +538,14 @@ export async function deployDraft(
 			// no draft. `draft_path` and `summary` are draft-only fields mirrored onto
 			// the App value (the editor drops them on deploy), so strip them from the
 			// value and apply them as the deploy path / summary column.
+			// `parent_version` is the draft's stale-check base, never deployed.
 			const draft = r.draft as Record<string, any> | undefined
-			const { draft_path: draftPath, summary: draftSummary, ...appValue } = draft ?? r.value ?? {}
+			const {
+				draft_path: draftPath,
+				summary: draftSummary,
+				parent_version: _pv,
+				...appValue
+			} = draft ?? r.value ?? {}
 			// Policy isn't carried in the app draft, so it comes from the deployed app
 			// (or a default). custom_path requires admin on update; non-admins send
 			// undefined so the backend preserves the existing route. The draft has no

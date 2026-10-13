@@ -475,6 +475,7 @@ function createRuntime(session: Session): SessionRuntime {
 			slotKind !== 'iframe' &&
 			slotKind !== 'pageitem' &&
 			slotKind !== 'pagelist' &&
+			slotKind !== 'run' &&
 			slotKind !== 'viewer'
 		)
 			return undefined
@@ -617,8 +618,8 @@ function createRuntime(session: Session): SessionRuntime {
 		}
 	}
 
-	// Let the jobs tray open a run in this session's preview panel (as an iframe
-	// tab over the run page). The global side-panel chat leaves this unset and
+	// Let the jobs tray open a run in this session's preview panel (as a tab on
+	// the run's page). The global side-panel chat leaves this unset and
 	// falls back to a new browser tab.
 	manager.openRunInPreview = ({ jobId, workspace, label }) => {
 		previewTabs.open({

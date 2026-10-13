@@ -21,6 +21,7 @@
 	import { forLater } from '$lib/forLater'
 	import { twMerge } from 'tailwind-merge'
 	import Portal from '$lib/components/Portal.svelte'
+	import { useHostedPage } from '../hostedPage'
 
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
@@ -29,6 +30,7 @@
 	import './runs-grid.css'
 
 	const dispatch = createEventDispatcher()
+	const hosted = useHostedPage()
 
 	interface Props {
 		job: Job
@@ -60,7 +62,10 @@
 </script>
 
 <Portal name="run-row">
-	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<ScheduleEditor
+		onUpdate={() => (hosted ? hosted.openLink('/schedules') : goto('/schedules'))}
+		bind:this={scheduleEditor}
+	/>
 </Portal>
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
