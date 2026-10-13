@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { X } from 'lucide-svelte'
+	import { Plus, X } from 'lucide-svelte'
 	import { resource } from 'runed'
 	import { bash, markdown, typescript } from 'svelte-highlight/languages'
 	import { Alert, Button, CopyButton, Tab, TabContent, Tabs } from '$lib/components/common'
@@ -60,12 +60,12 @@
 		onChanged: () => void
 	} = $props()
 
-	let pickedTab = $state('slack')
+	let pickedTab = $state('api')
 	let tab = $derived(chat ? pickedTab : 'api')
 	let handle = $derived(`+${agentPath.split('/').pop()}`)
 
 	type Choice = { label: string; value: string; name: string }
-	let picked = $state<string | undefined>(undefined)
+	let adding = $state(false)
 	let saving = $state(false)
 
 	// Read again whenever the agent's channels change, so a channel just added or removed moves
@@ -114,8 +114,8 @@
 		}
 	}
 
-	async function add() {
-		const choice = available.current?.find((c) => c.value === picked)
+	async function add(channelId: string | undefined) {
+		const choice = available.current?.find((c) => c.value === channelId)
 		if (!choice) return
 		saving = true
 		try {
@@ -123,7 +123,7 @@
 				workspace,
 				requestBody: { channel_id: choice.value, channel_name: choice.name, agent_path: agentPath }
 			})
-			picked = undefined
+			adding = false
 			onChanged()
 		} catch (e) {
 			sendUserToast(e.body ?? e.message, true)
@@ -162,7 +162,7 @@
 	)
 	let apiTab = $state<string | undefined>(undefined)
 	let shownApiTab = $derived(
-		apiTab === 'sdk' && !chat ? 'rest' : (apiTab ?? (chat ? 'sdk' : 'rest'))
+		apiTab === 'sdk' && !chat ? 'prompt' : (apiTab ?? 'prompt')
 	)
 </script>
 
@@ -176,10 +176,10 @@
 
 <div class="flex flex-col h-full">
 	<Tabs bind:selected={() => tab, (t) => (pickedTab = t)} wrapperClass="flex-none w-full">
+		<Tab value="api" label="API" />
 		{#if chat}
 			<Tab value="slack" label="Slack" />
 		{/if}
-		<Tab value="api" label="API" />
 
 		{#snippet content()}
 			<div class="min-h-0 grow overflow-y-auto">
@@ -260,47 +260,63 @@
 								Mentions of the bot and <code>/windmill</code> commands in these channels go to this
 								agent without its name. They no longer reach the workspace's Slack command script there.
 							</span>
-							{#if channels.length === 0}
+							{#if channels.length === 0 && !adding}
 								<span class="text-xs text-hint">No channel yet.</span>
-							{:else}
-								<div class="flex flex-col gap-1">
-									{#each channels as channel (channel.channel_id)}
-										<div class="flex items-center justify-between rounded border px-2 py-1">
-											<span class="text-xs text-primary">#{channel.channel_name}</span>
-											{#if isAdmin}
-												<Button
-													variant="subtle"
-													unifiedSize="xs"
-													iconOnly
-													startIcon={{ icon: X }}
-													title="Remove #{channel.channel_name}"
-													onClick={() => remove(channel)}
-												/>
-											{/if}
-										</div>
-									{/each}
-								</div>
 							{/if}
-							{#if isAdmin && missingScopes.length === 0}
-								<div class="flex items-center gap-2">
-									<Select
-										class="grow"
-										items={available.current ?? []}
-										bind:value={picked}
-										loading={available.loading}
-										placeholder="Pick a public channel"
-										noItemsMsg="No other public channel"
+							{#each channels as channel (channel.channel_id)}
+								<div class="flex items-center gap-2 w-full">
+									<TextInput
+										class="flex-1"
+										inputProps={{ readonly: true }}
+										value="#{channel.channel_name}"
 									/>
-									<Button
-										variant="default"
-										unifiedSize="md"
-										disabled={!picked || saving}
-										loading={saving}
-										onClick={add}
-									>
-										Add
-									</Button>
+									{#if isAdmin}
+										<Button
+											variant="subtle"
+											unifiedSize="md"
+											iconOnly
+											destructive
+											startIcon={{ icon: X }}
+											title="Remove #{channel.channel_name}"
+											onClick={() => remove(channel)}
+										/>
+									{/if}
 								</div>
+							{/each}
+							{#if isAdmin && missingScopes.length === 0}
+								{#if adding}
+									<div class="flex items-center gap-2 w-full">
+										<Select
+											class="flex-1"
+											items={available.current ?? []}
+											bind:value={() => undefined, (v) => add(v)}
+											loading={available.loading || saving}
+											disabled={saving}
+											placeholder="Pick a public channel"
+											noItemsMsg="No other public channel"
+											open
+										/>
+										<Button
+											variant="subtle"
+											unifiedSize="md"
+											iconOnly
+											startIcon={{ icon: X }}
+											title="Cancel"
+											onClick={() => (adding = false)}
+										/>
+									</div>
+								{:else}
+									<div class="flex justify-start">
+										<Button
+											variant="default"
+											unifiedSize="sm"
+											startIcon={{ icon: Plus }}
+											onClick={() => (adding = true)}
+										>
+											Add channel
+										</Button>
+									</div>
+								{/if}
 							{:else if !isAdmin}
 								<span class="text-2xs text-hint">Only workspace admins can change these.</span>
 							{/if}
@@ -342,13 +358,13 @@
 						</div>
 					</Label>
 					<Tabs bind:selected={() => shownApiTab, (t) => (apiTab = t)}>
+						<Tab value="prompt" label="AI prompt" />
 						{#if chat}
 							<Tab value="sdk" label="Chat SDK" />
 						{/if}
 						<Tab value="rest" label="REST" />
 						<Tab value="curl" label="Curl" />
 						<Tab value="fetch" label="Fetch" />
-						<Tab value="prompt" label="AI prompt" />
 						{#snippet content()}
 							<TabContent value="sdk" class="flex flex-col gap-2 mt-2">
 								<span class="text-xs text-secondary">

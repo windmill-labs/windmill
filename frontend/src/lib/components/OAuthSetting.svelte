@@ -218,10 +218,9 @@
 								>Windmill docs <ExternalLink size={12} class="inline-block" /></a
 							>.
 						</span>
-						<CopyableCodeBlock
-							code={slackAppManifest(window.location.origin)}
-							language={yaml}
-						/>
+						<div class="flex flex-col max-h-80 [&>div]:min-h-0">
+							<CopyableCodeBlock code={slackAppManifest(window.location.origin)} language={yaml} />
+						</div>
 					</div>
 				</CollapseLink>
 			{:else if name == 'microsoft'}
