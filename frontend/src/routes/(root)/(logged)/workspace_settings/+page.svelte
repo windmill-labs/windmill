@@ -333,7 +333,7 @@
 	// while a path is selected — otherwise toggling script/flow on an empty picker reads
 	// as unsaved work that would save nothing.
 	function variableExpirationFullPath(kind: 'flow' | 'script', path: string | undefined) {
-		return path ? `${kind}/${path}` : undefined
+		return path ? handlerFullPath(getVariableExpirationHandlerType(path), kind, path) : undefined
 	}
 
 	// The mute flag is stored inside the handler setting, so saving with no path selected

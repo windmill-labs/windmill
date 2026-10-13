@@ -58,6 +58,8 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { CircleCheck, CircleX, ExternalLink, Loader2, RotateCw } from 'lucide-svelte'
+	import { untrack } from 'svelte'
+	import { syncSlackBotArg } from '$lib/components/handlerSlackArg'
 
 	interface Props {
 		isEditable: boolean
@@ -181,10 +183,13 @@
 		}
 	})
 
-	// The Slack built-in reads the workspace bot token as a resource. Derived from the selected
-	// handler rather than typed by the admin, so it is stripped before the unsaved-changes check.
+	let builtinArgs: Record<string, any> | undefined
 	$effect(() => {
-		handlerExtraArgs['slack'] = isSlackHandler ? '$res:f/slack_bot/bot_token' : undefined
+		const isSlackBuiltin = isSlackHandler
+		const args = handlerExtraArgs
+		// A replaced args object (Discard, reload) holds the stored config, not what the built-in set.
+		untrack(() => syncSlackBotArg(args, isSlackBuiltin, args === builtinArgs))
+		builtinArgs = isSlackBuiltin ? args : undefined
 	})
 
 	// Remembered per destination so flipping between tabs to compare them does not discard a
