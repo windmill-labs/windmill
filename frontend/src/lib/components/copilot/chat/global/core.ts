@@ -225,6 +225,8 @@ import {
 	WRITE_FLOW_DRAFT,
 	WRITE_SCHEDULE_DRAFT,
 	WRITE_TRIGGER_DRAFT,
+	WRITE_RESOURCE_DRAFT,
+	WRITE_VARIABLE_DRAFT,
 	type SessionAccess,
 	type SessionTool,
 	type SessionToolPolicy
@@ -1417,6 +1419,11 @@ function buildFolderGuidance(
 	return lines.join('\n')
 }
 
+/** "a", "a and b", "a, b and c". */
+function joinList(items: string[]): string {
+	return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+}
+
 const buildGlobalSystemPrompt = (
 	username: string,
 	previewTools: boolean,
@@ -1431,23 +1438,35 @@ const buildGlobalSystemPrompt = (
 	const canWriteFlowDraft = !access || access.has('write_flow_draft')
 	const canDraftSchedules = !access || access.has('write_schedule_draft')
 	const canDraftTriggers = !access || access.has('write_trigger_draft')
+	const canDraftResources = !access || access.has('write_resource_draft')
+	const canDraftVariables = !access || access.has('write_variable_draft')
 	// A builder operator: of the editor kinds, flow drafts only. Blocks about drafting in general
 	// follow `canWriteAnyDraft`; blocks naming scripts, apps or the other kinds keep `canWriteDraft`.
 	const flowsOnly = canWriteFlowDraft && !canWriteDraft
 	const canWriteAnyDraft =
-		canWriteDraft || canWriteFlowDraft || canDraftSchedules || canDraftTriggers
-	// Both read only where `write_draft` is missing: it implies the two draft rights.
-	const draftedOperatorKinds = [canDraftSchedules && 'schedules', canDraftTriggers && 'triggers']
-		.filter((k): k is string => !!k)
-		.join(' and ')
+		canWriteDraft ||
+		canWriteFlowDraft ||
+		canDraftSchedules ||
+		canDraftTriggers ||
+		canDraftResources ||
+		canDraftVariables
+	// These read only where `write_draft` is missing: it implies the other draft rights.
+	const draftedOperatorKinds = joinList(
+		[
+			canDraftResources && 'resources',
+			canDraftVariables && 'variables',
+			canDraftSchedules && 'schedules',
+			canDraftTriggers && 'triggers'
+		].filter((k): k is string => !!k)
+	)
 	const refusedKinds = [
 		!flowsOnly && 'flows',
 		'scripts',
 		'apps',
 		!canDraftSchedules && 'schedules',
 		!canDraftTriggers && 'triggers',
-		'resources',
-		'variables'
+		!canDraftResources && 'resources',
+		!canDraftVariables && 'variables'
 	].filter((k): k is string => !!k)
 	const canRunPreview = !access || access.has('run_preview')
 	const canManageSchedules = !access || access.has('manage_schedules')
@@ -1502,18 +1521,20 @@ The current user's workspace username is "${username}".${instanceLine}
 ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
-		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${refusedKinds.slice(0, -1).join(', ')} or ${refusedKinds.at(-1)} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${flowsOnly ? 'scripts and apps' : 'scripts, flows and apps'} outside this chat too, so for those suggest asking a workspace admin rather than creating them in the editor. Resources and variables they can still edit themselves on their pages, so when open_page lists that page, open it for them instead.${when(
+		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${refusedKinds.slice(0, -1).join(', ')} or ${refusedKinds.at(-1)} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${flowsOnly ? 'scripts and apps' : 'scripts, flows and apps'} outside this chat too, so for those suggest asking a workspace admin rather than creating them in the editor.${when(
 				flowsOnly,
 				'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.'
 			)}${when(
 				!!draftedOperatorKinds,
-				`\n\nThis workspace lets them create and edit ${draftedOperatorKinds}: write them as drafts with ${[
-					canDraftSchedules && 'write_schedule',
-					canDraftTriggers &&
-						'write_trigger (call get_trigger_schema first: the config fields differ per kind)'
-				]
-					.filter(Boolean)
-					.join(' and ')}, then deploy them with deploy_workspace_item once the user asks.`
+				`\n\nThis workspace lets them create and edit ${draftedOperatorKinds}: write them as drafts with ${joinList(
+					[
+						canDraftResources && 'write_resource (call search_resource_types first)',
+						canDraftVariables && 'write_variable',
+						canDraftSchedules && 'write_schedule',
+						canDraftTriggers &&
+							'write_trigger (call get_trigger_schema first: the config fields differ per kind)'
+					].filter((k): k is string => !!k)
+				)}, then deploy them with deploy_workspace_item once the user asks.`
 			)}`
 }${when(
 		canWriteAnyDraft,
@@ -1560,9 +1581,12 @@ Rules:${when(
 		}, here or in the editor, so never ask them to create or edit one: suggest asking a workspace admin.`
 	)}
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.${when(
+		canDraftVariables,
+		`
+- You can never read a variable's value, secret or not, so never invent one: when editing an existing variable, omit value (and is_secret) from write_variable and pass only the fields you are actually changing. The user can reveal a value in the variable editor; you cannot, so never tell them a value is unreadable in general. "$var:path/to/variable" is how a resource value references a variable — it is never a variable's own value.`
+	)}${when(
 		canWriteDraft,
 		`
-- You can never read a variable's value, secret or not, so never invent one: when editing an existing variable, omit value (and is_secret) from write_variable and pass only the fields you are actually changing. The user can reveal a value in the variable editor; you cannot, so never tell them a value is unreadable in general. "$var:path/to/variable" is how a resource value references a variable — it is never a variable's own value.
 - Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
 - Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (note the source hub path in a comment at the top of the code), or take it as a worked example and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.
@@ -2639,7 +2663,9 @@ export function getSessionContextPromptSection(
 		access.has('write_draft') ||
 		access.has('write_flow_draft') ||
 		access.has('write_schedule_draft') ||
-		access.has('write_trigger_draft')
+		access.has('write_trigger_draft') ||
+		access.has('write_resource_draft') ||
+		access.has('write_variable_draft')
 	const canRunPreview = !access || access.has('run_preview') || access.has('run_flow_preview')
 	// The kinds no deploy rule reaches, unless the workspace withdrew them from this user.
 	const unruledKinds = [
@@ -3537,11 +3563,11 @@ export const globalTools: SessionTool<{}>[] = [
 			const canAuthor =
 				!access ||
 				access.has('write_draft') ||
-				(parsed.subject === 'flow' && access.has('write_flow_draft'))
+				(parsed.subject === 'flow' && access.has('write_flow_draft')) ||
+				(parsed.subject === 'resource' && access.has('write_resource_draft'))
 			if (!canAuthor) {
-				const message = access?.has('write_flow_draft')
-					? 'This session can only compose flows, so flow is the one subject with authoring guidance here. Tell the user plainly that you cannot create or edit this kind of item.'
-					: 'This session cannot create or edit workspace items, so there is no authoring guidance to give. Tell the user plainly rather than describing how it would be done.'
+				const message =
+					'This session cannot create or edit this kind of item, so there is no authoring guidance to give for it. Tell the user plainly rather than describing how it would be done.'
 				toolCallbacks.setToolStatus(toolId, { content: 'No authoring guidance' })
 				return message
 			}
@@ -4289,8 +4315,9 @@ export const globalTools: SessionTool<{}>[] = [
 			app: WRITE_DRAFT,
 			resource: WRITE_DRAFT,
 			variable: WRITE_DRAFT,
-			// Not the schedule/trigger draft rights: `rebaseDraft` has no handler for these kinds,
-			// so an operator holding only those rights would be offered a tool that always throws.
+			// Not the per-kind draft rights: `rebaseDraft` has no handler for resources, variables,
+			// schedules or triggers, so an operator holding only those rights would be offered a
+			// tool that always throws.
 			schedule: WRITE_DRAFT,
 			trigger: WRITE_DRAFT
 		} satisfies Record<(typeof ITEM_TYPES)[number], SessionToolPolicy>,
@@ -4381,7 +4408,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		requires: WRITE_DRAFT,
+		requires: WRITE_RESOURCE_DRAFT,
 		def: createToolDef(
 			writeResourceSchema,
 			'write_resource',
@@ -4397,7 +4424,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		requires: WRITE_DRAFT,
+		requires: WRITE_VARIABLE_DRAFT,
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',

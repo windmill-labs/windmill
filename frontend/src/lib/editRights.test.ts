@@ -43,7 +43,12 @@ describe('edit rights', () => {
 		expect(roleCanDraft('trigger', user({}), undefined)).toBe(true)
 		expect(roleCanDraft('schedule', user({}), { manage_schedules: false })).toBe(false)
 		expect(roleCanDraft('trigger', user({}), { manage_triggers: false })).toBe(false)
-		expect(roleCanDraft('resource', user({}), undefined)).toBe(false)
+	})
+
+	it('lets an operator draft resources and variables, but not scripts', () => {
+		expect(roleCanDraft('resource', user({}), undefined)).toBe(true)
+		expect(roleCanDraft('variable', user({}), undefined)).toBe(true)
+		expect(roleCanDraft('script', user({}), undefined)).toBe(false)
 	})
 
 	// The role alone is not enough: a builder still cannot edit a flow in a folder they only read.

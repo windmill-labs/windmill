@@ -269,7 +269,94 @@ async fn test_manage_rights_admit_matching_drafts(db: Pool<Postgres>) -> anyhow:
     );
     let (status, body) = save("trigger_http", "u/operator/http_draft").await?;
     assert_eq!(status, 403, "{body}");
-    assert_eq!(listed().await?, json!([]));
+    // Still listed, as their own, but no longer writable.
+    let drafts = listed().await?;
+    assert_eq!(drafts.as_array().map(Vec::len), Some(2), "{drafts}");
+    assert!(
+        drafts
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|d| d["can_write"] == json!(false)),
+        "{drafts}"
+    );
+
+    Ok(())
+}
+
+/// Operators create resources and variables on their pages with no operator setting in the way,
+/// so they may draft them in any workspace — even one that withdrew every manage right — and
+/// deploying a secret variable draft goes through the create route like a direct write.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
+async fn test_operators_draft_resources_and_variables(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    invalidate_operator_rights_cache(WS);
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/{WS}");
+    let c = operator_client();
+
+    assert_eq!(
+        set_settings(
+            &api,
+            json!({"manage_schedules": false, "manage_triggers": false})
+        )
+        .await?,
+        200
+    );
+
+    let save = async |kind: &str, path: &str, value: serde_json::Value| {
+        let resp = c
+            .post(format!("{api}/drafts/update/{kind}/{path}"))
+            .json(&json!({ "value": value }))
+            .send()
+            .await?;
+        anyhow::Ok((resp.status().as_u16(), resp.text().await?))
+    };
+
+    let (status, body) = save(
+        "resource",
+        "u/operator/res_draft",
+        json!({ "path": "u/operator/res_draft", "args": {}, "resource_type": "object" }),
+    )
+    .await?;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = save(
+        "variable",
+        "u/operator/secret_draft",
+        json!({ "variable": { "path": "u/operator/secret_draft", "value": "hunter2", "is_secret": true } }),
+    )
+    .await?;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = save("script", "u/operator/script_draft", json!({})).await?;
+    assert_eq!(status, 403, "{body}");
+
+    // Deploying a draft sends its stored value, the `$encrypted:` marker, to the create route.
+    let stored: String = sqlx::query_scalar(
+        "SELECT value::jsonb->'variable'->>'value' FROM draft
+         WHERE workspace_id = $1 AND path = 'u/operator/secret_draft'",
+    )
+    .bind(WS)
+    .fetch_one(&db)
+    .await?;
+    assert!(stored.starts_with("$encrypted:"), "{stored}");
+    let resp = c
+        .post(format!("{api}/variables/create"))
+        .json(&json!({
+            "path": "u/operator/secret_draft",
+            "value": stored,
+            "is_secret": true,
+            "description": "",
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let resp = c
+        .get(format!("{api}/variables/get_value/u/operator/secret_draft"))
+        .send()
+        .await?;
+    assert_eq!(resp.json::<String>().await?, "hunter2");
 
     Ok(())
 }

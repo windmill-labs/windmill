@@ -229,7 +229,6 @@ async fn list_variables(
 
     // Append the authed user's draft-only variables; see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
         && offset == 0
         && lq.path_start.is_none()
         && lq.path.is_none()

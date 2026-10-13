@@ -464,7 +464,6 @@ async fn list_resources(
     // list (the resources page always passes `resource_type_exclude`); they're applied
     // per-row below against the draft JSON's `resource_type` instead.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
         && offset == 0
         && lq.path_start.is_none()
         && lq.path.is_none()
