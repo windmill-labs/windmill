@@ -14,6 +14,7 @@ use tokio::{fs::DirBuilder, process::Command, sync::RwLock};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
+    global_settings::{load_value_from_global_settings, INSTANCE_PYTHON_VERSION_SETTING},
     worker::{try_parse_locked_python_version_from_requirements, Connection, PyVAlias},
 };
 
@@ -49,10 +50,6 @@ impl From<PyV> for PyVAlias {
     }
 }
 
-// To change latest stable version:
-// 1. Change placeholder in instanceSettings.ts
-// 2. Change LATEST_STABLE_PY in dockerfile
-// 3. Change #[default] annotation for PyVersion in backend
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PyV(pub pep440_rs::Version);
 
@@ -260,7 +257,29 @@ impl PyV {
         conn: Option<Connection>,
     ) -> Self {
         let mut err = None;
-        let pyv = match INSTANCE_PYTHON_VERSION.read().await.clone() {
+        let mut setting = INSTANCE_PYTHON_VERSION.read().await.clone();
+        // A worker that loaded its settings while the server was still initializing the instance
+        // read no version, and may have started listening for setting changes only after it was
+        // written. Jobs only exist once it is, so reading it here settles that worker for good.
+        if setting.is_none() {
+            if let Some(Connection::Sql(db)) = conn.as_ref() {
+                // Same precedence as the settings load: forced value, stored value, environment.
+                let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+                setting = match env("FORCE_INSTANCE_PYTHON_VERSION") {
+                    Some(forced) => Some(forced),
+                    None => load_value_from_global_settings(db, INSTANCE_PYTHON_VERSION_SETTING)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|v| serde_json::from_value::<String>(v).ok())
+                        .or_else(|| env("INSTANCE_PYTHON_VERSION")),
+                };
+                if setting.is_some() {
+                    *INSTANCE_PYTHON_VERSION.write().await = setting.clone();
+                }
+            }
+        }
+        let pyv = match setting {
             Some(v) if &v == "default" => PyVAlias::default().into(),
             Some(v) => pep440_rs::Version::from_str(&v).unwrap_or_else(|_| {
                 let v = PyVAlias::default().into();
