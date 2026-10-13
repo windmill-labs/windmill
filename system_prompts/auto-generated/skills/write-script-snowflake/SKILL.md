@@ -56,6 +56,7 @@ Use `wmill resource-type list --schema` to discover available resource types.
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it `main` (`Main` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no `main`: their language section shows how they take arguments
 - Where the language has a Windmill client (`wmill`), use it to interact with the platform
+- A script's input schema may carry a top-level `prompt_for_ai` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
@@ -81,6 +82,27 @@ Name the parameters by adding comments before the statement:
 -- ? name1 (text)
 -- ? name2 (number) = 0
 SELECT * FROM users WHERE name = ? AND age > ?;
+```
+
+## Array parameters
+
+Declare a list with a `[]` suffix on the element type (`(varchar[])`,
+`(int[])`), or `(array)` for an untyped one. Snowflake cannot bind an array
+directly, so Windmill binds the list as JSON text: wrap the placeholder with
+`PARSE_JSON(?)`, and cast to `ARRAY` where a function expects one.
+
+```sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+WHERE ARRAY_CONTAINS(o.owner_group::VARIANT, PARSE_JSON(?)::ARRAY);
+```
+
+Or join on the elements with `FLATTEN`:
+
+```sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+JOIN TABLE(FLATTEN(input => PARSE_JSON(?))) g ON g.value::STRING = o.owner_group;
 ```
 
 ## Receiving an S3Object as a script parameter

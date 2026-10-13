@@ -198,6 +198,7 @@ async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     authed: ApiAuthed,
+    Tokened { token }: Tokened,
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
@@ -206,7 +207,15 @@ async fn set_password(
     // (GHSA-hfh4-cx4h-3fcr).
     forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     let email = authed.email.clone();
-    crate::users_oss::set_password(db, argon2, authed, &email, ep).await
+    let res = crate::users_oss::set_password(db.clone(), argon2, authed, &email, ep).await?;
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND label = 'session' AND token_hash != $2",
+        &email,
+        windmill_common::auth::hash_token(&token)
+    )
+    .execute(&db)
+    .await?;
+    Ok(res)
 }
 
 async fn set_password_of_user(
@@ -219,7 +228,14 @@ async fn set_password_of_user(
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
-    crate::users_oss::set_password(db, argon2, authed, &email, ep).await
+    let res = crate::users_oss::set_password(db.clone(), argon2, authed, &email, ep).await?;
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND label = 'session'",
+        &email
+    )
+    .execute(&db)
+    .await?;
+    Ok(res)
 }
 
 #[derive(Deserialize)]
@@ -665,8 +681,8 @@ async fn update_username_in_workpsace<'c>(
     // ---- flows ----
     sqlx::query!(
         r#"INSERT INTO flow
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at)
-        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, job_token_scopes)
+        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, job_token_scopes
             FROM flow
             WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,

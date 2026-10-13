@@ -1,16 +1,8 @@
 <script lang="ts">
-	import {
-		ChevronRight,
-		FlaskConical,
-		Settings,
-		FormInput,
-		History,
-		MessageSquare,
-		Save
-	} from 'lucide-svelte'
+	import { FlaskConical, Settings, FormInput, History, MessageSquare, Save } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { onDestroy, untrack } from 'svelte'
+	import { onDestroy, untrack, type Snippet } from 'svelte'
 	import { resource } from 'runed'
 	import Modal, { type ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
@@ -39,6 +31,10 @@
 	import AgentSettings from './AgentSettings.svelte'
 	import AgentEvalsModal from './AgentEvalsModal.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
+	import { emptyString } from '$lib/utils'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -93,6 +89,9 @@
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
 	let settingsDrawer: Drawer | undefined = $state(undefined)
+	/** Held by the rename popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
 	let saving = $state(false)
 
@@ -136,9 +135,10 @@
 	let canEvaluate = $derived(
 		draft != undefined && !draft.loading && !draftOnly && !readOnly && !refused
 	)
-	// A never-deployed agent is stored at a minted `draft_<uuid>` path, so it is named by the path
-	// its first deploy will create, as the home list names it.
-	let shownPath = $derived((draftOnly && draft?.state?.path) || target?.path)
+	// The draft's path, so a rename shows where it is typed — including a never-deployed agent,
+	// stored at a minted `draft_<uuid>` path and named by the path its first deploy will create,
+	// as the home list names it. Falls back to the target while the draft is still loading.
+	let shownPath = $derived(draft?.state?.path || target?.path)
 
 	// Where the evals pane is within itself, so its levels extend this dialog's trail rather than
 	// opening a dialog of their own. Cleared on the way in: the pane reports a level once it is on
@@ -312,34 +312,22 @@
 				{@render body()}
 			</Modal>
 		{:else}
+			<!-- On its own route the editor's header is the page header: the agent's path is the
+			     breadcrumb, the level it is on reads after that name, and its controls are the band's
+			     actions. -->
+			<PageHeaderContent
+				item={{
+					path: pathSnapshot ?? shownPath,
+					summaryContent: agentSummary,
+					// Only where the rename behind it can be saved: a reader who cannot write this agent
+					// keeps the segment that copies the path, rather than an editor with nothing to edit.
+					pathTrigger: readOnly ? undefined : agentPathTrigger
+				}}
+				afterName={agentHint}
+				actions={settings}
+				separator="always"
+			/>
 			<div class="h-full min-h-0 flex flex-col">
-				<div class="flex items-center gap-2 px-4 py-2 border-b shrink-0">
-					<div class="min-w-0 flex flex-col">
-						<div class="flex items-center gap-1 min-w-0">
-							{#each trail as segment, i (i)}
-								{#if i > 0}
-									<ChevronRight size={14} class="text-tertiary shrink-0" />
-								{/if}
-								{#if segment.onclick}
-									<Button variant="subtle" unifiedSize="sm" onClick={segment.onclick}>
-										{segment.label}
-									</Button>
-								{:else}
-									<span class="text-sm font-semibold text-emphasis truncate">{segment.label}</span>
-								{/if}
-								{#if i === 0}
-									{@render titleBadge()}
-								{/if}
-							{/each}
-							{@render levelBadge()}
-						</div>
-						{#if description}
-							<span class="text-2xs text-tertiary truncate">{description}</span>
-						{/if}
-					</div>
-					<div class="grow"></div>
-					{@render settings()}
-				</div>
 				<div class="flex-1 min-h-0 px-4 sm:px-6">
 					{@render body()}
 				</div>
@@ -347,6 +335,95 @@
 		{/if}
 	{/key}
 
+	<!-- The summary's editor again, hung off the band's path segment so it opens under the path,
+	     with the cursor in the path field. `bind:` cannot be spread, so the slots are written out
+	     twice; both instances bind the same ones and only one is ever open. -->
+	{#snippet agentPathTrigger(pathLabel: Snippet, triggerClass: string)}
+		<!-- Gated like the summary beside it: this renders from the band's tree, where `draft` is
+		     undefined for as long as the modal has not loaded one, and a getter that reads through it
+		     throws there rather than where it was written. The `{:else}` carries the whole load of
+		     that wait: the band gave up its own segment to this snippet, so without it the trail
+		     would show no path until the draft arrives. -->
+		{#if draft?.state}
+			<PathEditPopover
+				label={pathLabel}
+				{triggerClass}
+				focusField="path"
+				bind:summary={
+					() => draft.state?.description ?? '',
+					(v) => {
+						if (draft.state) draft.state.description = v
+					}
+				}
+				bind:path={
+					() => draft.state?.path ?? '',
+					(v) => {
+						if (draft.state) draft.state.path = v
+					}
+				}
+				bind:snapshotPath={pathSnapshot}
+				bind:error={() => host?.pathError(), (error) => host?.setPathError(error)}
+				savedPath={draft?.noDeployed ? undefined : target?.path}
+				kind="resource"
+				workspaceId={ws}
+				pathEditable={!readOnly}
+				summaryEditable={!readOnly}
+			/>
+		{:else}
+			<span class={triggerClass}>{@render pathLabel()}</span>
+		{/if}
+	{/snippet}
+
+	{#snippet agentSummary()}
+		<!-- What the agent is, beside what it is called, and clicking it renames both — the same
+		     shape the script, flow and app editors carry. The version rides along, as the
+		     linked-agent card in the step panel has it. The trail's levels are not here: this layout
+		     opens settings in a drawer and evals over the page, so it never stands on one. -->
+		<div class="flex items-center gap-1 min-w-0">
+			{#if draft?.state}
+				{#snippet summaryText()}
+					<span
+						class="min-w-0 truncate text-xs {emptyString(draft.state?.description)
+							? 'text-tertiary italic font-normal'
+							: 'font-medium text-emphasis'}"
+						title={draft.state?.description}
+						>{emptyString(draft.state?.description)
+							? 'Add a summary...'
+							: draft.state?.description}</span
+					>
+				{/snippet}
+				<PathEditPopover
+					label={summaryText}
+					bind:summary={
+						() => draft.state?.description ?? '',
+						(v) => {
+							if (draft.state) draft.state.description = v
+						}
+					}
+					bind:path={
+						() => draft.state?.path ?? '',
+						(v) => {
+							if (draft.state) draft.state.path = v
+						}
+					}
+					bind:snapshotPath={pathSnapshot}
+					bind:error={() => host?.pathError(), (error) => host?.setPathError(error)}
+					savedPath={draft?.noDeployed ? undefined : target?.path}
+					kind="resource"
+					workspaceId={ws}
+					pathEditable={!readOnly}
+					summaryEditable={!readOnly}
+					penVisibility={emptyString(draft.state.description) ? 'always' : 'hover'}
+				/>
+			{/if}
+			{@render titleBadge()}
+		</div>
+	{/snippet}
+	{#snippet agentHint()}
+		{#if description}
+			<Tooltip>{description}</Tooltip>
+		{/if}
+	{/snippet}
 	{#snippet titleBadge()}
 		<!-- Against the agent's own name wherever it appears, as the linked-agent card in the
 				     step panel has it. -->

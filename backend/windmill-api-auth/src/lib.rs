@@ -35,6 +35,7 @@ use windmill_common::{
 };
 
 use scopes::ScopeDefinition;
+use windmill_common::scopes::scope_contains;
 
 // Re-export key auth types and functions
 pub use auth::{
@@ -475,11 +476,11 @@ pub fn is_effectively_unscoped(scopes: Option<&[String]>) -> bool {
 /// refused. An admin check is not a substitute — it answers for the user behind the
 /// token, not for the token's own scopes.
 ///
-/// This bounds the token making the request, not every route to the key. A job token
-/// is minted unscoped from its owner's privileges, so a `jobs:run` token still reaches
-/// the key indirectly by running a job as a workspace admin — the same property that
-/// lets git-sync export it. Confining that means not inheriting unscoped privilege
-/// into job tokens, which is a far wider change than this guard.
+/// This bounds the token making the request, not every route to the key. The jobs a
+/// scoped user token runs get a token with their owner's privileges, capped only by the
+/// runnable's own `job_token_scopes` (see [`caller_scope_ceiling`]), so a `jobs:run`
+/// token still reaches the key indirectly by running an unrestricted job as a workspace
+/// admin — the same property that lets git-sync export it.
 pub fn forbid_scoped_token_workspace_key(authed: &ApiAuthed) -> error::Result<()> {
     if is_effectively_unscoped(authed.scopes.as_deref()) {
         return Ok(());
@@ -490,6 +491,50 @@ pub fn forbid_scoped_token_workspace_key(authed: &ApiAuthed) -> error::Result<()
          the token that reached it. Use a token created without scopes."
             .to_string(),
     ))
+}
+
+/// For a route that authenticates its token itself rather than through the route layer
+/// (which checks scopes): a job token restricted by `job_token_scopes` must still hold
+/// `required` there. Other credentials keep the access those routes always gave them.
+pub fn check_job_token_scope<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
+where
+    F: FnOnce() -> String,
+{
+    if authed.job_id.is_some() {
+        check_scopes(authed, required)
+    } else {
+        Ok(())
+    }
+}
+
+/// The cap on the token of a job pushed on `authed`'s request, to pass to `push` as its
+/// scope ceiling. A job token caps every job it starts at its own job's scopes, so a
+/// restricted job cannot widen its reach by running another one; the job row is the
+/// source rather than the token's claims, which the MCP proxy narrows per route. Any
+/// other credential caps nothing: the jobs it runs act as their owner, as they always did.
+pub async fn caller_scope_ceiling(
+    db: &windmill_common::DB,
+    authed: &ApiAuthed,
+) -> error::Result<Option<Vec<String>>> {
+    let Some(job_id) = authed.job_id else {
+        return Ok(None);
+    };
+    // A job token is minted with scopes exactly when its job is restricted, so an unscoped one
+    // has nothing to read.
+    if authed.scopes.is_none() {
+        return Ok(None);
+    }
+    let row = sqlx::query_scalar!(
+        "SELECT job_token_scopes FROM job_perms WHERE job_id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok(match row {
+        Some(scopes) => scopes,
+        // The job left the queue and its row was swept: only the token's own claims are left.
+        None => authed.scopes.clone(),
+    })
 }
 
 /// Enforce monotonic privilege when a token lifecycle endpoint mints or rescopes
@@ -602,83 +647,6 @@ fn first_filter_tags(scopes: Option<&[String]>) -> Option<Vec<&str>> {
         s.strip_prefix("if_jobs:filter_tags:")
             .map(|tags| tags.split(',').collect())
     })
-}
-
-/// Whether `caller` grants at least everything `requested` grants (directional
-/// containment).
-///
-/// This is intentionally NOT `ScopeDefinition::includes`: that method answers
-/// "does this scope grant access to a required action" using OR semantics over
-/// resources (any overlap counts, and a `*` on either side matches), which is
-/// correct for access checks but unsafe for subset checks — it would let a
-/// token scoped to `scripts:read:f/team/a` mint `scripts:read:*` or
-/// `scripts:read:f/team/a,f/other/b`. Subset containment instead requires that
-/// EVERY requested resource is covered by SOME caller resource.
-fn scope_contains(caller: &ScopeDefinition, requested: &ScopeDefinition) -> bool {
-    if caller.domain != requested.domain {
-        return false;
-    }
-
-    // write subsumes read; otherwise the action must match exactly.
-    match (caller.action.as_str(), requested.action.as_str()) {
-        (c, r) if c == r || (c == "write" && r == "read") => {}
-        // Apps only: `write` covers `run` (see `ScopeDefinition::includes`), so an
-        // app-editor token can mint the narrower run-only credential.
-        ("write", "run") if caller.domain == "apps" => {}
-        _ => return false,
-    }
-
-    if caller.domain == "jobs" && caller.action == "run" {
-        match (&caller.kind, &requested.kind) {
-            (Some(caller_kind), Some(requested_kind)) if caller_kind != requested_kind => {
-                return false
-            }
-            // Caller pinned to a kind, but the request covers any kind.
-            (Some(_), None) => return false,
-            _ => {}
-        }
-    }
-
-    match (&caller.resource, &requested.resource) {
-        // Caller is unrestricted on resources: covers everything.
-        (None, _) => true,
-        // Caller is resource-restricted but the request is not: broader, unless the
-        // caller lists `*` and so already spans every path. Kept in step with
-        // `ScopeDefinition::includes`, which accepts that same grant for a
-        // whole-collection read: what a token may exercise, it may also delegate.
-        (Some(caller_resources), None) => caller_resources.iter().any(|r| r == "*"),
-        (Some(caller_resources), Some(requested_resources)) => {
-            resource_set_contains(caller_resources, requested_resources)
-        }
-    }
-}
-
-/// Every resource in `requested` must be covered by some resource in `caller`.
-fn resource_set_contains(caller: &[String], requested: &[String]) -> bool {
-    if caller.iter().any(|r| r == "*") {
-        return true;
-    }
-    requested
-        .iter()
-        .all(|req| req != "*" && caller.iter().any(|c| resource_covers(c, req)))
-}
-
-/// Directional: does the single caller resource pattern cover `requested`?
-/// `caller` may be an exact path or a `<prefix>/*` subtree wildcard; `requested`
-/// may itself be a subtree wildcard, in which case the whole requested subtree
-/// must fall within the caller's subtree.
-fn resource_covers(caller: &str, requested: &str) -> bool {
-    if caller == requested {
-        return true;
-    }
-    let Some(prefix) = caller.strip_suffix("/*") else {
-        // An exact caller resource only covers itself (handled above).
-        return false;
-    };
-    let requested_base = requested.strip_suffix("/*").unwrap_or(requested);
-    requested_base == prefix
-        || (requested_base.starts_with(prefix)
-            && requested_base.as_bytes().get(prefix.len()) == Some(&b'/'))
 }
 
 /// Returns a predicate that checks whether `path` is within the token's

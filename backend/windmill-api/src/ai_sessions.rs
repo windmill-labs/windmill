@@ -24,7 +24,7 @@ use axum::{
     Extension, Json, Router,
 };
 use futures::{StreamExt, TryStreamExt};
-use magic_crypt::{MagicCrypt256, MagicCryptTrait};
+use magic_crypt::MagicCryptTrait;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::sync::Arc;
@@ -35,7 +35,7 @@ use windmill_api_workspaces::ai_session_backups::{
 use windmill_api_workspaces::workspaces::sessions_retention_days;
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
-use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
+use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key, WorkspaceCrypt};
 use windmill_object_store::object_store_reexports::{
     ObjectStore, ObjectStoreError, Path as ObjectPath, PutPayload,
 };
@@ -135,7 +135,7 @@ enum Read {
 /// The user's prefix in the workspace storage, plus what reads and writes it.
 struct Backend {
     store: Arc<dyn ObjectStore>,
-    mc: MagicCrypt256,
+    mc: WorkspaceCrypt,
     prefix: String,
     /// Name the storage and the generation the objects are under, for the browser's sync
     /// state: a row recorded against another storage or generation is stale, a removal is

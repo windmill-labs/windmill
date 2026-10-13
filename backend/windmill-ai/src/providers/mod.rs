@@ -62,9 +62,13 @@ const REASONING_RULES: &[ReasoningRule] = &[
         can_disable: false,
         completions_tools_need_off: false,
     },
-    // Live-verified: astra takes low..max only, where sol and luna also take `none`.
+    // Live-verified: gpt-6-astra and gpt-6.1-sol take low..max only, where gpt-6-sol and
+    // gpt-6-luna also take `none`.
     ReasoningRule {
-        matches: |m| base_id(m).starts_with("gpt-6-astra"),
+        matches: |m| {
+            let base = base_id(m);
+            base.starts_with("gpt-6-astra") || base.starts_with("gpt-6.1-sol")
+        },
         can_disable: false,
         completions_tools_need_off: true,
     },
@@ -204,6 +208,12 @@ pub fn create_query_builder(
         AIProvider::AzureFoundry if AIProvider::is_anthropic_model(model) => Box::new(
             AnthropicQueryBuilder::new(AIProvider::AzureFoundry, AIPlatform::Standard),
         ),
+        // Only for forwarding through the API proxy, which is bearer auth on `<base>/<path>` as
+        // TypeSafe and Cloudflare expect. Neither serves a chat route for its decision models, and
+        // `run_agent` refuses both before a chat request could be built.
+        AIProvider::TypeSafe | AIProvider::Cloudflare => {
+            Box::new(OtherQueryBuilder::new(credentials.provider.clone()))
+        }
         _ => Box::new(OtherQueryBuilder::new(credentials.provider.clone())),
     }
 }

@@ -26,6 +26,34 @@ fn not_in_nullable(col: &str, quoted: &[String]) -> String {
     )
 }
 
+/// Narrows a job list to the top-level runs of deployed scripts and flows at an `exact`
+/// path, or at or under a `prefix` on the `/` boundary (`ScopePathFilter::allows`).
+///
+/// Top-level only because every `runnable_path` index on `v2_job` is partial on
+/// `parent_job IS NULL`. Deployed kinds only because a preview's `runnable_path` is
+/// whatever its caller sent.
+pub fn and_where_root_run_at_paths(sqlb: &mut SqlBuilder, exact: &[String], prefix: &[String]) {
+    let mut clauses = Vec::new();
+    let equal: Vec<_> = exact.iter().chain(prefix).map(|p| quote(p)).collect();
+    if !equal.is_empty() {
+        clauses.push(format!("v2_job.runnable_path IN ({})", equal.join(", ")));
+    }
+    for p in prefix {
+        let pattern = format!("{}/%", escape_ilike_pattern(p));
+        clauses.push(format!("v2_job.runnable_path LIKE {}", quote(&pattern)));
+    }
+    if clauses.is_empty() {
+        sqlb.and_where("false");
+        return;
+    }
+    sqlb.and_where_is_null("v2_job.parent_job")
+        .and_where(
+            "v2_job.kind IN ('script', 'script_hub', 'unassigned_script', 'flow', \
+             'unassigned_flow', 'singlestepflow', 'unassigned_singlestepflow')",
+        )
+        .and_where(format!("({})", clauses.join(" OR ")));
+}
+
 pub fn filter_list_queue_query(
     mut sqlb: SqlBuilder,
     lq: &ListQueueQuery,

@@ -8,10 +8,6 @@
     "jobs": 250
   },
   {
-    "kind": "deno",
-    "jobs": 500
-  },
-  {
     "kind": "bun",
     "jobs": 500
   },

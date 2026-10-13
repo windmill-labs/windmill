@@ -15,6 +15,7 @@ function row(key: string): BulkItem {
 		archived: false,
 		draftOnly: false,
 		isDraft: false,
+		legacyDraft: false,
 		rawApp: false
 	}
 }

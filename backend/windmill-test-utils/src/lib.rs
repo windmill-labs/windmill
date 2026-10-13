@@ -249,6 +249,7 @@ impl RunJob {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("push has to succeed");
@@ -293,6 +294,7 @@ impl RunJob {
             None,
             None,
             false,
+            None,
             None,
             None,
             None,
@@ -969,6 +971,7 @@ pub async fn run_deployed_relative_imports(
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
                 labels: None,
+                job_token_scopes: None,
             })
             .push(&db2)
             .await;

@@ -9,6 +9,7 @@ pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
 pub const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING: &str =
     "fork_workspace_tag_append_fork_suffix";
 pub const PREVIEW_TAGS_OVERRIDE_SETTING: &str = "preview_tags_override";
+pub const DEPENDENCY_JOB_TAG_SETTING: &str = "dependency_job_tag";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";
@@ -157,6 +158,7 @@ pub const SSO_GROUPS_CLAIM_SETTING: &str = "sso_groups_claim";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const DISABLE_HUB_SETTING: &str = "disable_hub";
+pub const SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING: &str = "sync_hub_resource_types_daily";
 pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
 pub const CRITICAL_ALERT_MUTE_UI_SETTING: &str = "critical_alert_mute_ui";
 pub const CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING: &str = "critical_alerts_on_db_oversize";
@@ -180,6 +182,12 @@ pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 /// `base_url` when unset; set it when the browser-facing URL is not reachable
 /// from GitHub and a separate ingress fronts the API for inbound webhooks.
 pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
+/// Base URL the UI shows for the endpoints external clients call (webhooks, HTTP
+/// routes, push trigger endpoints, the CLI), instead of the origin the UI is browsed on.
+/// For deployments that serve the API on a separate domain or behind a gateway.
+/// EE only. Readable by any authenticated user, like [`INSTANCE_BANNER_SETTING`]:
+/// every user is shown URLs built from it.
+pub const API_BASE_URL_SETTING: &str = "api_base_url";
 /// Instance-wide announcement rendered above every page of the app (maintenance
 /// windows, incidents). Readable by any authenticated user, unlike most settings:
 /// the banner exists to be shown to everyone, so it must never hold anything the
@@ -312,12 +320,17 @@ pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
 pub struct InstanceUi {
     pub instance_banner: Option<serde_json::Value>,
     pub accent_color: Option<serde_json::Value>,
+    pub api_base_url: Option<serde_json::Value>,
 }
 
 pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
     let rows = sqlx::query!(
         "SELECT name, value FROM global_settings WHERE name = ANY($1)",
-        &[INSTANCE_BANNER_SETTING, ACCENT_COLOR_SETTING] as &[&str]
+        &[
+            INSTANCE_BANNER_SETTING,
+            ACCENT_COLOR_SETTING,
+            API_BASE_URL_SETTING
+        ] as &[&str]
     )
     .fetch_all(db)
     .await?;
@@ -326,17 +339,22 @@ pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
         match row.name.as_str() {
             INSTANCE_BANNER_SETTING => ui.instance_banner = Some(row.value),
             ACCENT_COLOR_SETTING => ui.accent_color = Some(row.value),
+            API_BASE_URL_SETTING => ui.api_base_url = Some(row.value),
             _ => {}
         }
     }
     Ok(ui)
 }
 
-/// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] value.
+const SHELL_ACTIVE_CHARS: [char; 16] = [
+    '$', '`', '\'', '"', '\\', ';', '&', '|', '<', '>', '(', ')', '{', '}', '*', '!',
+];
+
+/// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] or [`API_BASE_URL_SETTING`] value.
 ///
-/// The receiver path is appended to it verbatim, so anything that doesn't
-/// concatenate into a URL GitHub can POST to must be rejected at write time
-/// rather than silently producing an unreachable hook: a wrong scheme
+/// A path is appended to it verbatim, so anything that doesn't concatenate into a
+/// URL an external caller can reach must be rejected at write time rather than
+/// silently producing an unreachable hook or endpoint: a wrong scheme
 /// (`httpss://`), a missing host, embedded whitespace, or a query/fragment
 /// (appending a path after `?`/`#` keeps it inside the query/fragment).
 ///
@@ -352,7 +370,7 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
         url::Url::parse(value).map_err(|e| format!("must be an absolute http(s) URL: {e}"))?;
     if !url.username().is_empty() || url.password().is_some() {
         return Err(
-            "must not embed a username or password: the receiver URL is stored in workspace settings, where it is readable by workspace admins".to_string(),
+            "must not embed a username or password: the URL is readable by users who are not instance admins".to_string(),
         );
     }
     if !matches!(url.scheme(), "http" | "https") {
@@ -365,12 +383,20 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
     }
     if url.query().is_some() || url.fragment().is_some() {
         return Err(
-            "must not include a query string or fragment, since the webhook path is appended to it"
+            "must not include a query string or fragment, since a path is appended to it"
                 .to_string(),
         );
     }
     if value.chars().any(char::is_whitespace) {
         return Err("must not contain whitespace".to_string());
+    }
+    // The UI pastes the URL into shell commands users copy, where double quotes
+    // do not stop `$(...)` or backticks from running.
+    if value.contains(SHELL_ACTIVE_CHARS) {
+        return Err(
+            "must not contain shell metacharacters, since it is shown inside commands users copy"
+                .to_string(),
+        );
     }
     // Matches the sibling `base_url` / `hub_base_url` convention. The receiver
     // builder trims it anyway, so this is about keeping the stored value canonical
@@ -430,8 +456,9 @@ pub const CANCEL_STRANDED_JOBS_AFTER_DAYS_SETTING: &str = "cancel_stranded_jobs_
 /// server keeps to itself, add it here.
 pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     // Instance identity / auth secrets — disclosure enables privilege escalation
-    // or impersonation.
+    // or impersonation. `rsa_keys` signs job OIDC tokens; only the server mints them.
     JWT_SECRET_SETTING,
+    "rsa_keys",
     OAUTH_SETTING,
     SMTP_SETTING,
     SCIM_TOKEN_SETTING,
@@ -1099,6 +1126,9 @@ mod tests {
             "https://hooks.example.com#",
             "https://user:password@hooks.example.com",
             "https://user@hooks.example.com",
+            "https://hooks.example.com/$(uname)",
+            "https://hooks.example.com/`uname`",
+            "https://hooks.example.com/a;b",
         ];
         for v in accept {
             assert!(
@@ -1143,6 +1173,7 @@ mod tests {
         // secrets. They must never be served by the agent-worker endpoint.
         for key in [
             JWT_SECRET_SETTING,
+            "rsa_keys",
             OAUTH_SETTING,
             SMTP_SETTING,
             SCIM_TOKEN_SETTING,

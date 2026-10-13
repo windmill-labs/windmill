@@ -636,6 +636,9 @@ export async function handleFile(
       envs: typed?.envs,
       modules: modules,
       labels: typed?.labels,
+      // Always sent: the server keeps a restriction the body omits, so a script.yaml without
+      // the key has to clear it explicitly.
+      job_token_scopes: typed?.job_token_scopes ?? null,
     };
 
     const hasOnBehalfOf = (typed as any)?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
@@ -712,6 +715,7 @@ export async function handleFile(
             (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
             deepEqual(typed.labels ?? null, remote.labels ?? null) &&
+            deepEqual(typed.job_token_scopes ?? null, remote.job_token_scopes ?? null) &&
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));

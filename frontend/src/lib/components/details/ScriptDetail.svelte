@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import {
 		JobService,
 		ScriptService,
@@ -104,6 +103,7 @@
 		useOperatingUser,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
@@ -166,12 +166,16 @@
 	// asynchronously, and a value read after `getScriptByHash` resolves can land before that
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it. A hub script is never writable.
+	const promptForAi = $derived((script?.schema?.prompt_for_ai as string | undefined) ?? '')
 	const can_write = $derived(
 		!isHubScript &&
 			!!script &&
 			script.workspace_id == workspace &&
 			canWrite(script.path, script.extra_perms!, actingUser)
 	)
+	const editRights = useEditRights()
+	// The edit actions also need a role that authors scripts, which no operator has.
+	const canEdit = $derived(can_write && editRights.roleCanAuthor('script'))
 	let deploymentInProgress = $state(false)
 	let expandedModuleLocks: Record<string, boolean> = $state({})
 	let expandedModuleCode: Record<string, boolean> = $state({})
@@ -530,7 +534,7 @@
 				description: `Start a new script from a copy of this one`,
 				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: operatingHref(`${base}/scripts/add?template=${script.path}`),
+					href: operatingHref(`/scripts/add?template=${script.path}`),
 					onClick: interceptNav(onNavigate, `/scripts/add?template=${script.path}`),
 					unifiedSize: 'md',
 					variant: 'subtle',
@@ -567,7 +571,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: operatingHref(`${base}/runs/${script.path}`),
+				href: operatingHref(`/runs/${script.path}`),
 				onClick: interceptNav(onNavigate, `/runs/${script.path}`),
 				unifiedSize: 'md',
 				variant: 'subtle',
@@ -575,7 +579,7 @@
 			}
 		})
 
-		if (!script || actingUser?.operator || !can_write) {
+		if (!script || !canEdit) {
 			return buttons
 		}
 
@@ -636,7 +640,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: operatingHref(`${base}${editUrl}`),
+						href: operatingHref(editUrl),
 						onClick: interceptNav(onNavigate, editUrl),
 						unifiedSize: 'md',
 						startIcon: Pen,
@@ -837,6 +841,7 @@
 		{#snippet header({ wide }: { wide: boolean })}
 			<DetailPageHeader
 				{wide}
+				ownsPageHeader={!embedded}
 				{mainButtons}
 				menuItems={getMenuItems(script, deployUiSettings)}
 				bind:errorHandlerMuted={
@@ -980,7 +985,7 @@
 										<Alert type="warning" title="Not HEAD">
 											This hash is not HEAD (latest non-archived version at this path) :
 											<a
-												href="{base}/scripts/get/{topHash}?workspace={workspace}"
+												href="/scripts/get/{topHash}?workspace={workspace}"
 												onclick={interceptNav(onNavigate, `/scripts/get/${topHash}`)}
 												>Go to the HEAD of this path</a
 											>
@@ -1073,15 +1078,20 @@
 								</div>
 							{/if}
 
-							{#if script?.schema?.prompt_for_ai !== undefined}
-								<AIFormAssistant
-									instructions={script.schema?.prompt_for_ai as string}
-									onEditInstructions={() => {
-										onNavigate(`/scripts/edit/${script?.path}?metadata_open=true`)
-									}}
-									runnableType="script"
-									path={script?.path}
-								/>
+							{#snippet aiAssistant()}
+								{#if Object.keys(script?.schema?.properties ?? {}).length > 0}
+									<AIFormAssistant
+										instructions={promptForAi}
+										onEditInstructions={canEdit
+											? () => onNavigate(`/scripts/edit/${script?.path}?metadata_open=true`)
+											: undefined}
+										runnableType="script"
+										path={script?.path}
+									/>
+								{/if}
+							{/snippet}
+							{#if promptForAi}
+								{@render aiAssistant()}
 							{/if}
 
 							<RunForm
@@ -1101,6 +1111,7 @@
 								schedulable={true}
 								bind:this={runForm}
 								{jsonView}
+								actions={promptForAi ? undefined : aiAssistant}
 							/>
 						</div>
 

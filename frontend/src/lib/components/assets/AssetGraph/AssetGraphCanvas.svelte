@@ -1,8 +1,11 @@
 <script lang="ts">
 	import '@xyflow/svelte/dist/base.css'
+	import { randomUUID } from '$lib/utils/uuid'
+	import { onMount } from 'svelte'
 	import {
 		SvelteFlow,
 		Controls,
+		Panel,
 		MiniMap,
 		ConnectionLineType,
 		type Node,
@@ -13,13 +16,47 @@
 	import RunnableNode from './RunnableNode.svelte'
 	import TriggerNode, { type TriggerNodeKind } from './TriggerNode.svelte'
 	import AddNode from './AddNode.svelte'
+	import AddDataSourceMenu from './AddDataSourceMenu.svelte'
+	import PipelineInsertMenu, { type PipelineInsertSchedule } from './PipelineInsertMenu.svelte'
+	import AddDownstreamMenu from './AddDownstreamMenu.svelte'
+	import AddDownstreamPill from './AddDownstreamPill.svelte'
 	import DataTestNode from './DataTestNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import PanToNode from './PanToNode.svelte'
 	import InitialFitView from './InitialFitView.svelte'
-	import { layoutAssetGraph } from './assetGraphLayout'
+	import {
+		layoutAssetGraph,
+		PIPELINE_NODE_EXTRA_ROW,
+		PIPELINE_NODE_HEADER,
+		PIPELINE_NODE_HEADER_CARD_PAD
+	} from './assetGraphLayout'
+	import {
+		assetsOnlyView,
+		upstreamDeletion,
+		withoutPassiveReads,
+		type AssetUpstream,
+		type AssetUpstreamDelete
+	} from './assetsOnlyView'
+	import { assetsOnlyNodeWidth } from './assetNodeWidth'
+	import { describeEdge } from './edgeDescription'
+	import { onDirectiveTargets } from './onDirectiveTargets'
+	import { listenChangeText, stopListeningChangeText } from './pipelineAnnotationEdits'
+	import { Button } from '$lib/components/common'
+	import type { NodeFix, NodeFixSpec } from './NodeFixButton.svelte'
+	import { isAssetsOnlyFolder, setAssetsOnlyFolder } from './assetsOnlyFolders'
+	import { formatAssetKind, formatShortAssetPath } from '$lib/components/assets/lib'
+	import { TRIGGER_NODE_STYLE } from './TriggerNode.svelte'
+	import { describeSchedule } from '$lib/utils/describeCron'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { fly } from 'svelte/transition'
+	import { Clock, Plus } from 'lucide-svelte'
+	import {
+		getContextMenuContainerClass,
+		CONTEXT_MENU_ITEM_BASE_CLASS,
+		CONTEXT_MENU_ITEM_HOVER_CLASS
+	} from '$lib/components/common/contextmenu/contextMenuStyles'
 	import { computeMutedReadKeys, dbtAssociations } from './resolveGraph'
-	import { buildDownstreamMap } from './graphTraversal'
+	import { buildDownstreamMap, hoverLineage, transitivelyImpliedEdges } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
 	import type {
 		AssetGraphResponse,
@@ -31,16 +68,15 @@
 	import type { AssetKind } from '$lib/gen'
 	import { NODE } from '$lib/components/graph/util'
 
-	// Width of the + node's rendered DOM element. Sugiyama allocates a full
-	// NODE.width slot for every node, so the small round button ends up
-	// left-aligned in its slot. We compensate by shifting the + node right
-	// by half the difference so its visual center matches the slot center.
-	const ADD_NODE_WIDTH = 40
-
 	interface Props {
 		graph: AssetGraphResponse
 		selection?: AssetGraphSelection | undefined
-		onselect?: (selection: AssetGraphSelection | undefined) => void
+		/** `open` marks a selection asked to be shown (a script's open button), as
+		 * opposed to a click on a node, which only selects it. */
+		onselect?: (
+			selection: AssetGraphSelection | undefined,
+			opts?: { open?: boolean }
+		) => void
 		// Called when the user clicks the per-asset + button (consumer-script
 		// entry). Kept optional so the canvas stays usable outside the
 		// pipeline editor.
@@ -49,7 +85,8 @@
 			language: import('$lib/gen').ScriptLang,
 			scriptPath: string,
 			outputKind: import('./pipelineTemplates').PipelineOutputKind,
-			aiPrompt?: string
+			aiPrompt?: string,
+			options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 		) => void
 		// Pipeline-wide + node shown at the top of the graph. Picking any
 		// kind from the menu invokes this one callback with the chosen
@@ -65,7 +102,8 @@
 				path: string | undefined
 			},
 			outputKind: import('./pipelineTemplates').PipelineOutputKind,
-			aiPrompt?: string
+			aiPrompt?: string,
+			options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 		) => void
 		// Folder-scoped prefix shown as a read-only chip in the insert menu
 		// path input (e.g. `f/{folder}/`). Shared across top + and per-asset +.
@@ -194,6 +232,32 @@
 		 * canvas is embedded inline inside a scrollable container, so a wheel
 		 * gesture over it scrolls the container instead of being captured. */
 		scrollZoom?: boolean
+		/** Offer the "Show scripts and triggers" switch; off folds scripts and triggers into the
+		 * assets they produce. */
+		assetsOnlyToggle?: boolean
+		/** The pipeline's `<workspace>/<folder>`, when the toggle's state should be
+		 * remembered for it. */
+		assetsOnlyFolder?: string
+		/** Deletes what produces an asset in the assets-only view: its script, and its
+		 * trigger when set. The canvas only offers what no other asset shares. */
+		onDeleteAssetUpstream?: (target: AssetUpstreamDelete) => void
+		/** Canvas node id → what is wrong with it and how to fix it (the Fix pill). */
+		nodeFixes?: ReadonlyMap<string, NodeFixSpec>
+		/** "Archive" for someone who can only archive the script the delete removes. */
+		assetDeleteVerb?: 'Delete' | 'Archive'
+		/** Makes scripts run after each write to an asset: a script's (or, in the
+		 * assets-only view, an asset's producers') top dot dragged onto that asset.
+		 * `reads` says whether each script already reads it. */
+		onAddAssetTrigger?: (a: {
+			scripts: Array<{ script: string; reads: boolean }>
+			asset: { kind: AssetKind; path: string }
+		}) => void
+		/** Makes scripts run after each write to an asset they read, or stop. `reads`
+		 * decides whether stopping also mutes the asset. */
+		onEdgeAction?: (a: {
+			action: 'listen' | 'stop'
+			targets: Array<{ script: string; asset: { kind: AssetKind; path: string }; reads: boolean }>
+		}) => void
 	}
 	let {
 		graph,
@@ -226,8 +290,346 @@
 		highlightActiveRun = false,
 		recomputedAssetIds,
 		assetRunStatus,
-		scrollZoom = true
+		scrollZoom = true,
+		assetsOnlyToggle = false,
+		assetsOnlyFolder,
+		onDeleteAssetUpstream,
+		nodeFixes,
+		assetDeleteVerb = 'Delete',
+		onEdgeAction,
+		onAddAssetTrigger
 	}: Props = $props()
+
+	// Two drags write `// on`: a script's top dot onto an asset, and an asset's "+"
+	// onto a script. Only the nodes the drop can subscribe without a loop stay lit.
+	// The "+" can also be dropped on the blank canvas, opening its add menu there.
+	let onDrag = $state<
+		| {
+				sourceId: string
+				from: { x: number; y: number }
+				to: { x: number; y: number }
+				eligible: Set<string>
+				over: string | undefined
+				/** Dragging an asset's "+", whose blank-canvas drop adds a step. */
+				feed: boolean
+				blank: boolean
+		  }
+		| undefined
+	>(undefined)
+	// Hit-tested on the boxes rather than with elementFromPoint: svelte-flow can
+	// make nodes click-through while the pointer is held down.
+	const within = (el: Element, x: number, y: number) => {
+		const r = el.getBoundingClientRect()
+		return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+	}
+	let flowEl: HTMLElement | undefined = $state()
+	const nodeUnder = (x: number, y: number) =>
+		Array.from(flowEl?.querySelectorAll('.svelte-flow__node') ?? [])
+			.find((el) => within(el, x, y))
+			?.getAttribute('data-id') ?? undefined
+	const overBlank = (x: number, y: number) =>
+		!!flowEl &&
+		within(flowEl, x, y) &&
+		!Array.from(
+			flowEl.querySelectorAll('.svelte-flow__panel, .svelte-flow__controls, .svelte-flow__minimap')
+		).some((el) => within(el, x, y))
+	const readsAsset = (assetId: string, scriptId: string) =>
+		model.edges.some((x) => x.kind === 'lineage-read' && x.source === assetId && x.target === scriptId)
+	const assetOf = (assetId: string) => {
+		const a = model.nodes.find((n) => n.id === assetId)?.data
+		return a ? { kind: a.asset_kind as AssetKind, path: a.path as string } : undefined
+	}
+	function subscribe(assetId: string, scripts: string[]) {
+		const asset = assetOf(assetId)
+		if (!asset) return
+		onAddAssetTrigger?.({
+			asset,
+			scripts: scripts.map((id) => ({
+				script: id.replace(/^script:/, ''),
+				reads: readsAsset(assetId, id)
+			}))
+		})
+	}
+	/** `threshold`: pixels the pointer must travel before it counts as a drag, so a
+	 * plain click on the handle still clicks. */
+	function trackDrag(
+		e: PointerEvent,
+		start: { sourceId: string; feed: boolean; eligible: () => Set<string>; threshold: number },
+		drop: (target: string | undefined, at: { x: number; y: number }, blank: boolean) => void
+	) {
+		const from = { x: e.clientX, y: e.clientY }
+		let started = false
+		const begin = () => {
+			started = true
+			onDrag = {
+				sourceId: start.sourceId,
+				from,
+				to: from,
+				eligible: start.eligible(),
+				over: undefined,
+				feed: start.feed,
+				blank: false
+			}
+		}
+		if (start.threshold === 0) begin()
+		const move = (ev: PointerEvent) => {
+			if (!started) {
+				if (Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < start.threshold) return
+				begin()
+			}
+			if (!onDrag) return
+			onDrag.to = { x: ev.clientX, y: ev.clientY }
+			onDrag.over = nodeUnder(ev.clientX, ev.clientY)
+			onDrag.blank = !onDrag.over && overBlank(ev.clientX, ev.clientY)
+		}
+		// A drag that ends without a release (pointer cancelled, window left) drops
+		// nothing, and must not leave its line following the cursor.
+		const teardown = () => {
+			window.removeEventListener('pointermove', move)
+			window.removeEventListener('pointerup', up)
+			window.removeEventListener('pointercancel', cancel)
+			window.removeEventListener('blur', cancel)
+			document.removeEventListener('visibilitychange', cancel)
+		}
+		const cancel = () => {
+			teardown()
+			onDrag = undefined
+		}
+		const up = (ev: PointerEvent) => {
+			teardown()
+			const drag = onDrag
+			onDrag = undefined
+			if (!started || !drag) return
+			// The release is not a click on whatever it lands on.
+			const swallow = (c: MouseEvent) => {
+				c.stopPropagation()
+				c.preventDefault()
+			}
+			window.addEventListener('click', swallow, { capture: true, once: true })
+			setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
+			const target = nodeUnder(ev.clientX, ev.clientY)
+			const at = { x: ev.clientX, y: ev.clientY }
+			drop(target && drag.eligible.has(target) ? target : undefined, at, !target && drag.blank)
+		}
+		window.addEventListener('pointermove', move)
+		window.addEventListener('pointerup', up)
+		window.addEventListener('pointercancel', cancel)
+		window.addEventListener('blur', cancel)
+		document.addEventListener('visibilitychange', cancel)
+	}
+	function startOnDrag(sourceId: string, scripts: string[], e: PointerEvent) {
+		if (!onAddAssetTrigger || scripts.length === 0) return
+		trackDrag(
+			e,
+			{
+				sourceId,
+				feed: false,
+				threshold: 0,
+				eligible: () => {
+					const sets = scripts.map((id) => onDirectiveTargets(model.nodes, model.edges, id))
+					return new Set([...sets[0]].filter((a) => sets.every((t) => t.has(a))))
+				}
+			},
+			(target) => {
+				if (target) subscribe(target, scripts)
+			}
+		)
+	}
+	// Where a "+" dropped on the blank canvas opened its add menu.
+	let feedMenu = $state<
+		| { at: { x: number; y: number }; asset: { kind: AssetKind; path: string }; data: any }
+		| undefined
+	>(undefined)
+	let feedMenuSignal = $state(0)
+	function startFeedDrag(assetId: string, data: any, e: PointerEvent) {
+		trackDrag(
+			e,
+			{
+				sourceId: assetId,
+				feed: true,
+				threshold: 5,
+				// A drop target is a node whose scripts can all subscribe to the asset.
+				eligible: () => {
+					if (!onAddAssetTrigger) return new Set()
+					const targets = new Map<string, Set<string>>()
+					const can = (id: string) => {
+						if (!targets.has(id)) targets.set(id, onDirectiveTargets(model.nodes, model.edges, id))
+						return targets.get(id)!.has(assetId)
+					}
+					return new Set(
+						view.nodes
+							.filter((n) => {
+								const scripts = dragScripts(n)
+								return n.id !== assetId && scripts.length > 0 && scripts.every(can)
+							})
+							.map((n) => n.id)
+					)
+				}
+			},
+			(target, at, blank) => {
+				const node = target ? view.nodes.find((n) => n.id === target) : undefined
+				if (node) subscribe(assetId, dragScripts(node))
+				else if (blank) {
+					const asset = assetOf(assetId)
+					if (!asset) return
+					feedMenu = { at, asset, data }
+					feedMenuSignal++
+				}
+			}
+		)
+	}
+	// Pipeline scripts a node's top dot drags for: the script itself, or, in the
+	// assets-only view, the scripts building the asset.
+	function dragScripts(n: { id: string; type: string; data: any }): string[] {
+		const ids =
+			n.type === 'runnable' ? [n.id] : n.type === 'asset' ? ((n.data.foldedIds ?? []) as string[]) : []
+		return ids.filter((id) => {
+			const d = model.nodes.find((x) => x.id === id)?.data
+			return d?.runnable_kind === 'script' && d.in_pipeline
+		})
+	}
+
+	let assetsOnly = $state(false)
+	// Before the first paint: the default view is assets-only, and a plain effect
+	// would flash the full graph first.
+	$effect.pre(() => {
+		if (assetsOnlyFolder != undefined) assetsOnly = isAssetsOnlyFolder(assetsOnlyFolder)
+	})
+
+	// Right-click on the empty canvas: a menu at the pointer whose entry opens the
+	// add-data-source menu there too.
+	let paneMenu = $state<{ x: number; y: number } | undefined>(undefined)
+
+	// Hovering an edge names the relationship it draws, after a short pause so
+	// sweeping the pointer across the canvas doesn't flash popovers.
+	let hoveredEdge = $state<{ id: string; x: number; y: number } | undefined>(undefined)
+	let edgeHoverTimer: ReturnType<typeof setTimeout> | undefined
+	function onEdgeEnter({ edge, event }: { edge: Edge; event: PointerEvent }) {
+		clearTimeout(edgeHoverTimer)
+		const at = { id: edge.id, x: event.clientX, y: event.clientY }
+		edgeHoverTimer = setTimeout(() => (hoveredEdge = at), 300)
+	}
+	// Leaving the edge closes the popover after a moment, so the pointer can reach
+	// its buttons; entering the popover keeps it.
+	function onEdgeLeave() {
+		clearTimeout(edgeHoverTimer)
+		edgeHoverTimer = setTimeout(() => (hoveredEdge = undefined), 200)
+	}
+	// What the hovered edge lets you change: a plain read can become a trigger, and
+	// an asset trigger can be dropped. Both rewrite the script's `// on` header.
+	// What the hovered edge lets you change: a script that only reads the upstream
+	// asset can rerun on each write to it, and one it triggers can stop. On an
+	// assets-only edge, those are the scripts folded into it; both rewrite `// on`.
+	type EdgeTarget = { script: string; asset: { kind: AssetKind; path: string }; reads: boolean }
+	let hoveredEdgeActions = $derived.by(() => {
+		const e = hoveredEdge && onEdgeAction && view.edges.find((x) => x.id === hoveredEdge!.id)
+		if (!e) return []
+		const assetData = view.nodes.find((n) => n.id === e.source)?.data
+		if (!assetData?.asset_kind) return []
+		const asset = { kind: assetData.asset_kind as AssetKind, path: assetData.path as string }
+		const scriptIds =
+			e.kind === 'asset-flow'
+				? (e.via ?? [])
+				: e.kind === 'lineage-read' || e.kind === 'trigger-asset'
+					? [e.target]
+					: []
+		const listen: EdgeTarget[] = []
+		const stop: EdgeTarget[] = []
+		for (const id of scriptIds) {
+			const script = model.nodes.find((n) => n.id === id)?.data
+			if (script?.runnable_kind !== 'script' || !script.in_pipeline) continue
+			const has = (kind: string) =>
+				model.edges.some((x) => x.kind === kind && x.source === e.source && x.target === id)
+			const target = { script: script.path as string, asset, reads: has('lineage-read') }
+			if (has('trigger-asset')) stop.push(target)
+			// A script rerunning on its own writes would loop: offered only for inputs.
+			else if (
+				target.reads &&
+				!model.edges.some(
+					(x) => x.kind === 'lineage-write' && x.source === id && x.target === e.source
+				)
+			)
+				listen.push(target)
+		}
+		const where = (ts: EdgeTarget[]) =>
+			ts.length === 1 ? ts[0].script : `${ts.length} scripts: ${ts.map((t) => t.script).join(', ')}`
+		const out: Array<{ label: string; detail: string; run: () => void }> = []
+		if (listen.length) {
+			out.push({
+				label: 'Rerun on each write',
+				detail: `${listenChangeText(asset, true)} in ${where(listen)}; only the annotation header changes. Saved as a draft.`,
+				run: () => onEdgeAction?.({ action: 'listen', targets: listen })
+			})
+		}
+		if (stop.length) {
+			out.push({
+				label: 'Stop rerunning on writes',
+				detail: `${stopListeningChangeText(
+					asset,
+					stop.some((t) => t.reads)
+				)} in ${where(stop)}; only the annotation header changes. Saved as a draft.`,
+				run: () => onEdgeAction?.({ action: 'stop', targets: stop })
+			})
+		}
+		return out
+	})
+	let hoveredEdgeText = $derived.by(() => {
+		const e = hoveredEdge && view.edges.find((x) => x.id === hoveredEdge!.id)
+		if (!e) return undefined
+		const byId = new Map(view.nodes.map((n) => [n.id, n]))
+		const nameOf = (id: string) => {
+			const n = byId.get(id)
+			if (!n) return id.replace(/^[^:]+:/, '')
+			if (n.type === 'asset')
+				return formatShortAssetPath({ kind: n.data.asset_kind, path: n.data.path })
+			if (n.type === 'no-asset') return n.data.noAssetName
+			if (n.type === 'trigger') return n.data.summary || n.data.ref
+			return n.data.summary || n.data.path
+		}
+		return describeEdge(e, nameOf, (id) => byId.get(id)?.data)
+	})
+	let addMenuAt = $state<{ x: number; y: number }>({ x: 0, y: 0 })
+	let addMenuSignal = $state(0)
+
+	// The schedule wizard a Fix action opens for an existing script, at the pill.
+	let scheduleWizard = $state<
+		| {
+				script: string
+				onSchedule: (s: PipelineInsertSchedule) => void
+				at: { x: number; y: number }
+		  }
+		| undefined
+	>(undefined)
+	let scheduleWizardSignal = $state(0)
+
+	function toFix(spec: NodeFixSpec | undefined): NodeFix | undefined {
+		if (!spec) return undefined
+		return {
+			explainer: spec.explainer,
+			actions: spec.actions.map((a) => ({
+				label: a.label,
+				detail: a.detail,
+				run: (anchor) => {
+					if (a.scheduleFor) {
+						scheduleWizard = { ...a.scheduleFor, at: anchor }
+						scheduleWizardSignal++
+					} else a.run?.()
+				}
+			}))
+		}
+	}
+	function handleContextMenu(e: MouseEvent) {
+		const t = e.target as HTMLElement | null
+		// A node's own actions menu opens on right-click; the browser's never does,
+		// on nodes without one either.
+		if (t?.closest('.svelte-flow__node')) {
+			e.preventDefault()
+			return
+		}
+		if (!onAddPipelineScript || boundPick || !t?.closest('.svelte-flow__pane')) return
+		e.preventDefault()
+		paneMenu = { x: e.clientX, y: e.clientY }
+	}
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
 	// variants, since the run row's kind isn't known here).
@@ -256,7 +658,12 @@
 			| 'macro'
 			| 'test-dependency'
 			| 'dbt-ref'
+			// Assets-only view: an asset → an asset computed from it, through the
+			// script that is folded away.
+			| 'asset-flow'
 		unsaved?: boolean
+		// Assets-only `asset-flow`: a write to the source reruns a folded script.
+		reactive?: boolean
 		// Muted read edge: a ducklake/s3 input read every run whose (default)
 		// auto cascade trigger is suppressed by `// mute` / `// mute all`.
 		// Rendered with a bell-off badge — auto-wiring is the norm, so we mark
@@ -276,6 +683,8 @@
 		// whole lib when pulled in via `// use`) — rendered as a ƒ badge.
 		macro_names?: string[]
 		via_use?: boolean
+		// Assets-only edges: the scripts folded between the two assets.
+		via?: string[]
 	}
 
 	// Graph-id of the script the user just launched (zero-latency hint),
@@ -290,7 +699,7 @@
 	function build(g: AssetGraphResponse) {
 		const nodes: Array<{
 			id: string
-			type: 'asset' | 'runnable' | 'trigger' | 'add' | 'data-test'
+			type: 'asset' | 'runnable' | 'trigger' | 'add' | 'data-test' | 'no-asset'
 			data: any
 		}> = []
 		const edges: BuiltEdge[] = []
@@ -427,8 +836,10 @@
 					path: a.path,
 					fork_materialization: a.fork_materialization,
 					derived_from: a.derived_from,
+					error: a.error,
 					dbt: a.dbt,
 					onAddScript: onAddScriptForAsset,
+					neverWritten: a.never_written,
 					pathPrefix,
 					defaultPathSuffix,
 					producers: producersByAsset.get(`${a.kind}:${a.path}`) ?? [],
@@ -454,25 +865,20 @@
 									const owner = model.dbtOwnerByAsset.get(assetId)
 									const [kind, ...rest] = owner?.split(':') ?? []
 									if (kind && rest.length) {
-										onselect?.({
-											kind: 'runnable',
-											runnable_kind: kind as 'script' | 'flow',
-											path: rest.join(':')
-										})
+										onselect?.(
+											{
+												kind: 'runnable',
+												runnable_kind: kind as 'script' | 'flow',
+												path: rest.join(':')
+											},
+											{ open: true }
+										)
 									}
 								}
 							}
 						: {})
 				}
 			})
-		}
-		// Set of `script_path` values for runnables that are still drafts (no
-		// DB row yet). Trigger nodes use this to swap "Click to create" for
-		// "Click to create (after draft save)" so the user knows the create
-		// button is blocked until the script is deployed.
-		const unsavedRunnablePaths = new Set<string>()
-		for (const r of g.runnables) {
-			if (r.unsaved) unsavedRunnablePaths.add(r.path)
 		}
 		// Producer → its `// data_test` checks, keyed by runnable id, so the
 		// write-edge to the materialized asset can carry the test badge: the
@@ -526,6 +932,9 @@
 				data: {
 					runnable_kind: r.usage_kind,
 					path: r.path,
+					summary: r.summary,
+					language: r.language,
+					error: r.error,
 					in_pipeline: r.in_pipeline ?? false,
 					partition_kind: r.partition_kind,
 					freshness: r.freshness,
@@ -724,6 +1133,10 @@
 				kind: TriggerNodeKind
 				ref: string
 				missing: boolean
+				draft: boolean
+				schedule?: string
+				timezone?: string
+				summary?: string
 				// First target script (drives the per-script create/edit flows).
 				runnable_path?: string
 				// Every target script: a single (kind, ref) — e.g. one schedule —
@@ -739,7 +1152,11 @@
 			ref: string,
 			unsaved: boolean,
 			missing: boolean,
-			runnable_path?: string
+			draft: boolean,
+			runnable_path?: string,
+			schedule?: string,
+			timezone?: string,
+			summary?: string
 		) {
 			const prev = triggerSourceNodes.get(id)
 			if (!prev) {
@@ -748,6 +1165,10 @@
 					kind,
 					ref,
 					missing,
+					draft,
+					schedule,
+					timezone,
+					summary,
 					runnable_path,
 					runnable_paths: runnable_path ? [runnable_path] : []
 				})
@@ -796,13 +1217,17 @@
 				ref,
 				!!t.unsaved,
 				isMissing,
+				t.draft === true,
 				// Always thread the target script so the trigger node can
 				// reach back to it — drives both the missing-trigger "create"
 				// flow and the attached-trigger "edit" flow's script-path
 				// lock. Previously only set for missing, which silently
 				// disabled `canEdit` (and the resulting click affordance)
 				// on every attached native trigger.
-				t.runnable_path
+				t.runnable_path,
+				t.schedule,
+				t.timezone,
+				t.summary
 			)
 			edges.push({
 				id: `trig-${t.trigger_kind}:${sourceId}->${runnableId}`,
@@ -830,10 +1255,12 @@
 					ref: info.ref,
 					unsaved: info.allUnsaved,
 					missing: info.missing,
+					draft: info.draft,
+					schedule: info.schedule,
+					timezone: info.timezone,
+					summary: info.summary,
 					runnable_path: info.runnable_path,
-					runnable_unsaved: info.runnable_path
-						? unsavedRunnablePaths.has(info.runnable_path)
-						: false,
+					runnable_paths: info.runnable_paths,
 					// data_upload nodes go green once a file is staged for their
 					// target script (see readyDataUploadPaths / page dataUploadArgs).
 					ready: info.runnable_path
@@ -881,11 +1308,383 @@
 
 	let model = $derived(build(graph))
 
+	// The trigger chip last clicked in the assets-only view, by trigger node id: it
+	// opens a drawer rather than a selection, so it is highlighted until the next pick.
+	let activeTriggerId = $state<string | undefined>(undefined)
+	$effect(() => {
+		void selection
+		activeTriggerId = undefined
+	})
+
+	/** The chip naming what runs an asset's producer, and the editor it opens: the
+	 * same routes the trigger's own node takes. */
+	function triggerChip(
+		t: (AssetUpstream & { multiple: false })['trigger'],
+		scriptPath: string
+	): {
+		label: string
+		/** Nothing to show: the edges into the node already say it runs on writes. */
+		hidden?: boolean
+		kind?: string
+		nodeId?: string
+		missing?: boolean
+		draft?: boolean
+		onOpen?: () => void
+	} {
+		if (!t) return { label: 'Manual' }
+		if (t.kind === 'asset') return { label: '', hidden: true }
+		const kind = t.kind as NativeTriggerKind
+		const style = TRIGGER_NODE_STYLE[kind]
+		const label =
+			t.kind === 'schedule' && t.data?.schedule
+				? (describeSchedule(t.data.schedule, t.data.timezone) ?? `Schedule (${t.data.schedule})`)
+				: (style?.label ?? t.kind)
+		const rowless = kind === 'webhook' || kind === 'data_upload'
+		const missing = !!t.data?.missing && !rowless
+		const open =
+			kind === 'webhook'
+				? onOpenWebhook && (() => onOpenWebhook(scriptPath))
+				: kind === 'data_upload'
+					? onOpenDataUpload && (() => onOpenDataUpload(scriptPath))
+					: missing
+						? onCreateMissingTrigger && (() => onCreateMissingTrigger(kind, scriptPath))
+						: t.data?.ref && onEditTrigger
+							? () => onEditTrigger(kind, t.data.ref, scriptPath)
+							: undefined
+		return {
+			label,
+			kind,
+			nodeId: t.nodeId,
+			missing,
+			draft: t.data?.draft,
+			onOpen: open
+				? () => {
+						activeTriggerId = t.nodeId
+						open()
+					}
+				: undefined
+		}
+	}
+
+	// Scripts and triggers fold into the assets they produce: each asset carries
+	// its producer's run state, language and trigger instead of drawing them.
+	function assetsOnlyModel(m: typeof model): typeof model {
+		const v = assetsOnlyView(m.nodes, m.edges)
+		const runnables = new Map(m.nodes.filter((n) => n.type === 'runnable').map((n) => [n.id, n]))
+		// What an asset card shows in this view: its producer's chips, its width,
+		// and what deleting it removes. `data` is an asset's, or the "No asset" node's.
+		const fold = (data: any, u: AssetUpstream | undefined) => {
+			const r = u && !u.multiple ? runnables.get(u.runnableId)?.data : undefined
+			// A dbt model is built by its project, whose writes the canvas does not
+			// draw; its dbt chip already names it.
+			const upstream = !u
+				? data.dbt && data.dbt.resource_type !== 'source'
+					? undefined
+					: { none: true as const }
+				: u.multiple || !r
+					? {
+							multiple: true as const,
+							scripts: (u.multiple ? u.runnableIds : [])
+								.map((id) => runnables.get(id)?.data)
+								.filter((d) => d != undefined)
+								.map((d) => ({
+									runnableId: `${d.runnable_kind}:${d.path}`,
+									path: d.path as string,
+									summary: d.summary as string | undefined,
+									language: d.language,
+									unsaved: d.unsaved as boolean | undefined,
+									onOpen: () =>
+										onselect?.(
+											{ kind: 'runnable', runnable_kind: d.runnable_kind, path: d.path },
+											{ open: true }
+										)
+								})),
+							// Every script's own triggers; asset triggers show as edges instead.
+							triggers: (u.multiple ? u.runnableIds : [])
+								.flatMap((id) => {
+									const d = runnables.get(id)?.data
+									if (!d) return []
+									return m.edges
+										.filter((e) => e.kind === 'trigger-native' && e.target === id)
+										.map((e) => m.nodes.find((n) => n.id === e.source))
+										.filter((t) => t != undefined)
+										.map((t) => ({
+											...triggerChip(
+												{ nodeId: t.id, kind: t.data.kind, data: t.data },
+												d.path as string
+											),
+											script: d.path as string
+										}))
+								})
+								.filter((t) => !t.hidden)
+						}
+					: {
+							runnableId: u.runnableId,
+							path: r.path,
+							summary: r.summary,
+							language: r.language,
+							unsaved: r.unsaved,
+							runState: r.runState,
+							trigger: triggerChip(u.trigger, r.path),
+							onOpen: () =>
+								onselect?.(
+									{ kind: 'runnable', runnable_kind: r.runnable_kind, path: r.path },
+									{ open: true }
+								)
+						}
+			const toDelete =
+				onDeleteAssetUpstream && u && !u.multiple && r
+					? upstreamDeletion(u, r, v.upstream)
+					: undefined
+			// The scripts and triggers folded into this node, whose errors it reports.
+			const scriptIds = u ? (u.multiple ? u.runnableIds : [u.runnableId]) : []
+			const foldedIds = [
+				...scriptIds,
+				...m.edges
+					.filter((e) => e.kind === 'trigger-native' && scriptIds.includes(e.target))
+					.map((e) => e.source)
+			]
+			const foldedErrors = foldedIds.filter((id) => nodeFixes?.has(id)).length
+			const asset = { kind: data.asset_kind, path: data.path }
+			// Chips this estimate does not model keep the regular width.
+			const width =
+				upstream && !data.dbt && !data.fork_materialization && !data.derived_from && !data.runStatus
+					? assetsOnlyNodeWidth({
+							kind: data.noAsset ? 'No asset' : formatAssetKind(asset),
+							title: data.noAsset ? data.noAssetName : formatShortAssetPath(asset),
+							chip: foldedErrors
+								? `${foldedErrors} errors · Fix`
+								: 'none' in upstream
+									? 'External source'
+									: 'multiple' in upstream
+										? (upstream.triggers?.length ?? 0) > 1
+											? 'Multiple triggers'
+											: (upstream.triggers?.length ?? 0) === 1
+												? (upstream.triggers?.[0]?.label ?? '')
+												: ''
+										: upstream.trigger.hidden
+											? ''
+											: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
+							chipIcon: foldedErrors > 0,
+							// Room for the chip's trailing icon: a pencil, or the chevron of a
+							// several-trigger menu (about as wide).
+							chipEdit:
+								!foldedErrors &&
+								('multiple' in upstream
+									? (upstream.triggers?.length ?? 0) > 1 ||
+										(!!upstream.triggers?.[0]?.onOpen && !upstream.triggers?.[0]?.missing)
+									: 'trigger' in upstream &&
+										!!upstream.trigger?.onOpen &&
+										!upstream.trigger.missing),
+							header:
+								'runnableId' in upstream
+									? {
+											label: upstream.summary || upstream.path,
+											icons: 1,
+											draft: !!upstream.unsaved
+										}
+									: 'scripts' in upstream && upstream.scripts?.length
+										? upstream.scripts.length === 1
+											? {
+													label: upstream.scripts[0].summary || upstream.scripts[0].path,
+													icons: 1,
+													draft: !!upstream.scripts[0].unsaved
+												}
+											: { label: `${upstream.scripts.length} scripts`, icons: 2, chevron: true }
+										: undefined
+						})
+					: undefined
+			return {
+				...data,
+				upstream,
+				width,
+				foldedIds,
+				...(toDelete
+					? {
+							upstreamDelete: toDelete,
+							deleteVerb: assetDeleteVerb,
+							onDeleteUpstream: (t: AssetUpstreamDelete) => onDeleteAssetUpstream?.(t)
+						}
+					: onDeleteAssetUpstream && u
+						? {
+								// No combined delete, but each script it folds can still go on its
+								// own: in this view its node's menu is the only way to reach it.
+								scriptDeletes: (u.multiple ? u.runnableIds : [u.runnableId])
+									.map((id) => runnables.get(id)?.data)
+									.filter((d) => d?.runnable_kind === 'script')
+									.map((d) => ({ path: d.path as string, unsaved: !!d.unsaved })),
+								// Its scripts' own triggers: a row that starts only them, which
+								// webhooks and data uploads (no row) and missing ones are not.
+								triggerDeletes: scriptIds.flatMap((id) => {
+									const runnable = runnables.get(id)?.data
+									// A flow is not deleted from here, and neither are its triggers.
+									if (runnable?.runnable_kind !== 'script') return []
+									const scriptPath = runnable.path
+									return m.edges
+										.filter((e) => e.kind === 'trigger-native' && e.target === id)
+										.map((e) => m.nodes.find((n) => n.id === e.source)?.data)
+										.filter(
+											(t) =>
+												t &&
+												t.kind !== 'webhook' &&
+												t.kind !== 'data_upload' &&
+												t.ref &&
+												!t.missing &&
+												((t.runnable_paths ?? []) as string[]).every((p) => p === scriptPath)
+										)
+										.map((t) => ({
+											kind: t.kind as NativeTriggerKind,
+											path: t.ref as string,
+											draft: !!t.draft
+										}))
+								}),
+								deleteVerb: assetDeleteVerb,
+								onDeleteUpstream: (t: AssetUpstreamDelete) => onDeleteAssetUpstream?.(t),
+								// The No-asset card stands for its scripts; an asset is built by them.
+								deleteBlocked: data.noAsset
+									? !u.multiple
+										? 'it stands for a flow'
+										: u.runnableIds.length > 1
+											? 'it stands for several scripts'
+											: 'its script has several triggers'
+									: !u.multiple
+										? r?.runnable_kind === 'flow'
+											? 'a flow builds it'
+											: 'its script builds other assets too'
+										: u.runnableIds.length > 1
+											? 'several scripts build it'
+											: 'its script has several triggers'
+							}
+						: {})
+			}
+		}
+		const nodes = m.nodes
+			.filter((n) => n.id === ADD_NODE_ID || v.nodeIds.has(n.id))
+			.map((n) => (n.type === 'asset' ? { ...n, data: fold(n.data, v.upstream.get(n.id)) } : n))
+		for (const id of v.noAssetNodeIds) {
+			const u = v.upstream.get(id)
+			const scriptId = u && !u.multiple ? u.runnableId : u?.runnableIds[0]
+			const data = fold(
+				{ noAsset: true, noAssetName: scriptId?.split('/').pop() ?? 'script' },
+				u
+			)
+			// Run only by writes to what it reads, the edges into it already say how
+			// it starts: the script's banner alone. Another trigger, or an error to
+			// fix, needs the card's chip row.
+			const bannerOnly =
+				!!u &&
+				!u.multiple &&
+				u.trigger?.kind === 'asset' &&
+				!(data.foldedIds as string[]).some((f) => nodeFixes?.has(f))
+			nodes.push({ id, type: 'no-asset', data: bannerOnly ? { ...data, bannerOnly } : data })
+		}
+		const edges: BuiltEdge[] = v.edges.map((e) => ({ ...e, kind: e.kind as BuiltEdge['kind'] }))
+		if (nodes.some((n) => n.id === ADD_NODE_ID)) {
+			const hasIncoming = new Set(edges.map((e) => e.target))
+			for (const n of nodes) {
+				if (n.id !== ADD_NODE_ID && !hasIncoming.has(n.id)) {
+					edges.push({
+						id: `add-anchor:${n.id}`,
+						source: ADD_NODE_ID,
+						target: n.id,
+						kind: 'add-anchor'
+					})
+				}
+			}
+		}
+		return { ...m, nodes, edges }
+	}
+	// Reads that start nothing (lookups, reference tables) are often most of a
+	// graph's edges; hiding them leaves what makes the pipeline run. Remembered
+	// across pipelines.
+	const SHOW_PASSIVE_READS_KEY = 'pipeline-show-passive-reads'
+	let showPassiveReads = $state(true)
+	try {
+		showPassiveReads = localStorage.getItem(SHOW_PASSIVE_READS_KEY) !== 'false'
+	} catch {}
+	let withoutPassive = $derived(withoutPassiveReads(model.nodes, model.edges))
+	// Only where the toggle is shown: the preference is global, and a graph
+	// without the toggle would have no way to show the reads again.
+	let shownModel = $derived(
+		!assetsOnlyToggle || showPassiveReads || withoutPassive.dropped === 0
+			? model
+			: { ...model, nodes: withoutPassive.nodes, edges: withoutPassive.edges }
+	)
+	let view = $derived(assetsOnly ? assetsOnlyModel(shownModel) : shownModel)
+
 	// dbt association, surfaced by emphasis instead of edges. Hovering a model's
 	// dbt badge lights up the project node that materializes it; hovering the
 	// project node lights up every model it owns. Clicking the badge selects the
 	// project node, so the association survives the pointer leaving.
 	let dbtHoverId = $state<string | undefined>(undefined)
+
+	// Hovering a node keeps its lineage — everything upstream and downstream of
+	// it, recursively — at full strength and fades the rest. Off while a bounded
+	// pick or a subscribe drag owns the graph's dimming.
+	let hoveredNodeId = $state<string | undefined>(undefined)
+	// A click re-renders the graph under the cursor (the selection rebuilds the
+	// nodes, the details pane resizes or covers the canvas), which fires bursts of
+	// leave/enter. The fade waits for the pointer to settle on a node, outlives a
+	// brief leave, and stays off on a node just clicked until another is hovered.
+	let hoverTimer: ReturnType<typeof setTimeout> | undefined
+	let clickedNodeId: string | undefined
+	function onNodePointerEnter(id: string) {
+		clearTimeout(hoverTimer)
+		if (id === clickedNodeId) return
+		clickedNodeId = undefined
+		hoverTimer = setTimeout(() => (hoveredNodeId = id), 120)
+	}
+	function onNodePointerLeave() {
+		clearTimeout(hoverTimer)
+		hoverTimer = setTimeout(() => (hoveredNodeId = undefined), 80)
+	}
+	$effect(() => () => clearTimeout(hoverTimer))
+	let lineage = $derived(
+		hoveredNodeId && hoveredNodeId !== ADD_NODE_ID && !boundPick && !onDrag
+			? hoverLineage(
+					view.edges.filter((e) => e.kind !== 'add-anchor'),
+					hoveredNodeId
+				)
+			: undefined
+	)
+	// The fade goes through a stylesheet keyed on node and edge ids, never through
+	// the graph's node or edge objects: new node objects make the flow re-measure
+	// them and rebuild every edge they touch, and a rebuilt element jumps to its
+	// new opacity instead of easing there.
+	const canvasId = randomUUID()
+	let lineageFadeCss = $derived.by(() => {
+		if (!lineage) return ''
+		const scope = `[data-asset-canvas="${canvasId}"]`
+		const nodes = view.nodes
+			.filter((n) => outsideLineage(n.id))
+			.map((n) => `${scope} .svelte-flow__node[data-id="${CSS.escape(n.id)}"]`)
+		const edges = view.edges
+			.filter((e) => e.kind !== 'add-anchor' && !lineage!.hasEdge(e))
+			.map((e) => `${scope} .svelte-flow__edge[data-id="${CSS.escape(e.id)}"]`)
+		return [
+			nodes.length ? `${nodes.join(',')}{opacity:0.5}` : '',
+			edges.length ? `${edges.join(',')}{opacity:0.35}` : ''
+		].join('')
+	})
+	// Assets-only: a trigger edge A → C that A → B → … → C already implies says
+	// nothing new, so it recedes; the chain carries the cascade.
+	let impliedTriggerEdges = $derived(
+		assetsOnly
+			? transitivelyImpliedEdges(view.edges.filter((e) => e.kind === 'asset-flow' && e.reactive))
+			: new Set<string>()
+	)
+	let lineageSheet = $state<HTMLStyleElement | undefined>(undefined)
+	onMount(() => {
+		const sheet = document.createElement('style')
+		document.head.appendChild(sheet)
+		lineageSheet = sheet
+		return () => sheet.remove()
+	})
+	$effect(() => {
+		if (lineageSheet) lineageSheet.textContent = lineageFadeCss
+	})
+	const outsideLineage = (id: string) =>
+		!!lineage && id !== ADD_NODE_ID && !lineage.upstream.has(id) && !lineage.downstream.has(id)
 	let dbtEmphasisIds = $derived.by(() => {
 		if (!dbtHoverId) return new Set<string>()
 		const owned = model.dbtWritesByOwner.get(dbtHoverId)
@@ -922,14 +1721,14 @@
 	// input; the rendered edges are untouched (both arrows still drawn).
 	let writeEdgePairs = $derived(
 		new Set(
-			model.edges.filter((e) => e.kind === 'lineage-write').map((e) => `${e.source}\n${e.target}`)
+			view.edges.filter((e) => e.kind === 'lineage-write').map((e) => `${e.source}\n${e.target}`)
 		)
 	)
 	let layoutInput = $derived({
-		nodes: model.nodes
-			.map((n) => ({ id: n.id, data: n.data }))
+		nodes: view.nodes
+			.map((n) => ({ id: n.id, data: n.data, width: n.data?.width as number | undefined }))
 			.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
-		edges: model.edges
+		edges: view.edges
 			.filter(
 				(e) =>
 					!(
@@ -950,7 +1749,18 @@
 						: 1
 			)
 	})
-	let layoutPositions = $derived(layoutAssetGraph(layoutInput, ADD_NODE_ID))
+	let layoutPositions = $derived(
+		layoutAssetGraph(
+			layoutInput,
+			ADD_NODE_ID,
+			assetsOnly
+				? PIPELINE_NODE_EXTRA_ROW + PIPELINE_NODE_HEADER + PIPELINE_NODE_HEADER_CARD_PAD
+				: 0
+		)
+	)
+
+	/** Assets-only asset cards size to their text; every other node is `NODE.width`. */
+	const nodeWidth = (n: { data?: any }): number => n.data?.width ?? NODE.width
 
 	let positionedNodes = $derived.by(() => {
 		// Compute bbox width from layout; shift every x so the graph is
@@ -965,11 +1775,8 @@
 		}
 		const bboxWidth = isFinite(minX) ? maxX - minX : 0
 		const xCenter = paneWidth / 2 - bboxWidth / 2
-		return model.nodes.map<Node>((n) => {
+		return view.nodes.map<Node>((n) => {
 			const p = layoutPositions.get(n.id) ?? { x: 0, y: 0 }
-			// Compensate for the + node being narrower than its layout slot
-			// so it visually centers over the node(s) below.
-			const xShift = n.id === ADD_NODE_ID ? (NODE.width - ADD_NODE_WIDTH) / 2 : 0
 			// Activity-panel emphasis (purely visual rings, kept off `selected`
 			// which swaps the details pane). Hover wins over pin so the cursor
 			// always tracks.
@@ -998,12 +1805,73 @@
 				else if (!boundPick.eligible.has(n.id)) boundClass = 'wm-bound-dim'
 			}
 			const dbtClass = dbtEmphasisIds.has(n.id) ? 'wm-dbt-linked' : undefined
+			const dragClass = !onDrag
+				? undefined
+				: onDrag.eligible.has(n.id)
+					? onDrag.over === n.id
+						? 'wm-drag-over'
+						: undefined
+					: n.id === onDrag.sourceId
+						? undefined
+						: 'wm-drag-dim'
+			// The chips' selected look rides on the positioned nodes, so a selection
+			// never re-runs the layout.
+			const up = n.type === 'asset' || n.type === 'no-asset' ? n.data.upstream : undefined
+			const fix = toFix(nodeFixes?.get(n.id))
+			const withUpstream = up?.scripts
+				? {
+						...n.data,
+						upstream: {
+							...up,
+							selected: up.scripts.some(
+								(sc: { runnableId: string }) => sc.runnableId === selectedId
+							),
+							triggers: (up.triggers ?? []).map((t: { nodeId?: string }) => ({
+								...t,
+								selected: !!t.nodeId && t.nodeId === activeTriggerId
+							}))
+						}
+					}
+				: up?.runnableId !== undefined
+					? {
+							...n.data,
+							upstream: {
+								...up,
+								selected: up.runnableId === selectedId,
+								trigger: {
+									...up.trigger,
+									selected: !!up.trigger.nodeId && up.trigger.nodeId === activeTriggerId
+								}
+							}
+						}
+					: n.data
+			const foldedFixes = ((n.data.foldedIds ?? []) as string[])
+				.map((id) => toFix(nodeFixes?.get(id)))
+				.filter((f) => f != undefined)
+			const scriptsToDrag = onAddAssetTrigger ? dragScripts(n) : []
+			// Assets-only: a folded script with an error reddens the header naming it.
+			const scriptError = ((n.data.foldedIds ?? []) as string[]).some(
+				(id) => id.startsWith('script:') && nodeFixes?.has(id)
+			)
+			const data = {
+				...withUpstream,
+				...(scriptError ? { scriptError } : {}),
+				...(fix ? { fix } : {}),
+				...(foldedFixes.length ? { foldedFixes } : {}),
+				...(scriptsToDrag.length
+					? { onStartOnDrag: (e: PointerEvent) => startOnDrag(n.id, scriptsToDrag, e) }
+					: {}),
+				...(n.type === 'asset' && onAddScriptForAsset
+					? { onStartFeedDrag: (e: PointerEvent) => startFeedDrag(n.id, n.data, e) }
+					: {})
+			}
 			return {
 				id: n.id,
 				type: n.type,
-				position: { x: p.x + xCenter + xShift, y: p.y + 40 },
-				data: n.data,
-				class: boundClass ?? dbtClass ?? runClass ?? assetClass,
+				// The layout places centers; a node's position is its top-left corner.
+				position: { x: p.x - nodeWidth(n) / 2 + xCenter, y: p.y + 40 },
+				data,
+				class: dragClass ?? boundClass ?? dbtClass ?? runClass ?? assetClass,
 				selected: n.id === selectedId,
 				// All nodes non-draggable: the layout is sugiyama-computed,
 				// dragging would fight the reactive re-layout. Selection is
@@ -1013,7 +1881,7 @@
 				// on its inner box so the edit/create button still receives
 				// clicks despite svelte-flow's wrapper-level pointer-events: none.
 				draggable: false,
-				selectable: n.id !== ADD_NODE_ID && n.type !== 'trigger'
+				selectable: n.id !== ADD_NODE_ID && n.type !== 'trigger' && n.type !== 'no-asset'
 			}
 		})
 	})
@@ -1039,7 +1907,7 @@
 	let assetEmphasis = $derived.by<Map<string, 'input' | 'output'>>(() => {
 		const m = new Map<string, 'input' | 'output'>()
 		if (emphasizedRunIdSet.size === 0) return m
-		for (const e of model.edges) {
+		for (const e of view.edges) {
 			if (e.kind === 'lineage-write' && emphasizedRunIdSet.has(e.source)) {
 				m.set(e.target, 'output')
 			} else if (
@@ -1058,15 +1926,20 @@
 	let nodeCenters = $derived(
 		positionedNodes
 			.filter((n) => n.id !== ADD_NODE_ID)
-			.map((n) => ({ id: n.id, cx: n.position.x + NODE.width / 2, cy: n.position.y }))
+			.map((n) => ({
+				id: n.id,
+				cx: n.position.x + nodeWidth(n) / 2,
+				cy: n.position.y,
+				halfW: nodeWidth(n) / 2
+			}))
 	)
-	// Detour lane for an edge whose straight run would pass over an unrelated
-	// node (the failure the same-column gutter can't see). For each node
-	// strictly between the endpoints' rows, sample the straight line at that
-	// row; if the node sits under it, route around the obstacle on the side the
-	// edge is already heading. Returns the outermost lane x clearing every
+	// Detour lane for an edge whose run would pass over an unrelated node. An
+	// edge spanning rows bends inside the first gap below its source and then
+	// runs straight down the *target's* column (see AssetGraphEdge), so every
+	// node strictly between the endpoints' rows is tested against the target's
+	// x, not against a source→target line. A crossed node is routed around on
+	// the side the target lies. Returns the outermost lane x clearing every
 	// crossed node, or undefined when the corridor is clear. O(nodes) per edge.
-	const HALF_W = NODE.width / 2
 	const ROUTE_PAD = NODE.gap.horizontal / 2
 	function detourForEdge(sourceId: string, targetId: string): number | undefined {
 		const s = nodeCenters.find((n) => n.id === sourceId)
@@ -1078,11 +1951,10 @@
 			if (n.id === sourceId || n.id === targetId) continue
 			// strictly between the two rows
 			if ((n.cy - s.cy) / dyTot <= 0.01 || (n.cy - s.cy) / dyTot >= 0.99) continue
-			const edgeX = s.cx + (t.cx - s.cx) * ((n.cy - s.cy) / dyTot)
-			if (Math.abs(edgeX - n.cx) >= HALF_W + 8) continue
+			if (Math.abs(t.cx - n.cx) >= n.halfW + 8) continue
 			// Crossed: a lane just outside this node, toward the target side.
 			const side = t.cx >= n.cx ? 1 : -1
-			const candidate = n.cx + side * (HALF_W + ROUTE_PAD)
+			const candidate = n.cx + side * (n.halfW + ROUTE_PAD)
 			// Keep the outermost lane so one detour clears every obstacle.
 			if (lane == undefined || Math.abs(candidate - s.cx) > Math.abs(lane - s.cx)) lane = candidate
 		}
@@ -1090,7 +1962,7 @@
 	}
 
 	let flowEdges = $derived.by(() =>
-		model.edges
+		view.edges
 			// Anchor edges are layout-only.
 			.filter((e) => e.kind !== 'add-anchor')
 			.map<Edge>((e) => {
@@ -1118,30 +1990,42 @@
 				// the "happening now" signal.
 				switch (e.kind) {
 					case 'lineage-write':
-						style = 'stroke: rgb(59 130 246); stroke-width: 2px;'
+						style = 'stroke: rgb(59 130 246); stroke-width: 1.25px;'
 						animated = flowAnimated
 						markerColor = 'rgb(59 130 246)'
 						break
+					case 'asset-flow':
+						// Assets-only: a write upstream reruns what builds the target
+						// (solid, like a trigger), or the target only reads it (dashed gray).
+						if (e.reactive) {
+							style = `stroke: rgb(59 130 246); stroke-width: 1.5px;${impliedTriggerEdges.has(e.id) ? ' opacity: 0.35;' : ''}`
+							markerColor = 'rgb(59 130 246)'
+						} else {
+							style = 'stroke: rgb(156 163 175); stroke-width: 1px;'
+							strokeDasharray = '4 3'
+							markerColor = 'rgb(156 163 175)'
+						}
+						break
 					case 'lineage-read':
-						style = 'stroke: rgb(156 163 175); stroke-width: 1.25px;'
+						style = 'stroke: rgb(156 163 175); stroke-width: 1px;'
 						animated = flowAnimated
 						break
 					case 'data-test':
 						// Asset → its custom-test script: dashed, muted, no run
 						// animation (the test isn't a producing step).
-						style = 'stroke: rgb(156 163 175); stroke-width: 1.25px;'
+						style = 'stroke: rgb(156 163 175); stroke-width: 1px;'
 						strokeDasharray = '4 3'
 						markerColor = 'rgb(156 163 175)'
 						break
 					case 'trigger-asset':
-						style = 'stroke: rgb(107 114 128); stroke-width: 2px;'
+						style = 'stroke: rgb(107 114 128); stroke-width: 1.25px;'
 						animated = flowAnimated
 						markerColor = 'rgb(107 114 128)'
 						label = 'triggers'
 						labelStyle = 'fill: rgb(107 114 128); font-size: 10px; font-weight: 600;'
 						break
 					case 'trigger-native':
-						style = 'stroke: rgb(107 114 128); stroke-width: 2px;'
+						style = 'stroke: rgb(107 114 128); stroke-width: 1.25px;'
 						strokeDasharray = '6 3'
 						markerColor = 'rgb(107 114 128)'
 						label = 'triggers'
@@ -1151,7 +2035,7 @@
 						// Library → consumer: violet dashed, visually apart from both
 						// lineage (blue/gray solid) and trigger (gray dashed) families —
 						// it's a code dependency, not data flow or execution.
-						style = 'stroke: rgb(139 92 246); stroke-width: 1.25px;'
+						style = 'stroke: rgb(139 92 246); stroke-width: 1px;'
 						strokeDasharray = '5 3'
 						markerColor = 'rgb(139 92 246)'
 						label = e.via_use ? 'uses lib' : 'macros'
@@ -1161,7 +2045,7 @@
 						// Producer → tested script: amber dashed ordering link. Not
 						// data flow (blue/gray) nor execution trigger (gray "triggers")
 						// — it only says "the test needs this asset to exist first".
-						style = 'stroke: rgb(217 119 6); stroke-width: 1.25px;'
+						style = 'stroke: rgb(217 119 6); stroke-width: 1px;'
 						strokeDasharray = '5 3'
 						markerColor = 'rgb(217 119 6)'
 						label = 'test needs'
@@ -1171,7 +2055,7 @@
 						// model → model inside one dbt project. Orange, matching the
 						// dbt badges, and dashed because the edge is dbt's own lineage
 						// rather than a Windmill read/write the cascade acts on.
-						style = 'stroke: rgb(234 88 12); stroke-width: 1.25px;'
+						style = 'stroke: rgb(234 88 12); stroke-width: 1px;'
 						strokeDasharray = '4 3'
 						markerColor = 'rgb(234 88 12)'
 						label = 'ref'
@@ -1208,7 +2092,7 @@
 				// (red dashed dimmed — fresh draft annotation that also has
 				// no matching row, which is the common case).
 				if (e.missing) {
-					style = 'stroke: rgb(239 68 68); stroke-width: 2px;'
+					style = 'stroke: rgb(239 68 68); stroke-width: 1.25px;'
 					strokeDasharray = '3 3'
 					markerColor = 'rgb(239 68 68)'
 					label = 'missing trigger'
@@ -1246,8 +2130,8 @@
 					style,
 					markerEnd: {
 						type: MarkerType.ArrowClosed,
-						width: 14,
-						height: 14,
+						width: 12,
+						height: 12,
 						color: markerColor
 					}
 				}
@@ -1265,6 +2149,7 @@
 
 	const nodeTypes = {
 		asset: AssetNode as any,
+		'no-asset': AssetNode as any,
 		runnable: RunnableNode as any,
 		trigger: TriggerNode as any,
 		add: AddNode as any,
@@ -1276,6 +2161,9 @@
 	}
 
 	function handleNodeClick({ node }: { node: Node }) {
+		clearTimeout(hoverTimer)
+		hoveredNodeId = undefined
+		clickedNodeId = node.id
 		// Bounded-run pick mode intercepts clicks: an eligible (downstream)
 		// node toggles as an end bound; the start, dimmed nodes, and
 		// triggers/+ are inert. Selection (details pane) is suppressed so the
@@ -1319,12 +2207,20 @@
 		) {
 			return
 		}
+		activeTriggerId = undefined
 		onselect(undefined)
 	}
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="w-full h-full relative" bind:clientWidth={paneWidth} onclickcapture={handleBackgroundClick}>
+<div
+	class="w-full h-full relative"
+	data-asset-canvas={canvasId}
+	bind:this={flowEl}
+	bind:clientWidth={paneWidth}
+	onclickcapture={handleBackgroundClick}
+	oncontextmenu={handleContextMenu}
+>
 	<SvelteFlow
 		{nodes}
 		{edges}
@@ -1342,12 +2238,42 @@
 		defaultEdgeOptions={{ type: 'asset' }}
 		proOptions={{ hideAttribution: true }}
 		onnodeclick={handleNodeClick}
+		onnodepointerenter={({ node }) => onNodePointerEnter(node.id)}
+		onnodepointerleave={onNodePointerLeave}
+		onedgepointerenter={onEdgeEnter}
+		onedgepointerleave={onEdgeLeave}
 		--background-color={false}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
-		<InitialFitView {nodes} fitKey={viewportFitKey} />
+		<InitialFitView {nodes} fitKey={`${viewportFitKey}:${assetsOnly}`} />
 		<PanToNode targetId={panToNodeId} {nodes} />
 		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
+		{#if assetsOnlyToggle}
+			<Panel position="top-left" class="!m-3 flex flex-col gap-1.5">
+				<Toggle
+					checked={!assetsOnly}
+					size="xs"
+					options={{ right: 'Show scripts and triggers' }}
+					on:change={(e) => {
+						assetsOnly = !e.detail
+						if (assetsOnlyFolder != undefined) setAssetsOnlyFolder(assetsOnlyFolder, assetsOnly)
+					}}
+				/>
+				{#if withoutPassive.dropped > 0}
+					<Toggle
+						checked={showPassiveReads}
+						size="xs"
+						options={{ right: "Show reads that don't trigger runs" }}
+						on:change={(e) => {
+							showPassiveReads = e.detail
+							try {
+								localStorage.setItem(SHOW_PASSIVE_READS_KEY, String(e.detail))
+							} catch {}
+						}}
+					/>
+				{/if}
+			</Panel>
+		{/if}
 		{#if showMinimap}
 			<!-- Node hues mirror the canvas: blue asset cards, amber triggers,
 			     bordered neutral script cards. Visible strokes + rounded corners +
@@ -1379,9 +2305,164 @@
 	</SvelteFlow>
 </div>
 
+<svelte:window
+	onpointerdown={(e) => {
+		if (paneMenu && !(e.target as HTMLElement | null)?.closest('[data-pane-menu]'))
+			paneMenu = undefined
+	}}
+	onkeydown={(e) => {
+		if (e.key === 'Escape') paneMenu = undefined
+	}}
+/>
+
+{#if paneMenu}
+	<div
+		class="fixed {getContextMenuContainerClass()}"
+		style="left: {paneMenu.x}px; top: {paneMenu.y}px;"
+		transition:fly={{ duration: 150, y: -10 }}
+		role="menu"
+		data-pane-menu
+	>
+		<button
+			type="button"
+			role="menuitem"
+			class="{CONTEXT_MENU_ITEM_BASE_CLASS} {CONTEXT_MENU_ITEM_HOVER_CLASS} gap-2 w-full text-left"
+			onclick={() => {
+				if (paneMenu) addMenuAt = paneMenu
+				paneMenu = undefined
+				addMenuSignal++
+			}}
+		>
+			<Plus size={14} />
+			Add data source
+		</button>
+	</div>
+{/if}
+
+{#if onDrag}
+	<svg class="fixed inset-0 w-screen h-screen pointer-events-none z-50" aria-hidden="true">
+		<line
+			x1={onDrag.from.x}
+			y1={onDrag.from.y}
+			x2={onDrag.to.x}
+			y2={onDrag.to.y}
+			class="stroke-blue-500"
+			stroke-width="1.5"
+			stroke-dasharray="4 3"
+		/>
+		{#if !(onDrag.feed && onDrag.blank)}
+			<circle cx={onDrag.to.x} cy={onDrag.to.y} r="3" class="fill-blue-500" />
+		{/if}
+	</svg>
+	{#if onDrag.feed && onDrag.blank}
+		<div
+			class="fixed z-50 pointer-events-none -translate-x-1/2 -translate-y-1/2"
+			style="left: {onDrag.to.x}px; top: {onDrag.to.y}px;"
+		>
+			<AddDownstreamPill expanded />
+		</div>
+	{/if}
+{/if}
+
+{#if feedMenu && onAddScriptForAsset}
+	<div
+		class="fixed z-10 -translate-x-1/2 -translate-y-1/2"
+		style="left: {feedMenu.at.x}px; top: {feedMenu.at.y}px;"
+	>
+		<AddDownstreamMenu
+			asset={feedMenu.asset}
+			onAddScript={onAddScriptForAsset}
+			pathPrefix={feedMenu.data.pathPrefix ?? pathPrefix}
+			defaultPathSuffix={feedMenu.data.defaultPathSuffix ?? defaultPathSuffix}
+			openSignal={feedMenuSignal}
+		>
+			{#snippet trigger({ open })}
+				{#if open}
+					<AddDownstreamPill expanded />
+				{/if}
+			{/snippet}
+		</AddDownstreamMenu>
+	</div>
+{/if}
+
+{#if hoveredEdge && hoveredEdgeText}
+	{@const d = hoveredEdgeText}
+	{@const actions = hoveredEdgeActions}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="fixed z-50 max-w-80 rounded-md border bg-surface px-2.5 py-1.5 text-xs text-primary shadow-md"
+		style="left: {hoveredEdge.x + 12}px; top: {hoveredEdge.y + 12}px;"
+		transition:fly={{ duration: 120, y: -4 }}
+		role="tooltip"
+		onmouseenter={() => clearTimeout(edgeHoverTimer)}
+		onmouseleave={onEdgeLeave}
+	>
+		<span class="font-semibold text-emphasis">{d.subject}</span>
+		{d.phrase}
+		{#if d.object}<span class="font-semibold text-emphasis">{d.object}</span>{/if}
+		{#if d.note}<div class="mt-0.5 text-2xs text-secondary">{d.note}</div>{/if}
+		{#each actions as action (action.label)}
+			<div class="mt-2 flex flex-col gap-0.5">
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					onclick={() => {
+						// Closing the popover drops `actions`: run what this one held.
+						const run = action.run
+						hoveredEdge = undefined
+						run()
+					}}
+				>
+					{action.label}
+				</Button>
+				<span class="text-2xs text-secondary">{action.detail}</span>
+			</div>
+		{/each}
+	</div>
+{/if}
+
+{#if scheduleWizard}
+	<div class="fixed w-0 h-0" style="left: {scheduleWizard.at.x}px; top: {scheduleWizard.at.y}px;">
+		<PipelineInsertMenu
+			kinds={[{ id: 'schedule', label: 'On schedule', description: '', icon: Clock }]}
+			onPick={() => {}}
+			openSignal={scheduleWizardSignal}
+			scheduleFor={scheduleWizard.script}
+			onSchedule={(s) => scheduleWizard?.onSchedule(s)}
+		>
+			{#snippet trigger()}
+				<span class="block w-0 h-0" aria-hidden="true"></span>
+			{/snippet}
+		</PipelineInsertMenu>
+	</div>
+{/if}
+
+{#if onAddPipelineScript}
+	<div class="fixed w-0 h-0" style="left: {addMenuAt.x}px; top: {addMenuAt.y}px;">
+		<AddDataSourceMenu
+			{onAddPipelineScript}
+			{pathPrefix}
+			{defaultPathSuffix}
+			openSignal={addMenuSignal}
+		>
+			{#snippet trigger()}
+				<span class="block w-0 h-0" aria-hidden="true"></span>
+			{/snippet}
+		</AddDataSourceMenu>
+	</div>
+{/if}
+
 <style lang="postcss">
 	:global(.svelte-flow__handle) {
 		opacity: 0;
+	}
+	/* Dragging a script's dot: what it cannot subscribe to recedes. */
+	:global(.svelte-flow__node.wm-drag-dim) {
+		opacity: 0.25;
+		transition: opacity 120ms;
+	}
+	:global(.svelte-flow__node.wm-drag-over .drop-shadow-sm) {
+		@apply ring-2 ring-blue-500 rounded-md;
 	}
 	:global(.svelte-flow__controls-button) {
 		@apply bg-surface border-0;
@@ -1389,11 +2470,8 @@
 	:global(.svelte-flow__controls-button:hover) {
 		@apply bg-surface-hover;
 	}
-	:global(.svelte-flow__node.selected .drop-shadow-sm) {
-		@apply outline outline-2 outline-blue-500;
-	}
 	/* Activity-panel emphasis — soft, monochromatic, less prominent than the
-	   blue details selection above. Hover is a thin neutral ring (transient);
+	   node's own selected state. Hover is a thin neutral ring (transient);
 	   pinning an expanded run is a soft-blue ring. */
 	/* A dbt project node and the models it materializes, related by badge
 	   rather than by edges — hovering either lights up the whole set. */
@@ -1426,6 +2504,11 @@
 	}
 	:global(.svelte-flow__node.wm-bound-end .drop-shadow-sm) {
 		@apply outline outline-[3px] outline-amber-500;
+	}
+	/* Hovering a node fades what is not in its lineage (see lineageFadeCss). */
+	:global(.svelte-flow__node),
+	:global(.svelte-flow__edge) {
+		transition: opacity 120ms;
 	}
 	:global(.svelte-flow__node.wm-bound-dim) {
 		@apply opacity-30;

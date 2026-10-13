@@ -17,6 +17,9 @@
 		selectInputClass?: string
 		class?: string
 		onClear?: () => void
+		/** Size the input to its content, like Path's folder picker. */
+		useContentEditable?: boolean
+		RightIcon?: any
 	}
 
 	let {
@@ -27,7 +30,9 @@
 		placeholder = undefined,
 		selectInputClass = '',
 		class: className = '',
-		onClear = undefined
+		onClear = undefined,
+		useContentEditable = false,
+		RightIcon = undefined
 	}: Props = $props()
 
 	let datatables = usePromise(() =>
@@ -47,6 +52,8 @@
 		{placeholder}
 		inputClass={selectInputClass}
 		{onClear}
+		{useContentEditable}
+		{RightIcon}
 	/>
 	{#if showSchemaExplorer && value && assetCanBeExplored({ kind: 'datatable', path: value })}
 		<ExploreAssetButton class="mt-1 w-fit" asset={{ kind: 'datatable', path: value }} />

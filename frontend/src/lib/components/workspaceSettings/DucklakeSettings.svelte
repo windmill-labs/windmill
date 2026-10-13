@@ -91,7 +91,6 @@
 	import type { GetSettingsResponse } from '$lib/gen'
 
 	import { enterpriseLicense, superadmin, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { base } from '$app/paths'
 	import Toggle from '../Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
@@ -653,7 +652,7 @@
 											{/if}
 											{#if ducklakeSavedSettings.ducklakes.find((d) => d.name === ducklake.name)?.maintenance?.enabled}
 												<a
-													href={`${base}/runs/?schedule_path=${encodeURIComponent(
+													href={`/runs/?schedule_path=${encodeURIComponent(
 														`f/ducklake_maintenance/${ducklake.name}`
 													)}&job_kinds=previews`}
 													target="_blank"

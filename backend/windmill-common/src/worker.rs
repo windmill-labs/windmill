@@ -450,6 +450,7 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_TAGS_WORKSPACES: arc_swap::ArcSwap<Option<Vec<String>>> = arc_swap::ArcSwap::from_pointee(None);
     pub static ref FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX: AtomicBool = AtomicBool::new(false);
     pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
+    pub static ref DEPENDENCY_JOB_TAG: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -476,6 +477,7 @@ lazy_static::lazy_static! {
         env_vars: Default::default(),
         native_mode: false,
         object_store_cache_config: Default::default(),
+        paused: false,
     });
 
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
@@ -810,7 +812,7 @@ fn format_pull_query(peek: String) -> String {
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
-            j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
+            j.script_entrypoint_override, j.preprocessed, p.job_token_scopes, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
         FROM q, j
@@ -843,11 +845,14 @@ pub fn make_suspended_pull_query(tags: &[String]) -> String {
 }
 // pub async fn make_suspended
 pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
-    if wc.worker_tags.len() == 0 {
-        tracing::error!("Empty tags in worker tags, skipping");
-        return;
-    }
-    let query = make_suspended_pull_query(&wc.worker_tags);
+    // An empty tag list must clear the query: keeping the previous one would leave a reloaded
+    // worker pulling suspended jobs for tags it no longer listens to.
+    let query = if wc.worker_tags.is_empty() {
+        tracing::error!("Empty tags in worker tags, pulling no suspended jobs");
+        String::new()
+    } else {
+        make_suspended_pull_query(&wc.worker_tags)
+    };
     WORKER_SUSPENDED_PULL_QUERY.store(std::sync::Arc::new(query));
 }
 
@@ -919,6 +924,42 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
     }
     WORKER_PULL_QUERIES.store(std::sync::Arc::new(queries));
     WORKER_PULL_QUERIES_FAIRNESS.store(std::sync::Arc::new(fairness_queries));
+}
+
+const WORKER_GROUP_PAUSED_CACHE_TTL: Duration = Duration::from_secs(10);
+
+lazy_static::lazy_static! {
+    static ref WORKER_GROUP_PAUSED_CACHE: quick_cache::sync::Cache<String, (bool, std::time::Instant)> =
+        quick_cache::sync::Cache::new(1000);
+}
+
+/// Whether the config of `worker_group` is paused, as the server sees it. A worker that reads
+/// its own config knows from `WORKER_CONFIG`; this is for the server deciding on behalf of
+/// workers that do not, and is cached since they ask on every pull.
+pub async fn is_worker_group_paused(db: &DB, worker_group: &str) -> bool {
+    if let Some((paused, at)) = WORKER_GROUP_PAUSED_CACHE.get(worker_group) {
+        if at.elapsed() < WORKER_GROUP_PAUSED_CACHE_TTL {
+            return paused;
+        }
+    }
+    let paused = match sqlx::query_scalar!(
+        "SELECT COALESCE(config->'paused' = 'true'::jsonb, false) FROM config WHERE name = $1",
+        format!("worker__{worker_group}")
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(paused) => paused.flatten().unwrap_or(false),
+        Err(e) => {
+            tracing::error!("Could not read whether worker group {worker_group} is paused: {e:#}");
+            return false;
+        }
+    };
+    WORKER_GROUP_PAUSED_CACHE.insert(
+        worker_group.to_string(),
+        (paused, std::time::Instant::now()),
+    );
+    paused
 }
 
 lazy_static::lazy_static! {
@@ -1160,6 +1201,8 @@ pub struct PythonAnnotations {
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
+    pub py314: bool,
+    pub py315: bool,
     pub sandbox: bool,
 }
 
@@ -1742,6 +1785,76 @@ pub fn get_cpu_period() -> Option<i64> {
     Some(100000)
 }
 
+/// Bucket bounds in bytes, 16 MiB to 32 GiB, shared by the Prometheus and OTel job
+/// peak-memory histograms so the two exports stay comparable.
+pub const JOB_MEMORY_PEAK_BUCKETS: [f64; 12] = {
+    let mut buckets = [0.0; 12];
+    let mut i = 0;
+    while i < 12 {
+        buckets[i] = (16u64 << (20 + i)) as f64;
+        i += 1;
+    }
+    buckets
+};
+
+/// Cumulative CPU accounting of the worker's cgroup. The throttling fields stay at 0
+/// when the cgroup has no CPU controller, which is also what an unthrottled one reports.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CpuStat {
+    pub usage_usec: u64,
+    pub nr_periods: u64,
+    pub nr_throttled: u64,
+    pub throttled_usec: u64,
+}
+
+#[cfg(not(windows))]
+fn cpu_stat_field(stat: &str, key: &str) -> Option<u64> {
+    stat.lines().find_map(|line| {
+        let (k, v) = line.split_once(' ')?;
+        (k == key).then(|| v.trim().parse().ok()).flatten()
+    })
+}
+
+#[cfg(not(windows))]
+fn parse_cgroup_v2_cpu_stat(stat: &str) -> Option<CpuStat> {
+    Some(CpuStat {
+        usage_usec: cpu_stat_field(stat, "usage_usec")?,
+        nr_periods: cpu_stat_field(stat, "nr_periods").unwrap_or(0),
+        nr_throttled: cpu_stat_field(stat, "nr_throttled").unwrap_or(0),
+        throttled_usec: cpu_stat_field(stat, "throttled_usec").unwrap_or(0),
+    })
+}
+
+/// cgroup v1 splits the same figures over two controllers and counts time in nanoseconds.
+#[cfg(not(windows))]
+fn parse_cgroup_v1_cpu_stat(cpuacct_usage: &str, stat: &str) -> Option<CpuStat> {
+    Some(CpuStat {
+        usage_usec: cpuacct_usage.trim().parse::<u64>().ok()? / 1000,
+        nr_periods: cpu_stat_field(stat, "nr_periods").unwrap_or(0),
+        nr_throttled: cpu_stat_field(stat, "nr_throttled").unwrap_or(0),
+        throttled_usec: cpu_stat_field(stat, "throttled_time").unwrap_or(0) / 1000,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn get_cpu_stat() -> Option<CpuStat> {
+    const V1_USAGE: &str = "/sys/fs/cgroup/cpuacct/cpuacct.usage";
+    if Path::new(V1_USAGE).exists() {
+        parse_cgroup_v1_cpu_stat(
+            &std::fs::read_to_string(V1_USAGE).ok()?,
+            &std::fs::read_to_string("/sys/fs/cgroup/cpu/cpu.stat").unwrap_or_default(),
+        )
+    } else {
+        let cgroup_path = get_cgroupv2_path()?;
+        parse_cgroup_v2_cpu_stat(&std::fs::read_to_string(format!("{cgroup_path}/cpu.stat")).ok()?)
+    }
+}
+
+#[cfg(windows)]
+pub fn get_cpu_stat() -> Option<CpuStat> {
+    None
+}
+
 /// CPUs the process is allowed to run on, ignoring any bandwidth quota — the count
 /// Go's `NumCPU` reports. `available_parallelism` cannot stand in for it: that folds
 /// the quota in, so a fraction of a CPU makes it report a single-core machine.
@@ -1911,6 +2024,7 @@ pub enum PingType {
     MainLoop,
     Job,
     InitScript,
+    Draining,
 }
 #[derive(Serialize, Deserialize)]
 pub struct Ping {
@@ -1933,6 +2047,8 @@ pub struct Ping {
     pub occupancy_rate_30m: Option<f32>,
     pub job_isolation: Option<String>,
     pub native_mode: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draining: Option<bool>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -1985,6 +2101,7 @@ pub async fn update_ping_http(
                 insert_ping.memory,
                 insert_ping.job_isolation,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.draining,
                 db,
             )
             .await?;
@@ -2013,7 +2130,18 @@ pub async fn update_ping_http(
             )
             .await?
         }
+        PingType::Draining => set_worker_draining_query(worker_name, db).await?,
     }
+    Ok(())
+}
+
+pub async fn set_worker_draining_query(worker_name: &str, db: &DB) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET draining = true WHERE worker = $1",
+        worker_name
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -2115,6 +2243,9 @@ pub async fn fetch_raw_script_from_app_query(
 /// `started_at` and `jobs_executed` are the only two columns carried over, being the
 /// continuity itself — plus `ip` for as long as `ip` is `None`, which means the external IP
 /// lookup has not resolved yet and the predecessor's address is still the best guess.
+///
+/// `draining` is `Some(false)` from a worker starting up and `None` from one re-registering
+/// mid-life, which must leave alone a flag its own shutdown may have set in the meantime.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
@@ -2128,6 +2259,7 @@ pub async fn insert_ping_query(
     memory: Option<i64>,
     job_isolation: Option<String>,
     native_mode: bool,
+    draining: Option<bool>,
     db: &DB,
 ) -> anyhow::Result<i32> {
     // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
@@ -2135,8 +2267,8 @@ pub async fn insert_ping_query(
     // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
     // literal below must stay equal to `external_ip::UNKNOWN_IP`.
     let previous_jobs_executed = sqlx::query_scalar!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode, draining) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, false)) ON CONFLICT (worker)
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = COALESCE($13, worker_ping.draining)
         RETURNING jobs_executed",
         worker_instance,
         worker_name,
@@ -2150,6 +2282,7 @@ pub async fn insert_ping_query(
         memory,
         job_isolation.as_deref(),
         native_mode,
+        draining,
         )
         .fetch_one(db)
         .await?;
@@ -2469,6 +2602,12 @@ pub async fn load_worker_config(
             .collect();
         priority_tags_sorted.push(PriorityTags { priority: 0, tags: Vec::from_iter(all_tags_set) }); // push the tags that were not listed as high priority with a priority = 0
         priority_tags_sorted.sort_by_key(|elt| Reverse(elt.priority)); // sort by priority DESC
+
+        // The buckets come out of hash maps: without a fixed order two loads of the same
+        // config compare unequal, and a reload reads that as a config change.
+        for bucket in priority_tags_sorted.iter_mut() {
+            bucket.tags.sort();
+        }
     } else {
         // if no priority is used, push all tags with a priority to 0
         priority_tags_sorted.push(PriorityTags { priority: 0, tags: worker_tags.clone() });
@@ -2538,6 +2677,7 @@ pub async fn load_worker_config(
         env_vars: resolved_env_vars,
         native_mode,
         object_store_cache_config: config.object_store_cache_config,
+        paused: config.paused.unwrap_or(false),
     })
 }
 
@@ -2628,6 +2768,7 @@ pub struct WorkerConfigOpt {
     pub env_vars_allowlist: Option<Vec<String>>,
     pub native_mode: Option<bool>,
     pub object_store_cache_config: Option<serde_json::Value>,
+    pub paused: Option<bool>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -2647,6 +2788,7 @@ impl Default for WorkerConfigOpt {
             env_vars_allowlist: Default::default(),
             native_mode: Default::default(),
             object_store_cache_config: Default::default(),
+            paused: Default::default(),
         }
     }
 }
@@ -2669,12 +2811,15 @@ pub struct WorkerConfig {
     /// in the group config. Raw JSON: `windmill-common` cannot depend on the object store crate
     /// that parses it, and comparing the raw value is what tells a reload the store changed.
     pub object_store_cache_config: Option<serde_json::Value>,
+    /// The group pulls no job from the queue: its workers finish what they hold, keep pinging
+    /// and leave queued jobs for when it is resumed.
+    pub paused: bool,
 }
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?}, object_store_cache_config: {} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode,
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?}, paused: {:?}, object_store_cache_config: {} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode, self.paused,
         // holds bucket credentials
         self.object_store_cache_config.as_ref().map(|_| "***").unwrap_or("None"))
     }
@@ -2749,6 +2894,8 @@ pub enum PyVAlias {
     #[default]
     Py312,
     Py313,
+    Py314,
+    Py315,
 }
 
 impl Into<pep440_rs::Version> for PyVAlias {
@@ -2766,13 +2913,20 @@ impl Into<u32> for PyVAlias {
 impl PyVAlias {
     pub fn all<T: From<PyVAlias>>() -> Vec<T> {
         use PyVAlias::*;
-        vec![Py310.into(), Py311.into(), Py312.into(), Py313.into()]
+        vec![
+            Py310.into(),
+            Py311.into(),
+            Py312.into(),
+            Py313.into(),
+            Py314.into(),
+            Py315.into(),
+        ]
     }
     // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
     fn major(&self) -> u32 {
         use PyVAlias::*;
         match self {
-            Py310 | Py311 | Py312 | Py313 => 3,
+            Py310 | Py311 | Py312 | Py313 | Py314 | Py315 => 3,
             // Py400 | Py401 => 4
         }
     }
@@ -2787,6 +2941,8 @@ impl PyVAlias {
             "311" => Some(Py311),
             "312" => Some(Py312),
             "313" => Some(Py313),
+            "314" => Some(Py314),
+            "315" => Some(Py315),
             _ => None,
         }
     }
@@ -2845,6 +3001,33 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[cfg(not(windows))]
+    #[test]
+    fn cgroup_cpu_stat_is_normalized_to_microseconds() {
+        let v2 = "usage_usec 2500000\nuser_usec 2000000\nsystem_usec 500000\n\
+                  nr_periods 40\nnr_throttled 7\nthrottled_usec 350000\nnr_bursts 0\n";
+        let expected = CpuStat {
+            usage_usec: 2_500_000,
+            nr_periods: 40,
+            nr_throttled: 7,
+            throttled_usec: 350_000,
+        };
+        assert_eq!(parse_cgroup_v2_cpu_stat(v2), Some(expected));
+
+        let v1_stat = "nr_periods 40\nnr_throttled 7\nthrottled_time 350000000\n";
+        assert_eq!(
+            parse_cgroup_v1_cpu_stat("2500000000\n", v1_stat),
+            Some(expected)
+        );
+
+        // No CPU controller: usage is still reported, throttling reads as zero.
+        assert_eq!(
+            parse_cgroup_v2_cpu_stat("usage_usec 12\nuser_usec 8\nsystem_usec 4\n"),
+            Some(CpuStat { usage_usec: 12, ..Default::default() })
+        );
+        assert_eq!(parse_cgroup_v2_cpu_stat("nr_periods 40\n"), None);
+    }
 
     #[test]
     fn datatable_role_is_read_from_the_leading_comment_block() {

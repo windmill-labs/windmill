@@ -291,6 +291,18 @@
 						})
 					}}
 				/>
+				<FlowScriptPicker
+					label="Pi"
+					lang="pisandbox"
+					on:click={() => {
+						dispatch('new', {
+							language: 'bun',
+							kind,
+							subkind: 'pisandbox',
+							summary
+						})
+					}}
+				/>
 			</div>
 		{/if}
 

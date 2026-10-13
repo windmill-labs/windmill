@@ -29,6 +29,12 @@ mod log_cleanup;
 mod storage_usage;
 
 use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
+use windmill_audit::{
+    audit_oss::audit_log,
+    instance_config::{audit_setting_write, InstanceConfigAuditor},
+    ActionKind,
+};
+use windmill_common::hub_resource_types::{self, SyncSource};
 use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 use windmill_common::DB;
 
@@ -57,10 +63,10 @@ use windmill_common::{
     error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
-        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING,
-        AUTOMATE_USERNAME_CREATION_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXTERNAL_INSTANCE_PG_SETTING,
+        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, API_BASE_URL_SETTING,
+        APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS, EXTERNAL_INSTANCE_PG_SETTING,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
@@ -829,7 +835,28 @@ pub async fn set_global_setting(
     Json(value): Json<Value>,
 ) -> error::Result<()> {
     require_super_admin(&db, &authed).await?;
-    set_global_setting_internal(&db, key, value.value.unwrap_or(serde_json::Value::Null)).await
+    let value = value.value.unwrap_or(serde_json::Value::Null);
+    set_global_setting_internal(&db, key.clone(), value.clone()).await?;
+    audit_setting_write(&db, &authed, &key, Some(&value), None).await
+}
+
+async fn audit_instance_action(
+    db: &DB,
+    authed: &ApiAuthed,
+    operation: &str,
+    action_kind: ActionKind,
+    parameters: Option<std::collections::HashMap<&str, &str>>,
+) -> error::Result<()> {
+    audit_log(
+        db,
+        authed,
+        operation,
+        action_kind,
+        "global",
+        Some(&authed.email),
+        parameters,
+    )
+    .await
 }
 
 pub async fn set_global_setting_internal(
@@ -1173,26 +1200,22 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
-        GITHUB_APP_WEBHOOK_BASE_URL_SETTING => {
-            // A bad value here yields a webhook GitHub can never deliver to, and the
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING | API_BASE_URL_SETTING => {
+            // A bad webhook base yields a webhook GitHub can never deliver to, and the
             // failure only shows up much later as "falling back to polling" on a
-            // repository — so reject it at the boundary instead.
+            // repository; a bad API base puts an unreachable URL in front of every user.
+            // So reject both at the boundary instead.
             match value {
                 // Clearing (delete row) is handled by the caller; allow it through.
                 serde_json::Value::Null => {}
                 serde_json::Value::String(s) if s.trim().is_empty() => {}
                 serde_json::Value::String(s) => {
-                    windmill_common::global_settings::validate_webhook_base_url(s).map_err(
-                        |e| {
-                            error::Error::BadRequest(format!(
-                                "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING}: {e}"
-                            ))
-                        },
-                    )?;
+                    windmill_common::global_settings::validate_webhook_base_url(s)
+                        .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
                 }
                 _ => {
                     return Err(error::Error::BadRequest(format!(
-                        "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING} must be a URL string"
+                        "{key} must be a URL string"
                     )));
                 }
             }
@@ -1235,7 +1258,7 @@ async fn get_instance_config(
     authed: ApiAuthed,
 ) -> JsonResult<InstanceConfig> {
     require_super_admin(&db, &authed).await?;
-    let config = InstanceConfig::from_db(&db)
+    let config = InstanceConfig::from_db_for_api(&db)
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
     Ok(Json(config))
@@ -1246,7 +1269,7 @@ async fn get_instance_config_yaml(
     authed: ApiAuthed,
 ) -> error::Result<Response> {
     require_super_admin(&db, &authed).await?;
-    let config = InstanceConfig::from_db(&db)
+    let config = InstanceConfig::from_db_for_api(&db)
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
     let yaml = config
@@ -1305,13 +1328,15 @@ async fn set_instance_config(
                 run_setting_pre_write_hook(&db, key, value).await?;
             }
         }
+        let auditor = InstanceConfigAuditor { db: &db, author: &authed, source: None };
+        // The external-instance write removes its own key from the diff.
         windmill_common::external_instance_pg::write_external_instance_pg_from_diff(
             &db,
             &mut settings_diff,
+            &auditor,
         )
         .await?;
-
-        instance_config::apply_settings_diff(&db, &settings_diff)
+        instance_config::apply_settings_diff(&db, &settings_diff, &auditor)
             .await
             .map_err(|e| error::Error::internal_err(e.to_string()))?;
 
@@ -1343,9 +1368,13 @@ async fn set_instance_config(
             .collect();
         let configs_diff =
             instance_config::diff_worker_configs(&current_wc, &desired_wc, ApplyMode::Merge);
-        instance_config::apply_configs_diff(&db, &configs_diff)
-            .await
-            .map_err(|e| error::Error::internal_err(e.to_string()))?;
+        instance_config::apply_configs_diff(
+            &db,
+            &configs_diff,
+            &InstanceConfigAuditor { db: &db, author: &authed, source: None },
+        )
+        .await
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
     }
 
     Ok(())
@@ -1385,6 +1414,11 @@ pub async fn get_global_setting(
         && key != MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING
     {
         require_super_admin(&db, &authed).await?;
+    }
+    if instance_config::is_withheld_server_secret(&key) {
+        return Err(error::Error::BadRequest(format!(
+            "{key} is a server secret and this server does not export it (EXPORT_SERVER_SECRETS=false)"
+        )));
     }
     let value = sqlx::query!("SELECT value FROM global_settings WHERE name = $1", key)
         .fetch_optional(&db)
@@ -1428,7 +1462,10 @@ async fn list_global_settings(
     require_super_admin(&db, &authed).await?;
     let settings = sqlx::query_as!(GlobalSetting, "SELECT name, value FROM global_settings")
         .fetch_all(&db)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|s| !instance_config::is_withheld_server_secret(&s.name))
+        .collect();
 
     Ok(Json(settings))
 }
@@ -1575,6 +1612,14 @@ pub async fn renew_license_key(
             }
         )));
     } else {
+        audit_instance_action(
+            &db,
+            &authed,
+            "settings.renew_license_key",
+            ActionKind::Update,
+            None,
+        )
+        .await?;
         return Ok("Renewed license key".to_string());
     }
 }
@@ -1804,6 +1849,14 @@ async fn refresh_custom_instance_user_pwd(
     require_super_admin(&db, &authed).await?;
     windmill_common::utils::refresh_custom_instance_user_pwd(&db).await?;
     windmill_common::utils::refresh_custom_instance_replication_user_pwd(&db).await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.refresh_custom_instance_user_pwd",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(()))
 }
 
@@ -1962,7 +2015,8 @@ async fn setup_custom_instance_pg_database(
     windmill_common::datatable_roles::lock_instance_databases_governance(&mut tx, [dbname.trim()])
         .await?;
     let mut logs = CustomInstanceDbLogs::default();
-    let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
+    let result =
+        setup_custom_instance_pg_database_inner(authed.clone(), &db, &dbname, &mut logs).await;
     let success = result.is_ok();
     let error = result.err().map(|e| e.to_string());
     let status = CustomInstanceDb {
@@ -1990,6 +2044,20 @@ async fn setup_custom_instance_pg_database(
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.setup_custom_instance_pg_database",
+        ActionKind::Create,
+        Some(
+            [
+                ("dbname", dbname.as_str()),
+                ("success", if success { "true" } else { "false" }),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
     let status: CustomInstanceDb = serde_json::from_value(saved).map_err(to_anyhow)?;
 
     Ok(Json(status))
@@ -2168,6 +2236,14 @@ async fn drop_custom_instance_pg_database(
     require_super_admin(&db, &authed).await?;
 
     windmill_common::drop_custom_instance_database(&db, &dbname).await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.drop_custom_instance_pg_database",
+        ActionKind::Delete,
+        Some([("dbname", dbname.as_str())].into()),
+    )
+    .await?;
 
     Ok(format!("Database '{}' dropped successfully", dbname))
 }
@@ -2212,6 +2288,14 @@ pub async fn migrate_secrets_to_vault(
 
     let report = windmill_common::secret_backend::migrate_secrets_to_vault(&db, &settings).await?;
 
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_to_vault",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 
@@ -2233,6 +2317,14 @@ pub async fn migrate_secrets_to_database(
     let report =
         windmill_common::secret_backend::migrate_secrets_to_database(&db, &settings).await?;
 
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_to_database",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 
@@ -2266,6 +2358,14 @@ pub async fn migrate_secrets_to_azure_kv(
     let report =
         windmill_common::secret_backend::migrate_secrets_to_azure_kv(&db, &settings).await?;
 
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_to_azure_kv",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 
@@ -2283,6 +2383,14 @@ pub async fn migrate_secrets_from_azure_kv(
     let report =
         windmill_common::secret_backend::migrate_secrets_from_azure_kv(&db, &settings).await?;
 
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_from_azure_kv",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 
@@ -2307,6 +2415,14 @@ pub async fn migrate_secrets_to_aws_sm(
 ) -> JsonResult<SecretMigrationReport> {
     require_super_admin(&db, &authed).await?;
     let report = windmill_common::secret_backend::migrate_secrets_to_aws_sm(&db, &settings).await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_to_aws_sm",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 
@@ -2320,6 +2436,14 @@ pub async fn migrate_secrets_from_aws_sm(
     require_super_admin(&db, &authed).await?;
     let report =
         windmill_common::secret_backend::migrate_secrets_from_aws_sm(&db, &settings).await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_from_aws_sm",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
     Ok(Json(report))
 }
 
@@ -2342,95 +2466,6 @@ pub async fn get_jwks() -> JsonResult<JwksResponse> {
     Ok(Json(JwksResponse { keys: vec![] }))
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
-struct CachedResourceType {
-    #[allow(dead_code)]
-    id: i64,
-    name: String,
-    schema: Option<serde_json::Value>,
-    #[allow(dead_code)]
-    app: String,
-    description: Option<String>,
-    /// Doubly optional, and read through a wrapping deserializer: this struct also
-    /// decodes the on-disk cache, where an absent key means "written before the
-    /// column, leave the stored extension alone" and an explicit null means the hub
-    /// dropped it. Plain serde folds both into `None`.
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option"
-    )]
-    format_extension: Option<Option<String>>,
-    /// Doubly optional like `format_extension`: no key leaves the stored name alone, an explicit
-    /// null (the hub naming nothing) clears it.
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option"
-    )]
-    display_name: Option<Option<String>>,
-}
-
-#[derive(serde::Deserialize)]
-struct HubResourceTypeRaw {
-    id: i64,
-    name: String,
-    schema: Option<String>,
-    app: String,
-    description: Option<String>,
-    #[serde(default)]
-    format_extension: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option"
-    )]
-    display_name: Option<Option<String>>,
-}
-
-async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType>> {
-    let response = HTTP_CLIENT
-        .get(format!(
-            "{}/resource_types/list",
-            windmill_common::DEFAULT_HUB_BASE_URL
-        ))
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| error::Error::InternalErr(format!("Failed to fetch from hub: {}", e)))?;
-
-    if !response.status().is_success() {
-        return Err(error::Error::InternalErr(format!(
-            "Hub returned status {}",
-            response.status()
-        )));
-    }
-
-    let raw_types: Vec<HubResourceTypeRaw> = response
-        .json()
-        .await
-        .map_err(|e| error::Error::InternalErr(format!("Failed to parse hub response: {}", e)))?;
-
-    Ok(raw_types
-        .into_iter()
-        .filter_map(|rt| {
-            let schema = match rt.schema {
-                Some(s) => match serde_json::from_str(&s) {
-                    Ok(v) => Some(v),
-                    Err(_) => return None,
-                },
-                None => None,
-            };
-            Some(CachedResourceType {
-                id: rt.id,
-                name: rt.name,
-                schema,
-                app: rt.app,
-                description: rt.description,
-                format_extension: Some(rt.format_extension),
-                display_name: rt.display_name,
-            })
-        })
-        .collect())
-}
-
 #[derive(serde::Deserialize)]
 struct SyncResourceTypesQuery {
     name: Option<String>,
@@ -2443,118 +2478,45 @@ async fn sync_cached_resource_types(
 ) -> error::Result<String> {
     require_super_admin(&db, &authed).await?;
 
-    use windmill_common::worker::HUB_RT_CACHE_DIR;
-    let cache_path = format!("{}/resource_types.json", *HUB_RT_CACHE_DIR);
+    let outcome = hub_resource_types::sync(&db).await?;
 
-    // Manual sync is hub-first so it lands newly-published hub types on demand. The
-    // on-disk cache is only a fallback for when the hub is unreachable (airgapped
-    // installs / network error); refreshing it is left to the daily cache-rt cron and
-    // the startup sync in main.rs, which own the offline path.
-    let (resource_types, from_hub) = match fetch_resource_types_from_hub().await {
-        Ok(types) => {
-            tracing::info!("Fetched {} resource types live from the hub", types.len());
-            (types, true)
-        }
-        Err(hub_err) => {
-            tracing::warn!(
-                "Live hub fetch failed ({hub_err}), falling back to on-disk cache at {cache_path}"
-            );
-            match tokio::fs::read_to_string(&cache_path).await {
-                Ok(content) => {
-                    let parsed = serde_json::from_str::<Vec<CachedResourceType>>(&content)
-                        .map_err(|e| {
-                            error::Error::InternalErr(format!(
-                                "Failed to parse cached resource types: {}",
-                                e
-                            ))
-                        })?;
-                    (parsed, false)
-                }
-                Err(_) => return Err(hub_err),
-            }
-        }
-    };
-
-    let mut synced_count = 0;
-
-    for rt in &resource_types {
-        // A name too long for the column counts as absent, leaving the stored one alone: one bad
-        // entry must not fail the upsert and end the rest of the sync.
-        let display_name = match &rt.display_name {
-            Some(Some(name)) if name.chars().count() > 100 => None,
-            other => other.clone(),
+    if !outcome.changed.is_empty() {
+        let source = match outcome.source {
+            SyncSource::Hub => "hub",
+            SyncSource::ImageCache => "image_cache",
         };
-        let exists: Option<bool> = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3 AND ($5 IS NOT TRUE OR format_extension IS NOT DISTINCT FROM $4) AND ($7 IS NOT TRUE OR display_name IS NOT DISTINCT FROM $6))",
-            &rt.name,
-            rt.schema.as_ref(),
-            rt.description.as_deref(),
-            rt.format_extension.clone().flatten(),
-            rt.format_extension.is_some(),
-            display_name.clone().flatten(),
-            display_name.is_some(),
+        let changed = outcome.changed.join(", ");
+        audit_log(
+            &db,
+            &authed,
+            "resource_types.sync",
+            ActionKind::Update,
+            "admins",
+            None,
+            Some([("source", source), ("changed", changed.as_str())].into()),
         )
-        .fetch_one(&db)
         .await?;
-
-        if exists.unwrap_or(false) {
-            continue;
-        }
-
-        sqlx::query!(
-            // Whether the payload carried the key at all is what decides: present
-            // (even as null) is authoritative and may clear, absent means a cache
-            // written before the column and must leave the stored value alone.
-            "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, display_name, edited_at)
-             VALUES ('admins', $1, $2, $3, $4, $6, now())
-             ON CONFLICT (workspace_id, name) DO UPDATE
-             SET schema = EXCLUDED.schema, description = EXCLUDED.description,
-                 -- A fileset is a set of files, so it cannot also be one file.
-                 -- Create and update reject the pair; this writer bypasses both, so
-                 -- it declines the extension rather than persisting the forbidden
-                 -- combination onto a same-named local fileset.
-                 format_extension = CASE
-                     WHEN resource_type.is_fileset THEN NULL
-                     WHEN $5 THEN EXCLUDED.format_extension
-                     ELSE resource_type.format_extension END,
-                 display_name = CASE WHEN $7 THEN EXCLUDED.display_name ELSE resource_type.display_name END,
-                 edited_at = now()",
-            &rt.name,
-            rt.schema.as_ref(),
-            rt.description.as_deref(),
-            rt.format_extension.clone().flatten(),
-            rt.format_extension.is_some(),
-            display_name.clone().flatten(),
-            display_name.is_some(),
-        )
-        .execute(&db)
-        .await?;
-
-        synced_count += 1;
     }
 
     // If a specific type was requested and is still absent after syncing, surface an
     // explicit not-found instead of a silent "Synced 0". Word it by source so the
     // cache-fallback path does not claim it checked the hub.
     if let Some(name) = name.as_deref() {
-        if !resource_types.iter().any(|rt| rt.name == name) {
-            let source = if from_hub {
-                "on the hub"
-            } else {
-                "in the cached resource types (hub unreachable)"
+        if !outcome.listed.iter().any(|listed| listed == name) {
+            let source = match outcome.source {
+                SyncSource::Hub => "on the hub",
+                SyncSource::ImageCache => "in the cached resource types (hub unavailable)",
             };
             return Err(error::Error::NotFound(format!(
-                "resource type '{}' not found {}",
-                name, source
+                "resource type '{name}' not found {source}"
             )));
         }
     }
 
-    Ok(format!(
-        "Synced {} resource types ({} unchanged)",
-        synced_count,
-        resource_types.len() - synced_count
-    ))
+    Ok(match outcome.source {
+        SyncSource::Hub => outcome.summary(),
+        SyncSource::ImageCache => format!("{}, the hub being unavailable", outcome.summary()),
+    })
 }
 
 #[cfg(test)]

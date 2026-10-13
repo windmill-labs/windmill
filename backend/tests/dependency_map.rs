@@ -452,6 +452,7 @@ def main():
                 ws_error_handler_muted: None,
                 labels: None,
                 skip_draft_deletion: None,
+                job_token_scopes: None,
             })
             .send()
             .await

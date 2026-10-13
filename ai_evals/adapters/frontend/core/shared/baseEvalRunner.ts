@@ -85,6 +85,7 @@ export async function runEval<THelpers, TOutput>(
 
   const model = options.model ?? "gpt-4o";
   const maxIterations = options.maxIterations ?? 20;
+  const pendingAnswers = options.userAnswers && [...options.userAnswers];
   const workspace = options.workspace ?? "test-workspace";
   const provider = toFrontendEvalProvider(options.provider);
 
@@ -138,6 +139,12 @@ export async function runEval<THelpers, TOutput>(
     // edit the arguments, so a case can assert what the model proposed but never how
     // it reacts to the user changing something.
     requestRunArgs: async (_toolId, form) => form.args,
+    ...(pendingAnswers && {
+      requestUserQuestion: async () => {
+        const answer = pendingAnswers.shift();
+        return answer === undefined ? undefined : [answer];
+      },
+    }),
     onNewToken: (token: string) => {
       if (shouldEmitMessageStart) {
         onAssistantMessageStart?.();

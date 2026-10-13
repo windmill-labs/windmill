@@ -44,9 +44,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     case "$arch" in \
-    'amd64') targz='go1.26.0.linux-amd64.tar.gz' ;; \
-    'arm64') targz='go1.26.0.linux-arm64.tar.gz' ;; \
-    'armhf') targz='go1.26.0.linux-armv6l.tar.gz' ;; \
+    'amd64') targz='go1.27.1.linux-amd64.tar.gz' ;; \
+    'arm64') targz='go1.27.1.linux-arm64.tar.gz' ;; \
+    'armhf') targz='go1.27.1.linux-armv6l.tar.gz' ;; \
     *) echo >&2 "error: unsupported architecture '$arch'"; exit 1 ;; \
     esac; \
     wget "https://golang.org/dl/$targz" -nv && tar -C /usr/local -xzf "$targz" && rm "$targz"
@@ -71,7 +71,7 @@ ENV XDG_CACHE_HOME=/pyls/.cache
 RUN uv pip install --system --break-system-packages pipenv tornado python-lsp-jsonrpc ruff==0.16.0 Cython
 
 # Install Node-based language servers
-RUN npm install -g diagnostic-languageserver pyright
+RUN npm install -g pyright
 
 # Setup LSP working directory
 WORKDIR /pyls

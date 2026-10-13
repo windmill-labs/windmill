@@ -11,7 +11,6 @@
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import type { FlowEditorContext } from '../types'
-	import { base } from '$app/paths'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -127,7 +126,7 @@
 					// Follow the drawer's own selection, which the user may have moved since it opened.
 					const stepId = flowBuilder?.getSelectedId() ?? selectedStepId
 					const selected = stepId ? `?selected=${encodeURIComponent(stepId)}` : ''
-					window.open(`${base}/flows/edit/${flowPath}${selected}`, '_blank', 'noopener,noreferrer')
+					window.open(`/flows/edit/${flowPath}${selected}`, '_blank', 'noopener,noreferrer')
 					flowEditorDrawer?.closeDrawer()
 				}}
 				startIcon={{ icon: ExternalLink }}

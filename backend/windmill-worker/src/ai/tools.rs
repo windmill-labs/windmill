@@ -4,7 +4,7 @@ use crate::ai::utils::{
     is_completed_input_transform, update_flow_status_module_with_actions,
     update_flow_status_module_with_actions_success, FlowContext,
 };
-use crate::common::OccupancyMetrics;
+use crate::common::{get_root_job_id, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
 use crate::worker_flow::{
     evaluate_input_transform, raw_script_to_payload, resolve_flow_step_tag, script_to_payload,
@@ -372,7 +372,8 @@ async fn enqueue_windmill_tool(
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. }
         | FlowModuleValue::FlowScript { input_transforms, .. }
-        | FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+        | FlowModuleValue::AIAgent { input_transforms, .. }
+        | FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
         _ => {
             return Err(Error::internal_err(format!(
                 "Unsupported tool: {}",
@@ -473,13 +474,15 @@ async fn enqueue_windmill_tool(
             let has_nested_agent_tools = sub_tools.iter().any(|t| {
                 matches!(
                     t.value,
-                    windmill_common::flows::ToolValue::FlowModule(FlowModuleValue::AIAgent { .. })
+                    windmill_common::flows::ToolValue::FlowModule(
+                        FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. }
+                    )
                 )
             });
             if has_nested_agent_tools {
                 return Err(Error::internal_err(
                     "AI agent tools cannot be nested beyond 2 levels. The nested agent tool contains \
-                     AIAgent sub-tools, which would exceed the maximum nesting depth.".to_string()
+                     AI agent or AI decision sub-tools, which would exceed the maximum nesting depth.".to_string()
                 ));
             }
             let path = format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id);
@@ -492,6 +495,18 @@ async fn enqueue_windmill_tool(
                 on_behalf_of: None,
             }
         }
+        // Runs as an AI agent job, whose handler finds this tool on the calling agent and answers
+        // it as a decision.
+        FlowModuleValue::AIDecision { tag, .. } => JobPayloadWithTag {
+            payload: JobPayload::AIAgent {
+                path: format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id),
+            },
+            tag: tag.filter(|t| !t.trim().is_empty()),
+            delete_after_use: tool_module.delete_after_use.unwrap_or(false),
+            delete_after_secs: None,
+            timeout: None,
+            on_behalf_of: None,
+        },
         _ => {
             return Err(Error::internal_err(format!(
                 "Unsupported tool: {}",
@@ -599,6 +614,16 @@ async fn enqueue_windmill_tool(
         None,
         None,
         None,
+        // A tool never holds a wider token than the agent calling it, and its own setting
+        // narrows that further.
+        windmill_common::scopes::intersect_job_token_scopes(
+            ctx.job.job_token_scopes.as_deref(),
+            windmill_common::scopes::step_job_token_scopes(
+                tool_module.job_token_scopes.as_deref(),
+            )
+            .as_deref(),
+        )
+        .as_deref(),
     )
     .await?;
 
@@ -824,8 +849,12 @@ async fn execute_windmill_tools(
                     .result
                     .map(|value| value.0)
                     .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+                // A nested agent's or a decision's result is an envelope; the model sees `output`.
                 let is_agent = tool.module.as_ref().is_some_and(|module| {
-                    matches!(module.get_value(), Ok(FlowModuleValue::AIAgent { .. }))
+                    matches!(
+                        module.get_value(),
+                        Ok(FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. })
+                    )
                 });
                 let content = if is_agent && completed.success {
                     extract_ai_agent_output(&result).unwrap_or_else(|| result.get().to_string())
@@ -961,11 +990,7 @@ fn windmill_tool_row(
 /// Add tool message to conversation if chat is enabled
 async fn add_tool_message_to_chat(
     ctx: &mut ToolExecutionContext<'_>,
-    // The job this row belongs to: the tool's own where it has one, else the agent's, which
-    // is the job it ran inside. Every row names one so that retention collects the whole
-    // turn — `delete_jobs` removes messages by `job_id = ANY(..)` (there is no FK on the
-    // column; `drop_v2_job_side_table_cascades` dropped it), and a row naming no job would
-    // survive every purge and leave a conversation that can never become empty.
+    // The tool's own job where it has one, else the agent's, which is the job it ran inside.
     tool_job_id: Option<Uuid>,
     content: &str,
     success: bool,
@@ -1005,6 +1030,7 @@ async fn add_tool_message_to_chat(
                 ctx.db,
                 &memory_id,
                 tool_job_id,
+                get_root_job_id(ctx.job),
                 content,
                 MessageType::Tool,
                 &step_name,

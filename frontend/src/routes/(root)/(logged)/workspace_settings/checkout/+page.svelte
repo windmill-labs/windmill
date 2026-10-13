@@ -31,7 +31,7 @@
 </script>
 
 <!-- svelte-ignore missing_declaration -->
-<CenteredModal title="Subscription upgrade {success ? 'succeeded' : 'failed'}">
+<CenteredModal title="Subscription upgrade {success ? 'succeeded' : 'failed'}" inPage>
 	{#if !success}
 		<div class="my-2">
 			<Alert type="error" title="Checkout failed">

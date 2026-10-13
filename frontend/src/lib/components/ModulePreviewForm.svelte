@@ -8,6 +8,7 @@
 	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { evalValue } from './flows/utils.svelte'
+	import { quickjsReady, quickjsSettled } from '$lib/utils/quickjsEval.svelte'
 	import { memoryPropertyFor } from './flows/flowInfers'
 	import type { FlowModule } from '$lib/gen'
 	import type { PickableProperties } from './flows/previousResults'
@@ -155,9 +156,12 @@
 	loadResourceTypes()
 
 	let initialized = $state(false)
+	quickjsReady()
 
+	// Inputs mounted before the engine can evaluate fill in their defaults, which then read as
+	// manual edits and win over the evaluated values.
 	$effect.pre(() => {
-		if (!initialized) {
+		if (!initialized && quickjsSettled()) {
 			if (stepsInputArgs) {
 				stepsInputArgs?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
 				initialized = true

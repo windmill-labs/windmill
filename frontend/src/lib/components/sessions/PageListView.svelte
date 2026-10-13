@@ -19,7 +19,7 @@
 	}: {
 		runtime: SessionRuntime
 		tab: SessionPreviewTab
-		/** The list page, base-stripped. */
+		/** The list page path. */
 		path: string
 		workspaceId: string
 		/** The tab's element, which also holds the list's portalled drawers and menus. */

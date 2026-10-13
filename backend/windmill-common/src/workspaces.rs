@@ -184,7 +184,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28994/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/29151/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -192,7 +192,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28994/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28993/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/29150/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -823,6 +823,7 @@ pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
 pub struct BillableSeats {
     pub developers: i64,
     pub operators: i64,
+    pub service_accounts: i64,
     pub seats: i64,
 }
 
@@ -1043,9 +1044,10 @@ pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgre
     Ok(admits.unwrap_or(false))
 }
 
-/// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`. Service
-/// accounts cannot log in and do not take a seat; a disabled member is not billed either. In a
-/// workspace that granted operators builder rights, every operator counts as a developer.
+/// Billable members of `w_id` and the seats they cost, as
+/// `ceil(developers + (operators + service_accounts)/2)`. A service account is half a seat whatever
+/// its role; a disabled member is not billed. In a workspace that granted operators builder rights,
+/// every operator counts as a developer.
 ///
 /// The workspace is invoiced by a job outside this codebase that counts the same rows with its own
 /// SQL. The two must be changed together: this rule disagreeing with that one is what bills a
@@ -1057,14 +1059,15 @@ pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats>
     let row = sqlx::query!(
         r#"SELECT
             COUNT(*) FILTER (WHERE NOT operator AND NOT disabled AND NOT is_service_account) AS "developers!",
-            COUNT(*) FILTER (WHERE operator AND NOT disabled AND NOT is_service_account) AS "operators!"
+            COUNT(*) FILTER (WHERE operator AND NOT disabled AND NOT is_service_account) AS "operators!",
+            COUNT(*) FILTER (WHERE is_service_account AND NOT disabled) AS "service_accounts!"
         FROM usr WHERE workspace_id = $1"#,
         w_id
     )
     .fetch_one(db)
     .await
     .map_err(|e| Error::internal_err(format!("counting billable seats of {w_id}: {e:#}")))?;
-    let (developers, operators) = if operator_can_build_flows(db, w_id).await? {
+    let (developers, operators) = if operator_builder_rights(db, w_id).await?.any() {
         (row.developers + row.operators, 0)
     } else {
         (row.developers, row.operators)
@@ -1072,7 +1075,9 @@ pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats>
     Ok(BillableSeats {
         developers,
         operators,
-        seats: ((developers as f64) + 0.5 * (operators as f64)).ceil() as i64,
+        service_accounts: row.service_accounts,
+        seats: ((developers as f64) + 0.5 * ((operators + row.service_accounts) as f64)).ceil()
+            as i64,
     })
 }
 
@@ -1200,12 +1205,45 @@ lazy_static::lazy_static! {
 
 /// Every operator right of a workspace, read and cached together because they share one
 /// `operator_settings` column and one invalidation. The two groups have opposite polarity:
-/// `builder_flows` is granted on request and costs a seat, the `manage` rights are held by
+/// the builder rights are granted on request and cost a seat, the `manage` rights are held by
 /// default and cost nothing.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct OperatorRights {
-    pub builder_flows: bool,
+    pub builder: OperatorBuilderRights,
     pub manage: OperatorManageRights,
+}
+
+/// The two things a workspace can let its operators compose. Granted independently: composing a
+/// flow is fully checked server-side, while a full-code app is a browser-built bundle no check can
+/// read, so an admin may reasonably want the first without the second.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct OperatorBuilderRights {
+    pub flows: bool,
+    pub apps: bool,
+}
+
+/// Which capability a gate needs. Naming a kind at each call site is what keeps the two rights
+/// from collapsing back into one: a gate that takes "either" authorizes an app write on a
+/// flows-only workspace.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BuilderKind {
+    Flows,
+    Apps,
+}
+
+impl OperatorBuilderRights {
+    /// Whether either right is granted. Only for surfaces that are genuinely not per-kind: the
+    /// seat a membership costs, and listing drafts.
+    pub fn any(&self) -> bool {
+        self.flows || self.apps
+    }
+
+    pub fn has(&self, kind: BuilderKind) -> bool {
+        match kind {
+            BuilderKind::Flows => self.flows,
+            BuilderKind::Apps => self.apps,
+        }
+    }
 }
 
 /// Writes an operator may perform unless the workspace withdraws them. Unlike the visibility
@@ -1286,6 +1324,7 @@ async fn operator_rights(db: &DB, workspace_id: &str) -> Result<OperatorRights> 
     // defaults have to differ here rather than at the call sites.
     let row = sqlx::query!(
         "SELECT COALESCE((operator_settings->>'builder_flows')::boolean, false) AS \"flows!\",
+                COALESCE((operator_settings->>'builder_apps')::boolean, false) AS \"apps!\",
                 COALESCE((operator_settings->>'manage_schedules')::boolean, true) AS \"schedules!\",
                 COALESCE((operator_settings->>'manage_triggers')::boolean, true) AS \"triggers!\"
          FROM workspace_settings WHERE workspace_id = $1",
@@ -1301,7 +1340,7 @@ async fn operator_rights(db: &DB, workspace_id: &str) -> Result<OperatorRights> 
 
     let rights = row
         .map(|r| OperatorRights {
-            builder_flows: r.flows,
+            builder: OperatorBuilderRights { flows: r.flows, apps: r.apps },
             manage: OperatorManageRights { schedules: r.schedules, triggers: r.triggers },
         })
         .unwrap_or_default();
@@ -1311,21 +1350,22 @@ async fn operator_rights(db: &DB, workspace_id: &str) -> Result<OperatorRights> 
     Ok(rights)
 }
 
-/// Whether operators of this workspace may compose flows out of already-deployed runnables. Per
-/// workspace, not per user: every operator gets it, and consumes a full seat for it.
-pub async fn operator_can_build_flows(db: &DB, workspace_id: &str) -> Result<bool> {
-    Ok(operator_rights(db, workspace_id).await?.builder_flows)
+/// What operators of this workspace may compose out of already-deployed runnables. Per workspace,
+/// not per user: every operator gets whatever is granted, and consumes a full seat for it.
+pub async fn operator_builder_rights(db: &DB, workspace_id: &str) -> Result<OperatorBuilderRights> {
+    Ok(operator_rights(db, workspace_id).await?.builder)
 }
 
-/// Gate for a write only a workspace that granted builder rights lets operators perform. `action`
-/// completes "Operators cannot {action} for security reasons".
-pub async fn check_operator_can_build_flows(
+/// Gate for a write only a workspace that granted the builder right covering `kind` lets operators
+/// perform. `action` completes "Operators cannot {action} for security reasons".
+pub async fn check_operator_can_build(
     db: &DB,
     workspace_id: &str,
     is_operator: bool,
+    kind: BuilderKind,
     action: &str,
 ) -> Result<()> {
-    if is_operator && !operator_can_build_flows(db, workspace_id).await? {
+    if is_operator && !operator_builder_rights(db, workspace_id).await?.has(kind) {
         return Err(Error::PermissionDenied(format!(
             "Operators cannot {action} for security reasons"
         )));
@@ -1333,14 +1373,15 @@ pub async fn check_operator_can_build_flows(
     Ok(())
 }
 
-/// Whether a membership consumes an operator (half) seat rather than an author seat. A builder
-/// right makes an operator an author of deployable artifacts, so it weighs a full seat.
+/// Whether a membership consumes an operator (half) seat rather than an author seat. Either
+/// builder right makes an operator an author of deployable artifacts, so both weigh the same full
+/// seat: there is no half-author.
 pub async fn consumes_operator_seat(
     db: &DB,
     workspace_id: &str,
     is_operator: bool,
 ) -> Result<bool> {
-    Ok(is_operator && !operator_can_build_flows(db, workspace_id).await?)
+    Ok(is_operator && !operator_builder_rights(db, workspace_id).await?.any())
 }
 
 /// Invalidate the operator rights cache for a workspace
@@ -1523,7 +1564,8 @@ pub struct DataTableReference {
 /// The access decision for one data table: which role a caller gets, and who may ask for each.
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct DataTablePermissions {
-    /// A role id from the instance catalog, or `admin`. Absent = `admin`.
+    /// A role id from the instance catalog, `admin`, or
+    /// [`crate::datatable_roles::NO_DEFAULT_DATATABLE_ROLE`]. Absent = `admin`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_role: Option<String>,
     /// Keyed by instance role id, plus the reserved `admin` key. A role absent from this map
@@ -2120,9 +2162,13 @@ pub enum DatatableAccess<'a> {
     PermissionedAs {
         permissioned_as: &'a str,
         email: &'a str,
+        /// The job's viewer: MUST be what the server recorded in `job_perms.end_user_email`,
+        /// never an argument or anything else the job or its caller can set.
+        end_user_email: Option<&'a str>,
     },
-    /// A job identified by id; its owner is read from `v2_job`. For agent workers and anything
-    /// else that authenticates as infrastructure rather than as the job's user.
+    /// A job identified by id; its owner is read from `v2_job` and its viewer from `job_perms`.
+    /// For agent workers and anything else that authenticates as infrastructure rather than as
+    /// the job's user.
     Job(uuid::Uuid),
     /// No identity established. Unpermissioned data tables resolve as before; permissioned ones
     /// are refused, so a caller predating this feature fails closed.
@@ -2170,6 +2216,13 @@ pub async fn can_use_datatable_role_in_governing_workspace(
 ///
 /// The resolved role **logs in as itself**. Never `SET ROLE`: a script could `RESET ROLE` its way
 /// back to admin.
+///
+/// A default role other than `admin` is a floor rather than the whole connection: a resolution
+/// naming no role holds it when the job's own identity may use it, plus the roles whose tenant
+/// lists name the job's viewer, as one login that is a member of each. With no role at all it is
+/// refused. Being an admin adds none of the viewer's and `admin` is never among them, so a viewer
+/// cannot be handed the connection that owns the tables and bypasses row-level security. A named
+/// role is that role alone.
 pub async fn get_datatable_resource_from_db(
     db: &DB,
     w_id: &str,

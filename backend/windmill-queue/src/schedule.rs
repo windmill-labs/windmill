@@ -103,6 +103,7 @@ async fn get_schedule_metadata<'c>(
             on_behalf_of,
             _runnable_settings_handle,
             _labels,
+            _job_token_scopes,
         ) = windmill_common::get_latest_hash_for_path(
             &mut **tx,
             db,
@@ -368,7 +369,8 @@ pub async fn push_scheduled_job<'c>(
         .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
         .await?;
         let on_behalf_of = flow_info.on_behalf_of(&schedule.workspace_id, db).await?;
-        let FlowVersionInfo { version, tag, dedicated_worker, labels, .. } = flow_info;
+        let FlowVersionInfo { version, tag, dedicated_worker, labels, job_token_scopes, .. } =
+            flow_info;
 
         (
             JobPayload::Flow {
@@ -377,6 +379,7 @@ pub async fn push_scheduled_job<'c>(
                 apply_preprocessor: false,
                 version,
                 labels,
+                job_token_scopes,
             },
             tag,
             None,
@@ -442,6 +445,7 @@ pub async fn push_scheduled_job<'c>(
             on_behalf_of,
             runnable_settings_handle,
             labels,
+            job_token_scopes,
         ) = windmill_common::get_latest_hash_for_path(
             &mut *tx,
             db,
@@ -535,6 +539,7 @@ pub async fn push_scheduled_job<'c>(
                         concurrency_time_window_s,
                     ),
                     labels,
+                    job_token_scopes,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -663,6 +668,7 @@ pub async fn push_scheduled_job<'c>(
             Some(schedule.path.clone()),
             JobTriggerKind::Schedule,
         )),
+        None,
         None,
     )
     .warn_after_seconds_with_sql(1, "push in push_scheduled_job".to_string())

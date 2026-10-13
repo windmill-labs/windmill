@@ -760,6 +760,7 @@ async fn push_run_flow(
 
     let path = subject.path.clone();
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, tx) = push(
         db,
         tx,
@@ -790,6 +791,7 @@ async fn push_run_flow(
         None,
         authed.trigger_or_fallback(None),
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;

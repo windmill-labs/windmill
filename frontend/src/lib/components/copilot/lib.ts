@@ -32,6 +32,7 @@ import { formatResourceTypes } from './utils'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	type LiveToolSet,
 	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks
@@ -71,6 +72,7 @@ interface AIProviderDetails {
 // the frontier model. The gpt-5 family is deprecated (retires 2026-12-11) but
 // still served, so it stays in the list below the 5.6 models.
 const OPENAI_MODELS = [
+	'gpt-6.1-sol',
 	'gpt-6-sol',
 	'gpt-6-astra',
 	'gpt-6-luna',
@@ -85,7 +87,11 @@ const OPENAI_MODELS = [
 	'o3'
 ]
 
-export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
+/** The providers that chat. Every surface picking a model to talk to (the copilot, flow chat, an
+ *  agent's text or image output, eval judges) offers exactly these. */
+export type ChatAIProvider = Exclude<AIProvider, 'typesafe' | 'cloudflare'>
+
+export const AI_PROVIDERS: Record<ChatAIProvider, AIProviderDetails> = {
 	openai: {
 		label: 'OpenAI',
 		defaultModels: OPENAI_MODELS
@@ -163,6 +169,40 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	}
 }
 
+/** Decision models answer typed questions instead of messages, so only an AI decision offers
+ *  them: TypeSafe's Jev, Cloudflare's Jev-compatible Clef, and the model of OpenAI's Decisions
+ *  API, which an OpenAI resource serves next to its chat models. The pinned Jev version is there
+ *  for flows tuned against its probabilities. */
+export const DECISION_AI_PROVIDERS: Record<
+	Exclude<AIProvider, ChatAIProvider> | 'openai',
+	AIProviderDetails
+> = {
+	openai: {
+		label: 'OpenAI',
+		defaultModels: ['gpt-6-luna']
+	},
+	typesafe: {
+		label: 'TypeSafe',
+		defaultModels: ['jev-latest', 'jev-1.13.0']
+	},
+	cloudflare: {
+		label: 'Cloudflare',
+		defaultModels: ['clef', 'clef-flash']
+	}
+}
+
+/** Label and default models of any provider kind, chat or decision. A kind in neither list (a flow
+ *  written by hand or by a newer version) is named as it is and offers no models. */
+export function aiProviderDetails(provider: AIProvider): AIProviderDetails {
+	return (
+		(AI_PROVIDERS as Record<string, AIProviderDetails>)[provider] ??
+		(DECISION_AI_PROVIDERS as Record<string, AIProviderDetails>)[provider] ?? {
+			label: provider,
+			defaultModels: []
+		}
+	)
+}
+
 export interface ModelResponse {
 	id: string
 	object: string
@@ -193,6 +233,12 @@ export async function fetchAvailableModels(
 	/** Cap on the listing response, for callers that fetch without a user asking. */
 	maxBytes?: number
 ): Promise<string[]> {
+	// Neither decision provider has an OpenAI-shaped listing: TypeSafe's names models with `name`
+	// and serves one under aliases, and Workers AI's catalog spans every model it hosts.
+	if (provider === 'typesafe' || provider === 'cloudflare') {
+		return DECISION_AI_PROVIDERS[provider].defaultModels
+	}
+
 	// Handle AWS Bedrock separately (needs both foundation-models and inference-profiles)
 	if (provider === 'aws_bedrock') {
 		const headers = {
@@ -506,7 +552,7 @@ const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 	messages: []
 }
 
-export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCreateParams> = {
+export const PROVIDER_COMPLETION_CONFIG_MAP: Record<ChatAIProvider, ChatCompletionCreateParams> = {
 	openai: DEFAULT_COMPLETION_CONFIG,
 	azure_openai: DEFAULT_COMPLETION_CONFIG,
 	azure_foundry: DEFAULT_COMPLETION_CONFIG,
@@ -745,6 +791,20 @@ function getAnthropicStreamingCompletion({
 					created: 0,
 					model: params.modelProvider.model,
 					choices: [{ index: 0, delta: { content: event.delta.text }, finish_reason: null }]
+				}
+			} else if (event.type === 'message_delta' && event.delta.stop_reason) {
+				yield {
+					id: '',
+					object: 'chat.completion.chunk',
+					created: 0,
+					model: params.modelProvider.model,
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: event.delta.stop_reason === 'max_tokens' ? 'length' : 'stop'
+						}
+					]
 				}
 			}
 		}
@@ -1158,12 +1218,18 @@ export async function getCompletion(
 		openaiClient?: OpenAI
 		reasoningEffort?: string
 		promptCaching?: boolean
+		maxTokensCap?: number
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
 
 	if (usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)) {
-		return getAnthropicStreamingCompletion({ messages, modelProvider, abortController })
+		return getAnthropicStreamingCompletion({
+			messages,
+			modelProvider,
+			abortController,
+			maxTokensCap: options?.maxTokensCap
+		})
 	}
 
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -1171,6 +1237,7 @@ export async function getCompletion(
 		stream: true,
 		tools,
 		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap,
 		promptCaching: options?.promptCaching,
 		reasoningEffort: options?.reasoningEffort
 	})
@@ -1181,7 +1248,8 @@ export async function getCompletion(
 			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools, {
 				forceModelProvider: options?.forceModelProvider,
 				openaiClient: options?.openaiClient,
-				reasoningEffort: options?.reasoningEffort
+				reasoningEffort: options?.reasoningEffort,
+				maxTokensCap: options?.maxTokensCap
 			}) as any
 			return stream
 		} catch (error) {
@@ -1223,6 +1291,51 @@ export async function getCompletion(
 	return completion
 }
 
+/**
+ * Streams a completion and returns its whole text. For a generation that can run
+ * for minutes: a non-streaming request sends no byte until the model is done, so
+ * an idle timeout on any hop between the browser and the provider cuts it.
+ */
+export async function getStreamedCompletionText(
+	messages: ChatCompletionMessageParam[],
+	abortController: AbortController,
+	options?: { maxTokensCap?: number }
+): Promise<string> {
+	const drain = async (forceCompletions: boolean) => {
+		const stream = await getCompletion(messages, abortController, undefined, {
+			forceCompletions,
+			maxTokensCap: options?.maxTokensCap
+		})
+		let text = ''
+		let finished = false
+		for await (const chunk of stream) {
+			text += getResponseFromEvent(chunk)
+			finished ||= !!chunk.choices?.[0]?.finish_reason
+		}
+		// The OpenAI SDK ends an aborted stream, and one closed early by a hop in
+		// between, without throwing: partial text must not pass for the whole
+		// completion.
+		abortController.signal.throwIfAborted()
+		if (!finished) {
+			throw new Error('The completion stream ended before the model finished')
+		}
+		return text
+	}
+
+	try {
+		return await drain(false)
+	} catch (error) {
+		// The Responses API stream only fails once iterated, so the fallback to
+		// chat completions for a deployment that doesn't serve it lives here.
+		const { provider } = getCurrentModel()
+		if (abortController.signal.aborted || (provider !== 'openai' && provider !== 'azure_openai')) {
+			throw error
+		}
+		console.error('Error using Responses API:', error)
+		return drain(true)
+	}
+}
+
 function extractFirstJSON(str: string) {
 	let depth = 0,
 		i = 0
@@ -1260,6 +1373,7 @@ export async function parseOpenAICompletion(
 		workspace?: string
 		provider?: string
 		onTokenUsage?: (usage: ChatTokenUsage) => void
+		live?: LiveToolSet
 	}
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
@@ -1471,7 +1585,8 @@ export async function parseOpenAICompletion(
 				helpers,
 				toolCallbacks: callbacks,
 				workspace: options?.workspace,
-				messages
+				messages,
+				live: options?.live
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)

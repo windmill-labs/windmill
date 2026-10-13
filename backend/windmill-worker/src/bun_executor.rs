@@ -2896,6 +2896,9 @@ pub async fn handle_wac_v2_output(
                             concurrency_settings: ConcurrencySettings::default(),
                             debouncing_settings: DebouncingSettings::default(),
                             labels: None,
+                            // Capped by the parent at push, which already holds this
+                            // script's setting.
+                            job_token_scopes: None,
                         })
                     } else {
                         Err(error::Error::internal_err(
@@ -3023,6 +3026,7 @@ pub async fn handle_wac_v2_output(
                             apply_preprocessor: false,
                             version: flow_info.version,
                             labels: flow_info.labels.clone(),
+                            job_token_scopes: flow_info.job_token_scopes.clone(),
                         };
                         let on_behalf_of = flow_info.on_behalf_of(&job.workspace_id, db).await?;
                         (ChildRunnable::Deployed(payload), on_behalf_of)
@@ -3269,9 +3273,10 @@ pub async fn handle_wac_v2_output(
                             .or(if own_runnable { None } else { job.priority }),
                         None,  // authed
                         false, // running
-                        None,  // end_user_email
-                        None,  // trigger
-                        None,  // suspended_mode
+                        job.permissioned_as_end_user_email.clone(),
+                        None, // trigger
+                        None, // suspended_mode
+                        job.job_token_scopes.as_deref(),
                     )
                     .await?;
 
@@ -3726,7 +3731,10 @@ pub async fn handle_wac_v2_output(
             // status row, the order every child completion takes.
             let segment_ms = sqlx::query_scalar!(
                 "WITH prev AS (SELECT started_at FROM v2_job_queue WHERE id = $1)
-                 UPDATE v2_job_queue q SET running = false, started_at = null
+                 UPDATE v2_job_queue q SET running = false, started_at = null,
+                     extras = CASE WHEN q.started_at IS NULL OR q.extras ? 'wac_first_started_at' THEN q.extras
+                         ELSE jsonb_set(COALESCE(q.extras, '{}'::jsonb), '{wac_first_started_at}', to_jsonb(q.started_at))
+                     END
                  FROM prev WHERE q.id = $1
                  RETURNING (extract(epoch FROM now() - prev.started_at) * 1000)::bigint",
                 job.id,
@@ -4078,6 +4086,7 @@ async fn handle_dedicated_bunnative(
                             result,
                             result_columns: None,
                             mem_peak: 0,
+                            resource_usage: None,
                             canceled_by: None,
                             success,
                             cached_res_path: None,

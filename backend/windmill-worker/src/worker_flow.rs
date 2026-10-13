@@ -192,6 +192,7 @@ pub async fn update_flow_status_after_job_completion(
         flow_job_duration,
         stop_early_override,
         has_triggered_error_handler: false,
+        recovered_by_child: false,
     };
     let mut step_failure = step_failure;
     loop {
@@ -211,6 +212,7 @@ pub async fn update_flow_status_after_job_completion(
             worker_dir,
             rec.stop_early_override,
             rec.has_triggered_error_handler,
+            rec.recovered_by_child,
             worker_name,
             job_completed_tx.clone(),
             flow_runners.clone(),
@@ -240,6 +242,7 @@ pub async fn update_flow_status_after_job_completion(
                     worker_dir,
                     rec.stop_early_override,
                     rec.has_triggered_error_handler,
+                    false,
                     worker_name,
                     job_completed_tx.clone(),
                     flow_runners.clone(),
@@ -293,6 +296,10 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     flow_job_duration: Option<FlowJobDuration>,
     stop_early_override: Option<bool>,
     has_triggered_error_handler: bool,
+    /// The failed child's error handler returned `recover: true`. The parent still handles the
+    /// failure as it would any other, so the same steps run; only a root flow that this failure
+    /// ends turns green.
+    recovered_by_child: bool,
 }
 
 #[derive(Deserialize)]
@@ -427,6 +434,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     worker_dir: &str,
     stop_early_override: Option<bool>,
     has_triggered_error_handler: bool,
+    mut recovered_by_child: bool,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
     flow_runners: Option<Arc<FlowRunners>>,
@@ -449,6 +457,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         skip_if_stop_early,
         nresult,
         is_failure_step,
+        failure_step_recovers,
         _cleanup_module,
         chat_ai_info,
     ) = {
@@ -1096,6 +1105,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         has_triggered_error_handler = false;
                     }
+                    // Recovered iterations are stored as successes, so a failed parallel
+                    // node failed on an iteration that did not recover.
+                    recovered_by_child = false;
                     (success, Some(new_status))
                 } else {
                     add_time!(bench, "handle parallel flow start");
@@ -1823,6 +1835,13 @@ pub async fn update_flow_status_after_job_completion_internal(
             _ => false,
         };
 
+        let failure_step_recovers = is_failure_step && result_has_recover_true(nresult.clone());
+        // An error this flow raises on its own (a stop predicate's error message) is a new
+        // failure that no error handler recovered.
+        if stop_early_err_msg.is_some() {
+            recovered_by_child = false;
+        }
+
         let chat_ai_info = ChatAiInfo {
             chat_input_enabled: old_status.chat_input_enabled.unwrap_or(false),
             conversation_id: old_status.memory_id,
@@ -1837,6 +1856,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             skip_if_stop_early,
             nresult,
             is_failure_step,
+            failure_step_recovers,
             old_status.cleanup_module,
             chat_ai_info,
         )
@@ -1844,6 +1864,10 @@ pub async fn update_flow_status_after_job_completion_internal(
 
     let flow_job = Arc::new(flow_job);
 
+    // An inner flow that ends on a recovered failure stays failed, as parents read their
+    // children's stored status (a parallel node counts its iterations' statuses), so only the
+    // root flow turns green.
+    let ends_root = !(flow_job.is_flow_step() && flow_job.parent_job.is_some());
     let done = if !should_continue_flow {
         {
             let logs = if flow_job.is_canceled() {
@@ -1851,7 +1875,9 @@ pub async fn update_flow_status_after_job_completion_internal(
             } else if stop_early {
                 format!("Flow job stopped early because of a stop early predicate returning true\n")
             } else if is_failure_step {
-                format!("Flow job completed with error, and error handler was triggered.\nIt completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, result_has_recover_true(nresult.clone()))
+                format!("Flow job completed with error, and error handler was triggered.\nIt completed with {}, and with recover: {}\n", if success { "success" } else { "error" }, failure_step_recovers)
+            } else if !success && recovered_by_child && ends_root {
+                format!("Flow job completed with success: the step that failed had its error recovered by the error handler (recover: true)\n")
             } else {
                 format!(
                     "Flow job completed with {}\n",
@@ -2048,7 +2074,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .await;
             }
 
-            let success = success && (!is_failure_step || result_has_recover_true(nresult.clone()));
+            let success = if is_failure_step {
+                success && failure_step_recovers
+            } else {
+                success || (recovered_by_child && ends_root)
+            };
 
             add_time!(bench, "flow status update 1");
 
@@ -2056,6 +2086,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             add_tool_message_to_conversation(
                 db,
                 &job_id_for_status,
+                flow,
                 success,
                 skipped,
                 chat_ai_info.is_ai_agent_step,
@@ -2066,7 +2097,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             )
             .await?;
             let duration = if success {
-                let (_, duration) = add_completed_job(
+                let (_, span) = add_completed_job(
                     db,
                     &cflow_job,
                     true,
@@ -2080,9 +2111,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                span.duration_ms
             } else {
-                let (_, duration) = add_completed_job(
+                let (_, span) = add_completed_job(
                     db,
                     &cflow_job,
                     false,
@@ -2100,7 +2131,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                span.duration_ms
             };
             flow_job_duration = flow_job
                 .started_at
@@ -2148,6 +2179,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .await;
                 // override prior child's success so the parent learns this flow failed
                 success = false;
+                // a new failure, which no error handler recovered
+                recovered_by_child = false;
                 true
             }
             Ok(_) => false,
@@ -2177,6 +2210,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             None
                         },
                         has_triggered_error_handler: has_triggered_error_handler || is_failure_step,
+                        recovered_by_child: failure_step_recovers || (recovered_by_child && !success),
                     },
                 ));
             }
@@ -2233,6 +2267,7 @@ fn extract_chat_message_from_flow_result(result: &RawValue) -> error::Result<Opt
 async fn add_tool_message_to_conversation(
     db: &DB,
     job_id: &Uuid,
+    flow: Uuid,
     success: bool,
     skipped: bool,
     is_ai_agent_step: bool,
@@ -2261,7 +2296,8 @@ async fn add_tool_message_to_conversation(
                 add_message_to_conversation_tx(
                     &mut tx,
                     conversation_id,
-                    Some(job_id.clone()),
+                    Some(*job_id),
+                    flow,
                     &content,
                     MessageType::Assistant,
                     None,
@@ -2366,6 +2402,7 @@ async fn advance_flow_status(
                 THEN v2_job_status.flow_leaf_jobs
                 ELSE JSONB_SET(COALESCE(v2_job_status.flow_leaf_jobs, '{}'::JSONB), ARRAY[$7::TEXT], $8) END
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
+            LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id
         WHERE v2_job_status.id = $1 AND v2_job_queue.id = $1
         RETURNING
             v2_job_queue.workspace_id,
@@ -2402,7 +2439,8 @@ async fn advance_flow_status(
             v2_job.trigger,
             v2_job.trigger_kind as \"trigger_kind: TriggerKindLabel\",
             v2_job.visible_to_owner,
-            NULL as permissioned_as_end_user_email",
+            NULL as permissioned_as_end_user_email,
+            job_perms.job_token_scopes",
         flow,
         &step_path as &[&str],
         step,
@@ -4179,7 +4217,8 @@ async fn push_next_flow_job(
                 | FlowModuleValue::RawScript { input_transforms, .. }
                 | FlowModuleValue::FlowScript { input_transforms, .. }
                 | FlowModuleValue::Flow { input_transforms, .. }
-                | FlowModuleValue::AIAgent { input_transforms, .. },
+                | FlowModuleValue::AIAgent { input_transforms, .. }
+                | FlowModuleValue::AIDecision { input_transforms, .. },
             ) => {
                 let ctx = get_transform_context(&flow_job, &previous_id, &status);
                 transform_context = Some(ctx);
@@ -4327,11 +4366,15 @@ async fn push_next_flow_job(
     };
 
     // only start runners if we're not already in a squash for loop
+    // Runners would run its steps with their own unscoped token: a restricted flow, or a loop
+    // that restricts itself or any step in it, runs them as regular jobs.
     let start_runners = flow_runners.is_none()
+        && flow_job.job_token_scopes.is_none()
         && matches!(
             next_status,
             NextStatus::NextLoopIteration { start_runners: true, .. }
-        );
+        )
+        && !restricts_any_step(module);
 
     let do_not_pass_runners = matches!(next_status, NextStatus::NextStep { .. })
         && flow_runners
@@ -4746,6 +4789,16 @@ async fn push_next_flow_job(
             end_user_email,
             None,
             None,
+            // A step never holds a wider token than the flow running it, and its own setting
+            // narrows that further.
+            windmill_common::scopes::intersect_job_token_scopes(
+                flow_job.job_token_scopes.as_deref(),
+                windmill_common::scopes::step_job_token_scopes(
+                    module.job_token_scopes.as_deref(),
+                )
+                .as_deref(),
+            )
+            .as_deref(),
         )
         .warn_after_seconds(2)
         .await?;
@@ -5469,7 +5522,8 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::AIAgent { tag, .. } => {
+        // A decision runs as an AI agent job, whose handler answers it as a decision.
+        FlowModuleValue::AIAgent { tag, .. } | FlowModuleValue::AIDecision { tag, .. } => {
             let path = get_path(flow_job, status, module);
             let payload = JobPayload::AIAgent { path };
             Ok(NextFlowTransform::Continue(
@@ -6330,6 +6384,16 @@ pub fn raw_script_to_payload(
     }
 }
 
+/// Whether `module`, or any step or agent tool under it, sets `job_token_scopes`.
+fn restricts_any_step(module: &FlowModule) -> bool {
+    let mut any = false;
+    let _ = FlowModule::traverse_modules(&vec![module.clone()], &mut |m: &FlowModule| {
+        any |= m.job_token_scopes.is_some();
+        Ok(())
+    });
+    any
+}
+
 async fn flow_to_payload(
     path: String,
     delete_after_use: bool,
@@ -6339,13 +6403,14 @@ async fn flow_to_payload(
 ) -> Result<JobPayloadWithTag, Error> {
     let flow_info = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
     let on_behalf_of = flow_info.on_behalf_of(w_id, &db).await?;
-    let FlowVersionInfo { version, tag, .. } = flow_info;
+    let FlowVersionInfo { version, tag, job_token_scopes, .. } = flow_info;
     let payload = JobPayload::Flow {
         path,
         dedicated_worker: None,
         apply_preprocessor: false,
         version,
         labels: None,
+        job_token_scopes,
     };
     Ok(JobPayloadWithTag {
         payload,
@@ -6419,6 +6484,7 @@ pub async fn script_to_payload(
                 delete_after_use,
                 delete_after_secs,
                 timeout,
+                job_token_scopes,
                 runnable_settings:
                     ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
                 ..
@@ -6436,6 +6502,7 @@ pub async fn script_to_payload(
                     priority,
                     apply_preprocessor: apply_preprocessor.unwrap_or(false),
                     labels: None,
+                    job_token_scopes,
                 },
                 tag_override.to_owned().or(tag),
                 delete_after_use,

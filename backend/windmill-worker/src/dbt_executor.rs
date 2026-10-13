@@ -779,6 +779,7 @@ pub(crate) async fn dbt_dep(
     // A dependency job carries no per-job timeout of its own, but its phases
     // still share one wall clock rather than each getting the instance-wide
     // one.
+    let _custom_timeout = crate::common::RunningJobCustomTimeout::register(*job_id, None);
     let deadline = JobDeadline::start(&conn, w_id, *job_id, None).await;
     let mut ctx = JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
     let prepared = prepare_project(
@@ -3560,11 +3561,10 @@ async fn attach_column_index(
         .iter()
         .map(|n| n.unique_id.as_str())
         .collect();
-    let index =
-        crate::dbt_column_index::collect(
-            p, descriptor, inv, command, ctx, job_id, w_id, conn, &kept,
-        )
-            .await?;
+    let index = crate::dbt_column_index::collect(
+        p, descriptor, inv, command, ctx, job_id, w_id, conn, &kept,
+    )
+    .await?;
     drop(kept);
     let Some(index) = index else {
         return Ok(());

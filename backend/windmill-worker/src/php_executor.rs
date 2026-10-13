@@ -17,6 +17,7 @@ use windmill_queue::MiniPulledJob;
 use windmill_parser::{MainArgSignature, Typ};
 use windmill_queue::{append_logs, CanceledBy};
 
+use crate::common::DEV_CONF_NSJAIL;
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
@@ -24,11 +25,13 @@ use crate::{
         resolve_nsjail_tmp_mount_block, start_child_process, MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
-    is_sandboxing_enabled, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
+    is_sandboxing_enabled, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
+    PHP_PATH, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH,
 };
 use windmill_common::client::AuthedClient;
 
 const NSJAIL_CONFIG_RUN_PHP_CONTENT: &str = include_str!("../nsjail/run.php.config.proto");
+const NSJAIL_CONFIG_LOCK_PHP_CONTENT: &str = include_str!("../nsjail/lock.php.config.proto");
 
 lazy_static::lazy_static! {
     static ref RE: Regex = Regex::new(r"^//\s?(\S+)\s*$").unwrap();
@@ -199,15 +202,99 @@ pub async fn composer_install(
         write_file(job_dir, "composer.lock", lock)?;
     }
 
-    let mut child_cmd = Command::new(&*COMPOSER_PATH);
-    let args = vec!["install", "--no-dev", "--no-progress"];
-    child_cmd
-        .current_dir(job_dir)
-        .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let child_process = start_child_process(child_cmd, &*COMPOSER_PATH, false).await?;
+    // `composer install` runs the plugin and script code of installed packages, so
+    // when sandboxing is on it is confined under nsjail like the run step. Inside the
+    // jail the environment is cleared down to what composer needs: PATH, COMPOSER_HOME
+    // (pointed at the mounted cache dir), the proxies, the operator-controlled
+    // WHITELIST_ENVS, and every other COMPOSER_* var from the worker env — Windmill has
+    // no managed composer-registry setting, so operators supply private Packagist auth
+    // and composer tuning (COMPOSER_AUTH, COMPOSER_PROCESS_TIMEOUT, …) through those.
+    // COMPOSER_CACHE_DIR is dropped so it can't point composer outside the jail, and a
+    // custom COMPOSER_CAFILE/COMPOSER_CAPATH is bind-mounted so TLS to private feeds
+    // keeps working. COMPOSER_PATH is Windmill-internal. Without sandboxing composer
+    // runs directly, with no isolation.
+    let composer_args = ["install", "--no-dev", "--no-progress"];
+    let child_cmd = if is_sandboxing_enabled() {
+        // The cache dir is bind-mounted into the jail, so it must exist before
+        // nsjail builds the mount tree.
+        std::fs::create_dir_all(&*COMPOSER_CACHE_DIR)?;
+        let nsjail_timeout = resolve_nsjail_timeout(conn, w_id, *job_id, None).await;
+        // A custom CA bundle/dir lives outside the jail's mounts; bind it in so
+        // composer's TLS can read it (mandatory: false → skipped when the path is unset).
+        let ca_mount = ["COMPOSER_CAFILE", "COMPOSER_CAPATH"]
+            .iter()
+            .filter_map(|k| std::env::var(k).ok().filter(|v| !v.trim().is_empty()))
+            .map(|p| {
+                format!(
+                    "mount {{\n    src: \"{p}\"\n    dst: \"{p}\"\n    is_bind: true\n    mandatory: false\n}}\n"
+                )
+            })
+            .collect::<String>();
+        write_file(
+            job_dir,
+            "lock.config.proto",
+            NSJAIL_CONFIG_LOCK_PHP_CONTENT
+                .replace("{TIMEOUT}", &nsjail_timeout)
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{COMPOSER_CACHE_DIR}", &*COMPOSER_CACHE_DIR)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("{CA_MOUNT}", &ca_mount)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .as_str(),
+        )?;
+
+        let composer_passthrough_envs: Vec<(String, String)> = std::env::vars()
+            .filter(|(k, _)| {
+                k.starts_with("COMPOSER_")
+                    && k != "COMPOSER_HOME"
+                    && k != "COMPOSER_CACHE_DIR"
+                    && k != "COMPOSER_PATH"
+            })
+            .collect();
+
+        let mut nsjail_args = vec![
+            "--config",
+            "lock.config.proto",
+            "--",
+            COMPOSER_PATH.as_str(),
+        ];
+        nsjail_args.extend(composer_args);
+
+        let mut child_cmd = Command::new(NSJAIL_PATH.as_str());
+        child_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            // HOME is set to /tmp by the nsjail config; keep_env passes the rest.
+            .env("PATH", PATH_ENV.as_str())
+            .envs(PROXY_ENVS.clone())
+            .envs(&*crate::worker::WHITELIST_ENVS)
+            .envs(composer_passthrough_envs)
+            .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
+            .args(nsjail_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        child_cmd
+    } else {
+        let mut child_cmd = Command::new(&*COMPOSER_PATH);
+        child_cmd
+            .current_dir(job_dir)
+            .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
+            .args(composer_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        child_cmd
+    };
+    let child_executable = if is_sandboxing_enabled() {
+        NSJAIL_PATH.as_str()
+    } else {
+        COMPOSER_PATH.as_str()
+    };
+    let child_process = start_child_process(child_cmd, child_executable, false).await?;
 
     handle_child(
         job_id,
@@ -215,7 +302,8 @@ pub async fn composer_install(
         mem_peak,
         canceled_by,
         child_process,
-        false,
+        // jailed when sandboxing is on, so mem sampling finds the real process
+        is_sandboxing_enabled(),
         worker_name,
         w_id,
         "composer install",

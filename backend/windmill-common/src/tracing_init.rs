@@ -44,6 +44,11 @@ lazy_static::lazy_static! {
 /// Use `tracing::info!(target: windmill_common::tracing_init::VERBOSE_TARGET, ...)` for logs that should be suppressed in quiet mode.
 pub const VERBOSE_TARGET: &str = "windmill_verbose";
 
+/// Target of audit events, so a log pipeline can route them without matching on content.
+/// It keeps the `windmill` prefix because that is what a `RUST_LOG` of `info` or `debug`
+/// is rewritten to filter on.
+pub const AUDIT_TARGET: &str = "windmill:audit";
+
 /// Prefix used by user scripts to emit a log line as an OTEL tracing event
 /// when `OTEL_JOB_LOGS=true`. Stripped before forwarding to the tracing layer.
 pub const OTEL_PREFIX: &str = "OTEL: ";
@@ -213,6 +218,28 @@ pub fn initialize_tracing(
         .with(CountingLayer::new())
         .init();
     (_guard, meter_provider)
+}
+
+/// Tracing for a subcommand that writes to the instance without running a server
+/// (`sync-config`, the operator): stdout, plus the OTel logs bridge when OTel logs are
+/// enabled, which is how the audit events of its writes reach a collector. It writes no
+/// service log files, as nothing lists such a process to read them back.
+///
+/// Only audit events are exported. These processes log each setting they write with its
+/// value, masked by a list of known secret fields rather than by shape, and that is fit
+/// for the operator's own stdout but not for a collector.
+pub fn initialize_subcommand_tracing(service: &str, hostname: &str, environment: &str) {
+    let logs_bridge = crate::otel_oss::init_logs_bridge_for_service(service, hostname, environment);
+    tracing_subscriber::registry()
+        .with(logs_bridge.with_filter(Targets::new().with_target(AUDIT_TARGET, LevelFilter::INFO)))
+        .with(
+            tracing_subscriber::fmt::layer().with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy(),
+            ),
+        )
+        .init();
 }
 
 lazy_static::lazy_static! {

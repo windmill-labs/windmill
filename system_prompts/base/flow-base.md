@@ -22,6 +22,7 @@ These are strict Windmill schema rules. Follow them exactly.
 - `preprocessor_module` and `failure_module` only support `script` or `rawscript`
 - `preprocessor_module` runs before normal modules and cannot reference `results.*`
 - `failure_module` can use the `error` object with `error.message`, `error.step_id`, `error.name`, and `error.stack`
+- A flow whose `failure_module` runs still ends as failed, unless the handler returns an object with `recover: true`: the flow then ends as a success. This also holds when the failing step is inside a loop, a branch or a subflow. `recover` never changes which steps run; whether a loop or branch carries on past a failure is still decided by its own settings (`skip_failures`, `continue_on_error`)
 
 Correct shape:
 
@@ -182,6 +183,98 @@ names, so neither is name-checked at all — leave those summaries as they are.
   whenever the name alone does not make that obvious; it overrides the description derived from the
   underlying script
 
+## AI Decision Modules
+
+An `aidecision` module asks a decision model (TypeSafe's Jev, Cloudflare's Clef or OpenAI's Decisions API) typed questions about a `state` and
+answers each with calibrated probabilities instead of text. Prefer it over an `aiagent` when the step
+is a judgment (classify, route, score or a yes/no check) that needs no tools and no free text: it
+is faster, cheaper, and its answers have a fixed shape.
+
+```json
+{
+  "id": "triage",
+  "summary": "Classify the ticket",
+  "value": {
+    "type": "aidecision",
+    "input_transforms": {
+      "provider": {
+        "type": "static",
+        "value": { "kind": "typesafe", "resource": "$res:f/ai/typesafe", "model": "jev-latest" }
+      },
+      "state": { "type": "javascript", "expr": "flow_input.message" },
+      "questions": {
+        "type": "static",
+        "value": {
+          "intent": {
+            "type": "choice",
+            "instructions": "What does the customer want?",
+            "criteria": { "refund": "Money back", "bug": "Something is broken", "other": "Anything else" }
+          },
+          "urgency": {
+            "type": "score",
+            "instructions": "How urgent is the ticket?",
+            "criteria": ["Can wait", "This week", "Today", "Right now"]
+          },
+          "angry": { "type": "noul", "instructions": "Is the customer angry?" }
+        }
+      }
+    }
+  }
+}
+```
+
+- `provider.kind` is `typesafe` (`model` `jev-latest` unless a version is pinned), `cloudflare`
+  (`model` `clef`, or `clef-flash` for faster answers) or `openai` (`model` `gpt-6-luna`, never a
+  chat model); the resource is of that same type
+- `state` is the content to evaluate: usually a text, such as the message to classify. To combine
+  several values, pass an object with descriptive keys holding only what the questions need
+  (`({ message: flow_input.message, plan: results.get_account.plan })`); an array of strings also works
+- `questions` maps each question name to `{ type, instructions, criteria }`:
+  - `choice`: `criteria` maps each option to its description (up to 255 options). The answer has
+    `choice`, `probabilities` and `confidence`
+  - `score`: `criteria` is an ordered array of 2 to 10 level descriptions. The answer has `score`,
+    `legend`, `probabilities` and `confidence`
+  - `noul`: yes/no, `criteria` optionally `{ "true": ..., "false": ... }` descriptions. The answer has
+    `noul`, the probability of yes from 0 to 1
+- The result is `{ output, model, usage }` with `output` keyed by question name, so a later step
+  reads `results.triage.output.intent.choice`, `results.triage.output.urgency.score` or
+  `results.triage.output.angry.noul > 0.7`
+- On `openai` the same `questions` are translated for its Decisions API and the answers read the
+  same way (`choice`, `score`, `noul`), except that `probabilities` is a list of
+  `{ value, probability }` (plus `label` on a score) and a score has no `legend`. A question OpenAI
+  refuses to answer fails the step. A `state` that is
+  an array of user messages (`[{ role: "user", content: [{ type: "input_text", text }, { type: "input_image", image_url: "data:image/png;base64,..." }] }]`)
+  is sent as is, which is how an image is evaluated; any other object or array is sent as JSON text
+
+### Branching on the Answers
+
+To route on the answers, put a `branchone` right after the decision, one branch per option, with
+each `expr` reading the decision by id:
+
+```json
+{
+  "id": "route",
+  "value": {
+    "type": "branchone",
+    "branches": [
+      { "summary": "refund", "expr": "results.triage.output.intent.choice === 'refund'", "modules": [...] },
+      { "summary": "bug", "expr": "results.triage.output.intent.choice === 'bug'", "modules": [...] }
+    ],
+    "default": [...]
+  }
+}
+```
+
+For a yes/no question, one branch with `"expr": "results.triage.output.angry.noul >= 0.5"` (tune the
+threshold as needed) and the `default` as the "no" path.
+
+### As an Agent Tool
+
+An `aidecision` can be a `flowmodule` tool of an `aiagent` (`"tool_type": "flowmodule", "type":
+"aidecision"`): set `state` to `{ "type": "ai" }` so the calling model supplies it, and only `output`
+goes back to the model. The Tool Naming Rules apply to its `summary`. Only a flow's own agent step
+can call one, not an agent used as a tool.
+
 ## Common Mistakes to Avoid
 
 - Missing `input_transforms` - Rawscript parameters won't receive values without them
@@ -196,6 +289,10 @@ names, so neither is name-checked at all — leave those summaries as they are.
 - `results.step_id.property` - Access specific property from a previous step output only when that step result is in scope
 - `flow_input.iter.value` - Current iteration value inside a `forloopflow`; in a `whileloopflow` it is just the iteration index (a plain number, same as `flow_input.iter.index`)
 - `flow_input.iter.index` - Current loop index when inside a loop (`forloopflow` or `whileloopflow`)
+- After a suspend step (approval), the next step's javascript expressions also get:
+  - `resume` - the last resume payload (the resume form values); with `continue_on_disapprove_timeout`, a disapproval or timeout yields `{ error: { name: "SuspendedDisapproved" | "SuspendedTimedOut", message } }` instead
+  - `resumes` - every resume payload, in arrival order
+  - `approvers` - a plain array of strings, one per resume: for a resume through the `resume`/`cancel` URL from `getResumeUrls(approver)`, the `approver` passed there if any; otherwise (including the `approvalPage` link) the resuming user's username, else `"anonymous"`, e.g. `approvers[0]`. It is NOT the `{ resume_id, approver }` objects stored in the flow status, so `approvers[0].approver` is always undefined
 
 ## Loop Structure Rules
 
@@ -413,6 +510,10 @@ The step's `input_transforms` must cover the reused item's inputs, so read its i
 <!-- cli-only -->
 Find candidates in the local tree (a `.script.yaml` sits next to each script and holds its input schema, a `flow.yaml` in each flow folder) and on the workspace with `wmill script list` / `wmill flow list`; `wmill script get <path>` and `wmill flow get <path>` show an item's details.
 <!-- /cli-only -->
+
+## Additional Prompt for AI
+
+A flow's input schema may carry a top-level `prompt_for_ai` string, as a script's can: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that flow, and keep it when you rewrite the schema.
 
 ## Organizing Flows: Groups and Notes
 

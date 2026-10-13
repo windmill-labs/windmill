@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n            SELECT 1 FROM v2_job o, v2_job t,\n                LATERAL (SELECT ARRAY_REMOVE(ARRAY[o.id, o.parent_job, o.root_job,\n                    o.flow_innermost_root_job], NULL) AS run) l\n            WHERE o.id = $1 AND t.id = $2 AND t.workspace_id = o.workspace_id\n                AND (t.id = ANY(l.run) OR t.parent_job = ANY(l.run)\n                    OR t.root_job = ANY(l.run) OR t.flow_innermost_root_job = ANY(l.run))\n        )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "10f166464a10fc35df2b6ff1b497b17d6bb71f0ae69cd218e6a3fbc151d19d87"
+}

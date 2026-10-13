@@ -34,7 +34,8 @@
 	import AgentToolBindings from './AgentToolBindings.svelte'
 	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import { flowLocalAgentSchema } from '../agentResourceUtils'
-	import { AI_AGENT_TOOL_AI_KEYS } from '../agentToolUtils'
+	import { AI_AGENT_TOOL_AI_KEYS, AI_DECISION_TOOL_AI_KEYS } from '../agentToolUtils'
+	import { setAiDecisionStep } from '../aiDecisionBranching'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
@@ -153,6 +154,12 @@
 		toolDescription = $bindable(undefined),
 		siblingToolNames = undefined
 	}: Props = $props()
+
+	setAiDecisionStep({
+		get id() {
+			return flowModule.value.type === 'aidecision' && !isAgentTool ? flowModule.id : undefined
+		}
+	})
 
 	// Key for the linked-agent tools store. Ancestry-qualified for a nested agent tool, whose id
 	// comes from a resource and is not flow-global — it could otherwise alias a top-level step and
@@ -318,7 +325,8 @@
 					flowModule.value.type == 'rawscript' ||
 					flowModule.value.type == 'script' ||
 					flowModule.value.type == 'flow' ||
-					flowModule.value.type == 'aiagent'
+					flowModule.value.type == 'aiagent' ||
+					flowModule.value.type == 'aidecision'
 				) {
 					if (!deepEqual(flowModule.value.input_transforms, input_transforms)) {
 						flowModule.value.input_transforms = input_transforms
@@ -867,7 +875,11 @@
 						console.log('tagChange', e.detail)
 						if (flowModule.value.type == 'script') {
 							flowModule.value.tag_override = e.detail
-						} else if (flowModule.value.type == 'rawscript' || flowModule.value.type == 'aiagent') {
+						} else if (
+							flowModule.value.type == 'rawscript' ||
+							flowModule.value.type == 'aiagent' ||
+							flowModule.value.type == 'aidecision'
+						) {
 							flowModule.value.tag = e.detail
 						}
 					}}
@@ -1144,7 +1156,7 @@
 											</Tab>
 										{/if}
 									</Tabs>
-									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
+									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent' || flowModule.value.type == 'aidecision')}
 										<div class="flex-1 overflow-auto" id="flow-editor-step-input">
 											<!-- `sidePane` under `staticOnly`: that column only opens on a connect,
 											     and there is no connect button to open it. -->
@@ -1292,7 +1304,10 @@
 														{isAgentTool}
 														noConnect={staticOnly}
 														noJavascript={staticOnly}
-														allowedAiTransforms={undefined}
+														allowedAiTransforms={isAgentTool &&
+														flowModule.value.type === 'aidecision'
+															? AI_DECISION_TOOL_AI_KEYS
+															: undefined}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
@@ -1498,7 +1513,7 @@
 						</Splitpanes>
 					{/snippet}
 
-					{#if flowModule.value.type === 'aiagent' || (noEditor && flowModule.value.type !== 'flow')}
+					{#if flowModule.value.type === 'aiagent' || flowModule.value.type === 'aidecision' || (noEditor && flowModule.value.type !== 'flow')}
 						<!-- Top pane has no content to show (aiagent has no editor; rawscript/script
 						gate their content on !noEditor). Skip the Splitpanes wrapper entirely so
 						there's no orphan splitter. type === 'flow' still renders FlowPathViewer

@@ -8,6 +8,7 @@
 		debounce,
 		emptySchema,
 		emptyString,
+		escapeHtml,
 		getSchemaFromProperties,
 		type DynamicInput as DynamicInputTypes
 	} from '$lib/utils'
@@ -40,9 +41,9 @@
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
-	import { base } from '$lib/base'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
+	import AiDecisionQuestionsEditor from './AiDecisionQuestionsEditor.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
 	import { randomUUID } from '$lib/utils/uuid'
@@ -257,6 +258,7 @@
 	// never reaches `value`, so without this the field would stay valid on its last parsed value.
 	let jsonError: string = $state('')
 	let isListJson = $state(false)
+	let questionsInJson = $state(false)
 	let hasIsListJsonChanged = $state(false)
 
 	let el: HTMLTextAreaElement | undefined = $state(undefined)
@@ -606,7 +608,7 @@
 			{#if value && typeof value == 'string' && value?.startsWith('$res:')}
 				Linked to resource <a
 					target="_blank"
-					href="{base}/resources#/resource/{value.slice(5)}"
+					href="/resources#/resource/{value.slice(5)}"
 					class="text-blue-500 underline"
 					>{value.slice(5)} <span class="inline-block -mb-0.5"><ExternalLink size={14} /></span></a
 				>
@@ -698,7 +700,9 @@
 
 	{#if description}
 		<div class={twMerge('text-xs text-secondary', css?.description?.class)}>
-			<pre class="font-main whitespace-normal">{description}</pre>
+			<pre class="font-main whitespace-normal"
+				>{description}{#if inputCat == 'ai-decision-questions' && questionsInJson}{': { <name>: { type: choice | score | noul, instructions, criteria } }'}{/if}</pre
+			>
 		</div>
 	{/if}
 
@@ -1382,6 +1386,7 @@
 							dispatch('blur')
 						}}
 						code={rawValue}
+						placeholder={placeholder && escapeHtml(placeholder)}
 						bind:error={jsonError}
 						on:changeValue={(e) => {
 							setNewValueFromCode(e.detail)
@@ -1484,7 +1489,19 @@
 				{showSchemaExplorer}
 			/>
 		{:else if inputCat == 'ai-provider'}
-			<AIProviderPicker bind:value {disabled} {actions} {workspace} />
+			<AIProviderPicker
+				bind:value
+				{disabled}
+				{actions}
+				{workspace}
+				decision={format === 'ai-decision-provider'}
+			/>
+		{:else if inputCat == 'ai-decision-questions'}
+			<AiDecisionQuestionsEditor
+				bind:value
+				{disabled}
+				onModeChange={(mode) => (questionsInJson = mode === 'json')}
+			/>
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}

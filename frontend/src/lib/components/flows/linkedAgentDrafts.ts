@@ -3,11 +3,12 @@ import {
 	type FlowModule,
 	type FlowValue,
 	type InputTransform,
+	type OperatorSettings,
 	type Resource
 } from '$lib/gen'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-import { canWrite } from '$lib/utils'
+import { canEditItem } from '$lib/editRights'
 import type { UserExt } from '$lib/stores'
 import { dfs } from './dfs'
 import { flowLocalInputs, type AIAgentConfig } from './agentResourceUtils'
@@ -122,11 +123,15 @@ export interface LinkedAgentDraft {
 	extraPerms: Record<string, boolean>
 }
 
-/** Whether `user` may write this agent's resource. Split from the load so that resolving the
- *  drafts of a whole flow costs no `whoami` — only the deploy dialog needs the answer, and it
- *  looks the user up once for every agent it lists. */
-export function agentDraftCanWrite(draft: LinkedAgentDraft, user: UserExt | undefined): boolean {
-	return canWrite(draft.path, draft.extraPerms, user)
+/** Whether `user` may write this agent's resource, in a workspace with these `operator_settings`.
+ *  Split from the load so that resolving the drafts of a whole flow costs no `whoami` — only the
+ *  deploy dialog needs the answer, and it looks the user up once for every agent it lists. */
+export function agentDraftCanWrite(
+	draft: LinkedAgentDraft,
+	user: UserExt | undefined,
+	operatorSettings: OperatorSettings | undefined
+): boolean {
+	return canEditItem('agent', draft.path, draft.extraPerms, user, operatorSettings)
 }
 
 /** A link that cannot resolve for the user rather than because something went wrong: the agent was

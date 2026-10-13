@@ -137,6 +137,7 @@ async fn maybe_queue_binary_prebuild(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1243,6 +1244,7 @@ pub async fn handle_flow_dependency_job(
                 &job.workspace_id,
                 flow.failure_module.as_ref(),
                 flow.same_worker,
+                flow.preserve_step_tags,
             )
             .await?;
 
@@ -2133,6 +2135,7 @@ async fn insert_flow_modules<'c>(
     workspace_id: &str,
     failure_module: Option<&Box<FlowModule>>,
     same_worker: bool,
+    preserve_step_tags: bool,
     modules: &mut Vec<FlowModule>,
     modules_node: &mut Option<FlowNodeId>,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
@@ -2143,6 +2146,7 @@ async fn insert_flow_modules<'c>(
         workspace_id,
         failure_module,
         same_worker,
+        preserve_step_tags,
     ))
     .await?;
     if modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module) {
@@ -2159,6 +2163,7 @@ async fn insert_flow_modules<'c>(
             modules: std::mem::take(modules),
             failure_module: failure_module.cloned(),
             same_worker,
+            preserve_step_tags,
             ..Default::default()
         }))),
         None,
@@ -2175,6 +2180,7 @@ async fn reduce_flow<'c>(
     workspace_id: &str,
     failure_module: Option<&Box<FlowModule>>,
     same_worker: bool,
+    preserve_step_tags: bool,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     use FlowModuleValue::*;
     for module in &mut *modules {
@@ -2233,6 +2239,7 @@ async fn reduce_flow<'c>(
                     workspace_id,
                     failure_module,
                     same_worker,
+                    preserve_step_tags,
                     modules,
                     modules_node,
                 )
@@ -2246,6 +2253,7 @@ async fn reduce_flow<'c>(
                         workspace_id,
                         failure_module,
                         same_worker,
+                        preserve_step_tags,
                         &mut branch.modules,
                         &mut branch.modules_node,
                     )
@@ -2257,6 +2265,7 @@ async fn reduce_flow<'c>(
                     workspace_id,
                     failure_module,
                     same_worker,
+                    preserve_step_tags,
                     default,
                     default_node,
                 )
@@ -2270,6 +2279,7 @@ async fn reduce_flow<'c>(
                         workspace_id,
                         failure_module,
                         same_worker,
+                        preserve_step_tags,
                         &mut branch.modules,
                         &mut branch.modules_node,
                     )

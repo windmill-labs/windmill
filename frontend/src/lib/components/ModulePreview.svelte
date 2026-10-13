@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { setAiDecisionStep } from './flows/aiDecisionBranching'
 	import type { Schema } from '$lib/common'
 	import { type FlowModule, type Job } from '$lib/gen'
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
@@ -42,6 +43,9 @@
 		openFieldsKey = undefined,
 		runInputKeys = undefined
 	}: Props = $props()
+
+	// The test form takes sample questions, which are not the step's to branch on.
+	setAiDecisionStep({ id: undefined })
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	let moduleTest: ModuleTest | undefined = $state()

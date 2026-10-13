@@ -105,7 +105,7 @@
 	const defaultColumnType = (
 		{
 			postgresql: 'BIGSERIAL',
-			snowflake: 'varchar',
+			snowflake: 'VARCHAR',
 			ms_sql_server: 'varchar',
 			bigquery: 'string',
 			mysql: 'varchar',

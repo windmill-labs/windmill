@@ -11,7 +11,6 @@ import {
 } from './sessionPreviewTabs.svelte'
 import { artifactUrl, type PreviewTarget } from './previewRouter'
 import type { SessionPreviewTab } from './sessionState.svelte'
-import { base } from '$lib/base'
 
 // In-memory adapter spy: records persisted snapshots, no IDB.
 function makeAdapter() {
@@ -48,10 +47,10 @@ const dndAppTarget: PreviewTarget = {
 	item: { kind: 'app', path: 'u/me/legacy', summary: '' }
 }
 const pageTarget: PreviewTarget = { type: 'page', href: '/runs', label: 'Runs' }
-const pipelineTarget: PreviewTarget = { type: 'page', href: `${base}/pipeline/crm`, label: 'crm' }
+const pipelineTarget: PreviewTarget = { type: 'page', href: '/pipeline/crm', label: 'crm' }
 const pipelineTarget2: PreviewTarget = {
 	type: 'page',
-	href: `${base}/pipeline/sales`,
+	href: '/pipeline/sales',
 	label: 'sales'
 }
 const artifactTarget: PreviewTarget = { type: 'artifact', id: 'art1', name: 'Plan' }
@@ -149,7 +148,7 @@ describe('previewTargetForSessionTarget', () => {
 	it('maps pipeline to its folder route page target', () => {
 		expect(previewTargetForSessionTarget('pipeline', 'my_folder')).toEqual({
 			type: 'page',
-			href: `${base}/pipeline/my_folder`,
+			href: '/pipeline/my_folder',
 			label: 'my_folder'
 		})
 	})
@@ -159,7 +158,7 @@ describe('previewTargetForSessionTarget', () => {
 		// path `f/f/<folder>/…`.
 		expect(previewTargetForSessionTarget('pipeline', 'f/my_folder')).toEqual({
 			type: 'page',
-			href: `${base}/pipeline/my_folder`,
+			href: '/pipeline/my_folder',
 			label: 'my_folder'
 		})
 	})
@@ -239,6 +238,21 @@ describe('page item tabs', () => {
 		expect(o.tabs).toEqual([
 			{ id, url: 'pageitem:variable/f%2Fx%2Ftoken', loc: 'pageitem:variable/f%2Fx%2Ftoken' }
 		])
+	})
+
+	it('follows an editor deployed under a new path in place', () => {
+		const o = owner()
+		o.open({
+			type: 'item',
+			item: { kind: 'app', raw_app: true, path: 'u/me/draft_1', summary: '' }
+		})
+		const id = o.tabs[0].id
+		o.retargetEditor(
+			{ kind: 'raw_app', path: 'u/me/draft_1' },
+			{ kind: 'raw_app', path: 'u/me/app' }
+		)
+		const url = '/apps_raw/edit/u/me/app'
+		expect(o.tabs).toEqual([{ id, url, loc: url }])
 	})
 
 	it('restores a tab saved on a row’s drawer as the row it was last on', () => {
@@ -439,7 +453,7 @@ describe('SessionPreviewTabs.open', () => {
 
 	it('dedupes a run form by tool call, and hands that tab to the run in place', () => {
 		const o = owner()
-		o.open({ type: 'page', href: `${base}/runs`, label: 'Runs' })
+		o.open({ type: 'page', href: '/runs', label: 'Runs' })
 		o.open({ type: 'runform', toolCallId: 'call_1', label: 'Run refund' })
 		const id = o.tabs[1].id
 		// The label carries the script's summary, which is not what identifies the call.
@@ -447,10 +461,10 @@ describe('SessionPreviewTabs.open', () => {
 			'focused'
 		)
 		expect(o.tabs).toHaveLength(2)
-		o.retargetRunForm('call_1', `${base}/run/01a0?workspace=w`)
+		o.retargetRunForm('call_1', '/run/01a0?workspace=w')
 		// Still second: a tab that followed its call to the run has not moved in the strip.
 		expect(o.tabs[1].id).toBe(id)
-		expect(o.tabs[1].url).toBe(`${base}/run/01a0?workspace=w`)
+		expect(o.tabs[1].url).toBe('/run/01a0?workspace=w')
 	})
 
 	it('re-points the same tab (no duplicate) when the artifact was renamed', () => {
@@ -563,19 +577,22 @@ describe('SessionPreviewTabs.navigate', () => {
 		expect(o.tabs.find((t) => t.id === pageTabId)?.url).toBe('/runs')
 	})
 
-	it('retargets the one pipeline tab instead of turning the active tab into a second', () => {
+	it('keeps one tab per pipeline folder, several folders side by side', () => {
 		const o = owner()
 		o.open(pipelineTarget)
-		const pipelineTabId = o.activeId
-		o.open(scriptTarget) // a second, non-pipeline tab is now active
-		const scriptTabId = o.activeId
-		o.navigate(pipelineTarget2)
-		// No second pipeline editor: the existing one is retargeted and focused.
+		const crmTabId = o.activeId
+		o.open(pipelineTarget2)
+		const salesTabId = o.activeId
 		expect(o.tabs).toHaveLength(2)
-		expect(o.activeId).toBe(pipelineTabId)
-		expect(o.tabs.find((t) => t.id === pipelineTabId)?.url).toBe(`${base}/pipeline/sales`)
-		// The script tab is untouched.
-		expect(o.tabs.find((t) => t.id === scriptTabId)?.url).toBe('/scripts/edit/u/me/foo')
+		expect(salesTabId).not.toBe(crmTabId)
+		o.open(scriptTarget)
+		// A folder already open is focused, from open() and navigate() alike.
+		o.open(pipelineTarget)
+		expect(o.activeId).toBe(crmTabId)
+		o.navigate(pipelineTarget2)
+		expect(o.activeId).toBe(salesTabId)
+		expect(o.tabs).toHaveLength(3)
+		expect(o.tabs.find((t) => t.id === crmTabId)?.url).toBe('/pipeline/crm')
 	})
 
 	it('retargets the active pipeline tab in place to a new folder', () => {
@@ -585,7 +602,7 @@ describe('SessionPreviewTabs.navigate', () => {
 		o.navigate(pipelineTarget2)
 		expect(o.tabs).toHaveLength(1)
 		expect(o.activeId).toBe(tabId)
-		expect(o.tabs[0].url).toBe(`${base}/pipeline/sales`)
+		expect(o.tabs[0].url).toBe('/pipeline/sales')
 	})
 
 	it('focuses the tab already viewing the artifact instead of duplicating the viewer', () => {
@@ -1100,12 +1117,12 @@ describe('SessionPreviewTabs.pulseFocus', () => {
 		const o = owner()
 		const run: PreviewTarget = {
 			type: 'page',
-			href: `${base}/run/job-1?workspace=fork`,
+			href: '/run/job-1?workspace=fork',
 			label: 'Run'
 		}
 		o.open(run)
 		// What the frame reports back has the injected params stripped.
-		o.observeLocation(o.activeId, `${base}/run/job-1?workspace=fork&nomenubar=true`)
+		o.observeLocation(o.activeId, '/run/job-1?workspace=fork&nomenubar=true')
 		expect(o.tabs.length).toBe(1)
 		expect(o.open(run).status).toBe('focused')
 		expect(o.tabs.length).toBe(1)

@@ -976,6 +976,7 @@ async fn trigger_script_with_retry_and_error_handler<'c>(
         None,
         Some(trigger),
         suspended_mode,
+        None,
     )
     .await?;
 

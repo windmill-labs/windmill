@@ -6,6 +6,8 @@ import { dirname, resolve } from 'path'
 // @ts-ignore - Node.js url
 import { fileURLToPath } from 'url'
 import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
+import { resolveWindmillBackendSettings } from '../../core/windmillBackendSettings'
+import { WindmillBackendClient } from './windmillBackend'
 
 const FRONTEND_DIR = fileURLToPath(new URL('../../../frontend/', import.meta.url))
 
@@ -27,6 +29,11 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 	const url = typeof input === 'string' ? input : ((input as Request | URL | null)?.url ?? '')
 	if (typeof url === 'string' && hasBenchmarkApiHandler(url)) {
 		return handleBenchmarkApiFetch(url, init)
+	}
+	// The docs tools read the documentation bundled into the backend: hand them to the
+	// benchmark's real backend, logged in like the AI proxy calls.
+	if (typeof url === 'string' && url.startsWith('/api/docs/')) {
+		return new WindmillBackendClient(resolveWindmillBackendSettings()).request(url.slice('/api'.length), init)
 	}
 	// The parsers behind inferArgs load their wasm from a vite `?url` path, which only a dev
 	// server serves. Unserved, every script schema infers as empty, and the tools then tell the
@@ -684,6 +691,7 @@ benchmarkIt(
 			resetBenchmarkMockBackend()
 		}
 	},
-	// Full-suite runs (30+ cases at concurrency 2-3) routinely exceed 10 minutes.
-	7_200_000
+	// A full suite on a slow reasoning model runs for hours (gpt-6-astra on global went past
+	// 2h); the CI job's own timeout is the real bound.
+	18_000_000
 )

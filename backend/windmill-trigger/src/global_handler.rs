@@ -342,7 +342,7 @@ pub async fn cancel_suspended_trigger_jobs(
         let cancelled_jobs = cancel_jobs(
             jobs_to_cancel,
             &db,
-            authed.username.as_str(),
+            &authed,
             w_id.as_str(),
             true,
         )

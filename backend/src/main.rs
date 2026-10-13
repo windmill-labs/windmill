@@ -44,32 +44,33 @@ use windmill_common::{
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
+        DEPENDENCY_JOB_TAG_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
         HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
         INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NO_DEFAULT_MAVEN_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
-        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
-        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
-        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
-        SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
-        SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
-        SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
+        NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING,
+        NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
+        OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
+        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RESTART_COORDINATION_SETTING, RETENTION_PERIOD_SECS_OVERRIDES_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
+        SANDBOX_IMAGE_CACHE_MAX_MB_SETTING, SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING,
+        SANDBOX_IMAGE_MAX_SIZE_MB_SETTING, SANDBOX_IMAGE_PULL_POLICY_SETTING,
+        SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING, SERVICE_LOG_RETENTION_SECS_SETTING,
+        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING,
         TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
         UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
         WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
+    hub_resource_types,
     scripts::ScriptLang,
     stats_oss::schedule_stats,
     triggers::TriggerKind,
@@ -122,28 +123,28 @@ use windmill_worker::{
     BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
     DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, JAVA_CACHE_DIR, NU_CACHE_DIR,
     POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
-    RUBY_CACHE_DIR, RUST_CACHE_DIR, R_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
+    PY314_CACHE_DIR, PY315_CACHE_DIR, RUBY_CACHE_DIR, RUST_CACHE_DIR, R_CACHE_DIR,
+    TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
-    initial_load, load_concurrency_key_max_queued, load_disable_password_login,
-    load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
-    load_mcp_disable_token_query_param, load_metrics_debug_enabled,
-    load_preview_tags_override, load_require_preexisting_user, load_retention_period_overrides,
-    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces,
-    load_workspace_fairness_duration_secs, load_workspace_fairness_enabled,
-    load_workspace_fairness_max_percent, load_workspace_fairness_min_total,
-    load_workspace_max_queued_jobs, monitor_db, reload_app_workspaced_route_setting,
-    reload_audit_log_retention_days_setting, reload_base_url_setting,
-    reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
-    reload_critical_alert_mute_ui_setting, reload_critical_alert_mute_zombie_job_restart_setting,
+    initial_load, load_concurrency_key_max_queued, load_dependency_job_tag,
+    load_disable_password_login, load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
+    load_mcp_disable_token_query_param, load_metrics_debug_enabled, load_preview_tags_override,
+    load_require_preexisting_user, load_retention_period_overrides, load_tag_per_workspace_enabled,
+    load_tag_per_workspace_workspaces, load_workspace_fairness_duration_secs,
+    load_workspace_fairness_enabled, load_workspace_fairness_max_percent,
+    load_workspace_fairness_min_total, load_workspace_max_queued_jobs, monitor_db,
+    reload_app_workspaced_route_setting, reload_audit_log_retention_days_setting,
+    reload_base_url_setting, reload_bun_install_min_release_age_setting,
+    reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
+    reload_critical_alert_mute_zombie_job_restart_setting,
     reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
     reload_extra_pip_index_url_setting, reload_http_route_default_allowed_origins_setting,
-    reload_http_route_workspaced_route_setting,
-    reload_hub_api_secret_setting, reload_hub_base_url_setting,
-    reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
-    reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
+    reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
+    reload_hub_base_url_setting, reload_instance_events_webhook_setting,
+    reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
     reload_nsjail_tmpfs_size_setting, reload_otel_traces_retention_secs_setting,
     reload_otel_tracing_proxy_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_sandbox_image_cache_max_setting,
@@ -403,112 +404,16 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Raw resource type from hub API (schema is a JSON string)
-#[derive(serde::Deserialize)]
-struct HubResourceTypeRaw {
-    pub id: i64,
-    pub name: String,
-    pub schema: Option<String>,
-    pub app: String,
-    pub description: Option<String>,
-    /// Absent from hubs predating the column, and from caches written before it.
-    #[serde(default)]
-    pub format_extension: Option<String>,
-    /// Doubly optional, so a hub predating the field (no key) is told apart from a type the
-    /// hub leaves unnamed (null).
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option"
-    )]
-    pub display_name: Option<Option<String>>,
-}
-
-
-/// Processed resource type with parsed schema
-#[derive(serde::Deserialize, serde::Serialize, Clone)]
-pub struct HubResourceType {
-    pub id: i64,
-    pub name: String,
-    pub schema: Option<serde_json::Value>,
-    pub app: String,
-    pub description: Option<String>,
-    /// Doubly optional on purpose. A cache written before this column has no key at
-    /// all (`None`) and must leave the stored extension alone; one written since
-    /// always writes the key, so an explicit null (`Some(None)`) is the hub genuinely
-    /// dropping it and must clear. A single `Option` conflates the two, and picking
-    /// either meaning breaks the other — as does plain serde, which folds `null`
-    /// into the outer `None`, hence the wrapping deserializer.
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub format_extension: Option<Option<String>>,
-    /// Doubly optional like `format_extension`: a cache written before the field leaves the
-    /// stored name alone, while a null from the hub clears it.
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub display_name: Option<Option<String>>,
-}
-
-const HUB_RT_CACHE_FILE: &str = "resource_types.json";
-
 async fn cache_hub_resource_types() -> anyhow::Result<()> {
     println!("Caching resource types from hub...");
 
-    let response = HTTP_CLIENT
-        .get(format!("{}/resource_types/list", DEFAULT_HUB_BASE_URL))
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .with_context(|| "Failed to fetch resource types from hub")?;
-
-    if !response.status().is_success() {
-        anyhow::bail!(
-            "Failed to fetch resource types from hub: {}",
-            response.status()
-        );
-    }
-
-    let raw_types: Vec<HubResourceTypeRaw> = response
-        .json::<Vec<HubResourceTypeRaw>>()
-        .await
-        .with_context(|| "Failed to parse resource types from hub")?;
-
-    // Parse schema strings into JSON values
-    let resource_types: Vec<HubResourceType> = raw_types
-        .into_iter()
-        .filter_map(|rt| {
-            let schema = match rt.schema {
-                Some(s) => match serde_json::from_str(&s) {
-                    Ok(v) => Some(v),
-                    Err(e) => {
-                        println!("Warning: failed to parse schema for {}: {}", rt.name, e);
-                        return None;
-                    }
-                },
-                None => None,
-            };
-            Some(HubResourceType {
-                id: rt.id,
-                name: rt.name,
-                schema,
-                app: rt.app,
-                description: rt.description,
-                format_extension: Some(rt.format_extension),
-                display_name: rt.display_name,
-            })
-        })
-        .collect();
+    let resource_types = hub_resource_types::fetch(DEFAULT_HUB_BASE_URL, None, None).await?;
 
     println!("Fetched {} resource types from hub", resource_types.len());
 
     create_dir_all(&*HUB_RT_CACHE_DIR)?;
 
-    let cache_path = format!("{}/{}", *HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
+    let cache_path = hub_resource_types::cache_path();
     let content = serde_json::to_string_pretty(&resource_types)
         .with_context(|| "Failed to serialize resource types")?;
 
@@ -516,147 +421,6 @@ async fn cache_hub_resource_types() -> anyhow::Result<()> {
         .with_context(|| format!("Failed to write cache file to {}", cache_path))?;
 
     println!("Cached resource types to {}", cache_path);
-    Ok(())
-}
-
-pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-    let cache_path = format!("{}/{}", *HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
-
-    if tokio::fs::metadata(&cache_path).await.is_err() {
-        tracing::info!(
-            "No cached resource types found at {}, skipping sync",
-            cache_path
-        );
-        return Ok(());
-    }
-
-    tracing::info!("Syncing cached resource types to admins workspace...");
-
-    let content = tokio::fs::read_to_string(&cache_path)
-        .await
-        .with_context(|| format!("Failed to read cache file from {}", cache_path))?;
-
-    let cached_types: Vec<HubResourceType> =
-        serde_json::from_str(&content).with_context(|| "Failed to parse cached resource types")?;
-
-    tracing::info!("Found {} cached resource types", cached_types.len());
-
-    // Get existing resource types in admins workspace. `format_extension` is part of
-    // the comparison below, so a type whose only change is gaining or losing it is
-    // not mistaken for unchanged; `is_fileset` decides whether it may take one.
-    let existing_types: Vec<(
-        String,
-        Option<serde_json::Value>,
-        Option<String>,
-        Option<String>,
-        bool,
-        Option<String>,
-    )> = sqlx::query_as(
-        "SELECT name, schema, description, format_extension, is_fileset, display_name FROM resource_type WHERE workspace_id = 'admins'",
-    )
-    .fetch_all(db)
-    .await
-    .with_context(|| "Failed to fetch existing resource types")?;
-
-    let existing_map: std::collections::HashMap<
-        String,
-        (
-            Option<serde_json::Value>,
-            Option<String>,
-            Option<String>,
-            bool,
-            Option<String>,
-        ),
-    > = existing_types
-        .into_iter()
-        .map(
-            |(name, schema, desc, format_extension, is_fileset, display_name)| {
-                (
-                    name,
-                    (schema, desc, format_extension, is_fileset, display_name),
-                )
-            },
-        )
-        .collect();
-
-    let mut synced_count = 0;
-    let mut skipped_count = 0;
-
-    for rt in cached_types {
-        let existing = existing_map.get(&rt.name);
-        let is_fileset = existing.map(|(_, _, _, f, _)| *f).unwrap_or(false);
-        let stored_extension = existing.and_then(|(_, _, e, _, _)| e.clone());
-        let stored_display_name = existing.and_then(|(_, _, _, _, n)| n.clone());
-        // A fileset is a set of files, so it cannot also be one file. Create, update
-        // and the manual sync all reject the pair; this writer would otherwise
-        // persist it onto a same-named local fileset.
-        //
-        // A cache with no key at all leaves the stored value alone, so the target is
-        // what is already there — which is also what makes the comparison below
-        // agree with the write instead of re-upserting the row on every boot.
-        let format_extension = if is_fileset {
-            None
-        } else {
-            match &rt.format_extension {
-                Some(from_cache) => from_cache.clone(),
-                None => stored_extension.clone(),
-            }
-        };
-        // No key in the cache leaves the stored name alone, as for the extension. So does a name
-        // too long for the column: one bad entry must not fail the upsert and end the sync.
-        let display_name = match &rt.display_name {
-            Some(Some(name)) if name.chars().count() > 100 => {
-                tracing::warn!(
-                    "Ignoring the display_name of resource type {}: longer than 100 characters",
-                    rt.name
-                );
-                stored_display_name.clone()
-            }
-            Some(from_cache) => from_cache.clone(),
-            None => stored_display_name.clone(),
-        };
-
-        if let Some((existing_schema, existing_desc, _, _, _)) = existing {
-            if existing_schema == &rt.schema
-                && existing_desc == &rt.description
-                && stored_extension == format_extension
-                && stored_display_name == display_name
-            {
-                skipped_count += 1;
-                continue;
-            }
-        }
-
-        // Insert or update resource type
-        sqlx::query(
-            // `format_extension` is resolved above rather than coalesced here: a
-            // COALESCE could never clear one, so a hub that dropped an extension
-            // would leave the stale value behind forever.
-            "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, display_name, edited_at)
-             VALUES ('admins', $1, $2, $3, $4, $5, now())
-             ON CONFLICT (workspace_id, name) DO UPDATE
-             SET schema = EXCLUDED.schema, description = EXCLUDED.description,
-                 format_extension = EXCLUDED.format_extension,
-                 display_name = EXCLUDED.display_name, edited_at = now()",
-        )
-        .bind(&rt.name)
-        .bind(&rt.schema)
-        .bind(&rt.description)
-        .bind(&format_extension)
-        .bind(&display_name)
-        .execute(db)
-        .await
-        .with_context(|| format!("Failed to upsert resource type {}", rt.name))?;
-
-        synced_count += 1;
-    }
-
-    tracing::info!(
-        "Synced {} resource types to admins workspace ({} skipped as unchanged)",
-        synced_count,
-        skipped_count
-    );
-
     Ok(())
 }
 
@@ -673,6 +437,8 @@ fn print_help() {
     println!("  cache-rt             Pre-cache hub resource types");
     println!("  sync-config <file>   Sync instance config from a YAML file to the database");
     println!("  operator             Run the Kubernetes operator (watches a ConfigMap)");
+    #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+    println!("  oidc-signer <conformance|test-signer>  (ee) Check an external OIDC signer, or run a file-backed one for tests");
     println!();
     println!("Environment variables (name = default):");
     println!("  DATABASE_URL = <required>              The Postgres database url.");
@@ -699,12 +465,44 @@ fn print_help() {
     println!("  LICENSE_KEY = None                     (EE only) Enterprise license key (workers require valid key)");
     println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
     println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
-    println!("  SYNC_CACHED_RT = false                 Sync cached resource types to admins workspace on server start");
+    println!("  SYNC_CACHED_RT = false                 Sync the image's cached resource types to the admins workspace on server start");
     println!("  HUB_BASE_URL = https://hub.windmill.dev  Hub to fetch scripts from in `cache` mode (server/worker use the DB setting instead)");
     println!();
     println!("Notes:");
     println!("- Advanced and less commonly used settings are managed via the database and are omitted here.");
     println!("- At startup, Windmill logs currently set configuration keys for visibility.");
+}
+
+async fn otel_environment(conn: &Connection) -> String {
+    if let Ok(environment) = std::env::var("OTEL_ENVIRONMENT") {
+        environment
+    } else {
+        load_base_url(conn)
+            .await
+            .unwrap_or_else(|_| "local".to_string())
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split(".")
+            .next()
+            .unwrap_or_else(|| "local")
+            .to_string()
+    }
+}
+
+/// Tracing for a subcommand that writes instance config. It never runs the server startup
+/// that loads the OTel settings, and its audit events are exported under them.
+///
+/// The subscriber it installs depends on those settings, so `early_logs` is what prints
+/// the events of connecting and loading them; it gives way once the real one is in.
+async fn init_declarative_writer_tracing(
+    db: &windmill_common::DB,
+    service: &str,
+    early_logs: tracing::subscriber::DefaultGuard,
+) {
+    load_otel(db).await;
+    let environment = otel_environment(&Connection::Sql(db.clone())).await;
+    drop(early_logs);
+    windmill_common::tracing_init::initialize_subcommand_tracing(service, &HOSTNAME, &environment);
 }
 
 async fn windmill_main() -> anyhow::Result<()> {
@@ -810,7 +608,6 @@ async fn windmill_main() -> anyhow::Result<()> {
             return Ok(());
         }
         "sync-config" => {
-            tracing_subscriber::fmt::init();
             let path = std::env::args().nth(2).unwrap_or_else(|| {
                 eprintln!("Usage: windmill sync-config <file>");
                 std::process::exit(1);
@@ -824,15 +621,40 @@ async fn windmill_main() -> anyhow::Result<()> {
             windmill_common::instance_config::resolve_env_refs(&mut config.global_settings)
                 .map_err(|var| anyhow::anyhow!("environment variable '{var}' not found"))?;
 
+            let early_logs = tracing::subscriber::set_default(tracing_subscriber::fmt().finish());
             tracing::info!("Connecting to database...");
             let db = crate::db_connect::initial_connection().await?;
-            config.sync_to_db(&db).await?;
+            init_declarative_writer_tracing(&db, "windmill-sync-config", early_logs).await;
+
+            let author = windmill_audit::instance_config::declarative_sync_author();
+            let synced = config
+                .sync_to_db(
+                    &db,
+                    &windmill_audit::instance_config::InstanceConfigAuditor {
+                        db: &db,
+                        author: &author,
+                        source: Some(
+                            windmill_audit::instance_config::DeclarativeSource::SyncConfig,
+                        ),
+                    },
+                )
+                .await;
+            // Also on failure: the settings written before it are already audited, and the
+            // process exits before the exporter's next scheduled batch.
+            windmill_common::otel_oss::flush_otel_logs().await;
+            synced?;
             tracing::info!("Synced instance config from {path}");
+            return Ok(());
+        }
+        #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+        "oidc-signer" => {
+            tracing_subscriber::fmt::init();
+            windmill_api::oidc_signer_tools_ee::run_cli(std::env::args().skip(2).collect()).await?;
             return Ok(());
         }
         #[cfg(feature = "operator")]
         "operator" => {
-            tracing_subscriber::fmt::init();
+            let early_logs = tracing::subscriber::set_default(tracing_subscriber::fmt().finish());
             tracing::info!("Starting Windmill Kubernetes operator...");
             tracing::info!("Connecting to database...");
 
@@ -845,6 +667,7 @@ async fn windmill_main() -> anyhow::Result<()> {
                 operator_killpill_rx,
             )
             .await?;
+            init_declarative_writer_tracing(&db, "windmill-operator", early_logs).await;
 
             #[cfg(all(feature = "enterprise", feature = "private"))]
             tokio::spawn(async move {
@@ -971,19 +794,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         (Connection::Sql(db), None, None)
     };
 
-    let environment = if let Ok(environment) = std::env::var("OTEL_ENVIRONMENT") {
-        environment
-    } else {
-        load_base_url(&conn)
-            .await
-            .unwrap_or_else(|_| "local".to_string())
-            .trim_start_matches("https://")
-            .trim_start_matches("http://")
-            .split(".")
-            .next()
-            .unwrap_or_else(|| "local")
-            .to_string()
-    };
+    let environment = otel_environment(&conn).await;
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
@@ -1018,8 +829,10 @@ async fn windmill_main() -> anyhow::Result<()> {
                 .map(|v| v.to_lowercase() == "true" || v == "1")
                 .unwrap_or(false)
             {
-                if let Err(e) = sync_cached_resource_types(db).await {
-                    tracing::warn!("Failed to sync cached resource types: {:#}", e);
+                match hub_resource_types::sync_from_image_cache(db).await {
+                    Ok(Some(outcome)) => tracing::info!("{}", outcome.summary()),
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!("Failed to sync cached resource types: {:#}", e),
                 }
             }
         }
@@ -1236,6 +1049,15 @@ Windmill Community Edition {GIT_VERSION}
         // was down when a version was deleted would keep its code on disk: start from an
         // empty script cache, refilled from the database.
         windmill_common::cache::script::clear();
+
+        // Before the first load: it can sign a token for instance object storage.
+        #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+        windmill_common::oidc_ee::init_oidc_signing(
+            &conn,
+            server_mode,
+            killpill_rx.resubscribe(),
+        )
+        .await?;
 
         initial_load(
             &conn,
@@ -1751,6 +1573,7 @@ Windmill Community Edition {GIT_VERSION}
         if server_mode {
             if let Some(db) = conn.as_sql() {
                 schedule_stats(&db, &HTTP_CLIENT).await;
+                hub_resource_types::spawn_daily_sync(db.clone(), killpill_tx.subscribe());
             }
         }
 
@@ -1889,12 +1712,10 @@ async fn process_notify_event(
             );
             windmill_common::workspaces::PUBLIC_APP_RATE_LIMIT_CACHE.remove(payload);
         }
-        windmill_common::SCRIPT_VERSION_DELETED_CHANNEL => {
-            match serde_json::from_str(payload) {
-                Ok(deleted) => windmill_api_scripts::scripts::evict_deleted_script_versions(deleted),
-                Err(e) => tracing::error!("Invalid script version deletion payload {payload}: {e}"),
-            }
-        }
+        windmill_common::SCRIPT_VERSION_DELETED_CHANNEL => match serde_json::from_str(payload) {
+            Ok(deleted) => windmill_api_scripts::scripts::evict_deleted_script_versions(deleted),
+            Err(e) => tracing::error!("Invalid script version deletion payload {payload}: {e}"),
+        },
         "notify_runnable_version_change" => {
             tracing::info!("Runnable version change detected: {}", payload);
             match payload.split(':').collect::<Vec<&str>>().as_slice() {
@@ -2053,6 +1874,11 @@ async fn process_notify_event(
                 PREVIEW_TAGS_OVERRIDE_SETTING => {
                     if let Err(e) = load_preview_tags_override(db).await {
                         tracing::error!("Error loading preview tags override: {e:#}");
+                    }
+                }
+                DEPENDENCY_JOB_TAG_SETTING => {
+                    if let Err(e) = load_dependency_job_tag(db).await {
+                        tracing::error!("Error loading dependency job tag: {e:#}");
                     }
                 }
                 WORKSPACE_FAIRNESS_ENABLED_SETTING => {
@@ -2322,6 +2148,12 @@ async fn process_notify_event(
                 RESTART_COORDINATION_SETTING => {
                     // Internal coordination key for staggered restarts, no action needed
                 }
+                SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING => {
+                    // Read by the daily resource type sync each time it runs
+                }
+                "oidc_external_signer" => {
+                    // Written by servers that sign with an external signer, read when signing
+                }
                 "plain_emails_telemetry" => {
                     let enabled = sqlx::query_scalar!(
                         "SELECT value FROM global_settings WHERE name = 'plain_emails_telemetry'"
@@ -2407,6 +2239,8 @@ pub async fn run_workers(
         &*PY311_CACHE_DIR,
         &*PY312_CACHE_DIR,
         &*PY313_CACHE_DIR,
+        &*PY314_CACHE_DIR,
+        &*PY315_CACHE_DIR,
         &*BUN_BUNDLE_CACHE_DIR,
         &*GO_CACHE_DIR,
         &*GO_BIN_CACHE_DIR,

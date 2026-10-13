@@ -159,7 +159,7 @@
 		>
 			<DraggableTags
 				items={valueEntry}
-				{allowClear}
+				allowClear={allowClear && !disabled}
 				onRemove={onRemoveValue}
 				onReorder={reorderable
 					? (oldIdx, newIdx) => (value = reorder(currentValue, oldIdx, newIdx))
@@ -167,7 +167,7 @@
 			/>
 		</ul>
 	{/if}
-	{#if allowClear && !hideMainClearBtn && !!value?.length}
+	{#if allowClear && !disabled && !hideMainClearBtn && !!value?.length}
 		<CloseButton
 			noBg
 			class="ml-2 remove-all bg-transparent text-hint"

@@ -307,12 +307,13 @@ impl AuthedClient {
         workspace_id: &str,
         file_key: &str,
         storage: Option<String>,
+        max_bytes: Option<usize>,
     ) -> anyhow::Result<bytes::Bytes> {
         let mut query = vec![("file_key", file_key.to_string())];
         if let Some(storage) = storage {
             query.push(("storage", storage));
         }
-        let response = self
+        let mut response = self
             .force_client
             .as_ref()
             .unwrap_or(&HTTP_CLIENT)
@@ -331,12 +332,117 @@ impl AuthedClient {
             .context("Failed to send download_s3_file request")
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
+        if let Some(max_bytes) = max_bytes {
+            let size_error = || {
+                anyhow::anyhow!(
+                    "S3 file '{file_key}' exceeds maximum supported download size of {max_bytes} bytes"
+                )
+            };
+            if response
+                .content_length()
+                .is_some_and(|len| len > max_bytes as u64)
+            {
+                return Err(size_error());
+            }
+
+            let status = response.status();
+            let mut bytes = Vec::new();
+            // Content-Length may be absent (including for decoded compressed responses).
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .context("Failed to read response bytes")?
+            {
+                if chunk.len() > max_bytes - bytes.len() {
+                    return Err(size_error());
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            return if status == reqwest::StatusCode::OK {
+                Ok(bytes.into())
+            } else {
+                Err(anyhow::anyhow!(String::from_utf8_lossy(&bytes).into_owned()))
+            };
+        }
+
         match response.status().as_u16() {
             200u16 => Ok(response
                 .bytes()
                 .await
                 .context("Failed to read response bytes")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    async fn download_response(
+        response: &'static str,
+        max_bytes: Option<usize>,
+    ) -> anyhow::Result<bytes::Bytes> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = AuthedClient::new(
+            format!("http://{}", listener.local_addr().unwrap()),
+            "test_ws".to_string(),
+            "test_token".to_string(),
+            Some(reqwest::Client::builder().no_proxy().build().unwrap()),
+        );
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = BufReader::new(socket);
+            loop {
+                let mut line = String::new();
+                assert!(socket.read_line(&mut line).await.unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            socket
+                .get_mut()
+                .write_all(response.as_bytes())
+                .await
+                .unwrap();
+            // Keep incomplete bodies open so rejection must happen before EOF.
+            std::future::pending::<()>().await;
+        });
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.download_s3_file("test_ws", "image.png", None, max_bytes),
+        )
+        .await;
+        server.abort();
+        result.expect("download waited for the oversized body to finish")
+    }
+
+    #[tokio::test]
+    async fn download_s3_file_rejects_oversized_body_before_eof() {
+        for response in [
+            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nabcd\r\n1\r\ne\r\n",
+            "HTTP/1.1 500 Internal Server Error\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nerror\r\n",
+        ] {
+            let error = download_response(response, Some(4)).await.unwrap_err();
+            assert!(error.to_string().contains(
+                "S3 file 'image.png' exceeds maximum supported download size of 4 bytes"
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn download_s3_file_accepts_body_at_limit() {
+        for response in [
+            "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nabcd",
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nabcd\r\n0\r\n\r\n",
+        ] {
+            assert_eq!(
+                download_response(response, Some(4)).await.unwrap(),
+                &b"abcd"[..]
+            );
         }
     }
 }

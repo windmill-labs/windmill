@@ -3,7 +3,6 @@
 
 	const bubble = createBubbler()
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
-	import { base } from '$lib/base'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
@@ -19,6 +18,7 @@
 		CtxAppInput
 	} from '../../inputType'
 	import type { AppViewerContext } from '../../types'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 	import { createEventDispatcher } from 'svelte'
 	import { deepEqual } from 'fast-equals'
 	import { computeFields } from './utils'
@@ -37,6 +37,7 @@
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderApps = useOperatorBuilderApps()
 
 	interface Props {
 		runnable: RunnableByPath
@@ -325,7 +326,7 @@
 					startIcon={{ icon: GitFork }}
 					endIcon={{ icon: ExternalLink }}
 					target="_blank"
-					href="{base}/flows/add?hub={hubFlowId}"
+					href="/flows/add?hub={hubFlowId}"
 				>
 					Fork
 				</Button>
@@ -346,7 +347,7 @@
 					startIcon={{ icon: Eye }}
 					endIcon={{ icon: ExternalLink }}
 					target="_blank"
-					href="{base}/flows/get/{runnable.path}?workspace={$operatingWorkspace}"
+					href="/flows/get/{runnable.path}?workspace={$operatingWorkspace}"
 				>
 					Details
 				</Button>
@@ -362,16 +363,18 @@
 			>
 				Edit
 			</Button>
-			<Button
-				size="xs"
-				variant="default"
-				startIcon={{ icon: GitFork }}
-				on:click={() => {
-					fork(runnable.path)
-				}}
-			>
-				Fork
-			</Button>
+			{#if !$operatorBuilderApps}
+				<Button
+					size="xs"
+					variant="default"
+					startIcon={{ icon: GitFork }}
+					on:click={() => {
+						fork(runnable.path)
+					}}
+				>
+					Fork
+				</Button>
+			{/if}
 		{/if}
 		<Popover
 			floatingConfig={{

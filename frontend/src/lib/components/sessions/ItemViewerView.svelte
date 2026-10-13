@@ -7,8 +7,7 @@
 	 * is caught here and turned into a move inside the preview panel, so nothing takes
 	 * the browser out of the session.
 	 */
-	import { untrack } from 'svelte'
-	import { base } from '$lib/base'
+	import { setContext, untrack } from 'svelte'
 	import ScriptDetail from '$lib/components/details/ScriptDetail.svelte'
 	import FlowDetail from '$lib/components/details/FlowDetail.svelte'
 	import InWorkspaceAppViewer from '$lib/components/apps/editor/InWorkspaceAppViewer.svelte'
@@ -20,8 +19,9 @@
 		parseHistoricalScriptEdit,
 		parsePreviewItemRoute,
 		previewLocationLabel,
-		stripBase
+		barePath
 	} from './previewRouter'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 
 	let {
 		runtime,
@@ -47,6 +47,16 @@
 		 * the window-level keyboard handler — several instances listen on the window. */
 		active?: boolean
 	} = $props()
+
+	// Mounted in the preview panel, outside the chat's own subtree, as PageItemEditorView is:
+	// the detail pages' AI entry points would otherwise offer a session from inside one.
+	setContext(
+		'aiChatManager',
+		untrack(() => runtime.manager)
+	)
+
+	const permissions = useSessionPermissions(() => workspaceId)
+	const canEdit = $derived(permissions.canOpenEditor(kind))
 
 	// This reads the deployed version over the API rather than from the editor cell the
 	// chat mutates, so it is the one preview kind that does not self-sync (the invariant
@@ -102,7 +112,7 @@
 	// opens as its own tab, another side or version of an item re-points this tab, and
 	// any other page opens as a page tab. Nothing reaches the top-level router.
 	function onNavigate(url: string): void {
-		const clean = stripBase(url)
+		const clean = barePath(url)
 		const query = new URL(url, 'http://x').searchParams
 		const run = clean.match(/^\/run\/([^/?#]+)$/)
 		if (run) {
@@ -144,7 +154,7 @@
 		}
 		runtime.previewTabs.open({
 			type: 'page',
-			href: `${base}${clean}${query.size ? `?${query}` : ''}`,
+			href: `${clean}${query.size ? `?${query}` : ''}`,
 			label: previewLocationLabel(clean)
 		})
 	}
@@ -179,50 +189,53 @@
 
 <!-- Remount to refetch: both detail components load on mount, so a deploy lands here
      rather than as a refresh path of their own. -->
-	{#key loadKey}
-		{@const mountedKey = loadKey}
-		{@const setLoadState = (state: 'loaded' | 'not_found') => onLoadState(mountedKey, state)}
-		{#if notDeployed}
-			<!-- This side shows the DEPLOYED item, and there isn't one. Without this the detail
+{#key loadKey}
+	{@const mountedKey = loadKey}
+	{@const setLoadState = (state: 'loaded' | 'not_found') => onLoadState(mountedKey, state)}
+	{#if notDeployed}
+		<!-- This side shows the DEPLOYED item, and there isn't one. Without this the detail
 		     page renders nothing and the panel is simply blank, which reads as a failure
 		     rather than as the ordinary state of a draft nobody has deployed yet. -->
-			<div class="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
-				<div class="text-sm text-primary">Not deployed yet</div>
-				<div class="text-xs text-tertiary max-w-sm">
-					Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
-					version to view. Deploy it from the editor to see it here.
-				</div>
+		<div class="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
+			<div class="text-sm text-primary">Not deployed yet</div>
+			<div class="text-xs text-tertiary max-w-sm">
+				Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
+				version to view.{#if canEdit}
+					Deploy it from the editor to see it here.{/if}
+			</div>
+			{#if canEdit}
 				<Button unifiedSize="sm" variant="default" startIcon={{ icon: Pen }} on:click={toEditSide}>
 					Back to editor
 				</Button>
-			</div>
-		{:else if kind === 'script'}
-			<ScriptDetail
-				hash={path}
-				workspace={workspaceId}
-				{searchParams}
-				{onNavigate}
-				{active}
-				embedded
-				onLoadState={setLoadState}
-			/>
-		{:else if kind === 'flow'}
-			<FlowDetail
-				{path}
-				workspace={workspaceId}
-				{searchParams}
-				{onNavigate}
-				{active}
-				embedded
-				onLoadState={setLoadState}
-			/>
-		{:else}
-			<InWorkspaceAppViewer
-				workspace={workspaceId}
-				{path}
-				onEdit={() => onNavigate(`/apps_raw/edit/${path}`)}
-				onLoadState={setLoadState}
-				syncHashToUrl={false}
-			/>
-		{/if}
-	{/key}
+			{/if}
+		</div>
+	{:else if kind === 'script'}
+		<ScriptDetail
+			hash={path}
+			workspace={workspaceId}
+			{searchParams}
+			{onNavigate}
+			{active}
+			embedded
+			onLoadState={setLoadState}
+		/>
+	{:else if kind === 'flow'}
+		<FlowDetail
+			{path}
+			workspace={workspaceId}
+			{searchParams}
+			{onNavigate}
+			{active}
+			embedded
+			onLoadState={setLoadState}
+		/>
+	{:else}
+		<InWorkspaceAppViewer
+			workspace={workspaceId}
+			{path}
+			onEdit={() => onNavigate(`/apps_raw/edit/${path}`)}
+			onLoadState={setLoadState}
+			syncHashToUrl={false}
+		/>
+	{/if}
+{/key}

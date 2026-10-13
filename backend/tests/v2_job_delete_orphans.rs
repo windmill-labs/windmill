@@ -205,6 +205,75 @@ async fn test_delete_jobs_removes_a_conversation_once_its_last_message_goes(
     Ok(())
 }
 
+/// The agent step completes, and so expires, before the flow run that holds the question: its
+/// job going must leave the answer in place, and the run going must take the whole turn.
+#[sqlx::test(fixtures("base"))]
+async fn test_delete_jobs_removes_a_turn_with_its_flow_run(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let flow_job = Uuid::new_v4();
+    let step_job = Uuid::new_v4();
+    insert_job(&db, WS, flow_job).await?;
+    insert_job(&db, WS, step_job).await?;
+
+    let conv_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by)
+         VALUES ($1, $2, 'f/flow', 'test-user')",
+    )
+    .bind(conv_id)
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    let mut tx = db.begin().await?;
+    for (job_id, message_type) in [
+        (
+            flow_job,
+            windmill_common::flow_conversations::MessageType::User,
+        ),
+        (
+            step_job,
+            windmill_common::flow_conversations::MessageType::Assistant,
+        ),
+    ] {
+        windmill_common::flow_conversations::add_message_to_conversation_tx(
+            &mut tx,
+            conv_id,
+            Some(job_id),
+            flow_job,
+            "hi",
+            message_type,
+            None,
+            true,
+            None,
+        )
+        .await?;
+    }
+    tx.commit().await?;
+
+    let messages = "SELECT count(*) FROM flow_conversation_message WHERE conversation_id = $1";
+    let mut conn = db.acquire().await?;
+    windmill_common::jobs::delete_jobs(&mut conn, &[step_job]).await?;
+    drop(conn);
+    assert_eq!(
+        count(&db, messages, conv_id).await?,
+        2,
+        "the step's job going must keep the turn"
+    );
+
+    let mut conn = db.acquire().await?;
+    windmill_common::jobs::delete_jobs(&mut conn, &[flow_job]).await?;
+    drop(conn);
+    assert_eq!(
+        count(&db, messages, conv_id).await?,
+        0,
+        "the run going must take the turn"
+    );
+    Ok(())
+}
+
 /// Turns that start while retention is collecting their conversation must land, not fail:
 /// the conversation lookup locks the row, so each turn waits for the collector's commit,
 /// finds the conversation gone, and creates it again — the first insert wins and the other
@@ -265,6 +334,7 @@ async fn test_new_turns_wait_for_conversation_cleanup_and_recreate(
                     &mut tx,
                     conv_id,
                     Some(new_job),
+                    new_job,
                     "hi again",
                     windmill_common::flow_conversations::MessageType::User,
                     None,

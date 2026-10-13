@@ -629,6 +629,7 @@ export type InputCat =
 	| 'dynamic'
 	| 'json-schema'
 	| 'ai-provider'
+	| 'ai-decision-questions'
 
 export namespace DynamicInput {
 	const DYN_FORMAT_PREFIX = ['dynmultiselect-', 'dynselect-']
@@ -707,8 +708,10 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
-	} else if (type == 'object' && format == 'ai-provider') {
+	} else if (type == 'object' && (format == 'ai-provider' || format == 'ai-decision-provider')) {
 		return 'ai-provider'
+	} else if (type == 'object' && format == 'ai-decision-questions') {
+		return 'ai-decision-questions'
 	} else if (type == 'object' && DynamicInput.isDynInputFormat(format)) {
 		return 'dynamic'
 	} else if (!type || type == 'object' || type == 'array') {
@@ -1319,28 +1322,7 @@ export function isCodeInjection(expr: string | undefined): boolean {
 	return dynamicTemplateRegex.test(expr)
 }
 
-// Query params Windmill consumes internally and that should not be exposed to
-// app logic via the `query` context. Only params we actually own are listed
-// here — the `wm_` prefix is a naming convention, not a reserved namespace, so
-// we don't strip it wholesale (that would break apps reading their own `wm_*`
-// params). `wm_coep` is a transport flag for cross-origin isolation headers;
-// `wm_embed`/`wm_embedder_origin` are the opaque app viewer transport params
-// (see PublicAppFrame).
-export const WINDMILL_RESERVED_QUERY_PARAMS = new Set(['wm_coep', 'wm_embed', 'wm_embedder_origin'])
-
-export function urlParamsToObject(
-	params: URLSearchParams,
-	opts?: { stripReserved?: boolean }
-): Record<string, string> {
-	const result: Record<string, string> = {}
-	params.forEach((value, key) => {
-		if (opts?.stripReserved && WINDMILL_RESERVED_QUERY_PARAMS.has(key)) {
-			return
-		}
-		result[key] = value
-	})
-	return result
-}
+export { WINDMILL_RESERVED_QUERY_PARAMS, urlParamsToObject } from './utils/queryParams'
 
 export async function tryEvery({
 	tryCode,
@@ -1498,29 +1480,6 @@ export function orderedJsonStringify(obj: any, space?: string | number) {
 		(key, value) => (value != undefined && value != null && allKeys.add(key), value)
 	)
 	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
-}
-
-function evalJs(expr: string) {
-	let template = `
-return function (fields) {
-"use strict";
-return ${expr.startsWith('return ') ? expr.substring(7) : expr}
-}
-`
-	let functor = Function(template)
-	return functor()
-}
-export function computeShow(argName: string, expr: string | undefined, args: any) {
-	if (expr) {
-		try {
-			let r = evalJs(expr)(args ?? {})
-			return r
-		} catch (e) {
-			console.error(`Impossible to eval ${expr}:`, e)
-			return true
-		}
-	}
-	return true
 }
 
 function urlizeTokenInternal(token: string, formatter: 'html' | 'md'): string {

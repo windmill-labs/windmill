@@ -29,6 +29,9 @@
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		allowTrigger?: boolean
 		toolMode?: boolean
+		/** Picking a tool for an agent that is itself a tool, which cannot run agent or decision
+		 *  tools: the server drops them from its roster. */
+		nestedAgent?: boolean
 		/** Narrow layout (450px instead of 650px). Defaults on for the preprocessor
 		 *  and failure pickers; set it when the container cannot fit the wide one. */
 		small?: boolean
@@ -41,6 +44,7 @@
 		kind = 'script',
 		allowTrigger = true,
 		toolMode = false,
+		nestedAgent = false,
 		small: smallProp = undefined
 	}: Props = $props()
 
@@ -113,17 +117,21 @@
 		logReusableAgentUsage('linked')
 		dispatch('new', { kind: 'aiagent', agentPath })
 	}
-	function newClaudeSandbox() {
+	function newAiSandbox(subkind: 'claudesandbox' | 'pisandbox') {
 		dispatch('close')
 		dispatch('new', {
 			kind: 'script',
 			inlineScript: {
 				language: 'bun',
 				kind: 'script',
-				subkind: 'claudesandbox'
+				subkind
 			}
 		})
 	}
+	const aiSandboxes = [
+		{ label: 'Claude Code', subkind: 'claudesandbox' },
+		{ label: 'Pi', subkind: 'pisandbox' }
+	] as const
 
 	// Rows of the AI panes in render order. FlowInputsQuick owns the keyboard index for the other
 	// panes and is unmounted while these render, so the two never fight over Enter or the arrows.
@@ -133,7 +141,7 @@
 			return [newBlankAgent, ...saved.map((a) => () => newLinkedAgent(a.path))]
 		}
 		if (selectedKind === 'aisandbox') {
-			return [newClaudeSandbox]
+			return aiSandboxes.map((s) => () => newAiSandbox(s.subkind))
 		}
 		return []
 	})
@@ -247,6 +255,16 @@
 							dispatch('close')
 						}}
 					/>
+					{#if !nestedAgent}
+						<TopLevelNode
+							label="AI Decision"
+							chevron={false}
+							onSelect={() => {
+								dispatch('pickAiDecisionTool')
+								dispatch('close')
+							}}
+						/>
+					{/if}
 				{:else}
 					{#if customUi?.triggers != false && allowTrigger}
 						<TopLevelNode
@@ -323,6 +341,13 @@
 								stepGen?.focus()
 							}}
 						/>
+						<TopLevelNode
+							label="AI Decision"
+							onSelect={() => {
+								dispatch('close')
+								dispatch('new', { kind: 'aidecision' })
+							}}
+						/>
 					{/if}
 					{#if customUi?.aiSandbox != false && !$operatorBuilderFlows}
 						<TopLevelNode
@@ -397,14 +422,16 @@
 			</div>
 		{:else if selectedKind === 'aisandbox'}
 			<div class="h-full overflow-auto grow min-w-0 p-2 gap-1 flex flex-col">
-				<TopLevelNode
-					label="Claude Code"
-					neutral
-					returnIcon
-					selected={aiSelected === 0}
-					onSelect={newClaudeSandbox}
-					onHover={() => (selectedByKeyboard = 0)}
-				/>
+				{#each aiSandboxes as sandbox, i (sandbox.subkind)}
+					<TopLevelNode
+						label={sandbox.label}
+						neutral
+						returnIcon
+						selected={aiSelected === i}
+						onSelect={() => newAiSandbox(sandbox.subkind)}
+						onHover={() => (selectedByKeyboard = i)}
+					/>
+				{/each}
 			</div>
 		{:else}
 			<FlowInputsQuick

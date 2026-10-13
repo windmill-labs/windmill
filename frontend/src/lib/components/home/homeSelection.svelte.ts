@@ -13,7 +13,7 @@ import type { UserExt } from '$lib/stores'
 /** A raw app is not a kind of its own here: the listing returns it as an `app`
  * row carrying `raw_app`, which every action addresses through `BulkItem.rawApp`
  * (only the draft overlay distinguishes the two). */
-export type BulkKind = 'script' | 'flow' | 'app'
+export type BulkKind = 'script' | 'flow' | 'app' | 'agent'
 
 /** The flattened row facts every bulk action needs, snapshotted at selection
  * time so an action still knows what it is acting on after the list reloads. */
@@ -32,6 +32,9 @@ export type BulkItem = {
 	draftOnly: boolean
 	/** The authed user has a draft at this path (the listing only flags their own). */
 	isDraft: boolean
+	/** A draft-only item whose draft is a legacy (owner-less) row, which only a
+	 * `legacy` delete reaches. */
+	legacyDraft: boolean
 	rawApp: boolean
 }
 
@@ -44,6 +47,7 @@ type RawItem = {
 	draft_only?: boolean | null
 	draft_path?: string | null
 	is_draft?: boolean
+	draft_users?: { username?: string | null }[] | null
 	raw_app?: boolean
 }
 
@@ -69,6 +73,8 @@ export function toBulkItem(
 		archived: item.archived ?? false,
 		draftOnly: !!item.draft_only,
 		isDraft: !!item.is_draft,
+		legacyDraft:
+			!!item.draft_only && item.draft_users?.length === 1 && item.draft_users[0]?.username == null,
 		rawApp: !!item.raw_app
 	}
 }

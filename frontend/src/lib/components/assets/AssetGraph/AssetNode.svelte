@@ -2,9 +2,14 @@
 	import { Handle, Position } from '@xyflow/svelte'
 	import { twMerge } from 'tailwind-merge'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
-	import { formatShortAssetPath, type AssetKind } from '$lib/components/assets/lib'
-	import { NODE } from '$lib/components/graph/util'
-	import PipelineInsertMenu, { type PipelineInsertPick } from './PipelineInsertMenu.svelte'
+	import { formatAssetKind, formatShortAssetPath, type AssetKind } from '$lib/components/assets/lib'
+	import PipelineNodeCard from './PipelineNodeCard.svelte'
+	import NodeActionsMenu from './NodeActionsMenu.svelte'
+	import NodeFixButton, { type NodeFix } from './NodeFixButton.svelte'
+	import NodeOnDot from './NodeOnDot.svelte'
+	import { PIPELINE_NODE_HEADER } from './assetGraphLayout'
+	import AddDownstreamMenu from './AddDownstreamMenu.svelte'
+	import AddDownstreamPill from './AddDownstreamPill.svelte'
 	import {
 		ArrowUpRight,
 		Code2,
@@ -12,19 +17,28 @@
 		History,
 		Play,
 		Loader2,
-		Plus,
 		ShieldCheck,
 		ShieldAlert,
 		CheckCircle2,
+		ChevronDown,
+		Pencil,
+		CircleSlash,
+		Trash2,
+		Upload,
 		XCircle
 	} from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import type { ScriptLang } from '$lib/gen'
 	import { enterpriseLicense } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
-	import { PIPELINE_LANGUAGES } from './pipelineLanguages'
+	import { sendUserToast, type Item } from '$lib/utils'
 	import type { PipelineOutputKind } from './pipelineTemplates'
 	import type { DbtAssetProvenance } from './types'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
+	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
+	import RunStateChip from './RunStateChip.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { upstreamScriptItems } from './upstreamScriptItems'
+	import type { RunnableRunState } from './activeRunnables.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -33,6 +47,49 @@
 	// `content` / `language` so the page-level run handler can dispatch to
 	// `runScriptPreview` instead of `runScriptByPath` (which 404s for
 	// non-deployed scripts).
+	/** What starts a producing script, as its chip shows it. */
+	export type TriggerChipData = {
+		label: string
+		/** The native trigger kind; a data upload renders as a call to action. */
+		kind?: string
+		/** No chip: the node's incoming edges already show what starts it. */
+		hidden?: boolean
+		missing?: boolean
+		draft?: boolean
+		/** Opens the trigger's editor; unset for what has none (manual, asset change). */
+		onOpen?: () => void
+		selected?: boolean
+	}
+
+	export type AssetUpstreamChips =
+		| { none: true }
+		| {
+				multiple: true
+				/** The producing scripts; one when only its triggers are ambiguous. */
+				scripts: Array<{
+					runnableId: string
+					path: string
+					summary?: string
+					language?: ScriptLang
+					unsaved?: boolean
+					onOpen: () => void
+				}>
+				/** The scripts' own triggers, each named with its script. */
+				triggers: Array<TriggerChipData & { script: string }>
+				selected?: boolean
+		  }
+		| {
+				runnableId: string
+				path: string
+				summary?: string
+				language?: ScriptLang
+				unsaved?: boolean
+				runState?: RunnableRunState
+				trigger: TriggerChipData
+				onOpen: () => void
+				selected?: boolean
+		  }
+
 	export type AssetProducer = {
 		kind: 'script' | 'flow'
 		path: string
@@ -51,6 +108,8 @@
 			// "current view of <dim>" marker so it reads as a derived node, not an
 			// unrelated table.
 			derived_from?: string
+			// Why the node is misconfigured, when it is: renders it red.
+			error?: string
 			// dbt provenance when this warehouse table is a dbt node: which model
 			// it is, how dbt materializes it, its tags and its generic tests.
 			dbt?: DbtAssetProvenance
@@ -65,10 +124,14 @@
 				language: ScriptLang,
 				scriptPath: string,
 				outputKind: PipelineOutputKind,
-				aiPrompt?: string
+				aiPrompt?: string,
+				options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 			) => void
 			pathPrefix?: string
 			defaultPathSuffix?: string
+			/** Starts dragging the "+" onto a script (subscribing it to this asset)
+			 * or onto the blank canvas (opening the add menu there). */
+			onStartFeedDrag?: (e: PointerEvent) => void
 			// Producer scripts/flows that write to this asset, supplied by
 			// the canvas from the graph's write/rw edges. Drives the on-hover
 			// "Run" button. Includes unsaved/draft producers so the button
@@ -99,6 +162,41 @@
 			// instead of only settling once the job ends.
 			runStatus?: 'running' | 'materialized' | 'failed'
 			runRowCount?: number | null
+			/** Set in the assets-only view, where the producing script and its
+			 * trigger are folded into the asset: `none` for an asset nothing in the
+			 * pipeline writes, `multiple` when the producer or its trigger is
+			 * ambiguous. */
+			upstream?: AssetUpstreamChips
+			/** What is wrong with the node, and how to fix it: replaces the "+". */
+			fix?: NodeFix
+			/** Assets-only: errors of the scripts and triggers folded into this node. */
+			foldedFixes?: NodeFix[]
+			/** Assets-only: starts dragging the top dot onto an asset, subscribing the
+			 * scripts that build this one to it. */
+			onStartOnDrag?: (e: PointerEvent) => void
+			/** The assets-only node for the scripts that build no asset. */
+			noAsset?: boolean
+			/** The No-asset node's script, by its file name. */
+			noAssetName?: string
+			/** Assets-only: the node is only its script's banner. */
+			bannerOnly?: boolean
+			/** Assets-only: a script folded into the node has an error. */
+			scriptError?: boolean
+			/** No script in the workspace writes it; a flow's write fires no asset trigger. */
+			neverWritten?: boolean
+			/** Card width in the assets-only view, sized to its text. */
+			width?: number
+			/** Assets-only view: the producing script and trigger no other asset
+			 * shares, which the menu offers to delete one by one or together. */
+			upstreamDelete?: import('./assetsOnlyView').AssetUpstreamDelete
+			/** When no combined delete is possible: the folded scripts, each deletable
+			 * on its own. */
+			scriptDeletes?: Array<{ path: string; unsaved: boolean }>
+			triggerDeletes?: Array<NonNullable<import('./assetsOnlyView').AssetUpstreamDelete['trigger']>>
+			onDeleteUpstream?: (target: import('./assetsOnlyView').AssetUpstreamDelete) => void
+			deleteVerb?: 'Delete' | 'Archive'
+			/** Why nothing can be deleted, when the producer is shared. */
+			deleteBlocked?: string
 		}
 		// SvelteFlow injects this on the node component when the user clicks
 		// the node. Combined with our own `hovered` state to drive the
@@ -140,19 +238,94 @@
 		}
 	}
 
-	function handlePick(pick: PipelineInsertPick) {
-		if (pick.kindId === 'pipeline_script' && pick.language && pick.path) {
-			data.onAddScript?.(
-				{ kind: data.asset_kind, path: data.path },
-				pick.language as ScriptLang,
-				pick.path,
-				(pick.outputKind ?? 'none') as PipelineOutputKind,
-				pick.aiPrompt
-			)
-		}
-	}
 
-	let showAdd = $derived(data.onAddScript != undefined)
+
+	// A red asset needs fixing where its error comes from, not a downstream step;
+	// and a step downstream of what nothing writes would never run on its writes.
+	let showAdd = $derived(data.onAddScript != undefined && !data.error && !data.neverWritten)
+	let menuItems: Item[] = $derived(
+		data.onDeleteUpstream && data.upstreamDelete
+			? deleteItems(data.upstreamDelete, data.onDeleteUpstream)
+			: data.onDeleteUpstream && (data.scriptDeletes?.length || data.triggerDeletes?.length)
+				? [
+						...(data.scriptDeletes ?? []).map((script) => ({ script })),
+						...(data.triggerDeletes ?? []).map((trigger) => ({ trigger }))
+					].flatMap((t) => deleteItems(t, data.onDeleteUpstream!))
+				: data.deleteBlocked
+				? [
+						{
+							displayName: `Can't delete: ${data.deleteBlocked}`,
+							icon: Trash2,
+							disabled: true
+						}
+					]
+				: []
+	)
+	const lastSegment = (p: string) => p.split('/').pop() ?? p
+	// A script is archived rather than deleted when the user may not delete it;
+	// a trigger is always deleted.
+	function deleteItems(
+		t: import('./assetsOnlyView').AssetUpstreamDelete,
+		run: (target: import('./assetsOnlyView').AssetUpstreamDelete) => void
+	): Item[] {
+		const items: Item[] = []
+		if (t.script) {
+			const script = t.script
+			items.push({
+				displayName: `${data.deleteVerb ?? 'Delete'} script ${lastSegment(script.path)}`,
+				icon: Trash2,
+				type: 'delete' as const,
+				action: () => run({ script })
+			})
+		}
+		if (t.trigger) {
+			const trigger = t.trigger
+			items.push({
+				displayName: `Delete ${trigger.kind} trigger ${lastSegment(trigger.path)}`,
+				icon: Trash2,
+				type: 'delete' as const,
+				action: () => run({ trigger })
+			})
+		}
+		if (t.script && t.trigger) {
+			items.push({
+				displayName: `${data.deleteVerb === 'Archive' ? 'Remove' : 'Delete'} all 2 items`,
+				icon: Trash2,
+				type: 'delete' as const,
+				action: () => run(t)
+			})
+		}
+		return items
+	}
+	let upstream = $derived(data.upstream)
+	let HEADER_SELECTED = $derived(
+		data.scriptError
+			? 'bg-red-200 dark:bg-red-600 hover:bg-red-200 dark:hover:bg-red-600'
+			: 'bg-surface-accent-selected hover:bg-surface-accent-selected text-accent'
+	)
+	const CHIP_SELECTED =
+		'bg-surface-accent-selected border-border-selected hover:bg-surface-accent-selected text-accent'
+	let producer = $derived(upstream && 'path' in upstream ? upstream : undefined)
+	let coProducers = $derived(upstream && 'scripts' in upstream ? upstream.scripts : [])
+	let hasHeader = $derived(!!producer || coProducers.length > 0)
+	// The corner controls sit on the card's corner, below the header tab:
+	// -top-2 plus PIPELINE_NODE_HEADER (22px).
+	const CARD_CORNER_TOP = 'top-[14px]'
+	let coSelected = $derived(!!(upstream && 'scripts' in upstream && upstream.selected))
+	let coProducerItems = $derived(
+		upstreamScriptItems(coProducers, (path) => coProducers.find((s) => s.path === path)?.onOpen())
+	)
+	let scriptMenuOpen = $state(false)
+	let coTriggers = $derived(upstream && 'triggers' in upstream ? upstream.triggers : [])
+	let coTriggerItems: Item[] = $derived(
+		coTriggers.map((t) => ({
+			displayName: `${t.label}${t.draft ? ' · draft' : ''}`,
+			description: coProducers.length > 1 ? t.script : undefined,
+			disabled: !t.onOpen,
+			action: () => t.onOpen?.()
+		}))
+	)
+	let triggerMenuOpen = $state(false)
 
 	// dbt badge. `materialized` is dbt's own word rather than the Windmill
 	// strategy because `view` and `ephemeral` have no strategy, and showing the
@@ -220,6 +393,185 @@
 	)
 </script>
 
+{#snippet scriptHeader()}
+	<!-- The script building this asset, folded into it: a strip across the top
+	     naming it, which opens it. Several scripts open a menu to pick one. -->
+	{@const one = producer ?? (coProducers.length === 1 ? coProducers[0] : undefined)}
+	{@const headerClass = twMerge(
+		'flex items-center gap-1.5 w-full min-w-0 px-2 text-3xs font-normal leading-none text-secondary hover:bg-surface-hover hover:text-primary',
+		data.scriptError &&
+			'bg-red-100 dark:bg-red-700 text-red-700 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-600 hover:text-red-800'
+	)}
+	{#if one}
+		{@const isSelected = producer ? !!producer.selected : coSelected}
+		<button
+			type="button"
+			class={twMerge(headerClass, isSelected && HEADER_SELECTED)}
+			title={`Open ${one.summary ? `${one.summary} (${one.path})` : one.path}${one.unsaved ? ' · draft' : ''}`}
+			onpointerdown={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+			onclick={(e) => {
+				e.stopPropagation()
+				one.onOpen()
+			}}
+		>
+			{#if one.language}
+				<LanguageIcon lang={one.language} width={11} height={11} />
+			{:else}
+				<Code2 size={11} class="shrink-0" />
+			{/if}
+			<span class="truncate">{one.summary || one.path}</span>
+			{#if one.unsaved}<span class="shrink-0 text-tertiary">draft</span>{/if}
+			{#if producer?.runState}
+				<RunStateChip runState={producer.runState} class="ml-auto h-4 px-1 rounded" />
+			{/if}
+			<Pencil size={10} class={twMerge('shrink-0 opacity-70', !producer?.runState && 'ml-auto')} />
+		</button>
+	{:else if coProducers.length > 1}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="w-full min-w-0 flex"
+			onpointerdown={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+		>
+			<DropdownV2
+				items={coProducerItems}
+				placement="bottom-start"
+				bind:open={scriptMenuOpen}
+				fixedHeight={false}
+				usePointerDownOutside
+				enableFlyTransition
+				class="w-full"
+			>
+				{#snippet buttonReplacement()}
+					<span
+						class={twMerge(headerClass, 'h-full', (coSelected || scriptMenuOpen) && HEADER_SELECTED)}
+						title={`Built by ${coProducers.length} scripts: pick one to open`}
+					>
+						{#each coProducers.slice(0, 2) as sc (sc.path)}
+							{#if sc.language}
+								<LanguageIcon lang={sc.language} width={11} height={11} />
+							{:else}
+								<Code2 size={11} class="shrink-0" />
+							{/if}
+						{/each}
+						<span class="truncate">{coProducers.length} scripts</span>
+						<ChevronDown size={11} class="shrink-0 ml-auto" />
+					</span>
+				{/snippet}
+			</DropdownV2>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet upstreamRow()}
+	{#if data.foldedFixes?.length}
+		<!-- A folded script or trigger is misconfigured: its Fix, one at a time. -->
+		<NodeFixButton
+			chip
+			fix={data.foldedFixes[0]}
+			label={`${data.foldedFixes.length} error${data.foldedFixes.length === 1 ? '' : 's'} · Fix`}
+		/>
+	{:else if upstream && coTriggers.length > 1 && !coTriggers.some((t) => t.onOpen)}
+		<!-- Several triggers, none editable here (View mode): a plain label. -->
+		<span
+			class="truncate rounded-md border px-1.5 py-1 text-3xs leading-none font-normal border-gray-300 dark:border-gray-600 text-secondary"
+			>Multiple triggers</span
+		>
+	{:else if upstream && coTriggers.length > 1}
+		<!-- Several triggers start what builds this asset: one chip, a menu to pick
+		     the one to edit. -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="min-w-0 flex"
+			onpointerdown={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+		>
+			<DropdownV2
+				items={coTriggerItems}
+				placement="bottom-start"
+				bind:open={triggerMenuOpen}
+				fixedHeight={false}
+				usePointerDownOutside
+				enableFlyTransition
+			>
+				{#snippet buttonReplacement()}
+					<span
+						class={twMerge(
+							'flex items-center gap-1 min-w-0 rounded-md border px-1.5 py-1 text-3xs leading-none font-normal border-gray-300 dark:border-gray-600 text-secondary bg-surface hover:bg-surface-hover cursor-pointer',
+							(triggerMenuOpen || coTriggers.some((t) => t.selected)) && CHIP_SELECTED
+						)}
+						title="Started by several triggers: pick one to edit"
+					>
+						<span class="truncate">Multiple triggers</span>
+						<ChevronDown size={9} class="shrink-0 opacity-70" />
+					</span>
+				{/snippet}
+			</DropdownV2>
+		</div>
+	{:else if upstream}
+		{@const trigger = producer?.trigger ?? coTriggers[0]}
+		{@const triggerScript = producer?.path ?? coTriggers[0]?.script}
+		{@const chipClass = twMerge(
+			'truncate rounded-md border px-1.5 py-1 text-3xs leading-none font-normal',
+			trigger?.missing
+				? 'border-red-300 dark:border-red-600 text-red-700 dark:text-red-300'
+				: 'border-gray-300 dark:border-gray-600 text-secondary',
+			trigger?.draft && 'border-dashed',
+			trigger?.onOpen && 'bg-surface hover:bg-surface-hover cursor-pointer',
+			trigger?.selected && CHIP_SELECTED
+		)}
+		{#if trigger?.kind === 'data_upload' && trigger.onOpen}
+			<!-- The one trigger that needs the user: nothing runs until a file is
+			     provided, so it reads as the node's main action rather than a chip. -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<span
+				class="flex min-w-0"
+				onpointerdown={(e) => e.stopPropagation()}
+				onkeydown={(e) => e.stopPropagation()}
+			>
+				<Button
+					variant="accent"
+					unifiedSize="sm"
+					startIcon={{ icon: Upload }}
+					title={`Upload the data ${triggerScript} runs on`}
+					onClick={(e) => {
+						e?.stopPropagation()
+						trigger.onOpen?.()
+					}}
+				>
+					Upload data
+				</Button>
+			</span>
+		{:else if trigger?.onOpen}
+			<button
+				type="button"
+				class={twMerge(chipClass, 'flex items-center gap-1 min-w-0')}
+				title={trigger.missing
+					? `No ${trigger.label} trigger targets ${triggerScript} yet: click to create one`
+					: `Edit the ${trigger.label} trigger`}
+				onpointerdown={(e) => e.stopPropagation()}
+				onkeydown={(e) => e.stopPropagation()}
+				onclick={(e) => {
+					e.stopPropagation()
+					trigger.onOpen?.()
+				}}
+			>
+				<span class="truncate">{trigger.label}{trigger.draft ? ' · draft' : ''}</span>
+				{#if !trigger.missing}<Pencil size={9} class="shrink-0 opacity-70" />{/if}
+			</button>
+		{:else}
+			<span class={chipClass}>
+				{#if 'none' in upstream}
+					External source
+				{:else if trigger}
+					{trigger.label}{trigger.draft ? ' · draft' : ''}
+				{/if}
+			</span>
+		{/if}
+	{/if}
+{/snippet}
+
 <!-- onmouseenter/leave on the wrapper (not the inner card) so the run
      button — which floats outside the card — keeps the hover state alive
      when the cursor moves between the card and the button. -->
@@ -236,123 +588,169 @@
 			<div class="wm-recompute-flash pointer-events-none absolute inset-0 z-10 rounded-md"></div>
 		{/key}
 	{/if}
-	<!-- Mirrors the flow editor's asset pill: quiet surface + gray border at
-	     rest, accent reserved for the selected state. -->
-	<div
-		class={twMerge(
-			'flex items-center rounded-md drop-shadow-sm overflow-hidden border',
-			'bg-surface-secondary border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500 transition-colors',
-			selected && 'bg-surface-accent-selected border-border-selected'
+	<NodeActionsMenu
+		items={menuItems}
+		hover={hovered}
+		kebabClass={twMerge(
+			showGuardBadge && '-right-8',
+			hasHeader && !data.bannerOnly && CARD_CORNER_TOP
 		)}
-		style="width: {NODE.width}px; min-height: {NODE.height}px;"
-		title={data.path}
 	>
-		<!-- Data identity carries the accent (luminance blue), pairing with
-		     the blue write edges that produce these assets — scripts stay
-		     neutral, so script vs data reads at a glance. -->
-		<AssetGenericIcon
-			assetKind={data.asset_kind}
-			class={`shrink-0 ml-2 mr-2 ${selected ? 'text-accent' : 'text-blue-600 dark:text-blue-400'}`}
-			size="14px"
-		/>
-		{#if data.runStatus}
-			<!-- The run in view, per relation: a spinner while its producer is
-			     building it, then its outcome. Left of the name so the eye finds
-			     the moving nodes first on a wide graph. -->
-			<span
-				class="shrink-0 mr-1 {data.runStatus === 'failed'
-					? 'text-red-600 dark:text-red-400'
-					: data.runStatus === 'materialized'
-						? 'text-green-600 dark:text-green-400'
-						: 'text-blue-600 dark:text-blue-400'}"
-				title={data.runStatus}
+		{#if data.bannerOnly}
+			<!-- A script that builds nothing and runs only on writes to what it reads:
+			     the incoming edges say how it starts, so its banner is the whole node. -->
+			<div
+				class={twMerge(
+					'flex items-stretch min-w-0 rounded-md overflow-hidden bg-surface border border-gray-200 dark:border-gray-700 drop-shadow-sm',
+					(producer ? producer.selected : coSelected) &&
+						'border-border-selected dark:border-border-selected'
+				)}
+				style="width: {data.width ?? 160}px; height: {PIPELINE_NODE_HEADER}px;"
 			>
-				{#if data.runStatus === 'running'}
-					<Loader2 size={11} class="animate-spin" />
-				{:else if data.runStatus === 'failed'}
-					<XCircle size={11} />
+				{@render scriptHeader()}
+			</div>
+		{:else}
+		<PipelineNodeCard
+			kindLabel={data.noAsset ? 'No asset' : formatAssetKind(asset)}
+			title={data.noAsset ? (data.noAssetName ?? '') : formatShortAssetPath(asset)}
+			tooltip={data.noAsset
+				? 'This script builds no asset'
+				: data.error
+					? `${data.path}: ${data.error}`
+					: data.path}
+			{selected}
+			tone={data.error ? 'error' : undefined}
+			subtitle={data.foldedFixes?.length ||
+			(upstream &&
+				!producer?.trigger?.hidden &&
+				!('triggers' in upstream && upstream.triggers.length === 0))
+				? upstreamRow
+				: undefined}
+			header={hasHeader ? scriptHeader : undefined}
+			headerTone={data.scriptError ? 'error' : undefined}
+			headerSelected={producer ? !!producer.selected : coSelected}
+			width={data.width}
+			surface={upstream ? 'primary' : 'secondary'}
+		>
+			{#snippet icon()}
+				<!-- Data identity carries the accent (luminance blue), pairing with
+				     the blue write edges that produce these assets — scripts stay
+				     neutral, so script vs data reads at a glance. -->
+				{#if data.noAsset}
+					<CircleSlash size={14} class="text-tertiary" />
 				{:else}
-					<CheckCircle2 size={11} />
+					<AssetGenericIcon
+						assetKind={data.asset_kind}
+						class={data.error
+							? 'text-red-600 dark:text-red-200'
+							: selected
+								? 'text-accent'
+								: 'text-blue-600 dark:text-blue-400'}
+						size="14px"
+					/>
 				{/if}
-			</span>
-			<!-- Rows the run wrote. Recorded per relation already, and the cheapest
-			     answer to "did this model actually produce anything" — a model that
-			     built green but emitted 0 rows is the failure that looks like a
-			     success. Only once settled: mid-build the number is not yet real. -->
-			{#if data.runStatus === 'materialized' && data.runRowCount != undefined}
-				<span
-					class="shrink-0 mr-1 text-3xs tabular-nums text-tertiary"
-					title="{data.runRowCount} rows written by this run"
-				>
-					{Intl.NumberFormat().format(data.runRowCount)}
-				</span>
-			{/if}
-		{/if}
-		<span class="flex-1 min-w-0 pr-1 py-0.5 text-2xs font-mono text-emphasis truncate">
-			{formatShortAssetPath(asset)}
-		</span>
-		<!-- Fork data-environment chip: in a fork every asset shares its parent's
-		     name, so the env it resolves to must read at a glance. Labeled + tinted
-		     (amber "parent" = deferred read of the parent's current table via a
-		     view; emerald "fork" = the fork's own materialized copy) rather than a
-		     bare icon, which was too easy to miss. The title carries the detail. -->
-		{#if data.fork_materialization === 'deferred'}
-			<span
-				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
-				title="Deferred to parent workspace: reads the parent's current data. Materialize it in this fork to iterate on it."
-			>
-				<ArrowUpRight size={10} />
-				parent
-			</span>
-		{:else if data.fork_materialization === 'fork'}
-			<span
-				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold uppercase tracking-wide bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700"
-				title="Materialized in this fork: reads and writes use the fork's isolated copy."
-			>
-				<GitFork size={10} />
-				fork
-			</span>
-		{/if}
-		<!-- dbt chip: names the materialization dbt declares, plus a test count
-		     when the model carries generic tests. Orange keeps it visually
-		     separate from the fork/SCD2 chips, which describe Windmill state.
-		     Where the project node is on the graph it also stands in for the edge
-		     to it: hovering lights that node up, clicking selects it. Where it is
-		     not — the run page, and a pipeline holding a dbt project — there is
-		     nothing to point at, so the chip renders inert. -->
-		{#if data.dbt}
-			<button
-				type="button"
-				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold tracking-wide bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700 {data.onDbtSelect
-					? 'hover:brightness-95 cursor-pointer'
-					: 'cursor-default'}"
-				title={dbtTitle}
-				onmouseenter={() => data.onDbtHover?.(true)}
-				onmouseleave={() => data.onDbtHover?.(false)}
-				onclick={(e) => {
-					e.stopPropagation()
-					data.onDbtSelect?.()
-				}}
-			>
-				<DbtIcon width={9} height={9} />
-				{dbtLabel}
-				{#if data.dbt.data_tests?.length}
-					<span class="opacity-70">&middot; {data.dbt.data_tests.length}T</span>
+			{/snippet}
+			{#snippet leading()}
+				{#if data.runStatus}
+					<!-- The run in view, per relation: a spinner while its producer is
+				     building it, then its outcome. Left of the name so the eye finds
+				     the moving nodes first on a wide graph. -->
+					<span
+						class="shrink-0 mr-1 {data.runStatus === 'failed'
+							? 'text-red-600 dark:text-red-400'
+							: data.runStatus === 'materialized'
+								? 'text-green-600 dark:text-green-400'
+								: 'text-blue-600 dark:text-blue-400'}"
+						title={data.runStatus}
+					>
+						{#if data.runStatus === 'running'}
+							<Loader2 size={11} class="animate-spin" />
+						{:else if data.runStatus === 'failed'}
+							<XCircle size={11} />
+						{:else}
+							<CheckCircle2 size={11} />
+						{/if}
+					</span>
+					<!-- Rows the run wrote. Recorded per relation already, and the cheapest
+				     answer to "did this model actually produce anything" — a model that
+				     built green but emitted 0 rows is the failure that looks like a
+				     success. Only once settled: mid-build the number is not yet real. -->
+					{#if data.runStatus === 'materialized' && data.runRowCount != undefined}
+						<span
+							class="shrink-0 mr-1 text-3xs tabular-nums text-tertiary"
+							title="{data.runRowCount} rows written by this run"
+						>
+							{Intl.NumberFormat().format(data.runRowCount)}
+						</span>
+					{/if}
 				{/if}
-			</button>
+			{/snippet}
+			{#snippet trailing()}
+				<!-- Fork data-environment chip: in a fork every asset shares its parent's
+			     name, so the env it resolves to must read at a glance. Labeled + tinted
+			     (amber "parent" = deferred read of the parent's current table via a
+			     view; emerald "fork" = the fork's own materialized copy) rather than a
+			     bare icon, which was too easy to miss. The title carries the detail. -->
+				{#if data.fork_materialization === 'deferred'}
+					<span
+						class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+						title="Deferred to parent workspace: reads the parent's current data. Materialize it in this fork to iterate on it."
+					>
+						<ArrowUpRight size={10} />
+						parent
+					</span>
+				{:else if data.fork_materialization === 'fork'}
+					<span
+						class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold uppercase tracking-wide bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700"
+						title="Materialized in this fork: reads and writes use the fork's isolated copy."
+					>
+						<GitFork size={10} />
+						fork
+					</span>
+				{/if}
+				<!-- dbt chip: names the materialization dbt declares, plus a test count
+			     when the model carries generic tests. Orange keeps it visually
+			     separate from the fork/SCD2 chips, which describe Windmill state.
+			     Where the project node is on the graph it also stands in for the edge
+			     to it: hovering lights that node up, clicking selects it. Where it is
+			     not — the run page, and a pipeline holding a dbt project — there is
+			     nothing to point at, so the chip renders inert. -->
+				{#if data.dbt}
+					<button
+						type="button"
+						class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold tracking-wide bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700 {data.onDbtSelect
+							? 'hover:brightness-95 cursor-pointer'
+							: 'cursor-default'}"
+						title={dbtTitle}
+						onmouseenter={() => data.onDbtHover?.(true)}
+						onmouseleave={() => data.onDbtHover?.(false)}
+						onclick={(e) => {
+							e.stopPropagation()
+							data.onDbtSelect?.()
+						}}
+					>
+						<DbtIcon width={9} height={9} />
+						{dbtLabel}
+						{#if data.dbt.data_tests?.length}
+							<span class="opacity-70">&middot; {data.dbt.data_tests.length}T</span>
+						{/if}
+					</button>
+				{/if}
+				<!-- SCD2 companion marker: this node is the `<dim>_current` "latest row
+			     per key" view its producer maintains alongside the base dimension.
+			     Icon-only (the pill already truncates); the title names the base. -->
+				{#if data.derived_from}
+					<span
+						class="shrink-0 mr-1.5 text-violet-600 dark:text-violet-400"
+						title={`SCD2 current view of ${data.derived_from}: latest row per key, maintained by the same producer as the base dimension.`}
+					>
+						<History size={12} />
+					</span>
+				{/if}
+			{/snippet}
+		</PipelineNodeCard>
 		{/if}
-		<!-- SCD2 companion marker: this node is the `<dim>_current` "latest row
-		     per key" view its producer maintains alongside the base dimension.
-		     Icon-only (the pill already truncates); the title names the base. -->
-		{#if data.derived_from}
-			<span
-				class="shrink-0 mr-1.5 text-violet-600 dark:text-violet-400"
-				title={`SCD2 current view of ${data.derived_from}: latest row per key, maintained by the same producer as the base dimension.`}
-			>
-				<History size={12} />
-			</span>
-		{/if}
-	</div>
+	</NodeActionsMenu>
 	{#if showGuardBadge}
 		<!-- Data-test outcome badge. Floats off the TOP-RIGHT corner (opposite the
 		     left-edge run button and the bottom + inserter) so it never collides
@@ -361,6 +759,7 @@
 		<div
 			class={twMerge(
 				'absolute -top-2 -right-2 z-10 rounded-full w-5 h-5 grid place-items-center border shadow-sm',
+				hasHeader && CARD_CORNER_TOP,
 				guardClass
 			)}
 			title={guardTitle}
@@ -376,7 +775,13 @@
 		     cards. Drafts are runnable too via runScriptPreview, so no
 		     greyed-out state — the page-supplied callback handles the
 		     dispatch. -->
-		<div class="absolute -left-3 top-1/2 -translate-y-1/2 z-10">
+		<!-- Centred on the card, below the header tab when there is one. -->
+		<div
+			class={twMerge(
+				'absolute -left-3 top-1/2 -translate-y-1/2 z-10',
+				hasHeader && !data.bannerOnly && 'top-[calc(50%+11px)]'
+			)}
+		>
 			<button
 				type="button"
 				onclick={runProducers}
@@ -398,53 +803,47 @@
 			</button>
 		</div>
 	{/if}
-	{#if showAdd}
-		<!-- Always-visible + below the asset for downstream pipeline-script
-		     creation. Half-overlapping the bottom edge so it visually attaches
-		     to the node like the flow editor's between-step inserter. -->
+	{#if data.onStartOnDrag}
+		<NodeOnDot onStart={data.onStartOnDrag} visible={hovered} />
+	{/if}
+	{#if data.fix}
+		<!-- A red node's way out replaces its "+": adding downstream of a broken
+		     node is not what it needs. -->
 		<div class="absolute left-1/2 -bottom-3 -translate-x-1/2 z-10">
-			<PipelineInsertMenu
-				kinds={[
-					{
-						id: 'pipeline_script',
-						label: 'Add downstream pipeline script',
-						description: 'Triggered when this asset changes',
-						icon: Code2
-					}
-				]}
-				languages={PIPELINE_LANGUAGES as any}
-				pathPrefix={data.pathPrefix ?? ''}
-				defaultPathSuffix={data.defaultPathSuffix ?? ''}
-				onPick={handlePick}
+			<NodeFixButton fix={data.fix} />
+		</div>
+	{:else if showAdd}
+		<!-- Always-visible + on the asset's bottom edge for downstream pipeline-
+		     script creation, half-overlapping it like the flow editor's
+		     between-step inserter. -->
+		<div class="absolute left-1/2 -bottom-3 -translate-x-1/2 z-10">
+			<AddDownstreamMenu
+				asset={{ kind: data.asset_kind, path: data.path }}
+				onAddScript={data.onAddScript!}
+				pathPrefix={data.pathPrefix}
+				defaultPathSuffix={data.defaultPathSuffix}
 			>
-				{#snippet trigger()}
-					<!--
-						Sizing notes for the round + button:
-						  - w-6/h-6 (24px) chosen so that with border-2 (2px each
-						    side) the inner area is exactly 20px — divisible by
-						    the 16px icon to leave a 2px gap on every side. At
-						    20px / 12px before, the gap was 4px-each but the
-						    odd rounding interacted badly with svelte-flow's
-						    fractional zoom transforms and the icon drifted
-						    half a pixel off-center on certain zoom levels.
-						  - `grid place-items-center` instead of flex centering:
-						    flex's baseline alignment introduces a sub-pixel
-						    nudge on small elements that grid avoids.
-						  - `leading-none` strips the default line-height
-						    contribution that the SVG inherits via the parent's
-						    text rendering, otherwise the icon is shifted
-						    downward by ~0.5px at fractional zooms.
-					-->
+				{#snippet trigger({ open })}
+					<!-- A click opens the menu; a drag goes to the canvas, which
+					     tells a real drag from a click by how far the pointer moves. -->
 					<button
 						type="button"
+						class="nopan nodrag block"
 						onclick={(e) => e.stopPropagation()}
-						class="bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:bg-surface-hover rounded-full w-6 h-6 grid place-items-center shadow-sm leading-none"
-						title="Add downstream pipeline script"
+						onpointerdown={(e) => {
+							if (e.button !== 0) return
+							e.preventDefault()
+							data.onStartFeedDrag?.(e)
+						}}
+						aria-label="Add downstream step"
+						title={data.onStartFeedDrag
+							? 'Click to add a downstream step, or drag onto a script to run it after each write'
+							: undefined}
 					>
-						<Plus size={16} strokeWidth={2.5} />
+						<AddDownstreamPill expanded={open} />
 					</button>
 				{/snippet}
-			</PipelineInsertMenu>
+			</AddDownstreamMenu>
 		</div>
 	{/if}
 </div>

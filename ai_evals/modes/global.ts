@@ -54,6 +54,7 @@ export function createGlobalModeRunner(
           sessionChat: context.evalCase?.runtime?.sessionChat,
           planMode: context.evalCase?.runtime?.planMode,
           maxIterations: context.evalCase?.runtime?.maxTurns,
+          userAnswers: context.evalCase?.runtime?.userAnswers,
           provider: modelConfig.provider,
           model: modelConfig.model,
           backend: backendSettings,

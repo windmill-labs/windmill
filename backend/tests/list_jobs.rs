@@ -957,6 +957,7 @@ async fn test_job_labels_propagated_at_push_time(db: Pool<Postgres>) -> anyhow::
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         labels: Some(vec!["prod".to_string(), "deploy".to_string()]),
+        job_token_scopes: None,
     })
     .push(&db)
     .await;
@@ -1060,6 +1061,7 @@ async fn test_job_label_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         labels: Some(vec!["prod".to_string()]),
+        job_token_scopes: None,
     })
     .push(&db)
     .await;
@@ -1077,6 +1079,7 @@ async fn test_job_label_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         labels: Some(vec!["staging".to_string()]),
+        job_token_scopes: None,
     })
     .push(&db)
     .await;

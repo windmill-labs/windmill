@@ -16,11 +16,13 @@
 	let { small = false }: Props = $props()
 
 	function computeLangs(defaultScripts: WorkspaceDefaultScripts | undefined): Script['language'][] {
-		const allLangs = Object.keys(defaultScriptLanguages) as Script['language'][]
+		const allLangs = (Object.keys(defaultScriptLanguages) as Script['language'][]).filter(
+			(l) => l != 'deno'
+		)
 		if (!defaultScripts || defaultScripts.order == undefined) return allLangs
 		return defaultScripts.order
 			?.concat(allLangs.filter((l) => !defaultScripts.order?.includes(l)))
-			.filter((x) => x != 'nativets') as Script['language'][]
+			.filter((x) => x != 'nativets' && x != 'deno') as Script['language'][]
 	}
 
 	async function changePosition(i: number, up: boolean) {
@@ -31,6 +33,10 @@
 			;[norder[i], norder[i + 1]] = [norder[i + 1], norder[i]]
 		}
 		defaultScripts.update((s) => ({ ...s, order: norder }))
+		await persist()
+	}
+
+	async function persist() {
 		await WorkspaceService.editDefaultScripts({
 			workspace: $operatingWorkspace!,
 			requestBody: $defaultScripts
@@ -76,7 +82,7 @@
 					size="xs"
 					color="red"
 					checked={$defaultScripts?.hidden?.includes(lang)}
-					on:change={(e) => {
+					on:change={async (e) => {
 						let toggled = e.detail
 						if (toggled) {
 							defaultScripts.update((s) => ({
@@ -89,6 +95,7 @@
 								hidden: (s?.hidden ?? []).filter((h) => h != lang)
 							}))
 						}
+						await persist()
 					}}
 				/>
 			</div>

@@ -75,6 +75,7 @@ pub mod flow_status;
 pub mod flows;
 pub mod folders;
 pub mod global_settings;
+pub mod hub_resource_types;
 pub mod guest_jwt;
 pub mod indexer;
 pub mod instance_config;
@@ -90,6 +91,7 @@ pub mod workspace_dependencies;
 #[cfg(feature = "private")]
 pub mod git_sync_ee;
 pub mod git_sync_oss;
+pub mod item_digest;
 pub mod job_provenance;
 pub mod jobs;
 pub mod jwt;
@@ -100,6 +102,8 @@ pub mod oauth2;
 pub mod oidc_ee;
 #[cfg(all(feature = "enterprise", feature = "openidconnect"))]
 pub mod oidc_oss;
+#[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+pub mod oidc_signer_ee;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
@@ -122,10 +126,12 @@ pub mod query_builders;
 pub mod queue;
 pub mod queue_metrics;
 pub mod result_stream;
+pub mod runnable_job_stats;
 pub mod runnable_settings;
 pub mod runnables;
 pub mod schedule;
 pub mod schema;
+pub mod scopes;
 pub mod scripts;
 pub mod secret_backend;
 pub mod sensitive_log_masks;
@@ -151,6 +157,7 @@ pub mod wac;
 pub mod webhook;
 pub mod worker;
 pub mod worker_group_job_stats;
+pub mod workspace_crypt;
 pub mod workspaces;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
@@ -1067,6 +1074,18 @@ impl TokioPgConnection {
     }
 }
 
+/// Without these, a server that vanishes without closing the socket (a failover,
+/// a dropped route) leaves a query waiting on a read for the OS default of two
+/// hours. The server's kernel answers the probes, so a slow query is unaffected.
+pub fn set_pg_keepalive(config: &mut tokio_postgres::Config) {
+    config
+        .keepalives(true)
+        .keepalives_idle(std::time::Duration::from_secs(60))
+        .keepalives_interval(std::time::Duration::from_secs(10))
+        .keepalives_retries(6)
+        .tcp_user_timeout(std::time::Duration::from_secs(120));
+}
+
 impl PgDatabase {
     /// The role the connection logs in as, whichever way it authenticates.
     pub fn login_name(&self) -> &str {
@@ -1106,6 +1125,12 @@ impl PgDatabase {
 
     pub fn non_empty_options(&self) -> Option<&str> {
         self.options.as_deref().filter(|o| !o.is_empty())
+    }
+
+    fn uri_config(&self) -> Result<tokio_postgres::Config, error::Error> {
+        let mut config: tokio_postgres::Config = self.to_uri().parse().map_err(to_anyhow)?;
+        set_pg_keepalive(&mut config);
+        Ok(config)
     }
 
     pub async fn connect(
@@ -1225,18 +1250,51 @@ impl PgDatabase {
         }
     }
 
+    fn sslmode_requires_tls(&self) -> bool {
+        matches!(
+            self.sslmode.as_deref(),
+            Some("require") | Some("verify-ca") | Some("verify-full")
+        )
+    }
+
+    /// Asks the server to cancel what the connection behind `token` is running. Dropping a
+    /// connection does not: the server works on until it next writes to the client.
+    ///
+    /// The request goes out the way the connection was made: `token_auth` is set for one
+    /// authenticated with an access token, which is over TLS whatever the sslmode.
+    pub async fn cancel_query(
+        &self,
+        token: tokio_postgres::CancelToken,
+        token_auth: bool,
+    ) -> Result<(), error::Error> {
+        if token_auth || self.sslmode_requires_tls() {
+            let mut connector = native_tls::TlsConnector::builder();
+            Self::configure_pg_tls_verification(
+                &mut connector,
+                self.sslmode.as_deref(),
+                self.root_certificate_pem.as_deref(),
+                self.accept_invalid_certs,
+            )?;
+            let connector =
+                postgres_native_tls::MakeTlsConnector::new(connector.build().map_err(to_anyhow)?);
+            token.cancel_query(connector).await.map_err(to_anyhow)?;
+        } else {
+            token
+                .cancel_query(tokio_postgres::tls::NoTls)
+                .await
+                .map_err(to_anyhow)?;
+        }
+        Ok(())
+    }
+
     async fn connect_inner(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         use native_tls::TlsConnector;
         use postgres_native_tls::MakeTlsConnector;
         use tokio_postgres::tls::NoTls;
-        let ssl_mode_is_require = matches!(
-            self.sslmode.as_deref(),
-            Some("require") | Some("verify-ca") | Some("verify-full")
-        );
 
-        if ssl_mode_is_require {
+        if self.sslmode_requires_tls() {
             tracing::info!("Creating new connection");
             let mut connector = TlsConnector::builder();
             Self::configure_pg_tls_verification(
@@ -1254,10 +1312,8 @@ impl PgDatabase {
 
             let (client, connection) = tokio::time::timeout(
                 std::time::Duration::from_secs(20),
-                tokio_postgres::connect(
-                    &self.to_uri(),
-                    MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
-                ),
+                self.uri_config()?
+                    .connect(MakeTlsConnector::new(connector.build().map_err(to_anyhow)?)),
             )
             .await
             .map_err(to_anyhow)?
@@ -1268,7 +1324,7 @@ impl PgDatabase {
             tracing::info!("Creating new connection");
             let (client, connection) = tokio::time::timeout(
                 std::time::Duration::from_secs(20),
-                tokio_postgres::connect(&self.to_uri(), NoTls),
+                self.uri_config()?.connect(NoTls),
             )
             .await
             .map_err(to_anyhow)?
@@ -1385,6 +1441,7 @@ impl PgDatabase {
         if let Some(options) = self.non_empty_options() {
             config.options(options);
         }
+        set_pg_keepalive(&mut config);
 
         let (client, connection) = tokio::time::timeout(
             std::time::Duration::from_secs(20),
@@ -2229,6 +2286,7 @@ pub struct ScriptHashInfo<SR> {
     pub on_behalf_of: Option<String>,
     pub created_by: String,
     pub labels: Option<Vec<String>>,
+    pub job_token_scopes: Option<Vec<String>>,
     #[sqlx(flatten)]
     pub runnable_settings: SR,
 }
@@ -2322,6 +2380,7 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             on_behalf_of: self.on_behalf_of,
             created_by: self.created_by,
             labels: self.labels,
+            job_token_scopes: self.job_token_scopes,
             runnable_settings: ScriptRunnableSettingsInline {
                 concurrency_settings: concurrency_settings.maybe_fallback(
                     self.runnable_settings.concurrency_key,
@@ -2686,6 +2745,7 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 on_behalf_of,
                 created_by,
                 labels,
+                job_token_scopes,
                 path
             FROM script WHERE hash = $1 AND workspace_id = $2",
     )
@@ -2707,6 +2767,7 @@ pub struct FlowVersionInfo {
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
     pub labels: Option<Vec<String>>,
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 impl FlowVersionInfo {
@@ -2850,7 +2911,8 @@ pub fn get_flow_version_info_from_version<
                                     flow.dedicated_worker,
                                     flow.on_behalf_of,
                                     flow.edited_by,
-                                    flow.labels
+                                    flow.labels,
+                                    flow.job_token_scopes
                                 FROM
                                     flow_version
                                 INNER JOIN flow
@@ -2985,9 +3047,10 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<jobs::OnBehalfOf>,
     Option<i64>,
     Option<Vec<String>>,
+    Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels, job_token_scopes FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -3019,6 +3082,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         on_behalf_of,
         script.runnable_settings_handle,
         script.labels,
+        script.job_token_scopes,
     ))
 }
 

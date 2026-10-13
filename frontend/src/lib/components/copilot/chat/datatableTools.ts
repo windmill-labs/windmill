@@ -344,6 +344,7 @@ export function getDatatableTools(): SessionTool<{}>[] {
 			def: getExecDatatableSqlToolDef(),
 			requiresConfirmation: true,
 			confirmationMessage: 'Execute SQL on datatable',
+			queuedLabel: (args) => `Execute SQL on "${args?.datatable_name ?? 'datatable'}"`,
 			showDetails: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				const parsedArgs = getExecDatatableSqlSchema().parse(args)

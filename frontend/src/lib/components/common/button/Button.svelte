@@ -148,6 +148,13 @@
 	}: Props = $props()
 
 	const activeTone = $derived(dropdownItems ? undefined : tone)
+	// `dropdownItems` may be a function, whose `.length` is its arity — 0 for the `() => [...]`
+	// every caller writes. Asking it for its items is the only way to know whether there are any,
+	// and a split button that answers `.length` instead renders no caret at all.
+	const hasDropdown = $derived(
+		!!dropdownItems &&
+			(typeof dropdownItems === 'function' ? dropdownItems().length : dropdownItems.length) > 0
+	)
 
 	function computeDropdowns(menuItems: MenuItem[] | (() => MenuItem[])): Item[] {
 		const items = typeof menuItems === 'function' ? menuItems() : menuItems
@@ -197,12 +204,7 @@
 						]
 					: ButtonType.VariantStyles[variant]
 			// For default variant with dropdowns, remove border from button since it's on wrapper
-			if (
-				variant === 'default' &&
-				dropdownItems &&
-				((typeof dropdownItems === 'function' && dropdownItems().length > 0) ||
-					dropdownItems.length > 0)
-			) {
+			if (variant === 'default' && hasDropdown) {
 				style = style.replace('border border-border-light', '')
 			}
 			return style
@@ -278,7 +280,7 @@
 			getSpacingClass(variant, size, spacingSize, iconOnly, unifiedSize, extendedSize),
 			unifiedSize ? ButtonType.UnifiedFontSizes[unifiedSize] : '',
 			'focus-visible:ring-2',
-			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md' : 'rounded-md',
+			hasDropdown ? 'rounded-l-md' : 'rounded-md',
 			'justify-center items-center text-center inline-flex gap-2',
 			'active:opacity-80 transition-[background-color,opacity] duration-150',
 			disabled
@@ -345,7 +347,7 @@
 
 <div
 	class={twMerge(
-		dropdownItems && dropdownItems.length > 0 ? dividerClass : '',
+		hasDropdown ? dividerClass : '',
 		'shrink-0',
 		wrapperClasses,
 		'flex flex-row rounded-md',
@@ -385,6 +387,7 @@
 			class={buttonClass}
 			{id}
 			{target}
+			{title}
 			tabindex={disabled ? -1 : 0}
 			{...rest}
 			{style}
@@ -484,7 +487,7 @@
 		{/if}
 	{/if}
 
-	{#if dropdownItems && dropdownItems.length > 0}
+	{#if hasDropdown && dropdownItems}
 		<Dropdown
 			aiId={aiId ? `${aiId}-dropdown` : undefined}
 			aiDescription={aiDescription ? `${aiDescription} dropdown` : undefined}

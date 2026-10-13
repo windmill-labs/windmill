@@ -73,23 +73,30 @@
 
 						<ToggleButtonGroup
 							bind:selected={aws_auth_resource_type}
+							disabled={!can_write}
 							on:selected={() => {
 								aws_resource_path = ''
 							}}
 						>
-							{#snippet children({ item })}
-								<ToggleButton label="Credentials" value="credentials" {item} />
-								<ToggleButton label="Oidc" value="oidc" {item} />
+							{#snippet children({ item, disabled })}
+								<ToggleButton label="Credentials" value="credentials" {item} {disabled} />
+								<ToggleButton label="Oidc" value="oidc" {item} {disabled} />
 							{/snippet}
 						</ToggleButtonGroup>
 
 						{#if aws_auth_resource_type === 'credentials'}
-							<ResourcePicker workspace={wsId} resourceType="aws" bind:value={aws_resource_path} />
+							<ResourcePicker
+								workspace={wsId}
+								resourceType="aws"
+								bind:value={aws_resource_path}
+								disabled={!can_write}
+							/>
 						{:else if aws_auth_resource_type === 'oidc'}
 							<ResourcePicker
 								workspace={wsId}
 								resourceType="aws_oidc"
 								bind:value={aws_resource_path}
+								disabled={!can_write}
 							/>
 						{/if}
 						{#if isValid}
@@ -130,6 +137,7 @@
 				<div class="mt-2">
 					<ToggleButtonGroup
 						selected={tab}
+						disabled={!can_write}
 						on:selected={({ detail }) => {
 							if (detail === 'all') {
 								cached = message_attributes
@@ -140,9 +148,9 @@
 							tab = detail
 						}}
 					>
-						{#snippet children({ item })}
-							<ToggleButton value="all" label="All attributes" {item} />
-							<ToggleButton value="specific" label="Specific attributes" {item} />
+						{#snippet children({ item, disabled })}
+							<ToggleButton value="all" label="All attributes" {item} {disabled} />
+							<ToggleButton value="specific" label="Specific attributes" {item} {disabled} />
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
@@ -153,7 +161,7 @@
 						onCreateItem={(x) => message_attributes.push(x)}
 						placeholder="Set message attributes"
 						noItemsMsg="Add message attributes to filter on"
-						disabled={tab === 'all'}
+						disabled={tab === 'all' || !can_write}
 					/>
 				</div>
 			</Subsection>

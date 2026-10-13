@@ -16,8 +16,6 @@ use tokio::time::timeout;
 // Re-export proxy env-var snapshots so callers (including EE modules)
 // can keep importing them via `crate::{NO_PROXY, HTTP_PROXY, HTTPS_PROXY}`.
 use windmill_common::client::AuthedClient;
-use windmill_common::db::UserDbWithAuthed;
-use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::InlineScriptTarget;
 use windmill_common::jobs::RunInlineScriptFnParams;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
@@ -157,7 +155,7 @@ use crate::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
         tally_unfinished_dependency_deploy,
     },
-    worker_utils::{insert_ping, queue_vacuum, update_worker_ping_full},
+    worker_utils::{insert_ping, mark_worker_draining, queue_vacuum, update_worker_ping_full},
 };
 
 #[cfg(feature = "rust")]
@@ -217,6 +215,8 @@ lazy_static::lazy_static! {
     pub static ref PY311_CACHE_DIR: String = format!("{}python_3_11", *ROOT_CACHE_DIR);
     pub static ref PY312_CACHE_DIR: String = format!("{}python_3_12", *ROOT_CACHE_DIR);
     pub static ref PY313_CACHE_DIR: String = format!("{}python_3_13", *ROOT_CACHE_DIR);
+    pub static ref PY314_CACHE_DIR: String = format!("{}python_3_14", *ROOT_CACHE_DIR);
+    pub static ref PY315_CACHE_DIR: String = format!("{}python_3_15", *ROOT_CACHE_DIR);
 
     pub static ref TAR_JAVA_CACHE_DIR: String = format!("{}tar/java", *ROOT_CACHE_DIR);
 
@@ -949,6 +949,22 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     } else {
         String::new()
     }
+}
+
+/// The registry overrides of a workspace, empty when it has none.
+///
+/// One snapshot: registry settings reload under running jobs, so a caller whose cache key
+/// has to agree with the registry values it used reads both from here rather than calling
+/// [`workspace_registry_cache_suffix`] and a `read_ee_registry_*` helper separately.
+pub async fn workspace_registry_overrides(
+    w_id: &str,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let registries = WORKSPACE_REGISTRIES.read().await;
+    registries
+        .as_ref()
+        .and_then(|m| m.get(w_id))
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// The name a build artifact is cached under, derived from `base` — the runnable's own
@@ -2007,6 +2023,7 @@ pub fn create_span_with_name(
         root_job = field::Empty,
         workspace_id = %arc_job.workspace_id,
         worker = %worker_name,
+        worker_group = %*WORKER_GROUP,
         hostname = field::Empty,
         tag = %arc_job.tag,
         language = field::Empty,
@@ -2158,6 +2175,7 @@ pub fn log_context_for_job(
         job_id: Some(arc_job.id.to_string()),
         workspace_id: Some(arc_job.workspace_id.clone()),
         worker: Some(worker_name.to_string()),
+        worker_group: Some(WORKER_GROUP.clone()),
         tag: Some(arc_job.tag.clone()),
         job_kind: Some(arc_job.kind.as_str().to_string()),
         created_by: Some(arc_job.created_by.clone()),
@@ -2231,6 +2249,7 @@ pub async fn handle_all_job_kind_error(
                         ))),
                         result_columns: None,
                         mem_peak: 0,
+                        resource_usage: None,
                         canceled_by: None,
                         success: false,
                         cached_res_path: None,
@@ -2697,7 +2716,7 @@ pub async fn run_worker(
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
     let mut reported_ip = cached_ip();
-    let previous_jobs_executed = insert_ping(hostname, &worker_name, reported_ip, conn)
+    let previous_jobs_executed = insert_ping(hostname, &worker_name, reported_ip, true, conn)
         .await
         .expect("initial ping could be sent");
 
@@ -3144,6 +3163,31 @@ pub async fn run_worker(
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
 
+    // The loop below only sees the killpill once the running job is done, which is too late
+    // for that job to learn its worker is going away.
+    {
+        let mut killpill_rx = killpill_rx.resubscribe();
+        let conn = conn.clone();
+        let worker_name = worker_name.clone();
+        tokio::spawn(async move {
+            if matches!(
+                killpill_rx.recv().await,
+                Err(broadcast::error::RecvError::Closed)
+            ) {
+                return;
+            }
+            for attempt in 1..=3 {
+                match mark_worker_draining(&conn, &worker_name).await {
+                    Ok(()) => return,
+                    Err(e) => {
+                        tracing::warn!(worker = %worker_name, "failed to mark worker as draining (attempt {attempt}/3): {e:#}");
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        });
+    }
+
     loop {
         let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
         if last_processing_duration_secs > 5 {
@@ -3219,7 +3263,7 @@ pub async fn run_worker(
             // which costs at most the last job's id here: no job of this worker is in flight at this
             // point in the loop, and the next one refills them.
             if ip_just_resolved && conn.as_sql().is_none() {
-                if let Err(e) = insert_ping(hostname, &worker_name, ip, &conn).await {
+                if let Err(e) = insert_ping(hostname, &worker_name, ip, false, &conn).await {
                     tracing::warn!(
                         worker = %worker_name, hostname = %hostname,
                         "failed to re-register with the resolved external IP: {e}"
@@ -3408,6 +3452,10 @@ pub async fn run_worker(
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
                 }
+            } else if WORKER_CONFIG.load().paused {
+                // Checked after the same-worker channel: a flow this worker already runs
+                // still needs it for its remaining same-worker steps.
+                Ok(None)
             } else {
                 match &conn {
                     Connection::Sql(db) => {
@@ -3595,8 +3643,12 @@ pub async fn run_worker(
                     // dispatch by path and return before that check, so a job sent down them
                     // would run with whatever arguments survived the failure.
                     let fails_before_running = job.pre_run_error.is_some();
+                    // A dedicated worker or flow runner runs every job it gets with its own
+                    // unscoped worker token, so a job with a restricted token runs here, with the
+                    // token minted for it, whichever tag brought it.
+                    let restricted = job.job_token_scopes.is_some();
 
-                    if !dedicated_workers.is_empty() && !fails_before_running {
+                    if !dedicated_workers.is_empty() && !fails_before_running && !restricted {
                         let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
                             // For flow steps inside branches/loops, runnable_path includes
                             // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
@@ -3641,7 +3693,9 @@ pub async fn run_worker(
                         NextJob::Http(_) => None,
                     };
 
-                    if let Some(flow_runners) = flow_runners.filter(|_| !fails_before_running) {
+                    if let Some(flow_runners) =
+                        flow_runners.filter(|_| !fails_before_running && !restricted)
+                    {
                         let key_o = job.flow_step_id.as_ref().map(|x| x.to_string());
                         if let Some(key) = key_o {
                             if let Some(flow_runner_tx) = flow_runners.runners.get(&key) {
@@ -3721,6 +3775,7 @@ pub async fn run_worker(
                                 result: Arc::new(empty_result()),
                                 result_columns: None,
                                 mem_peak: 0,
+                                resource_usage: None,
                                 cached_res_path: None,
                                 token: "".to_string(),
                                 canceled_by: None,
@@ -4712,6 +4767,7 @@ pub async fn handle_queued_job(
                             result,
                             result_columns: None,
                             mem_peak: 0,
+                            resource_usage: None,
                             canceled_by: None,
                             success: true,
                             cached_res_path: None,
@@ -5061,6 +5117,8 @@ pub async fn handle_queued_job(
 
         let cjob = MiniCompletedJob::from(job.to_owned());
         drop(job);
+        // Taken ahead of the returns below so that none of them leaves the entry behind.
+        let cpu_time_ms = crate::handle_child::take_job_cpu_time_ms(&cjob.id);
         //it's a test job, no need to update the db
         if cjob.workspace_id == "" {
             return Ok(JobOutcome::Completed);
@@ -5077,14 +5135,27 @@ pub async fn handle_queued_job(
             .is_err_and(|err| matches!(err, &Error::WacSuspended(_)))
         {
             // WAC v2 job suspended while waiting for child jobs — don't complete it
+            // Only a worker with a database connection flushes the rollup.
+            if let Connection::Sql(_) = conn {
+                windmill_common::runnable_job_stats::accumulate_runnable_round(
+                    &cjob.workspace_id,
+                    cjob.kind,
+                    cjob.runnable_path.as_deref(),
+                    &WORKER_GROUP,
+                    started.elapsed().as_millis() as i64,
+                    cpu_time_ms,
+                );
+            }
             return Ok(JobOutcome::Completed);
         }
+        crate::resource_metrics::record_job_memory_peak(&cjob.tag, mem_peak);
         process_result(
             cjob,
             result.map(|x| Arc::new(x)),
             job_dir,
             job_completed_tx,
             mem_peak,
+            cpu_time_ms,
             canceled_by,
             cached_res_path,
             &client.token,
@@ -5397,6 +5468,7 @@ async fn handle_code_execution_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
+    let _custom_timeout = crate::common::RunningJobCustomTimeout::register(job.id, job.timeout);
     let script_hash = || {
         job.runnable_id
             .ok_or_else(|| Error::internal_err("expected script hash"))
@@ -7181,7 +7253,7 @@ pub fn init_worker_internal_server_inline_utils(
         base_internal_url,
         killpill_rx: Arc::new(killpill_rx),
         run_inline_preview_script: Arc::new(|params| {
-            let job = MiniPulledJob::new_inline(
+            let mut job = MiniPulledJob::new_inline(
                 params.workspace_id,
                 params.args,
                 params.created_by,
@@ -7193,6 +7265,7 @@ pub fn init_worker_internal_server_inline_utils(
                 "inline_preview".to_string(),
                 Some(params.lang),
             );
+            job.permissioned_as_end_user_email = params.end_user_email;
             Box::pin(async move {
                 let mut mem_peak: i32 = -1;
                 let mut canceled_by: Option<CanceledBy> = None;
@@ -7234,37 +7307,15 @@ pub fn init_worker_internal_server_inline_utils(
         run_inline_script: Arc::new(|params: RunInlineScriptFnParams| {
             Box::pin(async move {
                 let (script_hash, runnable_path) = match params.target {
-                    InlineScriptTarget::Path(ref path) => {
-                        let db = params
-                            .conn
-                            .as_sql()
-                            .ok_or_else(|| {
-                                error::Error::InternalErr(
-                                    "run_inline_script by path requires a SQL connection"
-                                        .to_string(),
-                                )
-                            })?
-                            .clone();
-                        let authed_ref = params.user_db.as_ref().map(|(_, a)| a.to_authed_ref());
-                        let user_db_authed =
-                            params.user_db.as_ref().zip(authed_ref.as_ref()).map(
-                                |((udb, _), ar)| UserDbWithAuthed { db: udb.clone(), authed: ar },
-                            );
-                        let script_hash_info = get_latest_deployed_hash_for_path(
-                            user_db_authed,
-                            db,
-                            &params.workspace_id,
-                            path,
-                        )
-                        .await?;
-                        (ScriptHash(script_hash_info.hash), Some(path.clone()))
+                    InlineScriptTarget::Path { ref path, hash } => {
+                        (ScriptHash(hash), Some(path.clone()))
                     }
                     InlineScriptTarget::Hash(hash) => (ScriptHash(hash), None),
                 };
                 let content_info =
                     get_script_content_by_hash(&script_hash, &params.workspace_id, &params.conn)
                         .await?;
-                let job = MiniPulledJob::new_inline(
+                let mut job = MiniPulledJob::new_inline(
                     params.workspace_id,
                     params.args,
                     params.created_by,
@@ -7276,6 +7327,7 @@ pub fn init_worker_internal_server_inline_utils(
                     "inline_run".to_string(),
                     content_info.language,
                 );
+                job.permissioned_as_end_user_email = params.end_user_email;
                 let mut mem_peak: i32 = -1;
                 let mut canceled_by: Option<CanceledBy> = None;
                 let mut column_order: Option<Vec<String>> = None;

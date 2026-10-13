@@ -131,9 +131,10 @@ const BEDROCK_RULES: ReasoningRule[] = [
 // Azure names gpt-3.5 `gpt-35-turbo`. `minimal` exists on gpt-5 only, `xhigh` from
 // gpt-5.5, `max` from gpt-5.6.
 const OPENAI_RULES: ReasoningRule[] = [
-	// Live-verified: astra takes low..max only, where sol and luna also take `none`.
+	// Live-verified: gpt-6-astra and gpt-6.1-sol take low..max only, where gpt-6-sol and
+	// gpt-6-luna also take `none`.
 	{
-		match: /(?:^|\/)gpt-6-astra/,
+		match: /(?:^|\/)gpt-6(?:-astra|\.1-sol)/,
 		levels: LOW_TO_MAX,
 		canDisable: false,
 		completionsToolsNeedOff: true

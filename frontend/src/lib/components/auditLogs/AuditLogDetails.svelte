@@ -1,14 +1,16 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { type AuditLog } from '$lib/gen'
-	import { ArrowRight } from 'lucide-svelte'
+	import { displayDate } from '$lib/utils'
+	import { ExternalLink, X } from 'lucide-svelte'
 
 	interface Props {
 		logs: AuditLog[]
 		selectedId?: number | undefined
+		onClose?: () => void
 	}
 
-	let { logs, selectedId = undefined }: Props = $props()
+	let { logs, selectedId = undefined, onClose }: Props = $props()
 
 	// `span` holds the caller's token prefix, except for job-minted worker tokens, which
 	// stamp the job they run for instead.
@@ -19,11 +21,27 @@
 	const ViewAppOp: AuditLog['operation'][] = ['apps.create', 'apps.update']
 </script>
 
-<div class="p-4 flex flex-col gap-2 border-t items-start">
+<div class="flex flex-col items-start">
 	{#if selectedId}
 		{@const log = logs.find((e) => e.id === selectedId)}
 		{#if log}
-			<div class="flex flex-col gap-6 w-full">
+			<div class="flex flex-row items-center justify-between gap-2 w-full px-4 py-2 border-b">
+				<div class="flex flex-col min-w-0">
+					<span class="text-xs font-semibold text-emphasis truncate">{log.operation}</span>
+					<span class="text-2xs text-secondary">{displayDate(log.timestamp)}</span>
+				</div>
+				{#if onClose}
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						iconOnly
+						startIcon={{ icon: X }}
+						onClick={onClose}
+						aria-label="Close log details"
+					/>
+				{/if}
+			</div>
+			<div class="flex flex-col gap-6 w-full p-4">
 				<div class="flex flex-col gap-1">
 					<span class="font-semibold text-xs text-emphasis">ID</span>
 					<span class="text-xs">{log.id}</span>
@@ -49,9 +67,10 @@
 				{#if log?.parameters?.uuid}
 					<Button
 						href={`run/${log.parameters.uuid}`}
-						variant="accent"
+						variant="default"
 						unifiedSize="md"
 						target="_blank"
+						endIcon={{ icon: ExternalLink }}
 						wrapperClasses="w-fit"
 					>
 						View run
@@ -64,6 +83,7 @@
 						variant="default"
 						unifiedSize="md"
 						target="_blank"
+						endIcon={{ icon: ExternalLink }}
 						wrapperClasses="w-fit"
 					>
 						View script
@@ -76,7 +96,7 @@
 						variant="default"
 						unifiedSize="md"
 						target="_blank"
-						endIcon={{ icon: ArrowRight }}
+						endIcon={{ icon: ExternalLink }}
 						wrapperClasses="w-fit"
 					>
 						View flow
@@ -88,7 +108,7 @@
 						variant="default"
 						unifiedSize="md"
 						target="_blank"
-						endIcon={{ icon: ArrowRight }}
+						endIcon={{ icon: ExternalLink }}
 						wrapperClasses="w-fit"
 					>
 						View app
@@ -97,6 +117,6 @@
 			</div>
 		{/if}
 	{:else}
-		<span class="text-xs text-primary font-normal">No log selected</span>
+		<span class="p-4 text-xs text-primary font-normal">No log selected</span>
 	{/if}
 </div>

@@ -8,7 +8,7 @@
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { isMac, type Item, userPathPrefix } from '$lib/utils'
+	import { isMac, type Item, userPathPrefix, emptyString } from '$lib/utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import {
 		AlignHorizontalSpaceAround,
@@ -32,7 +32,7 @@
 		Zap,
 		Globe
 	} from 'lucide-svelte'
-	import { getContext, onDestroy, untrack } from 'svelte'
+	import { getContext, onDestroy, untrack, type Snippet } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../../utils'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { toStatic } from '../utils'
@@ -52,6 +52,9 @@
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
+	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { editPathFor } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
@@ -114,6 +117,8 @@
 		// the deploy wrote, for the next draft's fork base, and `head` what is deployed
 		// now, with its author and time.
 		onDeploy?: (e: { version?: number; head?: number; headBy?: string; headAt?: string }) => void
+		/** True for the route's own editor: its top bar becomes the page header. */
+		ownsPageHeader?: boolean
 	}
 
 	let {
@@ -142,10 +147,11 @@
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
 		onRestore,
-		onDeploy
+		onDeploy,
+		ownsPageHeader = false
 	}: Props = $props()
 
-	/** Mirror of the path the user is editing in the pen popover. Initialized
+	/** Mirror of the path the user is editing in the rename popover. Initialized
 	 * once from `newPath` (or a synthesized path for new apps) and only
 	 * updated by user input from then on — we deliberately do NOT sync from
 	 * `newPath` afterwards so the user's in-flight rename isn't clobbered by
@@ -223,6 +229,18 @@
 	// the preview to the deployed version.
 	const inSessionPane = !!getContext('aiChatManager')
 
+	// The header's buttons render under the page header, not under this component, so the contexts
+	// they look up have to travel with them. The app's own two carry everything the canvas toggles,
+	// the panel buttons, Debug runs and the preview switch read.
+	/** Held by the rename popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
+
+	const headerContexts = new Map<any, any>([
+		['AppViewerContext', getContext('AppViewerContext')],
+		['AppEditorContext', getContext('AppEditorContext')]
+	])
+
 	const loading = $state({
 		publish: false,
 		save: false
@@ -243,7 +261,24 @@
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
-	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+	// In the page header the buttons share the row with the breadcrumb, so they shed the canvas
+	// toggles and fold Debug runs into the menu sooner: the whole group is ~840px and the trail
+	// with the summary takes ~430px of the same row.
+	// Measured on the band rather than estimated: with the canvas toggles shown the actions alone
+	// are 826-911px and the trail with the summary another ~500, so the row overflows the bar at
+	// every width up to about 1470 — 1350 was not high enough either. Below this the toggles stand
+	// down and the menu carries all three, which is what keeps them reachable rather than merely
+	// out of the way.
+	const compactBelow = $derived(ownsPageHeader ? 1500 : 720)
+	const compactTopbar = $derived.by(() => {
+		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
+		return w > 0 && w < compactBelow
+	})
+	// A phone's bar holds the trail and Deploy. Which panels are open, the export and the
+	// editor/preview switch join the menu compact already shows.
+	const phoneTopbar = $derived(
+		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
+	)
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -590,7 +625,49 @@
 								selectedJobId = $jobs[$jobs.length - 1]
 							}
 							$jobsDrawerOpen = true
-						},
+						}
+					},
+					// The canvas toggles stand down with the bar, and the breakpoint among them is the
+					// only way onto the mobile layout — so each one keeps an entry here.
+					{
+						displayName: $breakpoint === 'sm' ? 'Computer view' : 'Mobile view',
+						icon: $breakpoint === 'sm' ? Laptop2 : Smartphone,
+						action: () => ($breakpoint = $breakpoint === 'sm' ? 'lg' : 'sm')
+					},
+					// The setting the mobile view is edited for, which otherwise lives beside the
+					// toggle group that stood down: without it here a deployed app could be put on
+					// the mobile layout at this width and never taken off it.
+					...($breakpoint === 'sm'
+						? [
+								{
+									displayName: $app?.mobileViewOnSmallerScreens
+										? 'Mobile view on small screens: on'
+										: 'Mobile view on small screens: off',
+									icon: Smartphone,
+									action: () => {
+										if ($app) $app.mobileViewOnSmallerScreens = !$app.mobileViewOnSmallerScreens
+									}
+								}
+							]
+						: []),
+					{
+						displayName: $app?.fullscreen ? 'Centered canvas' : 'Full-width canvas',
+						icon: $app?.fullscreen ? AlignHorizontalSpaceAround : Expand,
+						action: () => {
+							if ($app) $app.fullscreen = !$app.fullscreen
+						}
+					},
+					{
+						displayName:
+							$app?.darkMode === undefined
+								? 'Theme: automatic'
+								: $app.darkMode
+									? 'Theme: dark'
+									: 'Theme: light',
+						icon: $app?.darkMode === undefined ? SunMoon : $app.darkMode ? Moon : Sun,
+						// Cycles auto → light → dark, the order the toggle group reads in.
+						action: () =>
+							setTheme($app?.darkMode === undefined ? false : $app.darkMode ? undefined : true),
 						separatorBottom: true
 					}
 				]
@@ -913,141 +990,232 @@
 
 <AppReportsDrawer bind:open={appReportingDrawerOpen} appPath={$appPath ?? ''} />
 
-<div
-	bind:clientWidth={topbarWidth}
-	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
->
-	<!-- Identity block shrinks/truncates first (min-w-0) so the cloud indicator
+{#if ownsPageHeader}
+	<!-- The editor's own top bar is the page header on this route: the app's path and summary are
+	     the breadcrumb's, and everything else the bar carried rides along as the header's actions. -->
+	<PageHeaderContent
+		item={{
+			// The path being edited, not the stored one: a brand-new app is parked at a
+			// `draft_<uuid>` placeholder, and the trail would name that instead of the path Deploy
+			// will create. Same fallback chain the rename sites read.
+			// Frozen while the rename popover is open so the trail holds still as the user types.
+			kind: 'app',
+			path: pathSnapshot ?? (newEditedPath || $appPath || newPath || undefined),
+			summaryContent: appSummary,
+			pathTrigger: appPathTrigger
+		}}
+		actions={appHeaderActions}
+		contexts={headerContexts}
+		separator="always"
+	/>
+{:else}
+	<div
+		bind:clientWidth={topbarWidth}
+		class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
+	>
+		<!-- Identity block shrinks/truncates first (min-w-0) so the cloud indicator
 	     and the pinned action groups (shrink-0 below) stay visible on narrow
 	     widths instead of the breadcrumb overflowing and hiding them. Kept at
 	     min-w-0 (not flex-1) so justify-between still positions the panel-hide
 	     buttons between the identity and the actions. -->
-	<div class="flex flex-row gap-2 items-center min-w-0">
-		<div class="min-w-0 overflow-hidden">
-			<EditorHeader
-				bind:summary={$summary}
-				bind:path={newEditedPath}
-				savedPath={$appPath || newPath || undefined}
-				kind="app"
-				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
-			/>
-		</div>
-		<div class="flex gap-2 shrink-0 {compactTopbar ? 'hidden' : ''}">
-			{#if $app}
-				<ToggleButtonGroup
-					selected={$app.fullscreen ? 'true' : 'false'}
-					on:selected={({ detail }) => {
-						$app.fullscreen = detail === 'true'
-					}}
-				>
-					{#snippet children({ item })}
-						<ToggleButton
-							icon={AlignHorizontalSpaceAround}
-							iconOnly
-							value={'false'}
-							tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
-							{item}
-							size="md"
-						/>
-						<ToggleButton
-							tooltip="The width is of the app if the full width of its container"
-							icon={Expand}
-							iconOnly
-							value={'true'}
-							{item}
-							size="md"
-						/>
-					{/snippet}
-				</ToggleButtonGroup>
-			{/if}
-			{#if $app}
-				<ToggleButtonGroup
-					on:selected={({ detail }) => {
-						const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
-						setTheme(theme)
-					}}
-					selected={$app.darkMode === undefined ? 'auto' : $app.darkMode ? 'dark' : 'sun'}
-				>
-					{#snippet children({ item })}
-						<ToggleButton
-							icon={SunMoon}
-							iconOnly
-							value={'auto'}
-							tooltip="The app mode between dark/light is automatic"
-							{item}
-							size="md"
-						/>
-						<ToggleButton
-							icon={Sun}
-							iconOnly
-							value={'sun'}
-							tooltip="Force light mode"
-							{item}
-							size="md"
-						/>
-						<ToggleButton
-							tooltip="Force dark mode"
-							icon={Moon}
-							iconOnly
-							value={'dark'}
-							{item}
-							size="md"
-						/>
-					{/snippet}
-				</ToggleButtonGroup>
-			{/if}
-			<div class="flex flex-row gap-2">
-				<ToggleButtonGroup bind:selected={$breakpoint}>
-					{#snippet children({ item })}
-						<ToggleButton
-							tooltip="Computer View"
-							icon={Laptop2}
-							iconOnly
-							value={'lg'}
-							{item}
-							size="md"
-						/>
-						<ToggleButton
-							tooltip="Mobile View"
-							icon={Smartphone}
-							iconOnly
-							value={'sm'}
-							{item}
-							size="md"
-						/>
-						{#if $breakpoint === 'sm'}
-							<Toggle
-								size="xs"
-								options={{
-									right: 'Enable mobile view for smaller screens',
-									rightTooltip:
-										'Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view'
-								}}
-								textClass="text-2xs whitespace-nowrap white !w-full"
-								bind:checked={$app.mobileViewOnSmallerScreens}
-								class="flex flex-row px-2 items-center"
-							/>
-						{/if}
-					{/snippet}
-				</ToggleButtonGroup>
-			</div>
-		</div>
-		{#if $workspaceStore}
-			<div class="ml-4">
-				<AutosaveIndicator
-					workspace={$workspaceStore}
-					itemKind="app"
-					path={userDraftPath}
-					draftOnly={newApp}
-					{onResetToDeployed}
-					{loadedFromDraft}
-					{othersDraftsCount}
-					{onOpenOthersDrafts}
+		<div class="flex flex-row gap-2 items-center min-w-0">
+			<div class="min-w-0 overflow-hidden">
+				<EditorHeader
+					bind:summary={$summary}
+					bind:path={newEditedPath}
+					savedPath={$appPath || newPath || undefined}
+					kind="app"
+					onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 				/>
 			</div>
-		{/if}
-	</div>
+			{@render canvasToggles()}
+			{@render autosaveIndicator()}
+		</div>
 
+		{@render panelButtons()}
+		{@render awarenessMark()}
+		{@render appActions()}
+	</div>
+{/if}
+
+<!-- The summary's editor again, hung off the band's path segment so it opens under the path, with
+     the cursor in the path field. `bind:` cannot be spread, so the slots are written out twice;
+     both instances bind the same ones and only one is ever open. -->
+{#snippet appPathTrigger(pathLabel: Snippet, triggerClass: string)}
+	<PathEditPopover
+		label={pathLabel}
+		{triggerClass}
+		focusField="path"
+		bind:summary={$summary}
+		bind:path={newEditedPath}
+		bind:snapshotPath={pathSnapshot}
+		savedPath={$appPath || newPath || undefined}
+		kind="app"
+	/>
+{/snippet}
+
+{#snippet appSummary()}
+	<!-- Not edited in place: clicking the name opens the summary and the path together, so the band
+	     reads as a name rather than a form. `title` for one it truncates. -->
+	<div class="flex items-center gap-1 min-w-0">
+		{#snippet summaryText()}
+			<span
+				class="min-w-0 truncate text-xs {emptyString($summary)
+					? 'text-tertiary italic font-normal'
+					: 'font-medium text-emphasis'}"
+				title={$summary}>{emptyString($summary) ? 'Add a summary...' : $summary}</span
+			>
+		{/snippet}
+		<PathEditPopover
+			label={summaryText}
+			bind:summary={$summary}
+			bind:path={newEditedPath}
+			bind:snapshotPath={pathSnapshot}
+			savedPath={$appPath || newPath || undefined}
+			kind="app"
+		/>
+	</div>
+{/snippet}
+
+{#snippet appHeaderActions()}
+	<!-- The bar's own order kept: what the canvas looks like, how the draft is doing, which panels
+	     are open, then what to do with the app. The set scrolls rather than pushing past the end of
+	     the bar — this editor carries the widest action row of any page, and the row it replaced
+	     scrolled for the same reason. -->
+	<div
+		class="flex flex-row items-center gap-2 min-w-0 overflow-x-auto scrollbar-hidden whitespace-nowrap"
+	>
+		{@render canvasToggles()}
+		{@render autosaveIndicator()}
+		{#if !phoneTopbar}
+			{@render panelButtons()}
+			{@render awarenessMark()}
+		{/if}
+		{@render appActions()}
+	</div>
+{/snippet}
+
+{#snippet canvasToggles()}
+	<div class="flex gap-2 shrink-0 {compactTopbar ? 'hidden' : ''}">
+		{#if $app}
+			<ToggleButtonGroup
+				selected={$app.fullscreen ? 'true' : 'false'}
+				on:selected={({ detail }) => {
+					$app.fullscreen = detail === 'true'
+				}}
+			>
+				{#snippet children({ item })}
+					<ToggleButton
+						icon={AlignHorizontalSpaceAround}
+						iconOnly
+						value={'false'}
+						tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
+						{item}
+						size="md"
+					/>
+					<ToggleButton
+						tooltip="The width is of the app if the full width of its container"
+						icon={Expand}
+						iconOnly
+						value={'true'}
+						{item}
+						size="md"
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+		{/if}
+		{#if $app}
+			<ToggleButtonGroup
+				on:selected={({ detail }) => {
+					const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
+					setTheme(theme)
+				}}
+				selected={$app.darkMode === undefined ? 'auto' : $app.darkMode ? 'dark' : 'sun'}
+			>
+				{#snippet children({ item })}
+					<ToggleButton
+						icon={SunMoon}
+						iconOnly
+						value={'auto'}
+						tooltip="The app mode between dark/light is automatic"
+						{item}
+						size="md"
+					/>
+					<ToggleButton
+						icon={Sun}
+						iconOnly
+						value={'sun'}
+						tooltip="Force light mode"
+						{item}
+						size="md"
+					/>
+					<ToggleButton
+						tooltip="Force dark mode"
+						icon={Moon}
+						iconOnly
+						value={'dark'}
+						{item}
+						size="md"
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+		{/if}
+		<div class="flex flex-row gap-2">
+			<ToggleButtonGroup bind:selected={$breakpoint}>
+				{#snippet children({ item })}
+					<ToggleButton
+						tooltip="Computer View"
+						icon={Laptop2}
+						iconOnly
+						value={'lg'}
+						{item}
+						size="md"
+					/>
+					<ToggleButton
+						tooltip="Mobile View"
+						icon={Smartphone}
+						iconOnly
+						value={'sm'}
+						{item}
+						size="md"
+					/>
+					{#if $breakpoint === 'sm'}
+						<Toggle
+							size="xs"
+							options={{
+								right: 'Enable mobile view for smaller screens',
+								rightTooltip:
+									'Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view'
+							}}
+							textClass="text-2xs whitespace-nowrap white !w-full"
+							bind:checked={$app.mobileViewOnSmallerScreens}
+							class="flex flex-row px-2 items-center"
+						/>
+					{/if}
+				{/snippet}
+			</ToggleButtonGroup>
+		</div>
+	</div>
+{/snippet}
+
+{#snippet autosaveIndicator()}
+	{#if $workspaceStore}
+		<div class="ml-4">
+			<AutosaveIndicator
+				workspace={$workspaceStore}
+				itemKind="app"
+				path={userDraftPath}
+				draftOnly={newApp}
+				{onResetToDeployed}
+				{loadedFromDraft}
+				{othersDraftsCount}
+				{onOpenOthersDrafts}
+			/>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet panelButtons()}
 	{#if $mode !== 'preview'}
 		<div class="flex gap-1 shrink-0">
 			<HideButton
@@ -1085,11 +1253,17 @@
 			/>
 		</div>
 	{/if}
+{/snippet}
+
+{#snippet awarenessMark()}
 	{#if $enterpriseLicense && $appPath != '' && !inSessionPane}
 		<div class="shrink-0">
 			<Awareness />
 		</div>
 	{/if}
+{/snippet}
+
+{#snippet appActions()}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
 		<Dropdown items={moreItems} />
 
@@ -1131,14 +1305,19 @@
 				</div>
 			</Button>
 		</div>
+		<!-- Draws nothing in the bar: it is the export drawer, opened from the menu's Export
+		     entries through this instance. The preview switch keeps its place on a phone, since
+		     seeing the app is most of what an app editor is good for on one. -->
 		<AppExportButton bind:this={appExport} />
-		<PreviewToggle loading={loading.save} />
+		<PreviewToggle loading={loading.save} iconOnly={phoneTopbar} />
 		<Button
 			variant="accent"
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={save}
-			unifiedSize="md"
+			iconOnly={phoneTopbar}
+			title="Deploy"
+			unifiedSize={phoneTopbar ? 'sm' : 'md'}
 			dropdownItems={$appPath != ''
 				? () => [
 						{
@@ -1163,4 +1342,4 @@
 			Deploy
 		</Button>
 	</div>
-</div>
+{/snippet}

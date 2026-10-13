@@ -148,6 +148,7 @@ pub(crate) async fn bundle_raw_app_sources(
     args.insert("runnables".to_string(), runnables.to_owned());
 
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, tx) = push(
         db,
         tx,
@@ -191,6 +192,7 @@ pub(crate) async fn bundle_raw_app_sources(
         None,
         authed.trigger_or_fallback(None),
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
     tx.commit().await?;
