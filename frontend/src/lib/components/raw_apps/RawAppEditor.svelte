@@ -2890,6 +2890,8 @@ addEventListener('message', function (e) {
 												title="Replay the last build into the preview"
 												aria-label="Rebuild"
 												onClick={() => {
+													// Retries a viewer lookup that failed; the hold replays the build once it answers.
+													operatingUser.forgetFailures()
 													if (lastBuild) {
 														feedPreviewIframe(lastBuild)
 													}
