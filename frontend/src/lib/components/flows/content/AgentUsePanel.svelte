@@ -404,7 +404,8 @@
 									<span class="text-xs text-secondary">
 										For your coding assistant to write the integration: the endpoints and streaming{chat
 											? ', conversations and the chat SDK'
-											: ''}. The token stays a placeholder.
+											: ''}. Set your token as <code>WINDMILL_TOKEN</code> in the project's environment:
+										the prompt reads it from there.
 									</span>
 									<div>
 										<Button

@@ -163,7 +163,7 @@ await chat.sendMessage('Hello')
 // Also chat.stop(), and the conversations: chat.newConversation(), chat.selectConversation(id)`
 }
 
-/** A brief for a coding assistant asked to integrate the agent. The token stays a placeholder. */
+/** A brief for a coding assistant asked to integrate the agent. It reads the token from `WINDMILL_TOKEN`. */
 export function integrationPrompt(t: AgentApiTarget): string {
 	const conversation = t.chat
 		? `
@@ -195,8 +195,12 @@ that POSTs \`args\` to the run endpoint with \`memory_id=conversationId\` and re
 
 ## Authentication
 
-Every request sends \`Authorization: Bearer <WINDMILL_TOKEN>\`. Read the token from configuration,
-never from code shipped to a browser: the agent runs as the token's owner, with their permissions.
+Every request sends \`Authorization: Bearer <token>\`. Read the token from the \`WINDMILL_TOKEN\`
+environment variable (or the project's secret store under that name), never hardcode it: the agent
+runs as the token's owner, with their permissions. Keep it on the server, unless it is an
+agent-specific token (scope \`jobs:run:agents:${t.agentPath}\`): that one can only run this agent, so a
+browser app may read it from the bundler's public variable (\`VITE_WINDMILL_TOKEN\`,
+\`NEXT_PUBLIC_WINDMILL_TOKEN\`, ...).
 
 ## Sending a message
 
