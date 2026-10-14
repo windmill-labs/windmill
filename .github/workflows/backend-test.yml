@@ -85,11 +85,14 @@ jobs:
         working-directory: /
       - name: Install PowerShell, mold, clang and the latest pg_dump
         # PGDG's `postgresql-client` is its newest major, Ubuntu's is not: the `postgres` service
-        # image floats, and pg_dump refuses a server newer than itself.
+        # image floats, and pg_dump refuses a server newer than itself. `/usr/bin/pg_dump` picks
+        # the version of the runner's own preinstalled cluster, so the newest bin dir goes first.
         run: |
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev postgresql-client
-          pg_dump --version
+          PG_BIN="/usr/lib/postgresql/$(ls /usr/lib/postgresql | sort -n | tail -1)/bin"
+          echo "$PG_BIN" >> "$GITHUB_PATH"
+          "$PG_BIN/pg_dump" --version
         working-directory: /
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
