@@ -4,7 +4,6 @@ import {
 	type GetGhesConfigResponse
 } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import { base } from '$lib/base'
 
 export interface GitHubAppState {
 	loadingGithubInstallations: boolean
@@ -137,7 +136,7 @@ export async function loadGithubInstallations(
 		const stateParam = encodeURIComponent(
 			JSON.stringify({
 				workspace_id: currentWorkspace,
-				base_url: window.location.origin + base
+				base_url: window.location.origin
 			})
 		)
 

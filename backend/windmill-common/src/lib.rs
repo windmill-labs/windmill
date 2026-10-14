@@ -75,6 +75,7 @@ pub mod flow_status;
 pub mod flows;
 pub mod folders;
 pub mod global_settings;
+pub mod hub_resource_types;
 pub mod guest_jwt;
 pub mod indexer;
 pub mod instance_config;
@@ -101,6 +102,8 @@ pub mod oauth2;
 pub mod oidc_ee;
 #[cfg(all(feature = "enterprise", feature = "openidconnect"))]
 pub mod oidc_oss;
+#[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+pub mod oidc_signer_ee;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
@@ -123,6 +126,7 @@ pub mod query_builders;
 pub mod queue;
 pub mod queue_metrics;
 pub mod result_stream;
+pub mod runnable_job_stats;
 pub mod runnable_settings;
 pub mod runnables;
 pub mod schedule;
@@ -153,6 +157,7 @@ pub mod wac;
 pub mod webhook;
 pub mod worker;
 pub mod worker_group_job_stats;
+pub mod workspace_crypt;
 pub mod workspaces;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;

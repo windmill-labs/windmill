@@ -49,6 +49,12 @@
 	},
 	{
 		"provider": "openai",
+		"model": "gpt-6.1-sol",
+		"canDisable": false,
+		"completionsToolsNeedOff": true
+	},
+	{
+		"provider": "openai",
 		"model": "gpt-6-sol",
 		"canDisable": true,
 		"completionsToolsNeedOff": true

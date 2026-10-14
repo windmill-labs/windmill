@@ -58,7 +58,7 @@
 	})
 </script>
 
-<CenteredModal title="Connecting to the remote instance">
+<CenteredModal title="Connecting to the remote instance" inPage>
 	{#if status === 'connecting'}
 		<div class="flex justify-center py-6"><Loader2 class="animate-spin" /></div>
 	{:else if status === 'connected'}

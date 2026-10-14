@@ -1,0 +1,133 @@
+name: "python lock compile"
+
+mode: ONCE
+hostname: "python"
+log_level: ERROR
+time_limit: {TIMEOUT}
+
+# Dependency resolution may invoke the PEP 517 build backend of an sdist whose
+# metadata is not static, which runs arbitrary package code (e.g. setup.py).
+# That build, and uv's bytecode compile pool, size thread/fd pools to the host's
+# CPU count, so these mirror download.py.config.proto rather than the run sandbox.
+rlimit_as: 8192
+rlimit_cpu: 1000
+rlimit_fsize: 1024
+rlimit_nofile: 10000
+
+envar: "HOME=/tmp"
+envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
+
+cwd: "{JOB_DIR}"
+
+clone_newnet: false
+clone_newuser: {CLONE_NEWUSER}
+
+skip_setsid: true
+keep_caps: true
+keep_env: true
+mount_proc: true
+
+mount {
+    src: "/bin"
+    dst: "/bin"
+	is_bind: true
+}
+
+mount {
+    src: "/lib"
+    dst: "/lib"
+	is_bind: true
+}
+
+mount {
+    src: "/lib64"
+    dst: "/lib64"
+	is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/usr"
+    dst: "/usr"
+	is_bind: true
+}
+
+mount {
+    src: "/etc"
+    dst: "/etc"
+	is_bind: true
+}
+
+# Container runtimes bind exactly these 3 files as separate submounts over
+# /etc; nsjail's ro remount of /etc is non-recursive so they stay writable.
+# Load-bearing -- do not remove as redundant with the /etc bind above.
+mount {
+    src: "/etc/resolv.conf"
+    dst: "/etc/resolv.conf"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hosts"
+    dst: "/etc/hosts"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hostname"
+    dst: "/etc/hostname"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+	src: "/dev/null"
+	dst: "/dev/null"
+	is_bind: true
+	rw: true
+}
+
+mount {
+	src: "/dev/urandom"
+	dst: "/dev/urandom"
+	is_bind: true
+}
+
+{TMP_MOUNT_BLOCK}
+
+# requirements.in -> requirements.txt, cwd of uv
+mount {
+    src: "{JOB_DIR}"
+    dst: "{JOB_DIR}"
+    is_bind: true
+    rw: true
+}
+
+# shared uv cache: resolution metadata + where sdist build backends run
+# (builds-v0/). Writable, as the install jail's target already is; a poisoned
+# shared cache is the known residual, not a new one.
+mount {
+    src: "{UV_CACHE_DIR}"
+    dst: "{UV_CACHE_DIR}"
+    is_bind: true
+    rw: true
+}
+
+mount {
+    src: "{PY_INSTALL_DIR}"
+    dst: "{PY_INSTALL_DIR}"
+    is_bind: true
+}
+
+{INDEX_CERT_MOUNT}
+
+mount {
+    src: "{TRACING_PROXY_CA_CERT_PATH}"
+    dst: "{TRACING_PROXY_CA_CERT_PATH}"
+    is_bind: true
+    mandatory: false
+}
+
+#{DEV}

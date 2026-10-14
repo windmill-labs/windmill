@@ -47,18 +47,10 @@ async function globalSetup(config: FullConfig) {
 	await page.waitForURL('**/')
 
 	if (!process.env.SKIP_HUB_SYNC) {
-		await page.locator('#home-search-input').waitFor({ state: 'visible' })
-		await page.locator('#home-search-input').fill('u/admin/hub_sync')
-
-		const hubSyncBtn = page.locator('text=u/admin/hub_sync').first()
-		await hubSyncBtn.waitFor({ state: 'visible' })
-		await hubSyncBtn.click()
-
-		const runBtn = page.locator('#run-form-run-button')
-		await runBtn.waitFor({ state: 'visible' })
-		await runBtn.click()
-		await page.waitForURL(/\/run\/.+/)
-		await page.locator('text=Success').waitFor({ timeout: 30000, state: 'visible' })
+		const res = await page.request.post(`${baseURL}/api/settings/sync_cached_resource_types`)
+		if (!res.ok()) {
+			throw new Error(`Resource type sync failed: ${await res.text()}`)
+		}
 	}
 	// Save the authenticated state
 	await context.storageState({ path: './e2e/auth.json' })

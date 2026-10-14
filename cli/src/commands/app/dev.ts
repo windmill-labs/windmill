@@ -481,7 +481,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   // Detect frameworks to determine default entry point
   const frameworks = detectFrameworks(process.cwd());
-  const defaultEntry = frameworks.svelte || frameworks.vue
+  const defaultEntry = frameworks.svelte
     ? "index.ts"
     : "index.tsx";
   const entryPoint = opts.entry ?? defaultEntry;
@@ -577,7 +577,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   const buildOptions = getDevBuildOptions(entryPoint, frameworks.svelte);
 
-  // Load framework-specific plugins (svelte, vue) based on package.json
+  // Load framework-specific plugins (svelte) based on package.json
   const frameworkPlugins = await createFrameworkPlugins(appDir);
 
   const wmillPlugin = {
@@ -1602,7 +1602,7 @@ const command = new Command()
   })
   .option(
     "--entry <entry:string>",
-    "Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)",
+    "Entry point file (default: index.ts for Svelte, index.tsx otherwise)",
   )
   .option("--no-open", "Don't automatically open the browser")
   .option(

@@ -55,7 +55,8 @@ use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
 use windmill_common::workspaces::{
-    check_operator_can_build_flows, check_user_against_rule, ProtectionRuleKind, RuleCheckResult,
+    check_operator_can_build, check_user_against_rule, BuilderKind, ProtectionRuleKind,
+    RuleCheckResult,
 };
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
@@ -379,6 +380,10 @@ pub fn workspaced_service() -> Router {
             get(get_wac_approval_urls).layer(cors.clone()),
         )
         .route(
+            "/worker_is_draining/{id}",
+            get(worker_is_draining).layer(cors.clone()),
+        )
+        .route(
             "/result_by_id/{job_id}/{node_id}",
             get(get_result_by_id).layer(cors.clone()),
         )
@@ -611,6 +616,53 @@ async fn get_root_job(
 ) -> windmill_common::error::JsonResult<String> {
     let res = compute_root_job_for_flow(&db, &w_id, id).await?;
     Ok(Json(res))
+}
+
+/// Whether the worker running this job has received its shutdown signal. A draining worker
+/// never interrupts its job, so a long-running script polls this to exit on its own terms.
+async fn worker_is_draining(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> windmill_common::error::JsonResult<bool> {
+    // A job always may ask about itself. Anyone else must be able to see the job: the
+    // caller's row policies on v2_job decide, narrowed by the token's tag filter.
+    let draining = if authed.job_id == Some(id) {
+        sqlx::query_scalar!(
+            "SELECT wp.draining FROM v2_job_queue q JOIN worker_ping wp ON wp.worker = q.worker
+            WHERE q.id = $1 AND q.workspace_id = $2 AND q.running AND q.started_at IS NOT NULL",
+            id,
+            w_id
+        )
+        .fetch_optional(&db)
+        .await?
+    } else {
+        let tags = get_scope_tags(&authed)
+            .map(|tags| tags.into_iter().map(str::to_string).collect::<Vec<_>>());
+        let mut tx = user_db.begin(&authed).await?;
+        let draining = sqlx::query_scalar!(
+            "SELECT wp.draining FROM v2_job j
+            JOIN v2_job_queue q ON q.id = j.id
+            JOIN worker_ping wp ON wp.worker = q.worker
+            WHERE j.id = $1 AND j.workspace_id = $2 AND q.running AND q.started_at IS NOT NULL
+            AND ($3::text[] IS NULL OR j.tag = ANY($3))",
+            id,
+            w_id,
+            tags.as_deref()
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        draining
+    }
+    .unwrap_or(false);
+    windmill_common::feature_usage::log_feature_usage(
+        "worker_draining",
+        "check",
+        if draining { "draining" } else { "not_draining" },
+    );
+    Ok(Json(draining))
 }
 
 async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
@@ -1856,7 +1908,7 @@ async fn require_job_access(
     // are immutable after creation, and every mutable caller-side input
     // (is_admin / username / username_override / groups / folders) is folded into
     // the key — so a permission change yields a new key rather than a stale hit, and
-    // no TTL is needed (size-bounded LRU; mirrors apps' PERMIT_CACHE).
+    // no TTL is needed (size-bounded LRU).
     let cache_key = job_read_access_cache_key(authed, w_id, job_id);
     let visible = if let Some(visible) = JOB_READ_ACCESS_CACHE.get(&cache_key) {
         visible
@@ -1959,9 +2011,11 @@ async fn require_job_within_read_scope(
         }
     }
     // `scope_kind` is the runnable kind a `jobs:run:<kind>:<path>` scope can name, or
-    // NULL for a job no such scope reaches directly (previews, dependency jobs,
-    // flow-inlined scripts) — those are still readable as a step of a matching flow,
-    // through their ancestors. A `singlestepflow` wraps either a script or a flow, so it
+    // NULL for a job no such scope reaches directly (previews, flow-inlined scripts) —
+    // those are still readable as a step of a matching flow, through their ancestors.
+    // A dependency job's path is the one its `jobs:run:dependencies:<path>` check
+    // admitted, but it is filed under `dependencies`, so it never passes for a run of
+    // the deployed runnable at that path. A `singlestepflow` wraps either a script or a flow, so it
     // projects onto the wrapped runnable the same way the batch-rerun query does. An agent
     // run is a preview of the one-step flow `agent_runs::agent_step_flow` builds, filed under the
     // agent's path (`<path>.chat` for a chat turn); the editor's own runs of it look the same,
@@ -1980,6 +2034,7 @@ async fn require_job_within_read_scope(
                     WHEN a.agent THEN 'agents'
                     WHEN j.kind IN ('script', 'script_hub', 'unassigned_script') THEN 'scripts'
                     WHEN j.kind IN ('flow', 'unassigned_flow') THEN 'flows'
+                    WHEN j.kind IN ('dependencies', 'flowdependencies') THEN 'dependencies'
                     WHEN j.kind IN ('singlestepflow', 'unassigned_singlestepflow') THEN
                         CASE WHEN COALESCE(
                                 (SELECT m->'value'->>'type'
@@ -4577,14 +4632,8 @@ async fn cancel_selection(
             } else {
                 ids
             };
-        let Json(mut w_cancelled) = cancel_jobs(
-            ids,
-            &db,
-            &authed,
-            workspace_id.as_str(),
-            force_cancel,
-        )
-        .await?;
+        let Json(mut w_cancelled) =
+            cancel_jobs(ids, &db, &authed, workspace_id.as_str(), force_cancel).await?;
         cancelled.append(&mut w_cancelled);
     }
 
@@ -7775,6 +7824,7 @@ pub async fn run_workflow_as_code(
             )
         };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, mut tx) = push(
         &db,
@@ -7803,7 +7853,7 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         None,
         None,
         scope_ceiling.as_deref(),
@@ -8090,6 +8140,7 @@ pub async fn run_wait_result_job_by_path_get(
             )
         };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -8118,7 +8169,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),
@@ -8240,6 +8291,7 @@ pub async fn run_wait_result_script_by_path_internal(
             )
         };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -8268,7 +8320,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),
@@ -8358,6 +8410,7 @@ pub async fn run_wait_result_script_by_hash(
         )
     };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -8400,7 +8453,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),
@@ -8541,6 +8594,11 @@ pub async fn stream_job(
     run_query: RunJobQuery,
     is_get: bool,
 ) -> error::Result<Response> {
+    if run_query.retry.is_some() {
+        return Err(error::Error::BadRequest(
+            "retry is only supported when running a script asynchronously".to_string(),
+        ));
+    }
     let args = if is_get {
         let payload_as_args = run_query.payload_as_args()?;
 
@@ -8924,6 +8982,7 @@ async fn run_preview_script(
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -8971,7 +9030,7 @@ async fn run_preview_script(
         None,
         Some(&authed.clone().into()),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         None,
         scope_ceiling.as_deref(),
@@ -9010,6 +9069,8 @@ async fn run_inline_preview_script(
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
     }
+    let (end_user_email, viewer_data_access) =
+        run_inline_preview_end_user(&db, &w_id, &authed).await?;
     let utils = get_worker_internal_server_inline_utils()?;
     let result = utils.run_inline_preview_script.as_ref()(RunInlinePreviewScriptFnParams {
         content: preview.content,
@@ -9020,6 +9081,8 @@ async fn run_inline_preview_script(
         created_by: authed.display_username().to_string(),
         permissioned_as: username_to_permissioned_as(&authed.username),
         permissioned_as_email: authed.email.clone(),
+        end_user_email,
+        viewer_data_access,
         lang: preview.language,
         job_dir: "".to_string(),
         worker_name: "".to_string(),
@@ -9159,6 +9222,7 @@ async fn run_inline_script_inner(
                 .to_string(),
         ));
     }
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let utils = get_worker_internal_server_inline_utils()?;
     let authed_owned: windmill_common::db::Authed = authed.clone().into();
     let result = utils.run_inline_script.as_ref()(RunInlineScriptFnParams {
@@ -9170,6 +9234,7 @@ async fn run_inline_script_inner(
         created_by: authed.display_username().to_string(),
         permissioned_as: username_to_permissioned_as(&authed.username),
         permissioned_as_email: authed.email.clone(),
+        end_user_email,
         job_dir: "".to_string(),
         worker_name: "".to_string(),
         worker_dir: "".to_string(),
@@ -9346,6 +9411,7 @@ async fn run_bundle_preview_script(
             // tracing::info!("is_tar 1: {is_tar}");
             // hmap.insert("")
             let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
+            let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
             let (uuid, ntx) = push(
                 &db,
                 ltx,
@@ -9389,7 +9455,7 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
-                None,
+                end_user_email,
                 authed.trigger_or_fallback(None),
                 None,
                 scope_ceiling.as_deref(),
@@ -9469,13 +9535,23 @@ pub struct RunDependenciesResponse {
     pub dependencies: String,
 }
 
+/// The path comes from the request body: one carrying scope syntax (`,`, `:`, `*`) could
+/// put a granted path beside an ungranted one, so it needs a grant covering every path.
+fn check_dependencies_scope(authed: &ApiAuthed, path: &str) -> error::Result<()> {
+    if windmill_common::auth::is_scope_literal_path(path) {
+        check_scopes(authed, || format!("jobs:run:dependencies:{path}"))
+    } else {
+        check_scopes(authed, || "jobs:run:dependencies".to_string())
+    }
+}
+
 async fn push_dependencies_job(
     authed: &ApiAuthed,
     db: &DB,
     w_id: &str,
     req: RunDependenciesRequest,
 ) -> error::Result<Uuid> {
-    check_scopes(authed, || format!("jobs:run"))?;
+    check_dependencies_scope(authed, &req.entrypoint)?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
@@ -9598,8 +9674,15 @@ async fn push_flow_dependencies_job(
     w_id: &str,
     req: RunFlowDependenciesRequest,
 ) -> error::Result<Uuid> {
-    check_scopes(authed, || format!("jobs:run"))?;
-    check_operator_can_build_flows(db, w_id, authed.is_operator, "run dependencies jobs").await?;
+    check_dependencies_scope(authed, &req.path)?;
+    check_operator_can_build(
+        db,
+        w_id,
+        authed.is_operator,
+        BuilderKind::Flows,
+        "run dependencies jobs",
+    )
+    .await?;
     // The dependency job locks whatever inline code this request carries, on a worker. A
     // composition-only flow has none, so validating here costs a builder nothing and keeps the
     // lock step from becoming the way to run code the write path refuses.
@@ -10014,7 +10097,14 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "run preview jobs").await?;
+    check_operator_can_build(
+        &db,
+        &w_id,
+        authed.is_operator,
+        BuilderKind::Flows,
+        "run preview jobs",
+    )
+    .await?;
     // Flow preview runs an arbitrary, request-supplied flow definition; require the broad
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
@@ -10069,6 +10159,7 @@ async fn run_preview_flow_job(
         .await?;
 
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -10100,7 +10191,7 @@ async fn run_preview_flow_job(
         None,
         Some(&authed.clone().into()),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         None,
         scope_ceiling.as_deref(),
@@ -10483,26 +10574,30 @@ pub async fn run_job_by_hash_inner(
         )
     };
 
+    let job_payload = JobPayload::ScriptHash {
+        hash: ScriptHash(hash),
+        path: path,
+        concurrency_settings,
+        debouncing_settings,
+        cache_ttl,
+        cache_ignore_s3_path,
+        language,
+        dedicated_worker,
+        priority,
+        apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+            && has_preprocessor.unwrap_or(false),
+        labels,
+        job_token_scopes,
+    };
+    let job_payload = with_run_retry(&run_query, job_payload, &push_args, &tag)?;
+
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, trigger.as_ref()).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
         &w_id,
-        JobPayload::ScriptHash {
-            hash: ScriptHash(hash),
-            path: path,
-            concurrency_settings,
-            debouncing_settings,
-            cache_ttl,
-            cache_ignore_s3_path,
-            language,
-            dedicated_worker,
-            priority,
-            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
-                && has_preprocessor.unwrap_or(false),
-            labels,
-            job_token_scopes,
-        },
+        job_payload,
         push_args,
         authed.display_username(),
         email,
@@ -10525,7 +10620,7 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),

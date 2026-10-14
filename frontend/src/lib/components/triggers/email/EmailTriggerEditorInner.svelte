@@ -11,22 +11,22 @@
 	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import {
 		EmailTriggerService,
-		type ErrorHandler,
 		type EmailTrigger,
 		type NewEmailTrigger,
 		type Retry,
 		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds } from '$lib/stores'
-	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import EmailTriggerEditorConfigSection from './EmailTriggerEditorConfigSection.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
-	import { getHandlerType, handleConfigChange } from '../utils'
+	import { handleConfigChange } from '../utils'
+	import { handlerDraftFromStored, handlerDraftToStored } from '../../handlerDraft.svelte'
 	import { untrack } from 'svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
@@ -43,7 +43,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
-	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	let {
 		useDrawer = true,
@@ -91,12 +91,15 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		(permsPath === undefined || canWrite(permsPath, permsForWrite ?? {}, actingUser)) &&
-			!$triggerLock
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
 	)
 	let extraPerms = $state<Record<string, boolean> | undefined>(undefined)
-	let error_handler_path: string | undefined = $state()
-	let error_handler_args: Record<string, any> = $state({})
+	let errorHandler = $state(handlerDraftFromStored('error', undefined))
+	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
+	const error_handler_path = $derived(storedErrorHandler.path)
+	const error_handler_args = $derived(storedErrorHandler.args)
 	let retry: Retry | undefined = $state()
 	let mode = $state<TriggerMode>('enabled')
 	// Component references
@@ -107,7 +110,6 @@
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: ErrorHandler = $state('slack')
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<NewEmailTrigger | undefined>(undefined)
@@ -139,14 +141,20 @@
 		is_flow = itemKind === 'flow'
 	})
 
+	// Set by `openNew(…, { onSaveDraft })`: the caller keeps the trigger as its own
+	// draft, so Save hands it the config instead of writing it.
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
+
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
 		defaultConfig?: Partial<NewEmailTrigger>,
 		fixedScriptPath_?: string
 	) {
+		saveDraftHandler = undefined
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -188,8 +196,14 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Partial<EmailTrigger>
+		defaultValues?: Partial<EmailTrigger>,
+		opts: {
+			onSaveDraft?: (cfg: Record<string, any>) => boolean
+			/** A config this editor saved before, re-applied over the defaults. */
+			draftConfig?: Record<string, any>
+		} = {}
 	) {
+		saveDraftHandler = opts.onSaveDraft
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -209,15 +223,19 @@
 			dirtyPath = false
 
 			workspaced_local_part = defaultValues?.workspaced_local_part ?? false
-			error_handler_path = defaultValues?.error_handler_path ?? undefined
-			error_handler_args = defaultValues?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				defaultValues?.error_handler_path,
+				'script',
+				defaultValues?.error_handler_args
+			)
 			retry = defaultValues?.retry ?? undefined
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = defaultValues?.mode ?? 'enabled'
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
 			originalConfig = undefined
+			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig as Partial<EmailTrigger>)
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -237,10 +255,13 @@
 		extraPerms = cfg?.extra_perms ?? undefined
 		permsPath = path
 		permsForWrite = cfg?.extra_perms ?? {}
-		error_handler_path = cfg?.error_handler_path
-		error_handler_args = cfg?.error_handler_args ?? {}
+		errorHandler = handlerDraftFromStored(
+			'error',
+			cfg?.error_handler_path,
+			'script',
+			cfg?.error_handler_args
+		)
 		retry = cfg?.retry
-		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		mode = cfg?.mode ?? 'enabled'
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
@@ -276,6 +297,11 @@
 	}
 
 	async function triggerScript(): Promise<void> {
+		if (saveDraftHandler) {
+			if (!saveDraftHandler($state.snapshot(getEmailTriggerConfig()))) return
+			drawer?.closeDrawer()
+			return
+		}
 		if (customSaveBehavior) {
 			customSaveBehavior(emailConfig)
 			drawer?.closeDrawer()
@@ -476,9 +502,7 @@
 								{optionTabSelected}
 								{itemKind}
 								{can_write}
-								bind:errorHandlerSelected
-								bind:error_handler_path
-								bind:error_handler_args
+								bind:errorHandler
 								bind:retry
 							/>
 						</div>
@@ -502,6 +526,7 @@
 			{edit}
 			isLoading={deploymentLoading}
 			onUpdate={triggerScript}
+			saveLabel={saveDraftHandler ? 'Save draft' : undefined}
 			{onReset}
 			{onDelete}
 			{isDeployed}
@@ -521,7 +546,9 @@
 			? can_write
 				? `Edit email trigger ${initialPath}`
 				: `Email trigger ${initialPath}`
-			: 'New email trigger'}
+			: saveDraftHandler
+				? 'Draft email trigger'
+				: 'New email trigger'}
 		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet actions()}

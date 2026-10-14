@@ -1,6 +1,6 @@
 # Windmill Raw Apps
 
-Raw apps let you build custom frontends with React, Svelte, or Vue that connect to Windmill backend runnables and datatables.
+Raw apps let you build custom frontends with React or Svelte that connect to Windmill backend runnables and datatables.
 
 ## App shape
 
@@ -16,7 +16,7 @@ A new app gets the setup Windmill's own new-app dialog gives one: a framework, t
 
 ### Framework
 
-Use the framework the user named. When they named none, follow what there is to follow: the app being edited, or the apps the request points at. With nothing to follow, use **React 19**, the recommended default, **without asking**. React 18, Svelte 5 and Vue are for when they are asked for.
+Use the framework the user named. When they named none, follow what there is to follow: the app being edited, or the apps the request points at. With nothing to follow, use **React 19**, the recommended default, **without asking**. React 18 and Svelte 5 are for when they are asked for. These three are the only frameworks the raw app bundler builds. When the user asks to build or convert an app in another framework, write no code in it: say it is not available and offer these three instead.
 
 ### Data setup
 
@@ -54,7 +54,7 @@ An app the user just started from the new-app dialog is already set up: its file
 
 ### Entrypoint
 
-The entrypoint is `index.tsx` for React and `index.ts` for Svelte and Vue. It is both the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint: the preview executes the bundle against an empty `<div id="root">` and auto-renders nothing, so the entrypoint must mount a top-level `App` itself. Keep the UI in `App.tsx` / `App.svelte` / `App.vue` and keep the entrypoint as the mount shim.
+The entrypoint is `index.tsx` for React and `index.ts` for Svelte. It is both the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint: the preview executes the bundle against an empty `<div id="root">` and auto-renders nothing, so the entrypoint must mount a top-level `App` itself. Keep the UI in `App.tsx` / `App.svelte` and keep the entrypoint as the mount shim.
 
 React (`index.tsx`):
 
@@ -66,9 +66,11 @@ import App from './App'
 createRoot(document.getElementById('root')!).render(<App />)
 ```
 
-Svelte (`index.ts`): `mount(App, { target: document.getElementById('root')! })`. Vue (`index.ts`): `createApp(App).mount('#root')`.
+Svelte (`index.ts`): `mount(App, { target: document.getElementById('root')! })`.
 
 **Never replace the entrypoint with a bare component** (`export default function App() { ... }` and no mount call). A component that is defined but never mounted renders a blank screen with **no error thrown** — it never executes, so nothing reaches the console or the error overlay. If an app renders blank, check that the entrypoint still mounts `App` into `#root`.
+
+**Set the browser tab title with `document.title = '...'`** (or a `<title>` the framework renders into `<head>`). The app has no `index.html` of its own, so a `<title>` written there is never served; the deployed app's page shows whatever `document.title` holds, and follows it when it changes.
 
 **Always begin every React file (`.tsx`/`.jsx`) that uses JSX with `import React from 'react'`.** esbuild uses the classic JSX transform, so `React` must be in scope wherever JSX appears — a missing import compiles fine but throws `React is not defined` at runtime, leaving a blank screen.
 
@@ -139,16 +141,16 @@ Apply it to customer data, internal notes and anything else a viewer of the demo
 
 ### Chat UIs over a flow in chat mode
 
-A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add `windmill-chat` to `package.json` and use it directly, it detects the app's Windmill and credential.
+A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add `@windmill-labs/chat-sdk` to `package.json` and use it directly, it detects the app's Windmill and credential.
 
 ```tsx
-import { useWindmillChat } from 'windmill-chat/react'
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
 
 const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 // chat.messages ({ role, content, pending, success, tool? }), chat.status, chat.sendMessage(text), chat.stop()
 ```
 
-`windmill-chat/ai-sdk` gives a `ChatTransport` for the Vercel AI SDK's `useChat`, `windmill-chat/assistant-ui` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs `jobs:run` in its frontend SDK scopes, plus `flow_conversations:write` for the conversation sidebar; without them the chat keeps history in the browser.
+`@windmill-labs/chat-sdk/ai-sdk` gives a `ChatTransport` for the Vercel AI SDK's `useChat`, `@windmill-labs/chat-sdk/assistant-ui` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs `jobs:run` in its frontend SDK scopes, plus `flow_conversations:write` for the conversation sidebar; without them the chat keeps history in the browser.
 
 ## Backend runnables
 
@@ -239,6 +241,30 @@ Either one lets those people run the app's backend runnables, so never open an a
 When a deploy widens who may open the app, tell the user in plain words.
 <!-- /chat-only -->
 
+## Sandbox isolation and frontend API access
+
+By default a deployed app's frontend runs with the viewer's own Windmill session. A sandboxed app is isolated from it: the frontend reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. The scopes are `jobs:run`, `jobs:read`, `users:read`, `resources:read`, `variables:read`, `flow_conversations:read` and `flow_conversations:write`; grant only the ones the frontend calls.
+<!-- cli-only -->
+In `raw_app.yaml`:
+
+```yaml
+sandbox: true
+frontend_api: [jobs:run, users:read]
+```
+
+A file with a `sandbox` key states both settings: `sandbox: false` turns isolation off, and a missing `frontend_api` means no scopes. A file without the key leaves the deployed app's isolation and scopes as they are, so removing `sandbox: true` does not unsandbox it. `frontend_api` needs `sandbox: true`; the push fails otherwise.
+<!-- /cli-only -->
+
+## Reading data as the viewer
+
+A backend runnable reads data as the app's identity (the publisher in publisher mode), the same for every viewer. An inline runnable can instead read data as the person using the app: its data table connections that name no role hold that viewer's roles, and object storage permission rules (which paths may be listed, read, written) are checked against the viewer. Resources, variables and everything else stay the app's, and an anonymous viewer is refused. Turn it on only when what the runnable reads should differ per viewer: row-level security on a data table, or per-user paths in object storage. Both are Enterprise Edition features.
+<!-- chat-only -->
+Set it with `viewerDataAccess: true` on the backend runnable.
+<!-- /chat-only -->
+<!-- cli-only -->
+Set it with `viewer_data_access: true` in the runnable's `backend/<id>.yaml`.
+<!-- /cli-only -->
+
 ## Data Tables
 
 Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the `wmill` client; the frontend never queries them directly. **When the app needs to store or persist data** (user data, settings, application state, records, logs), use a data table.
@@ -250,6 +276,7 @@ Data tables are PostgreSQL databases managed by Windmill. Backend runnables quer
 3. **No DDL inside runnables**: runnables only read and write rows (SELECT, INSERT, UPDATE, DELETE) on existing tables. Never CREATE, ALTER or DROP a table from a runnable.
 4. **Qualify table names**: an unqualified name means the `public` schema, so write every other table as `schema.table`, in table creation and queries alike. The app's `data` config sets the default datatable and schema its tables go in; use them consistently across runnables.
 5. **Pass the role**: when the app's `data.roles` gives a data table a role, every `wmill.datatable` call on it passes that role (`wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python). The role only reaches what it was granted, so a query outside it fails with `permission denied`.
+6. **Per-viewer rows**: a data table with no entry in `data.roles` is called with no role. Unless its default role is `admin`, the connection then holds the default role, if it may use it, plus every role it is a tenant of, and is refused when that is none. Whose roles those are follows the runnable's identity (see "Reading data as the viewer"). Row-level security policies written as `pg_has_role(current_user, '<role>', 'member')` then return the right rows with nothing added to the code. A role pins the connection to that one role either way, so a data table whose rows should differ per viewer gets no `data.roles` entry. Data table roles are an Enterprise Edition feature, self-hosted only.
 <!-- cli-only -->
 
 `wmill datatable list` lists the workspace's data tables. Create or change tables with a migration in `sql_to_apply/` (see "SQL Migrations" above), then add them to `data.tables` in `raw_app.yaml`.
@@ -305,4 +332,4 @@ def main(user_id: str):
 7. **Mark sensitive UI with `data-wm-no-record`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
 8. **Reach for `backendAsync` + `waitJob`** for long work — never a hand-written job-polling runnable.
 9. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
-10. **Use `windmill-chat` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
+10. **Use `@windmill-labs/chat-sdk` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.

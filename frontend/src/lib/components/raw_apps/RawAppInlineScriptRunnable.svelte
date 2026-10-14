@@ -15,6 +15,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import { Tab } from '../common'
+	import { SQL_LANGUAGES } from '$lib/infer'
 	import RawAppInputsSpecEditor from './RawAppInputsSpecEditor.svelte'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 	import SchemaForm from '../SchemaForm.svelte'
@@ -42,6 +43,7 @@
 	type RunnableWithInlineScript = RunnableWithFields & {
 		inlineScript?: InlineScript & { language: ScriptLang }
 		delete_after_secs?: number
+		viewer_data_access?: boolean
 	}
 	export type Runnable = RunnableWithInlineScript | undefined
 	interface Props {
@@ -79,6 +81,13 @@
 						fields: o.fields
 					}
 	}
+
+	// A SQL argument named after a viewer property is most often a per-viewer filter,
+	// which only a ctx field protects. `wmill app lint` warns on the same names.
+	const VIEWER_IDENTITY_ARGS = ['username', 'email', 'groups']
+	let isSql = $derived(
+		isRunnableByName(runnable) && SQL_LANGUAGES.includes(runnable.inlineScript?.language ?? '')
+	)
 
 	let selectedTab = $state('test')
 	let args = $state({})
@@ -216,6 +225,7 @@
 					bind:name={runnable.name}
 					bind:fields={runnable.fields}
 					bind:delete_after_secs={runnable.delete_after_secs}
+					bind:viewer_data_access={runnable.viewer_data_access}
 					onRun={testPreview}
 					on:delete
 					path={appPath}
@@ -266,6 +276,7 @@
 										documentationLink={meta?.['documentationLink']}
 										allowTypeChange={meta?.['allowTypeChange']}
 										displayType
+										suggestCtx={isSql && VIEWER_IDENTITY_ARGS.includes(k)}
 									/>
 								{/each}
 							</div>

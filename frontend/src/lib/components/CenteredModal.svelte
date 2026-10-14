@@ -16,6 +16,9 @@
 		containOverflow?: boolean
 		/** The Windmill version and update notice in the header. */
 		showVersion?: boolean
+		/** Set on the pages that render inside the app shell, under the page header: there the
+		 * window is not the card's box, and taking the whole of it pushes 44px past the bottom. */
+		inPage?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -28,6 +31,7 @@
 		loading = false,
 		containOverflow = false,
 		showVersion = true,
+		inPage = false,
 		children
 	}: Props = $props()
 
@@ -37,7 +41,9 @@
 </script>
 
 <div
-	class="flex justify-center h-screen p-4 relative bg-surface-secondary {containOverflow
+	class="flex justify-center {inPage
+		? 'h-full'
+		: 'h-screen'} p-4 relative bg-surface-secondary {containOverflow
 		? 'overflow-hidden'
 		: 'overflow-auto'}"
 	class:items-center={centerVertically}

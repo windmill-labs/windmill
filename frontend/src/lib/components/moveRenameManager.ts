@@ -1,7 +1,8 @@
-import { AppService, FlowService, ScriptService } from '$lib/gen'
+import { AppService, FlowService, ResourceService, ScriptService } from '$lib/gen'
+import { agentEditorRefusal } from './flows/agentResourceUtils'
 import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 
-type ItemKind = 'flow' | 'script' | 'app'
+type ItemKind = 'flow' | 'script' | 'app' | 'agent'
 
 /**
  * Check whether a flow uses on_behalf_of_email.
@@ -70,6 +71,24 @@ export async function updateItemPathAndSummary(opts: {
 				labels,
 				skip_draft_deletion: true
 			}
+		})
+	} else if (kind === 'agent') {
+		// An agent is a resource, and its summary is the resource's description. The read before
+		// the write is the same one the agent editor does: an update carries no resource type, so
+		// a path deleted and recreated as something else in the meantime would otherwise take an
+		// agent's config.
+		const current = await ResourceService.getResource({ workspace, path: initialPath })
+		const refused = agentEditorRefusal(initialPath, current.resource_type)
+		if (refused) {
+			throw new Error(refused)
+		}
+		// Only what this popover edits: the backend sets a column per field it is given, so the
+		// agent's own config, its type and `ws_specific` are left where they are rather than read
+		// here and written back over whatever changed in between.
+		await ResourceService.updateResource({
+			workspace,
+			path: initialPath,
+			requestBody: { path: newPath, description: newSummary, labels }
 		})
 	} else if (kind === 'app') {
 		await AppService.updateApp({

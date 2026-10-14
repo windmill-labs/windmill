@@ -3,8 +3,8 @@ import { get } from 'svelte/store'
 import { deepEqual } from 'fast-equals'
 import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import { canWrite } from '$lib/utils'
-import { userStore } from '$lib/stores'
+import { canEditItem, roleCanAuthor } from '$lib/editRights'
+import { userStore, userWorkspaces } from '$lib/stores'
 import { getUserExt } from '$lib/user'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
@@ -339,10 +339,12 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						// Same rule the generic resource editor applies. The backend refuses the write
 						// either way, but without this the editor would invite edits it cannot save and
 						// autosave a draft on every keystroke against a resource the reader cannot deploy.
-						canWriteResource = canWrite(
+						canWriteResource = canEditItem(
+							'agent',
 							r.path,
-							r.extra_perms ?? {},
-							user ?? get(userStore) ?? undefined
+							r.extra_perms,
+							user ?? get(userStore) ?? undefined,
+							get(userWorkspaces).find((w) => w.id === ws)?.operator_settings
 						)
 						// An agent that exists only as a draft has no deployed value to compare against or
 						// fall back to, and the response's is a synthetic echo of the draft. Leaving the
@@ -382,7 +384,11 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							if (loadedFor !== key) return
 							noDeployed = true
 							deployed = undefined
-							canWriteResource = true
+							canWriteResource = roleCanAuthor(
+								'agent',
+								get(userStore) ?? undefined,
+								get(userWorkspaces).find((w) => w.id === ws)?.operator_settings
+							)
 							state = {
 								path: name,
 								description: '',
@@ -438,6 +444,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		// The counter the step card's write-back used to report, from the surface that now owns the
 		// write: a deploy here reaches every flow linking this agent.
 		logReusableAgentUsage(noDeployed ? 'saved' : 'updated')
+		// A new agent's editor opens on its draft's storage path, so its first save always lands
+		// elsewhere: that is naming it, not a rename.
+		const firstSave = noDeployed
 		deployed = submitted
 		noDeployed = false
 		const renamed = submitted.path !== fromPath
@@ -456,7 +465,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		sync.discard(fromPath, submitted)
 		// A rename moves the row, so the next load must not reuse the old key.
 		loadedFor = `${ws}:${submitted.path}`
-		sendUserToast(renamed ? `Renamed agent to ${submitted.path}` : `Saved agent ${submitted.path}`)
+		sendUserToast(
+			renamed && !firstSave ? `Renamed agent to ${submitted.path}` : `Saved agent ${submitted.path}`
+		)
 		return submitted.path
 	}
 

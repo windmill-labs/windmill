@@ -468,8 +468,9 @@
 
 {#key redraw}
 	{#if app}
-		<div class="h-screen">
+		<div class="h-full">
 			<AppEditor
+				ownsPageHeader
 				{fromHub}
 				onSavedNewAppPath={(url) => {
 					goto(`/apps/edit/${url}`)

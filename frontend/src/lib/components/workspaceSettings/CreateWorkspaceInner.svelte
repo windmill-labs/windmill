@@ -28,6 +28,7 @@
 		devWorkspacesInChainAbove
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
+	import { isOperatorInWorkspace } from '$lib/components/sidebar/operatorRoutes'
 	import {
 		fetchProtectionRulesForWorkspace,
 		isRuleUnconditionallyActiveInRulesets
@@ -63,7 +64,6 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import { jobManager } from '$lib/services/JobManager'
 	import Alert from '../common/alert/Alert.svelte'
-	import { base } from '$lib/base'
 	import Label from '../Label.svelte'
 	import ForkDatatableSection from './ForkDatatableSection.svelte'
 	import Select from '../select/Select.svelte'
@@ -128,9 +128,14 @@
 	let forkableWorkspaces = $derived(forkable.current)
 
 	// Base candidates are the current workspace's family: its root first, then every fork/dev under it.
+	// Never one the user is an operator in: a fork does not carry the role, so forking such a base
+	// would hand them a full-rights copy of it.
 	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, forkableWorkspaces))
 	let baseCandidates = $derived(
-		familyRoot ? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)] : []
+		(familyRoot
+			? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)]
+			: []
+		).filter((w) => !isOperatorInWorkspace(w))
 	)
 	let baseItems = $derived(
 		baseCandidates.map((w) => ({
@@ -1100,7 +1105,7 @@
 				disabled={forkCreationLoading}
 				variant="default"
 				size="sm"
-				href="{base}/user/workspaces">&leftarrow; Back to workspaces</Button
+				href="/user/workspaces">&leftarrow; Back to workspaces</Button
 			>
 		{/if}
 		{#if !forkCreationLoading}

@@ -8,7 +8,6 @@
 	} from '$lib/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { fixupUrlAfterWorkspaceSwitch } from './workspaceSwitchUrl'
-	import { base } from '$lib/base'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import WorkspaceFamilyPicker from '$lib/components/sessions/WorkspaceFamilyPicker.svelte'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
@@ -19,7 +18,10 @@
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 
-	let { isCollapsed = false }: { isCollapsed?: boolean } = $props()
+	// `compact` is the page header's variant: sized to its label on one line, rather than filling
+	// a rail's width.
+	let { isCollapsed = false, compact = false }: { isCollapsed?: boolean; compact?: boolean } =
+		$props()
 
 	const effectiveId = $derived($workspaceStore ?? undefined)
 	// Resolve once here and pass to the picker + trigger below, avoiding a duplicate lookup (see
@@ -47,7 +49,7 @@
 	const canManageWorkspace = $derived(
 		$userStore?.is_admin || $superadmin || isForkOwner(currentWs, $userStore?.email)
 	)
-	const settingsHref = $derived(canManageWorkspace ? `${base}/workspace_settings` : undefined)
+	const settingsHref = $derived(canManageWorkspace ? '/workspace_settings' : undefined)
 	const settingsLabel = $derived(`${currentWs?.name ?? effectiveId ?? 'Workspace'} settings`)
 
 	function switchWorkspaceDirect(id: string) {
@@ -62,7 +64,11 @@
 	}
 </script>
 
-<div class="flex items-center min-w-0 px-2 {isCollapsed ? 'justify-center' : ''} py-0.5 rounded-md">
+<div
+	class="flex items-center min-w-0 {compact ? '' : 'px-2'} {isCollapsed
+		? 'justify-center'
+		: ''} py-0.5 rounded-md"
+>
 	<WorkspaceFamilyPicker
 		selectedId={effectiveId}
 		{forkableWorkspaces}
@@ -70,7 +76,7 @@
 		onRequestCreateFork={openForkModal}
 		{settingsHref}
 		{settingsLabel}
-		class="min-w-0 w-full"
+		class={compact ? 'min-w-0' : 'min-w-0 w-full'}
 	>
 		{#snippet trigger()}
 			<WorkspaceScopeTrigger
@@ -78,8 +84,8 @@
 				{forkableWorkspaces}
 				{isCollapsed}
 				{rootLabel}
-				wrap
-				class="w-full"
+				wrap={!compact}
+				class={compact ? '' : 'w-full'}
 			/>
 		{/snippet}
 	</WorkspaceFamilyPicker>

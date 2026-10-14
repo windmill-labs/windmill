@@ -46,6 +46,43 @@ describe('workspaceMenuHref', () => {
 		).toBe('/runs?workspace=w')
 	})
 
+	// The compare page reads the workspace it compares from `workspace_id`, so a switch that
+	// left it behind sent the page back to the workspace just left on the next reload.
+	it('swaps workspace_id alongside workspace', () => {
+		expect(
+			workspaceMenuHref({
+				pathname: '/forks/compare',
+				searchParams: new URLSearchParams('workspace_id=wm-fork-a&mode=fork'),
+				id: 'wm-fork-b',
+				sameFamily: true
+			})
+		).toBe('/forks/compare?workspace_id=wm-fork-b&mode=fork&workspace=wm-fork-b')
+	})
+
+	it('does not add workspace_id to a page that had none', () => {
+		expect(
+			workspaceMenuHref({
+				pathname: '/runs',
+				searchParams: new URLSearchParams('job=123'),
+				id: 'w',
+				sameFamily: true
+			})
+		).toBe('/runs?job=123&workspace=w')
+	})
+
+	// `target` is the compare page's one-off migration destination, picked for the workspace
+	// being left. Carried over it can point the new workspace at itself.
+	it('drops an arbitrary compare target', () => {
+		expect(
+			workspaceMenuHref({
+				pathname: '/forks/compare',
+				searchParams: new URLSearchParams('workspace_id=wm-fork-a&target=wm-fork-b&mode=fork'),
+				id: 'wm-fork-b',
+				sameFamily: true
+			})
+		).toBe('/forks/compare?workspace_id=wm-fork-b&mode=fork&workspace=wm-fork-b')
+	})
+
 	// An operator lands on home in the workspace they switch into. The href has to carry
 	// that too, not just the click handler: this is what a middle-click opens.
 	it('points at home, dropping the current page and its params, when landOnHome is set', () => {

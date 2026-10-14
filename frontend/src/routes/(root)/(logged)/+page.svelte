@@ -12,18 +12,19 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { ExternalLink, GitFork, Globe2, Loader2, Code, LayoutDashboard } from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
-	import { base } from '$lib/base'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 	import { setQuery } from '$lib/navigation'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
 	import WorkspaceDraftsBanner from '$lib/components/WorkspaceDraftsBanner.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
 	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
@@ -92,6 +93,22 @@
 
 	let showCreateButtons = $state(false)
 
+	// A workspace switch keeps this page mounted and swaps its contents under the reader, which
+	// the mount animation below never covers. Replay it by hand instead of keying the page on the
+	// workspace: a remount would drop the list's own state and refetch what it is already loading.
+	let pageEl: HTMLDivElement | undefined = $state(undefined)
+	const reducedMotion = useReducedMotion()
+	let animatedWorkspace = $workspaceStore
+	$effect(() => {
+		const ws = $workspaceStore
+		if (ws === animatedWorkspace) return
+		animatedWorkspace = ws
+		untrack(() => {
+			if (!pageEl || reducedMotion.val) return
+			pageEl.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, easing: 'ease-out' })
+		})
+	})
+
 	let operatorTour: OperatorTour | undefined = $state(undefined)
 
 	// Delayed so the tabs the first steps point at exist. `runTutorial` refuses while a tour is
@@ -145,7 +162,7 @@
 				</div>
 			</Button>
 			<Button
-				href="{base}/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
+				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
 				startIcon={{ icon: GitFork }}
 				variant="accent"
 				size="xs"
@@ -182,7 +199,7 @@
 			</Button>
 
 			<Button
-				href="{base}/flows/add?hub={flowViewerFlow?.flow?.id}"
+				href="/flows/add?hub={flowViewerFlow?.flow?.id}"
 				startIcon={{ icon: GitFork }}
 				variant="accent"
 				size="xs"
@@ -224,7 +241,7 @@
 			</Button>
 
 			<Button
-				href="{base}/apps/add?hub={appViewerApp?.app?.id}"
+				href="/apps/add?hub={appViewerApp?.app?.id}"
 				startIcon={{ icon: GitFork }}
 				variant="accent"
 				disabled={appViewerApp == undefined}
@@ -262,16 +279,25 @@
 	</DrawerContent>
 </Drawer>
 
+{#snippet editRuleBadge()}
+	<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
+{/snippet}
+
 <div
+	bind:this={pageEl}
 	class="wm-page-in flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
 >
+	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
+	     header with the workspace's own name rather than above the list. -->
+	<PageHeaderContent actions={editRuleBadge} />
+
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
 	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-6">
 		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
-		     so it shows whenever the sessions beta is on; the composer itself is gated on operator
-		     status and on the workspace inside the component, which owns its own vertical spacing
+		     so it shows whenever the sessions beta is on; the composer itself is gated on the
+		     workspace inside the component, which owns its own vertical spacing
 		     because the hero and the bare connect row want different amounts of it. -->
 		{#if isGlobalAiEnabled()}
 			<HomeAIChat />
@@ -284,8 +310,6 @@
 			</Alert>
 			<div class="my-4"></div>
 		{/if}
-
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
 		{#if tab == 'hub'}
 			<div class="flex flex-col gap-y-16">

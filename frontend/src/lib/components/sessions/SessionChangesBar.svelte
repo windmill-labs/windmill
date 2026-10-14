@@ -22,7 +22,7 @@
 	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
-	import { pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
+	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import type { PreviewTarget } from './previewRouter'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -378,6 +378,11 @@
 		onDataChanged={refreshDock}
 		onItemDeployed={(item) =>
 			void runtime?.manager.renameModifiedItem(item.draftKind, item.path, item.displayPath)}
-		onItemDiscarded={(item) => void runtime?.manager.removeModifiedItem(item.draftKind, item.path)}
+		onItemDiscarded={(item) => {
+			void runtime?.manager.removeModifiedItem(item.draftKind, item.path)
+			const folder = pipelineFolderFromBundlePath(item.path)
+			if (item.draftKind === PIPELINE_DRAFT_KIND && folder) void runtime?.forgetPipelineDrafts(folder)
+		}}
+		deployPipeline={runtime?.deployPipeline}
 	/>
 {/if}

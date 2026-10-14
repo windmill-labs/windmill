@@ -32,8 +32,9 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import InputError from '$lib/components/InputError.svelte'
 	import PrefixedInput from '$lib/components/PrefixedInput.svelte'
-	import { Badge, Button, CopyButton } from '$lib/components/common'
-	import { devBadgeText, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
+	import { Button, CopyButton } from '$lib/components/common'
+	import { devLabelNoun } from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import Select from '../select/Select.svelte'
 	import { Building, Check, GitFork, Plus, Settings } from 'lucide-svelte'
 
@@ -77,6 +78,7 @@
 		// Narrow the list to this workspace and its direct forks, and fork only from it —
 		// for moving something into a fork of where it is, rather than anywhere in the family.
 		forksOf,
+		open: dropdownOpen = $bindable(),
 		trigger
 	}: {
 		selectedId?: string
@@ -92,6 +94,7 @@
 		settingsLabel?: string
 		forkableWorkspaces?: UserWorkspace[]
 		forksOf?: string
+		open?: boolean
 		trigger: Snippet<[{ open: boolean }]>
 	} = $props()
 
@@ -229,7 +232,6 @@
 		forkAffordanceOpen && ceWorkspaceCapReached && !onRequestCreateFork
 	)
 
-	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
 	// Bare fork id, without the wm-fork- prefix. Forks have no separate display
 	// name — the id is the name (it also becomes the git branch).
@@ -365,7 +367,7 @@
 	let lastDropdownOpen = $state(false)
 	$effect(() => {
 		const wasOpen = lastDropdownOpen
-		lastDropdownOpen = dropdownOpen
+		lastDropdownOpen = !!dropdownOpen
 		if (dropdownOpen && !wasOpen && pendingFork && !creatingFork && showCreateFork) {
 			// Preserve the base the fork was staged from; without this the re-entry falls back to the
 			// default base and silently re-parents a fork that was staged off another workspace.
@@ -401,7 +403,7 @@
 />
 
 <DropdownV2
-	bind:open={dropdownOpen}
+	bind:open={() => !!dropdownOpen, (v) => (dropdownOpen = v)}
 	customMenu
 	placement="bottom-start"
 	fixedHeight={false}
@@ -409,7 +411,7 @@
 	class={triggerClass}
 >
 	{#snippet buttonReplacement()}
-		{@render trigger({ open: dropdownOpen })}
+		{@render trigger({ open: !!dropdownOpen })}
 	{/snippet}
 	{#snippet menu()}
 		{@const rowBase =
@@ -473,12 +475,12 @@
 								>{f.name}</span
 							>
 							{#if f.is_dev_workspace}
-								<Badge
-									color="dark-blue"
-									small
-									class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
-									>{devBadgeText(f.dev_workspace_label)}</Badge
-								>
+								<DevWorkspaceBadge
+									label={f.dev_workspace_label}
+									color={f.color}
+									fallbackClass="dark:bg-surface-accent-primary text-white dark:text-white"
+									class="text-3xs px-1 py-0"
+								/>
 							{/if}
 							{#if isSelected(f.id)}
 								<Check size={14} class="shrink-0 ml-auto text-accent" />

@@ -1,6 +1,7 @@
 import { ResourceService } from '$lib/gen'
-import { canWrite } from '$lib/utils'
-import type { UserExt } from '$lib/stores'
+import { canEditItem } from '$lib/editRights'
+import { userWorkspaces, type UserExt } from '$lib/stores'
+import { get } from 'svelte/store'
 
 /**
  * Skills are resources of this type: a file resource (`format_extension = 'md'`)
@@ -53,9 +54,10 @@ export type SkillListing = { skills: SkillResource[]; truncated: boolean }
  * `user` decides which rows the drawer offers to edit rather than only view; pass
  * the account the workspace is being browsed as. Ownership is mostly implicit in
  * the path (`u/<me>/…`, a folder the user owns), which is why this goes through
- * the shared `canWrite` rather than reading `extra_perms` alone. */
+ * the shared `canEditItem` rather than reading `extra_perms` alone. */
 export async function listSkillResources(workspace: string, user?: UserExt): Promise<SkillListing> {
 	if (!workspace) return { skills: [], truncated: false }
+	const operatorSettings = get(userWorkspaces).find((w) => w.id === workspace)?.operator_settings
 	const rows: SkillResource[] = []
 	for (let page = 1; page <= MAX_SKILLS_PAGES; page++) {
 		const resources = await ResourceService.listResource({
@@ -70,7 +72,7 @@ export async function listSkillResources(workspace: string, user?: UserExt): Pro
 				name: skillNameFromPath(r.path),
 				description: r.description ?? '',
 				editedAt: r.edited_at,
-				canWrite: canWrite(r.path, r.extra_perms ?? {}, user)
+				canWrite: canEditItem('resource', r.path, r.extra_perms, user, operatorSettings)
 			}))
 		)
 		if (resources.length < SKILLS_PAGE_SIZE) return { skills: rows, truncated: false }

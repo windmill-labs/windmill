@@ -7,6 +7,8 @@
 	import AuditLogsTable from '$lib/components/auditLogs/AuditLogsTable.svelte'
 	import AuditLogMobileFilters from '$lib/components/auditLogs/AuditLogMobileFilters.svelte'
 	import { Alert, DrawerContent, Skeleton } from '$lib/components/common'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
@@ -64,11 +66,26 @@
 	)
 	let auditLogDrawer: Drawer | undefined = $state()
 
-	// The inline filters show only when their one-line width fits in the space the title leaves.
-	// Both are measured, so the sidebar, side panels, zoom and filter values are all accounted for.
-	let filtersSlotWidth = $state(0)
+	// The inline filters show only when their one-line width fits the bar. The row is measured, so
+	// the sidebar, side panels, zoom and the filters' own values are all accounted for; what it is
+	// measured against is the bar, not the box it sits in. That box is the band's action area,
+	// whose width is its own content's — measuring the row against it would ask whether the row
+	// fits inside itself, which it always does, and the filters would never fold.
 	let filtersRowWidth = $state(0)
-	let inlineFilters = $derived(filtersRowWidth > 0 && filtersRowWidth <= filtersSlotWidth)
+	/** What the breadcrumb takes before the filters get any: the workspace disc and name, the
+	 *  page's name and the hint beside it. Measured at 361-398px across bar widths. */
+	const BREADCRUMB_WIDTH = 400
+	/** Clear space held between the breadcrumb and the first filter. The breadcrumb yields width
+	 *  grudgingly and the filter row not at all, so when the two are sized to just meet they
+	 *  overlap instead of compressing — and mid-resize, before the breadcrumb has settled, the
+	 *  tooltip at the end of it lands on the timeframe button. Measured without this: the gap
+	 *  reached 4px across a 1600->1200 sweep. */
+	const BREADCRUMB_GAP = 48
+	let inlineFilters = $derived(
+		filtersRowWidth > 0 &&
+			pageHeader.barWidth > 0 &&
+			filtersRowWidth <= pageHeader.barWidth - BREADCRUMB_WIDTH - BREADCRUMB_GAP
+	)
 
 	// Function to fetch missing job execution audit logs
 	async function fetchMissingJobSpan(jobId: string, jobLogs: AuditLog[]): Promise<AuditLog[]> {
@@ -117,19 +134,21 @@
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<div class="flex flex-col w-full h-screen">
-		<div class="flex flex-row items-center justify-between gap-4 px-4 py-2 my-4">
-			<div class="flex flex-row shrink-0 gap-1 items-center">
-				<h1 class="text-2xl font-semibold text-emphasis">Audit logs</h1>
-				<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs">
-					You can only see your own audit logs unless you are an admin.
-				</Tooltip>
-			</div>
-			<!-- flex-1 min-w-0: the slot's width is what the title leaves, whatever its content. -->
-			<div
-				class="relative flex flex-row flex-1 min-w-0 justify-end items-center"
-				bind:clientWidth={filtersSlotWidth}
-			>
+	<!-- `h-full`, not `h-screen`: the band sits above this box, so a viewport floor would overhang
+	     the content box by the band's height. -->
+	<div class="flex flex-col w-full h-full">
+		<!-- `afterName`, not an action: the hint explains what audit logs are, so it belongs beside
+		     the page's name rather than at the far end of the bar with the filters. -->
+		<PageHeaderContent afterName={auditHint} actions={auditActions} actionsFlexible />
+
+		{#snippet auditHint()}
+			<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs">
+				You can only see your own audit logs unless you are an admin.
+			</Tooltip>
+		{/snippet}
+
+		{#snippet auditActions()}
+			<div class="relative flex flex-row min-w-0 justify-end items-center">
 				<!-- Kept laid out (invisible, out of flow) while unused, so its width stays measurable. -->
 				<div
 					class={inlineFilters
@@ -171,7 +190,7 @@
 					</AuditLogMobileFilters>
 				</div>
 			</div>
-		</div>
+		{/snippet}
 		{#if !$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
 			<div class="mx-4 mb-2">
 				<Alert title="Redacted audit logs" type="warning">

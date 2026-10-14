@@ -95,6 +95,8 @@ async def enrich(customer_id: str):
 
 In TypeScript, prefer assigning each task to a named top-level const. In Python, prefer top-level async functions decorated with `@task()` or `@task`.
 
+Only the workflow body dispatches steps. A task runs as a single job, so a task or `step()` called from inside a task body runs in place in that job, as a plain function call: no child job, no checkpoint, and its task options (retry, timeout, tag) do not apply. `sleep()` there waits in the job, and `taskScript()` / `taskFlow()` / `waitForApproval()` (`task_script()` / `task_flow()` / `wait_for_approval()`) throw. To get separate jobs, call the tasks one after another from the workflow body and pass results between them.
+
 For existing scripts:
 
 ```typescript

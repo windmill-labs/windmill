@@ -104,7 +104,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
     sqlx::query!(
         r#"
         INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
-        VALUES ('test-workspace', 1111111111, 'f/test/error_handler', $1, 'deno', 'script', 'test-user', '{}', 'Error handler script', 'Handles failed job completions', '')
+        VALUES ('test-workspace', 1111111111, 'f/test/error_handler', $1, 'bun', 'script', 'test-user', '{}', 'Error handler script', 'Handles failed job completions', E'{}\n//bun.lock\n<empty>')
         "#,
         error_handler_code
     )
@@ -118,7 +118,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
     sqlx::query!(
         r#"
         INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
-        VALUES ('test-workspace', $1, 'f/test/failing_script', $2, 'deno', 'script', 'test-user', '{}', 'Failing test script', 'A script that always fails', '')
+        VALUES ('test-workspace', $1, 'f/test/failing_script', $2, 'bun', 'script', 'test-user', '{}', 'Failing test script', 'A script that always fails', E'{}\n//bun.lock\n<empty>')
         "#,
         failing_script_hash,
         failing_script_code
@@ -155,7 +155,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        language: ScriptLang::Deno,
+        language: ScriptLang::Bun,
         priority: None,
         apply_preprocessor: false,
         concurrency_settings: ConcurrencySettings::default(),
@@ -234,7 +234,7 @@ async fn test_error_handler_muted_on_script(db: Pool<Postgres>) -> anyhow::Resul
     sqlx::query!(
         r#"
         INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
-        VALUES ('test-workspace', 3333333333, 'f/test/error_handler', 'export function main() { return "handled"; }', 'deno', 'script', 'test-user', '{}', '', '', '')
+        VALUES ('test-workspace', 3333333333, 'f/test/error_handler', 'export function main() { return "handled"; }', 'bun', 'script', 'test-user', '{}', '', '', E'{}\n//bun.lock\n<empty>')
         "#,
     )
     .execute(&db)
@@ -245,7 +245,7 @@ async fn test_error_handler_muted_on_script(db: Pool<Postgres>) -> anyhow::Resul
     sqlx::query!(
         r#"
         INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock, ws_error_handler_muted)
-        VALUES ('test-workspace', $1, 'f/test/muted_failing_script', 'export function main() { throw new Error("fail"); }', 'deno', 'script', 'test-user', '{}', '', '', '', true)
+        VALUES ('test-workspace', $1, 'f/test/muted_failing_script', 'export function main() { throw new Error("fail"); }', 'bun', 'script', 'test-user', '{}', '', '', E'{}\n//bun.lock\n<empty>', true)
         "#,
         failing_script_hash,
     )
@@ -280,7 +280,7 @@ async fn test_error_handler_muted_on_script(db: Pool<Postgres>) -> anyhow::Resul
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        language: ScriptLang::Deno,
+        language: ScriptLang::Bun,
         priority: None,
         apply_preprocessor: false,
         concurrency_settings: ConcurrencySettings::default(),
@@ -331,7 +331,7 @@ async fn test_error_handler_not_triggered_on_success(db: Pool<Postgres>) -> anyh
     sqlx::query!(
         r#"
         INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
-        VALUES ('test-workspace', 5555555555, 'f/test/error_handler', 'export function main() { return "handled"; }', 'deno', 'script', 'test-user', '{}', '', '', '')
+        VALUES ('test-workspace', 5555555555, 'f/test/error_handler', 'export function main() { return "handled"; }', 'bun', 'script', 'test-user', '{}', '', '', E'{}\n//bun.lock\n<empty>')
         "#,
     )
     .execute(&db)
@@ -342,7 +342,7 @@ async fn test_error_handler_not_triggered_on_success(db: Pool<Postgres>) -> anyh
     sqlx::query!(
         r#"
         INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
-        VALUES ('test-workspace', $1, 'f/test/success_script', 'export function main() { return "ok"; }', 'deno', 'script', 'test-user', '{}', '', '', '')
+        VALUES ('test-workspace', $1, 'f/test/success_script', 'export function main() { return "ok"; }', 'bun', 'script', 'test-user', '{}', '', '', E'{}\n//bun.lock\n<empty>')
         "#,
         success_script_hash,
     )
@@ -377,7 +377,7 @@ async fn test_error_handler_not_triggered_on_success(db: Pool<Postgres>) -> anyh
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        language: ScriptLang::Deno,
+        language: ScriptLang::Bun,
         priority: None,
         apply_preprocessor: false,
         concurrency_settings: ConcurrencySettings::default(),
@@ -407,6 +407,73 @@ async fn test_error_handler_not_triggered_on_success(db: Pool<Postgres>) -> anyh
     assert!(
         error_handler_job.is_none(),
         "Error handler should NOT have been triggered for a successful job"
+    );
+
+    Ok(())
+}
+
+/// A hub script run at the top level (a schedule, a trigger, the API) is a `script_hub` job,
+/// and its failure must reach the workspace error handler like a workspace script's.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_error_handler_triggered_on_hub_script_failure(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::jobs::JobPayload;
+
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+
+    let version = "990000002";
+    let hub_dir = &*windmill_common::worker::HUB_CACHE_DIR;
+    tokio::fs::create_dir_all(hub_dir).await?;
+    tokio::fs::write(
+        format!("{hub_dir}/{version}"),
+        r#"{"content":"exit 1","lockfile":null,"language":"bash","schema":{},"summary":null}"#,
+    )
+    .await?;
+
+    // The workspace handler settings are cached per workspace id across the tests of this
+    // binary, so this reuses the handler path every other test here configures.
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
+         VALUES ('test-workspace', 1111111112, 'f/test/error_handler', 'echo handled', 'bash', 'script', 'test-user', '{}', '', '', '')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        r#"UPDATE workspace_settings SET error_handler = '{"path": "script/f/test/error_handler"}'::jsonb
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let completed_job = RunJob::from(JobPayload::ScriptHub {
+        path: format!("hub/{version}/test/fail"),
+        apply_preprocessor: false,
+    })
+    .run_until_complete(&db, false, server.addr.port())
+    .await;
+    assert!(!completed_job.success, "Hub script should have failed");
+
+    let mut handler_parent = None;
+    for _ in 0..50 {
+        handler_parent = sqlx::query_scalar::<_, Option<uuid::Uuid>>(
+            "SELECT parent_job FROM v2_job
+             WHERE workspace_id = 'test-workspace' AND permissioned_as_email = 'error_handler@windmill.dev'",
+        )
+        .fetch_optional(&db)
+        .await?;
+        if handler_parent.is_some() {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        handler_parent,
+        Some(Some(completed_job.id)),
+        "Workspace error handler should handle the failed hub script"
     );
 
     Ok(())

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH prev AS (SELECT started_at FROM v2_job_queue WHERE id = $1)\n                 UPDATE v2_job_queue q SET running = false, started_at = null,\n                     extras = CASE WHEN q.started_at IS NULL OR q.extras ? 'wac_first_started_at' THEN q.extras\n                         ELSE jsonb_set(COALESCE(q.extras, '{}'::jsonb), '{wac_first_started_at}', to_jsonb(q.started_at))\n                     END\n                 FROM prev WHERE q.id = $1\n                 RETURNING (extract(epoch FROM now() - prev.started_at) * 1000)::bigint",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "int8",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1333436e3d0466eccdaf99fb70aadad56b50619036fab3f2c1bdbbf280a80217"
+}

@@ -57,6 +57,15 @@ describe('blockedReason', () => {
 		expect(blockedReason('unarchive', item({ archived: false }), admin)).toBeDefined()
 	})
 
+	// AgentRow's delete is `disabled: !canWrite`; the server moves no resource draft.
+	it('gates an agent as its row does, and keeps a draft-only one in place', () => {
+		const agent = item({ kind: 'agent', owner: false })
+		expect(blockedReason('delete', agent, member)).toBeUndefined()
+		expect(blockedReason('delete', { ...agent, canWrite: false }, member)).toBeDefined()
+		expect(blockedReason('archive', agent, admin)).toBeDefined()
+		expect(blockedReason('move', item({ kind: 'agent', draftOnly: true }), admin)).toBeDefined()
+	})
+
 	it('lets a draft-only row move or discard, never archive/delete', () => {
 		const draftOnly = item({ draftOnly: true, isDraft: true })
 		expect(blockedReason('discard', draftOnly, admin)).toBeUndefined()

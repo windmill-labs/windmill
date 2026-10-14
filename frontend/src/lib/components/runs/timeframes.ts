@@ -39,6 +39,15 @@ export const serviceLogsTimeframes: Timeframe[] = [
 	{ label: 'Within last month', computeMinMax: () => computeMinMaxInc(30 * 24 * 60 * 60 * 1000) }
 ].map((item) => ({ ...item, type: 'dynamic' }))
 
+export const auditTimeframes: Timeframe[] = [
+	{ label: 'All time', computeMinMax: () => ({ minTs: null, maxTs: null }) },
+	{ label: 'Within last 30 minutes', computeMinMax: () => computeMinMaxInc(30 * 60 * 1000) },
+	{ label: 'Within last 24 hours', computeMinMax: () => computeMinMaxInc(24 * 60 * 60 * 1000) },
+	{ label: 'Within last 7 days', computeMinMax: () => computeMinMaxInc(7 * 24 * 60 * 60 * 1000) },
+	{ label: 'Within last month', computeMinMax: () => computeMinMaxInc(30 * 24 * 60 * 60 * 1000) },
+	{ label: 'Within last year', computeMinMax: () => computeMinMaxInc(365 * 24 * 60 * 60 * 1000) }
+].map((item) => ({ ...item, type: 'dynamic' }))
+
 export const runsTimeframes: Timeframe[] = [
 	{ label: 'Latest runs', computeMinMax: () => ({ minTs: null, maxTs: null }) },
 	{ label: 'Within 30 seconds', computeMinMax: () => computeMinMaxInc(30 * 1000) },

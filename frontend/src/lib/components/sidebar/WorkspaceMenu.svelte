@@ -14,9 +14,19 @@
 		createMenu: MenubarBuilders['createMenu']
 		// When used outside of the side bar, where links to workspace settings and such don't make as much sense.
 		strictWorkspaceSelect?: boolean
+		// Denser trigger for the page header bar: a smaller disc and a lighter name, so the
+		// workspace reads as the scope of the breadcrumb beside it rather than a heading.
+		compact?: boolean
 	}
 
-	let { isCollapsed = false, createMenu, strictWorkspaceSelect = false }: Props = $props()
+	let {
+		isCollapsed = false,
+		createMenu,
+		strictWorkspaceSelect = false,
+		compact = false
+	}: Props = $props()
+
+	let menu: Menu | undefined = $state(undefined)
 
 	// The active workspace's family root — shown in the trigger so a forked active workspace still
 	// surfaces its family name here (the fork itself is shown in the breadcrumb). Resolved exactly
@@ -29,7 +39,7 @@
 	const ambiguousNames = $derived(ambiguousWorkspaceNames($userWorkspaces))
 </script>
 
-<Menu {createMenu} usePointerDownOutside placement="bottom-start">
+<Menu bind:this={menu} {createMenu} usePointerDownOutside placement="bottom-start">
 	{#snippet triggr({ trigger })}
 		<!-- Family header reflects the family (root) color, not the active
 		     workspace's — switching into a fork must not recolor it. -->
@@ -41,7 +51,7 @@
 			name={currentFamily?.name ?? $workspaceStore ?? ''}
 			id={currentFamily?.id ?? $workspaceStore ?? ''}
 			disablePopup={isCollapsed}
-			class="block w-full"
+			class={compact ? 'block' : 'block w-full'}
 		>
 			<MenuButton
 				icon={Building}
@@ -53,8 +63,10 @@
 				{isCollapsed}
 				color={familyColor}
 				showChevron
-				emphasizeLabel
+				emphasizeLabel={!compact}
 				disableTitle
+				{compact}
+				labelClass={compact ? 'wm-workspace-name text-primary font-medium' : 'wm-workspace-name'}
 				{trigger}
 			/>
 		</NameIdTooltip>
@@ -63,6 +75,11 @@
 	{#snippet children({ item })}
 		<!-- The only strict caller is a standalone page (svix webhook creation) that owns its
 		     own navigation, so there a switch must leave the page where it is. -->
-		<WorkspacePickerBody {item} {strictWorkspaceSelect} keepPageOnSwitch={strictWorkspaceSelect} />
+		<WorkspacePickerBody
+			{item}
+			{strictWorkspaceSelect}
+			keepPageOnSwitch={strictWorkspaceSelect}
+			closeMenu={() => menu?.close()}
+		/>
 	{/snippet}
 </Menu>

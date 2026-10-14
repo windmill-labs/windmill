@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { base } from '$lib/base'
 	import { capitalize, pluralize, sendUserToast } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -195,7 +194,7 @@
 		<Button
 			endIcon={{ icon: ExternalLink }}
 			variant="accent"
-			href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
+			href="/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
 		>
 		<p class="text-xs text-primary mt-1">
 			See invoices, change billing information or subscription details.
@@ -261,8 +260,7 @@
 									<div class="flex flex-col gap-0.5">
 										<div class="font-medium">Developers</div>
 										<p class="text-xs text-secondary">
-											Calculated on the MAXIMUM number of users in a given billing period, see the
-											Customer Portal for more info.
+											1 seat each.
 										</p>
 									</div>
 								</Cell>
@@ -277,8 +275,7 @@
 									<div class="flex flex-col gap-0.5">
 										<div class="font-medium">Operators</div>
 										<p class="text-xs text-secondary">
-											Calculated on the MAXIMUM number of operators in a given billing period, see
-											the Customer Portal for more info.
+											Half a seat each.
 										</p>
 									</div>
 								</Cell>
@@ -293,7 +290,7 @@
 									<div class="flex flex-col gap-0.5">
 										<div class="font-medium">Service accounts</div>
 										<p class="text-xs text-secondary">
-											Enabled service accounts, half a seat each like operators, whatever their role.
+											Half a seat each, whatever their role.
 										</p>
 									</div>
 								</Cell>
@@ -383,8 +380,9 @@
 											Used seats (billed)
 										</div>
 										<p class="text-xs text-secondary">
-											Highest between seats from 'Developers + Operators' and 'Seats from
-											executions'. This is the number of seats used for billing this month.
+											'Seats from users' plus 'Extra seats from computations'. Billed on the
+											highest total reached during the month; your invoices in the Customer Portal
+											show what was billed.
 										</p>
 										<p class="text-[11px] text-secondary font-mono">
 											u + c = {formatNumber(premiumInfo.usedSeats)}
@@ -417,7 +415,7 @@
 			<div class="text-sm font-semibold text-primary">Estimate your monthly cost</div>
 			<p class="text-xs text-secondary max-w-xl">
 				This is a rough estimate based on your expected team size and workload. Actual billing is
-				based on the maximum number of users and executions in a given month.
+				based on the highest seat total reached during the month.
 			</p>
 		</div>
 
@@ -592,7 +590,7 @@
 							<Button
 								size="xs"
 								color="bg-blue-500 text-white"
-								href="{base}/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
+								href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
 							>
 								Upgrade to Team plan</Button
 							>

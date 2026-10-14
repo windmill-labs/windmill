@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE worker_ping SET draining = true WHERE worker = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e4b9c0e8a46dbfe29bace8d8b12123a98ec175f9d3dc72e40a1cb40e14dec919"
+}

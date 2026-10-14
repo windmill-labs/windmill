@@ -30,6 +30,17 @@ export interface BenchmarkDatatableSeed {
 			[table: string]: BenchmarkDatatableTableSeed
 		}
 	}
+	/** Whether the datatable keeps its schema as migrations. */
+	migrations_enabled?: boolean
+	migrations?: BenchmarkDatatableMigrationSeed[]
+}
+
+export interface BenchmarkDatatableMigrationSeed {
+	timestamp: number
+	name: string
+	code_up: string
+	code_down?: string
+	applied?: boolean
 }
 
 export interface DatatableSqlResult {

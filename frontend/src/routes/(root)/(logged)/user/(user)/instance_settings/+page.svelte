@@ -11,14 +11,16 @@
 		tabToAuthSubTab,
 		categoryToTabMap,
 		buildSearchableSettingItems,
+		listedNavigationGroups,
+		usesExternalOidcSigner,
 		type SearchableSettingItem
 	} from '$lib/components/instanceSettings'
 	import SettingsSearchInput from '$lib/components/instanceSettings/SettingsSearchInput.svelte'
 	import Breadcrumb from '$lib/components/common/breadcrumb/Breadcrumb.svelte'
 	import { ChevronRight, ArrowLeft } from 'lucide-svelte'
-	import { superadmin } from '$lib/stores'
+	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { onDestroy, tick } from 'svelte'
-	import { UserService, JobService } from '$lib/gen'
+	import { SettingService, UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -89,7 +91,6 @@
 	// --- Account step state ---
 	let newEmail = $state('')
 	let newPassword = $state('')
-	let enableHubSync = $state(true)
 	let accountSubmitting = $state(false)
 	let accountError = $state('')
 	let showOssAccountDialog = $state(false)
@@ -99,7 +100,7 @@
 	let rtSyncStatus: 'idle' | 'loading' | 'success' | 'error' = $state('idle')
 	let rtSyncMessage = $state('')
 
-	async function syncCachedResourceTypes() {
+	async function syncResourceTypes() {
 		rtSyncStatus = 'loading'
 		rtSyncMessage = ''
 		try {
@@ -116,40 +117,23 @@
 		}
 	}
 
+	// --- Daily resource type sync (saved on finish) ---
+	const SYNC_DAILY_SETTING = 'sync_hub_resource_types_daily'
+	let syncResourceTypesDaily = $state(true)
+	SettingService.getGlobal({ key: SYNC_DAILY_SETTING })
+		.then((value) => {
+			if (typeof value === 'boolean') syncResourceTypesDaily = value
+		})
+		.catch(() => {})
+
 	$effect(() => {
 		if (
 			rtSyncStatus === 'idle' &&
 			((mode === 'wizard' && !isSettingsStep(wizardStep)) || (mode === 'full' && fullStep === 1))
 		) {
-			syncCachedResourceTypes()
+			syncResourceTypes()
 		}
 	})
-
-	// --- Live hub sync ---
-	let hubSyncStatus: 'idle' | 'loading' | 'success' | 'error' = $state('idle')
-	let hubSyncMessage = $state('')
-
-	async function syncFromHub() {
-		hubSyncStatus = 'loading'
-		hubSyncMessage = ''
-		try {
-			await JobService.runWaitResultScriptByPath({
-				workspace: 'admins',
-				path: 'u/admin/hub_sync',
-				requestBody: {}
-			})
-			hubSyncStatus = 'success'
-			hubSyncMessage = 'Resource types synced from hub successfully'
-		} catch (e: any) {
-			hubSyncMessage =
-				e?.body?.error?.message ||
-				e?.body?.message ||
-				(typeof e?.body === 'string' ? e.body : null) ||
-				e?.message ||
-				'Failed to sync from hub'
-			hubSyncStatus = 'error'
-		}
-	}
 
 	const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 	let emailValid = $derived(emailPattern.test(newEmail))
@@ -196,7 +180,14 @@
 	}
 
 	// --- Settings search (full mode) ---
-	const searchableItems = buildSearchableSettingItems(setupNavigationGroups)
+	let externalOidcSigner = $state(false)
+	$effect(() => {
+		if ($enterpriseLicense) usesExternalOidcSigner().then((v) => (externalOidcSigner = v))
+	})
+	const navigationGroups = $derived(
+		listedNavigationGroups(setupNavigationGroups, externalOidcSigner)
+	)
+	const searchableItems = $derived(buildSearchableSettingItems(navigationGroups))
 
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined
 	let highlightTimeout: ReturnType<typeof setTimeout> | undefined
@@ -281,6 +272,12 @@
 		accountError = ''
 		accountSubmitting = true
 		try {
+			// Before the account switch: on CE it fails and setup ends with the default account.
+			await SettingService.setGlobal({
+				key: SYNC_DAILY_SETTING,
+				requestBody: { value: syncResourceTypesDaily }
+			})
+
 			let oldEmail = $superadmin
 			if (!oldEmail) {
 				oldEmail = await UserService.getCurrentEmail()
@@ -304,34 +301,6 @@
 			// Update the client token for subsequent requests
 			const { OpenAPI } = await import('$lib/gen')
 			OpenAPI.TOKEN = token
-
-			if (enableHubSync) {
-				try {
-					// Use direct fetch with token as query param to avoid the old session cookie
-					// overriding the Authorization header
-					const resp = await fetch(
-						`/api/w/admins/schedules/create?token=${encodeURIComponent(token)}`,
-						{
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({
-								path: 'g/all/hub_sync',
-								schedule: '0 0 0 * * *',
-								script_path: 'u/admin/hub_sync',
-								is_flow: false,
-								args: {},
-								enabled: true,
-								timezone: 'Etc/UTC'
-							})
-						}
-					)
-					if (!resp.ok) {
-						console.warn('Schedule creation failed:', await resp.text())
-					}
-				} catch (e: any) {
-					console.warn('Schedule creation failed:', e?.body ?? e)
-				}
-			}
 
 			try {
 				await UserService.globalUserDelete({ email: oldEmail })
@@ -403,51 +372,39 @@
 
 		<SettingCard
 			label="Resource Types"
-			description="Resource types bundled with the Docker image are synced automatically. You can also fetch the latest from the hub."
+			description="Resource types are synced from the Hub when you reach this step. Without access to a Hub, the ones bundled with the Docker image are used."
 		>
 			<div class="flex flex-col gap-3 mt-1">
 				{#if rtSyncStatus === 'loading'}
-					<Alert type="info" title="Syncing cached resource types..." />
+					<Alert type="info" title="Syncing resource types..." />
 				{:else if rtSyncStatus === 'success'}
-					<Alert type="success" title="Cached resource types synced">
+					<Alert type="success" title="Resource types synced">
 						{rtSyncMessage}
 					</Alert>
 				{:else if rtSyncStatus === 'error'}
-					<Alert type="error" title="Cached resource types sync failed">
+					<Alert type="error" title="Resource type sync failed">
 						{rtSyncMessage}
 					</Alert>
 				{/if}
 
-				<div class="flex items-center gap-2">
+				<div class="flex">
 					<Button
-						variant="accent"
+						variant="default"
 						unifiedSize="sm"
-						loading={hubSyncStatus === 'loading'}
-						onClick={syncFromHub}
+						loading={rtSyncStatus === 'loading'}
+						onClick={syncResourceTypes}
 					>
 						Sync latest from hub
 					</Button>
-					<p class="text-tertiary text-2xs">
-						Fetches the latest resource types directly from the Windmill Hub (requires internet
-						access).
-					</p>
 				</div>
-				{#if hubSyncStatus === 'success'}
-					<Alert type="success" title="Hub sync complete">
-						{hubSyncMessage}
-					</Alert>
-				{:else if hubSyncStatus === 'error'}
-					<Alert type="error" title="Hub sync failed">
-						{hubSyncMessage}
-					</Alert>
-				{/if}
 				<Toggle
-					bind:checked={enableHubSync}
+					bind:checked={syncResourceTypesDaily}
 					options={{ right: 'Sync resource types every day' }}
 					size="xs"
 				/>
 				<p class="text-tertiary text-2xs">
-					The daily schedule synchronizes resource types from the Hub every day at midnight UTC.
+					The server updates them from the Hub once a day, overwriting local edits to the types the
+					Hub also defines. You can change this later in the instance settings.
 				</p>
 			</div>
 		</SettingCard>
@@ -539,7 +496,7 @@
 						<div class="w-44 shrink-0 h-full overflow-auto pb-4 pr-4">
 							<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
 							<SidebarNavigation
-								groups={setupNavigationGroups}
+								groups={navigationGroups}
 								selectedId={fullTab}
 								onNavigate={handleNavigate}
 							/>

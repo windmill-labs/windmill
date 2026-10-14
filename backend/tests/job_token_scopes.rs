@@ -410,5 +410,22 @@ async fn test_oidc_claim_carries_the_presented_scopes(db: Pool<Postgres>) -> any
         )?;
         assert_eq!(claims["job_token_scopes"], expected, "{job}");
     }
+
+    // A soft-canceled job is still `running` until its worker kills it.
+    sqlx::query("UPDATE v2_job_queue SET canceled_by = 'test-user' WHERE id = $1")
+        .bind(Uuid::parse_str(OIDC_JOB)?)
+        .execute(&db)
+        .await?;
+    let resp = client
+        .post(format!("{base}/oidc/token/test-audience"))
+        .bearer_auth(job_token(&db, OIDC_JOB).await?)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "{}",
+        resp.text().await?
+    );
     Ok(())
 }

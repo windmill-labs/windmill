@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type { ScriptLang } from '$lib/gen'
-import { createToolDef, executeTestRun, findAndReplace } from '../shared'
+import { createToolDef, executeTestRun, findAndReplace, type ToolCallbacks } from '../shared'
+import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 import {
 	NONE,
 	RUN_PREVIEW,
@@ -10,6 +11,11 @@ import {
 	type SessionTool
 } from '../sessionCapabilities'
 import type { PipelineOutputKind } from '$lib/components/assets/AssetGraph/pipelineTemplates'
+import type { PipelineTriggerDraftKind } from '$lib/components/assets/AssetGraph/types'
+import { DRAFTABLE_TRIGGER_KINDS } from '$lib/components/assets/AssetGraph/pipelineTriggerDrafts'
+import { scheduleRequestSchema, triggerRequestSchemas } from '../workspaceToolsZod.gen'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
+import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 
 // ============================================================================
 // Pipeline AI chat tools.
@@ -57,6 +63,10 @@ export type PipelineContext = {
  * small — the page owns the draft Map and canvas rendering.
  */
 export interface PipelineAIChatHelpers {
+	/** Folder name (no `f/` prefix) of the pipeline this editor shows. */
+	getFolder: () => string
+	/** Whether the folder has any script or trigger draft left. */
+	hasDrafts: () => boolean
 	getPipelineContext: () => PipelineContext
 	/** Read a node's source (the in-flight draft body if one exists, else deployed). */
 	getNodeBody: (path: string) => Promise<{ language: ScriptLang; content: string } | undefined>
@@ -68,29 +78,108 @@ export interface PipelineAIChatHelpers {
 		language: ScriptLang
 		content: string
 		outputKind?: PipelineOutputKind
+		summary?: string
 	}) => Promise<{ path: string; detectedReads: string[]; detectedWrites: string[] }>
 	/** Replace an existing node's body, applied as an unsaved draft. Returns the
 	 * re-inferred asset lineage (URIs) so the caller sees the effect of the edit. */
 	editNode: (
 		path: string,
-		content: string
-	) => Promise<{ detectedReads: string[]; detectedWrites: string[] }>
+		content: string,
+		summary?: string
+	) => Promise<{ summary: string; detectedReads: string[]; detectedWrites: string[] }>
 	/** Discard the unsaved draft at a path (undo a build_pipeline_node). */
 	removeProposedNode: (path: string) => Promise<void>
+	/** Trigger kinds the node declares (`on <kind>`) that no trigger row or draft fills. */
+	unconfiguredTriggers: (path: string) => Promise<PipelineTriggerDraftKind[]>
+	/** Attach (or replace) the node's trigger draft of that kind, deployed with the
+	 * pipeline. `config` is the kind's trigger config; path/script_path are filled in. */
+	setNodeTrigger: (
+		path: string,
+		kind: PipelineTriggerDraftKind,
+		config: Record<string, any>
+	) => Promise<{ path: string; replaced: boolean }>
 	/** Preview-run a node (draft body preferred). Returns the started job id. */
 	testNode: (path: string, args?: Record<string, any>) => Promise<string | undefined>
 }
 
-/** Helper bag the pipeline tools receive from the manager in global mode. */
-export type PipelineToolHelpers = { pipeline?: PipelineAIChatHelpers }
+/** Helper bag the pipeline tools receive from the manager in global mode: every
+ * pipeline editor currently open, one per folder. */
+export type PipelineToolHelpers = {
+	pipelines?: () => readonly PipelineAIChatHelpers[]
+	/** Folders the chat may work on, including ones whose editor is not mounted now. */
+	pipelineFolders?: () => readonly string[]
+	/** Remounts the folder's editor (a session reopens its preview tab) and resolves
+	 * to it, or `undefined` when it cannot be brought back. */
+	ensurePipeline?: (folder: string) => Promise<PipelineAIChatHelpers | undefined>
+}
 
-function requirePipeline(helpers: PipelineToolHelpers): PipelineAIChatHelpers {
-	if (!helpers?.pipeline) {
+/** The folder's editor, remounted when the chat opened it before and something else
+ * has taken its tab since. */
+async function remount(
+	helpers: PipelineToolHelpers,
+	folder: string | undefined
+): Promise<PipelineAIChatHelpers | undefined> {
+	if (!folder || !helpers?.ensurePipeline) return undefined
+	if (!(helpers.pipelineFolders?.() ?? []).includes(folder)) return undefined
+	return helpers.ensurePipeline(folder)
+}
+
+function openPipelines(helpers: PipelineToolHelpers): readonly PipelineAIChatHelpers[] {
+	const open = helpers?.pipelines?.() ?? []
+	if (open.length === 0) {
 		throw new Error(
 			'No pipeline editor is open. Pipeline tools only work on a /pipeline/<folder> page in edit mode.'
 		)
 	}
-	return helpers.pipeline
+	return open
+}
+
+function notOpenError(folder: string, open: readonly PipelineAIChatHelpers[]): Error {
+	const names = open.map((p) => `'${p.getFolder()}'`).join(', ')
+	return new Error(
+		`No pipeline editor is open for folder '${folder}' (open: ${names}). Open it with open_preview(kind="pipeline", path="${folder}") first.`
+	)
+}
+
+/** The editor of the pipeline a node path belongs to (`f/<folder>/<node>`). With a
+ * single editor open, a path outside it still goes to that editor, whose own check
+ * names the corrected path. */
+async function pipelineForPath(
+	helpers: PipelineToolHelpers,
+	path: string
+): Promise<PipelineAIChatHelpers> {
+	const folder = path.match(/^f\/([^/]+)\//)?.[1]
+	const live = folder ? helpers?.pipelines?.().find((p) => p.getFolder() === folder) : undefined
+	const match = live ?? (await remount(helpers, folder))
+	if (match) return match
+	const open = openPipelines(helpers)
+	if (open.length === 1) return open[0]
+	throw folder
+		? notOpenError(folder, open)
+		: new Error(
+				`'${path}' is not a pipeline node path — nodes live at f/<folder>/<node_name>, with <folder> one of: ${open.map((p) => `'${p.getFolder()}'`).join(', ')}.`
+			)
+}
+
+async function pipelineForFolder(
+	helpers: PipelineToolHelpers,
+	folder: string | undefined
+): Promise<PipelineAIChatHelpers> {
+	const known = helpers?.pipelineFolders?.() ?? []
+	const name = folder ? normalizePipelineFolder(folder) : known.length === 1 ? known[0] : undefined
+	const live = name ? helpers?.pipelines?.().find((p) => p.getFolder() === name) : undefined
+	const remounted = live ?? (await remount(helpers, name))
+	if (remounted) return remounted
+	const open = openPipelines(helpers)
+	if (folder) {
+		const match = open.find((p) => p.getFolder() === name)
+		if (!match) throw notOpenError(normalizePipelineFolder(folder), open)
+		return match
+	}
+	if (open.length === 1) return open[0]
+	throw new Error(
+		`Several pipeline editors are open (${open.map((p) => `'${p.getFolder()}'`).join(', ')}) — pass the folder to read.`
+	)
 }
 
 const scriptLangSchema = z.enum($ScriptLang.enum)
@@ -105,12 +194,20 @@ const outputKindSchema = z
 // Read tools
 // ----------------------------------------------------------------------------
 
-const getPipelineGraphSchema = z.object({})
+const getPipelineGraphSchema = z.object({
+	folder: z
+		.string()
+		.optional()
+		.describe(
+			'Folder of the pipeline to read (e.g. `analytics`). Required when several pipeline editors are open; may be omitted when only one is.'
+		)
+})
 
 const getPipelineGraphToolDef = createToolDef(
 	getPipelineGraphSchema,
 	'get_pipeline_graph',
-	"Read the live pipeline graph for the open /pipeline/<folder> editor: its nodes (scripts), each node's language, asset reads/writes, declared triggers, and whether it has an unsaved draft edit. Call this before building or editing nodes so you reuse existing assets/paths and understand the current DAG."
+	"Read the live pipeline graph of an open /pipeline/<folder> editor: its nodes (scripts), each node's language, asset reads/writes, declared triggers, and whether it has an unsaved draft edit. Call this before building or editing nodes so you reuse existing assets/paths and understand the current DAG.",
+	{ strict: false }
 )
 
 const readPipelineNodeSchema = z.object({
@@ -127,11 +224,75 @@ const readPipelineNodeToolDef = createToolDef(
 // Mutation tools (apply directly as unsaved drafts; never deploy)
 // ----------------------------------------------------------------------------
 
+const triggerKindEnum = z.enum(DRAFTABLE_TRIGGER_KINDS as [PipelineTriggerDraftKind, ...PipelineTriggerDraftKind[]])
+
+const nodeTriggerSchema = z.object({
+	kind: triggerKindEnum.describe('Trigger kind; the node must declare `on <kind>`.'),
+	config: z
+		.record(z.string(), z.any())
+		.describe(
+			'The trigger configuration. schedule: { schedule (6-field cron, e.g. "0 0 6 * * *"), timezone (IANA, e.g. "UTC"), args? (the node\'s inputs), summary? }. Any other kind: the fields get_trigger_schema returns for it. path, script_path and is_flow are filled in; pass path only to name the trigger yourself.'
+		)
+})
+
+const setPipelineTriggerSchema = nodeTriggerSchema.extend({
+	path: z.string().describe('Workspace path of the node the trigger runs.')
+})
+
+const setPipelineTriggerToolDef = createToolDef(
+	setPipelineTriggerSchema,
+	'set_pipeline_trigger',
+	'Attach the trigger a node declares with `on <schedule|email|kafka|mqtt|amqp|nats|postgres|sqs|gcp>` (its cron, topic, queue…) as an unsaved trigger draft, deployed together with the pipeline. Calling it again for the same node and kind replaces that draft. Webhook and data_upload need no trigger.',
+	{ strict: false }
+)
+
+/** Validates a node trigger's config against the kind's request schema, with the
+ * fields the pipeline fills in present so they are not reported missing. */
+function validateTriggerConfig(
+	kind: PipelineTriggerDraftKind,
+	config: Record<string, any>,
+	nodePath: string
+): Record<string, any> {
+	const filled = { path: `${nodePath}_${kind}`, script_path: nodePath, is_flow: false, ...config }
+	if (kind === 'schedule') {
+		const parsed = scheduleRequestSchema.safeParse({ args: {}, enabled: true, ...filled })
+		if (!parsed.success) {
+			throw new Error(
+				`Invalid schedule config: ${parsed.error.issues.map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`).join('; ')}`
+			)
+		}
+		return { args: {}, enabled: true, ...config }
+	}
+	const parsed = triggerRequestSchemas[kind].safeParse(filled)
+	if (!parsed.success) {
+		throw new Error(
+			`Invalid config for a "${kind}" trigger. Call get_trigger_schema with kind "${kind}" for its exact fields. Issues: ${parsed.error.issues.map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`).join('; ')}`
+		)
+	}
+	return config
+}
+
+/** The note every node write ends with while a declared trigger is still unset: the
+ * node would deploy with nothing to start it. */
+function unconfiguredTriggersNote(path: string, kinds: readonly string[]): string {
+	if (kinds.length === 0) return ''
+	return ` ACTION REQUIRED: '${path}' declares \`on ${kinds.join('`, `on ')}\` but has no ${kinds.join('/')} trigger yet, so nothing would start it once deployed. Call set_pipeline_trigger for it now (a schedule needs its cron and timezone; ask the user only if the cadence cannot be inferred).`
+}
+
+const summaryField = z
+	.string()
+	.trim()
+	.min(1)
+	.max(80)
+	.describe(
+		'Succinct summary of what the node does, a few words in sentence case with no trailing period (e.g. "Ingest Stripe charges", "Daily revenue by region"). It is the title the node shows in the workspace.'
+	)
+
 const buildPipelineNodeSchema = z.object({
 	path: z
 		.string()
 		.describe(
-			"Workspace path for the new node, e.g. f/<folder>/<name>. Use the open pipeline's folder. Must not collide with an existing node."
+			'Workspace path for the new node, e.g. f/<folder>/<name>, in the folder of an open pipeline editor. Must not collide with an existing node.'
 		),
 	language: scriptLangSchema.describe(
 		'Script language. SQL-shaped data work uses duckdb (DuckLake/S3) or postgresql (data tables); bun/python3 for general transforms.'
@@ -141,7 +302,14 @@ const buildPipelineNodeSchema = z.object({
 		.describe(
 			"Full script source. Start it with the `pipeline` annotation as a top-of-file comment in the LANGUAGE'S comment syntax — `-- pipeline` for SQL (duckdb/postgresql), `# pipeline` for python3/bash, `// pipeline` for bun/TS — to mark it a pipeline member; declare inputs the same way (e.g. `-- on <asset-uri|schedule|webhook|...>`), and write outputs via the wmill SDK / SQL so the lineage edges are inferred. A `// pipeline` line in a SQL node is a syntax error. Read existing node bodies first to match conventions."
 		),
-	output_kind: outputKindSchema.optional()
+	summary: summaryField,
+	output_kind: outputKindSchema.optional(),
+	triggers: z
+		.array(nodeTriggerSchema)
+		.optional()
+		.describe(
+			'Triggers for the `on <kind>` lines the content declares (schedule, email, kafka, …), attached as trigger drafts in the same step. Every such declaration needs one; webhook and data_upload need none.'
+		)
 })
 
 const buildPipelineNodeToolDef = createToolDef(
@@ -153,8 +321,17 @@ const buildPipelineNodeToolDef = createToolDef(
 
 const editPipelineNodeSchema = z.object({
 	path: z.string().describe('Workspace path of the node to edit.'),
-	old_string: z.string().min(1).describe("Exact text to find in the node's current source."),
-	new_string: z.string().describe('Replacement text.'),
+	old_string: z
+		.string()
+		.min(1)
+		.optional()
+		.describe("Exact text to find in the node's current source. Omit to change only the summary."),
+	new_string: z.string().optional().describe('Replacement text.'),
+	summary: summaryField
+		.optional()
+		.describe(
+			'New succinct summary (a few words, no trailing period). Pass it whenever the node has none or the edit changes what the node does.'
+		),
 	replace_all: z
 		.boolean()
 		.optional()
@@ -197,6 +374,12 @@ const testPipelineNodeToolDef = createToolDef(
 	{ strict: false }
 )
 
+// A pipeline's drafts are one bundle for the whole folder, so that bundle is the
+// item a node edit marks as modified — it is what the session deploys as a unit.
+function recordPipelineModified(toolCallbacks: ToolCallbacks, pipeline: PipelineAIChatHelpers) {
+	toolCallbacks.onItemModified?.(PIPELINE_DRAFT_KIND, pipelineBundlePath(pipeline.getFolder()))
+}
+
 // Summarize the asset lineage the parser inferred from a just-applied node so the
 // model gets same-turn feedback on whether its intended edges formed. An empty
 // result is the useful signal: a write/read expressed via a variable or dynamic
@@ -217,8 +400,9 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		requires: NONE,
 		def: getPipelineGraphToolDef,
 		planModeSafe: true,
-		fn: async ({ helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const { folder } = getPipelineGraphSchema.parse(args ?? {})
+			const pipeline = await pipelineForFolder(helpers, folder)
 			toolCallbacks.setToolStatus(toolId, { content: 'Reading pipeline graph...' })
 			const ctx = pipeline.getPipelineContext()
 			toolCallbacks.setToolStatus(toolId, {
@@ -233,8 +417,8 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		def: readPipelineNodeToolDef,
 		planModeSafe: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
 			const { path } = readPipelineNodeSchema.parse(args)
+			const pipeline = await pipelineForPath(helpers, path)
 			toolCallbacks.setToolStatus(toolId, { content: `Reading node '${path}'...` })
 			const node = await pipeline.getNodeBody(path)
 			if (!node) {
@@ -251,20 +435,51 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		showDetails: true,
 		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
-			const { path, language, content, output_kind } = buildPipelineNodeSchema.parse(args)
+			const { path, language, content, summary, output_kind, triggers } =
+				buildPipelineNodeSchema.parse(args)
+			const pipeline = await pipelineForPath(helpers, path)
+			// Checked before the node is staged, so a bad trigger leaves nothing half-built.
+			const declared = new Set(parsePipelineAnnotations(content).nativeTriggers.map((n) => n.kind))
+			const configs = (triggers ?? []).map((t) => {
+				if (!declared.has(t.kind)) {
+					throw new Error(
+						`The content declares no \`on ${t.kind}\`, so a ${t.kind} trigger has nothing to bind to. Add the annotation line or drop that trigger. Nothing was built.`
+					)
+				}
+				return { kind: t.kind, config: validateTriggerConfig(t.kind, t.config, path) }
+			})
 			toolCallbacks.setToolStatus(toolId, { content: `Building node '${path}'...` })
 			const { detectedReads, detectedWrites } = await pipeline.proposeNode({
 				path,
 				language: language as ScriptLang,
 				content,
+				summary,
 				outputKind: output_kind as PipelineOutputKind | undefined
 			})
+			// Recorded as soon as it is staged: a trigger that fails below leaves the node.
+			recordPipelineModified(toolCallbacks, pipeline)
+			const attached: string[] = []
+			const failed: string[] = []
+			for (const t of configs) {
+				try {
+					const { path: triggerPath } = await pipeline.setNodeTrigger(path, t.kind, t.config)
+					attached.push(`${t.kind} '${triggerPath}'`)
+				} catch (e) {
+					failed.push(`${t.kind}: ${e instanceof Error ? e.message : String(e)}`)
+				}
+			}
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Added draft node '${path}'`,
 				result: 'Success'
 			})
-			return `Pipeline node '${path}' added as an unsaved draft on the canvas. It is not deployed — the user deploys it.${inferredLineageNote(detectedReads, detectedWrites)}`
+			const attachedNote =
+				(attached.length
+					? ` Attached trigger draft${attached.length > 1 ? 's' : ''}: ${attached.join(', ')}.`
+					: '') +
+				(failed.length
+					? ` The node was built, but these triggers were not attached — fix them with set_pipeline_trigger: ${failed.join('; ')}.`
+					: '')
+			return `Pipeline node '${path}' added as an unsaved draft on the canvas. It is not deployed — the user deploys it.${attachedNote}${inferredLineageNote(detectedReads, detectedWrites)}${unconfiguredTriggersNote(path, await pipeline.unconfiguredTriggers(path))}`
 		}
 	},
 	{
@@ -274,36 +489,74 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		showDetails: true,
 		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
-			const { path, old_string, new_string, replace_all } = editPipelineNodeSchema.parse(args)
+			const { path, old_string, new_string, replace_all, summary } =
+				editPipelineNodeSchema.parse(args)
+			if (old_string === undefined && summary === undefined) {
+				throw new Error('Pass old_string/new_string to change the source, summary to rename it, or both.')
+			}
+			const pipeline = await pipelineForPath(helpers, path)
 			const node = await pipeline.getNodeBody(path)
 			if (!node) {
 				return `No pipeline node found at '${path}'. Call get_pipeline_graph to list the available nodes.`
 			}
 			toolCallbacks.setToolStatus(toolId, { content: `Editing node '${path}'...` })
-			const updated = findAndReplace(
-				node.content,
-				old_string,
-				new_string,
-				replace_all ?? false,
-				'node source'
-			)
-			const { detectedReads, detectedWrites } = await pipeline.editNode(path, updated)
+			const updated =
+				old_string === undefined
+					? node.content
+					: findAndReplace(
+							node.content,
+							old_string,
+							new_string ?? '',
+							replace_all ?? false,
+							'node source'
+						)
+			const edited = await pipeline.editNode(path, updated, summary)
+			const { detectedReads, detectedWrites } = edited
+			const summaryNote = edited.summary.trim()
+				? ''
+				: ` '${path}' has no summary: call edit_pipeline_node with just \`summary\` (a few words saying what it does).`
+			recordPipelineModified(toolCallbacks, pipeline)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Edited draft '${path}'`,
 				result: 'Success'
 			})
-			return `Pipeline node '${path}' updated as an unsaved draft on the canvas (not deployed).${inferredLineageNote(detectedReads, detectedWrites)}`
+			return `Pipeline node '${path}' updated as an unsaved draft on the canvas (not deployed).${inferredLineageNote(detectedReads, detectedWrites)}${summaryNote}${unconfiguredTriggersNote(path, await pipeline.unconfiguredTriggers(path))}`
+		}
+	},
+	{
+		requires: WRITE_DRAFT,
+		def: setPipelineTriggerToolDef,
+		showDetails: true,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const { path, kind, config } = setPipelineTriggerSchema.parse(args)
+			const pipeline = await pipelineForPath(helpers, path)
+			toolCallbacks.setToolStatus(toolId, { content: `Setting the ${kind} trigger of '${path}'...` })
+			const valid = validateTriggerConfig(kind, config, path)
+			const { path: triggerPath, replaced } = await pipeline.setNodeTrigger(path, kind, valid)
+			recordPipelineModified(toolCallbacks, pipeline)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `${replaced ? 'Updated' : 'Attached'} ${kind} trigger '${triggerPath}'`,
+				result: 'Success'
+			})
+			return `${replaced ? 'Replaced' : 'Attached'} the ${kind} trigger draft '${triggerPath}' on '${path}'. It deploys with the pipeline.${unconfiguredTriggersNote(path, await pipeline.unconfiguredTriggers(path))}`
 		}
 	},
 	{
 		requires: WRITE_DRAFT,
 		def: removePipelineNodeToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
 			const { path } = removePipelineNodeSchema.parse(args)
+			const pipeline = await pipelineForPath(helpers, path)
 			toolCallbacks.setToolStatus(toolId, { content: `Discarding draft '${path}'...` })
 			await pipeline.removeProposedNode(path)
+			// With the last draft gone there is nothing left to deploy: the pipeline
+			// is no longer this chat's change, and listing it would show it deployed.
+			if (pipeline.hasDrafts()) recordPipelineModified(toolCallbacks, pipeline)
+			else
+				toolCallbacks.onItemDiscarded?.(
+					PIPELINE_DRAFT_KIND,
+					pipelineBundlePath(pipeline.getFolder())
+				)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Discarded draft '${path}'`,
 				result: 'Success'
@@ -319,8 +572,8 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		showDetails: true,
 		autoCollapseDetails: false,
 		fn: async ({ args, workspace, helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
 			const { path, args: runArgs } = testPipelineNodeSchema.parse(args)
+			const pipeline = await pipelineForPath(helpers, path)
 			return executeTestRun({
 				jobStarter: async () => {
 					const jobId = await pipeline.testNode(path, runArgs ?? undefined)
@@ -350,22 +603,35 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
  * since the tools it names are withheld from that session; the annotation model stays,
  * as it is what lets the model read and explain an existing pipeline.
  */
-export function getPipelinePromptSection(ctx: PipelineContext, access?: SessionAccess): string {
+export function getPipelinePromptSection(
+	folders: readonly string[],
+	access?: SessionAccess
+): string {
 	const canWriteDraft = !access || access.has('write_draft')
+	const [first] = folders
+	const openLine =
+		folders.length === 1
+			? `The user has the /pipeline/${first} editor open.`
+			: `The user has ${folders.length} pipeline editors open: ${folders.map((f) => `/pipeline/${f}`).join(', ')}. Each tool acts on the pipeline its node path's folder names; pass \`folder\` to get_pipeline_graph.`
+	const pathLine =
+		folders.length === 1
+			? `Every node of this pipeline lives at \`f/${first}/<node_name>\` — \`${first}\` is the folder name and \`f/\` is the owner prefix every workspace path carries, so write it exactly once (never \`f/f/…\`, and never a bare \`<node_name>\`).`
+			: `Every node of a pipeline lives at \`f/<folder>/<node_name>\` (e.g. \`f/${first}/<node_name>\`) — \`f/\` is the owner prefix every workspace path carries, so write it exactly once (never \`f/f/…\`, and never a bare \`<node_name>\`). A node can only be built in the folder of an open pipeline editor.`
 	return `
 
 Data Pipeline editor (ACTIVE):
-- The user has the /pipeline/${ctx.folder} editor open. A pipeline is a DAG of scripts (nodes) connected by storage assets (DuckLake tables, data tables, S3 objects, volumes, resources) and execution triggers.
+- ${openLine} A pipeline is a DAG of scripts (nodes) connected by storage assets (DuckLake tables, data tables, S3 objects, volumes, resources) and execution triggers.
 - Annotations are top-of-file comments in the NODE'S OWN comment syntax: \`--\` for SQL (duckdb/postgresql), \`#\` for python3/bash, \`//\` for bun/TS. The \`//\` shown below is the TS form — translate it (a \`// pipeline\` line in a SQL node is a syntax error that won't deploy).
 - A script becomes a pipeline node when its source starts with the \`// pipeline\` annotation. Declare execution-DAG inputs with \`// on <asset-uri | schedule | webhook | email | kafka | mqtt | amqp | nats | postgres | sqs | gcp | data_upload>\` (e.g. \`// on ducklake://main/orders\`). Outputs are inferred from what the body writes (wmill SDK calls / SQL CREATE TABLE / writeS3File); declare a managed output with \`// materialize <asset-uri>\`. Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\`, \`// tag <name>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\` (managed DuckLake targets only — deploy rejects it beside a \`dbt://\` target), \`// measure <name> = <agg> [where <pred>]\`, \`// dimension <name> = <expr>\`.
-- \`materialize\` (the managed output): a managed \`// materialize ducklake://<name>/<table>\` means the runtime writes the node's output table FOR you — write the body as a single SELECT and the runtime wraps it in the create/replace, so do NOT also write your own CREATE TABLE / INSERT. The \`dbt://\` target below is the opposite: the node writes its own DDL and none of the write strategies apply to it. IMPORTANT: a MANAGED \`// materialize\` is **DuckDB-only** and its target MUST be a DuckLake table (\`ducklake://<name>/<table>\`) — deploy rejects a \`ducklake://\` target on any other language. For a \`python3\`/\`bun\`/\`postgresql\` node writing the lake, do NOT use \`// materialize\`; write the output via the SDK instead (e.g. \`wmill.writeS3File(...)\`, a \`CREATE TABLE\` in postgresql, or \`wmill.databaseUrlFromResource\`/ducklake helpers) and let the output be inferred. Reach for \`duckdb\` when a node should materialize a DuckLake table. The one target any language BUT DBT'S OWN may declare (a dbt project's writes come from its manifest, so \`// materialize\` on a dbt script is rejected at deploy) is a WAREHOUSE RELATION: \`// materialize manual dbt://<warehouse>/<schema>/<name>\`, with \`<warehouse>\` a warehouse the workspace configures under Settings → dbt. \`manual\` is its only mode — nothing generates warehouse DDL, so the node issues its own write and the annotation records the outcome. Use it on an ingestion node a dbt project reads as a \`source\`: the declared relation and the dbt model become ONE graph node, and a downstream \`// on dbt://<warehouse>/<schema>/<name>\` fires when that node completes. Write strategy: with no option it REPLACES the whole table each run (full refresh; the only mode whose output columns may change); \`// materialize <uri> append\` INSERT-appends rows (incremental); \`// materialize <uri> key=<col>\` merges/upserts on \`<col>\`. \`// materialize manual <uri>\` opts OUT of managed writes — the script writes its own DDL and the annotation only records the output asset for lineage. \`materialize\` is paired with partitioning for incremental pipelines: a \`// partitioned <daily|hourly|weekly|monthly|dynamic>\` node runs once per partition (append/merge into a fixed-schema table), and the \`{partition}\` token — usable in any asset URI AND in the body SQL — is substituted with the current partition's IDENTITY string at run time. To filter the source to the active slice on a time grain, use the runtime-injected macro: \`WHERE wm_partition(<ts_col>) = {partition}\`. \`wm_partition(ts)\` buckets a timestamp with the exact identity format the runtime used (daily/hourly/weekly/monthly), so it always matches and you never hand-write a \`strftime\` format. Do NOT write \`= TIMESTAMP {partition}\`: the identity string is not a valid timestamp literal for hourly/weekly/monthly and errors at runtime. For \`dynamic\` partitioning the identity is your caller-supplied key (not a timestamp, no macro), so filter on it directly: \`WHERE <your_key_col> = {partition}\`. \`materialize\` is an output DECLARATION on the node — it is not a command; there is no "materialize run".
+- \`materialize\` (the managed output): a managed \`// materialize ducklake://<name>/<table>\` means the runtime writes the node's output table FOR you — write the body as a single SELECT and the runtime wraps it in the create/replace, so do NOT also write your own CREATE TABLE / INSERT. The \`dbt://\` target below is the opposite: the node writes its own DDL and none of the write strategies apply to it. IMPORTANT: a MANAGED \`// materialize\` is **DuckDB-only** and its target MUST be a DuckLake table (\`ducklake://<name>/<table>\`) — deploy rejects a \`ducklake://\` target on any other language. For a \`python3\`/\`bun\`/\`postgresql\` node writing the lake, do NOT use \`// materialize\`; write the table straight into DuckLake with \`wmill.ducklake()\` (or a data table with \`wmill.datatable()\`), or a \`CREATE TABLE\` in postgresql and let the output be inferred. Reach for \`duckdb\` when a node should materialize a DuckLake table. The one target any language BUT DBT'S OWN may declare (a dbt project's writes come from its manifest, so \`// materialize\` on a dbt script is rejected at deploy) is a WAREHOUSE RELATION: \`// materialize manual dbt://<warehouse>/<schema>/<name>\`, with \`<warehouse>\` a warehouse the workspace configures under Settings → dbt. \`manual\` is its only mode — nothing generates warehouse DDL, so the node issues its own write and the annotation records the outcome. Use it on an ingestion node a dbt project reads as a \`source\`: the declared relation and the dbt model become ONE graph node, and a downstream \`// on dbt://<warehouse>/<schema>/<name>\` fires when that node completes. Write strategy: with no option it REPLACES the whole table each run (full refresh; the only mode whose output columns may change); \`// materialize <uri> append\` INSERT-appends rows (incremental); \`// materialize <uri> key=<col>\` merges/upserts on \`<col>\`. \`// materialize manual <uri>\` opts OUT of managed writes — the script writes its own DDL and the annotation only records the output asset for lineage. \`materialize\` is paired with partitioning for incremental pipelines: a \`// partitioned <daily|hourly|weekly|monthly|dynamic>\` node runs once per partition (append/merge into a fixed-schema table), and the \`{partition}\` token — usable in any asset URI AND in the body SQL — is substituted with the current partition's IDENTITY string at run time. To filter the source to the active slice on a time grain, use the runtime-injected macro: \`WHERE wm_partition(<ts_col>) = {partition}\`. \`wm_partition(ts)\` buckets a timestamp with the exact identity format the runtime used (daily/hourly/weekly/monthly), so it always matches and you never hand-write a \`strftime\` format. Do NOT write \`= TIMESTAMP {partition}\`: the identity string is not a valid timestamp literal for hourly/weekly/monthly and errors at runtime. For \`dynamic\` partitioning the identity is your caller-supplied key (not a timestamp, no macro), so filter on it directly: \`WHERE <your_key_col> = {partition}\`. \`materialize\` is an output DECLARATION on the node — it is not a command; there is no "materialize run".
 - \`measure\` / \`dimension\` (declared metrics): on a node that materializes a DuckLake table, \`// measure <name> = <aggregate> [where <predicate>]\` names the canonical way to aggregate that table (e.g. \`// measure revenue = sum(amount) where not is_refund\`), and \`// dimension <name> = <expr>\` names a way to slice it (e.g. \`// dimension region = region\`, \`// dimension month = date_trunc('month', ordered_at)\`). They execute nothing: they are catalogued at deploy so the editor and other agents can reuse the definition instead of re-deriving it and silently disagreeing. Keep the predicate in the \`where\` clause rather than folding it into the aggregate: it is rendered as \`<agg> FILTER (WHERE <pred>)\`, which is what lets two measures with different predicates sit under one GROUP BY. DuckLake-only, and only meaningful next to \`// materialize\`. Declare one when a number carries a judgement call someone else would get wrong (refunds excluded, test rows dropped, which column is the amount); do NOT blanket every table with measures, an obvious \`count(*)\` earns nothing. To USE a metric another node declares, read that node with read_pipeline_node and reuse its exact expression rather than guessing it.
 - Use get_pipeline_graph to see the current nodes/assets/triggers, and read_pipeline_node before editing one.
-- Every node of this pipeline lives at \`f/${ctx.folder}/<node_name>\` — \`${ctx.folder}\` is the folder name and \`f/\` is the owner prefix every workspace path carries, so write it exactly once (never \`f/f/…\`, and never a bare \`<node_name>\`).${
+- ${pathLine}${
 		canWriteDraft
 			? `
-- Build new nodes with build_pipeline_node and edit existing ones with edit_pipeline_node. These apply directly as unsaved drafts on the canvas (like the flow/script editor applies AI edits) — they DO NOT deploy. There is no separate Accept/Reject step. Prefer these over the generic write_script/edit_script draft tools while a pipeline is open.
+- Build new nodes with build_pipeline_node and edit existing ones with edit_pipeline_node. Give every node a succinct \`summary\` (a few words saying what it does, e.g. "Ingest Stripe charges"), and update it when an edit changes what the node does. These apply directly as unsaved drafts on the canvas (like the flow/script editor applies AI edits) — they DO NOT deploy. There is no separate Accept/Reject step. Prefer these over the generic write_script/edit_script draft tools while a pipeline is open.
 - Reuse existing asset paths from the graph when wiring a downstream node to an upstream one (read the upstream's write asset, then \`// on\` that same URI).
+- TRIGGERS: an ingestion node (one with no upstream asset to react to) must declare how it starts, e.g. \`// on schedule\`, and every \`on <schedule|email|kafka|mqtt|amqp|nats|postgres|sqs|gcp>\` line needs its trigger: pass it in build_pipeline_node's \`triggers\` (or call set_pipeline_trigger) in the same step you build the node. A schedule needs a 6-field cron and an IANA timezone — pick a sensible cadence from the request (e.g. daily at 06:00 UTC for a daily sync) rather than leaving it empty; for the other kinds call get_trigger_schema(kind) for the config fields and ask the user for any connection/resource you cannot find. Never leave a declared trigger without one: the node would deploy with nothing to start it. \`webhook\` and \`data_upload\` need no trigger.
 - Only deploy when the user explicitly asks; the user deploys drafts from the canvas.`
 			: ''
 	}`

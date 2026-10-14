@@ -10,8 +10,10 @@
 	import Toggle from './Toggle.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import Popover from './Popover.svelte'
+	// The clickable one, for the folded switches; the import above is the hover tooltip.
+	import MeltPopover from './meltComponents/Popover.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { onDestroy, tick, type Snippet } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import {
 		AlertTriangle,
@@ -22,7 +24,8 @@
 		Loader2,
 		ScrollText,
 		Search,
-		SearchX
+		SearchX,
+		SlidersHorizontal
 	} from 'lucide-svelte'
 	import { copyToClipboard, scroll_into_view_if_needed_polyfill, truncateRev } from '$lib/utils'
 	import LogSnippetViewer from './LogSnippetViewer.svelte'
@@ -33,15 +36,24 @@
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { watch } from 'runed'
+	import Tooltip from './Tooltip.svelte'
+	import PageHeaderContent from './PageHeaderContent.svelte'
+	import { pageHeader } from './pageHeaderRegistry.svelte'
 
 	interface Props {
 		searchTerm: string
 		tagLabel?: string
-		/** Rendered at the start of the toolbar row, so the page title shares it. */
-		title?: Snippet
 	}
 
-	let { searchTerm = $bindable(), tagLabel, title }: Props = $props()
+	let { searchTerm = $bindable(), tagLabel }: Props = $props()
+
+	/** Bar width below which the two switches fold into a popover. Measured: the breadcrumb takes
+	 *  ~360, the search field asks for 384 and the timeframe 223, so under this the field is what
+	 *  would start giving width back — and it is the control the page exists for. */
+	const COMPACT_SWITCHES_BAR = 1200
+	const compactSwitches = $derived(
+		pageHeader.barWidth > 0 && pageHeader.barWidth < COMPACT_SWITCHES_BAR
+	)
 
 	let queryParseErrors: string[] | undefined = $state(undefined)
 
@@ -692,88 +704,135 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex flex-col grow min-h-0 min-w-0 gap-2 pb-2">
-	<div class="flex flex-wrap items-center gap-x-4 gap-y-2 pt-4 pb-2">
-		{@render title?.()}
-		<div class="relative grow min-w-64">
-			<Search
-				size={16}
-				class="absolute left-2 top-1/2 -translate-y-1/2 text-hint pointer-events-none z-10"
-			/>
-			<TextInput
-				bind:value={searchTerm}
-				size="md"
-				class="pl-8 pr-8"
-				inputProps={{
-					id: 'quickSearchInput',
-					placeholder: 'Search service logs',
-					autocomplete: 'off',
-					autofocus: true
-				}}
-			/>
-			{#if searchTerm !== '' && queryParseErrors && queryParseErrors.length > 0}
-				<div class="absolute right-2 top-1/2 -translate-y-1/2 z-10 flex">
-					<Popover notClickable placement="bottom-end">
-						<AlertTriangle size={16} class="text-yellow-500" />
-						{#snippet text()}
-							<div class="flex flex-col gap-1 text-xs">
-								<span>Some search terms were ignored because they could not be parsed:</span>
-								<ul class="list-disc pl-4">
-									{#each queryParseErrors ?? [] as msg}
-										<li>{msg}</li>
-									{/each}
-								</ul>
-							</div>
-						{/snippet}
-					</Popover>
-				</div>
-			{/if}
-		</div>
-		<TimeframeSelect
-			items={serviceLogsTimeframes}
-			bind:value={timeframe}
-			{loading}
-			wrapperClasses="w-64"
-			onClick={() => {
-				minTs = undefined
-				maxTs = undefined
-				allLogs = undefined
-				const ts = timeframe.computeMinMax()
-				getAllLogs(ts.minTs ?? undefined, ts.maxTs ?? undefined)
+{#snippet serviceLogsHint()}
+	<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/service_logs">
+		Logs written by the servers, workers and indexers of this instance, grouped by host.
+	</Tooltip>
+{/snippet}
+
+{#snippet serviceLogsActions()}
+	<!-- The widest control here, because searching is what the page is for. It is also the one that
+	     gives width back when the bar is tight — that is what `actionsFlexible` on the registration
+	     asks the bar to allow — down to a floor that still fits a query worth reading. -->
+	<div class="relative w-96 min-w-40 shrink">
+		<Search
+			size={16}
+			class="absolute left-2 top-1/2 -translate-y-1/2 text-hint pointer-events-none z-10"
+		/>
+		<TextInput
+			bind:value={searchTerm}
+			size="sm"
+			class="pl-8 pr-8"
+			inputProps={{
+				id: 'quickSearchInput',
+				placeholder: 'Search service logs',
+				autocomplete: 'off',
+				autofocus: true
 			}}
 		/>
-		<div class="flex items-center gap-4">
-			<Toggle
-				size="sm"
-				bind:checked={withError}
-				options={{
-					right: 'With errors only',
-					rightTooltip: 'Only list the log files that contain at least one error line'
-				}}
-				on:change={() => {
-					allLogs = undefined
-					getAllLogs(minTs, maxTs)
-				}}
-			/>
-			<Toggle
-				size="sm"
-				bind:checked={autoRefresh}
-				disabled={searchTerm != ''}
-				on:change={(e) => {
-					if (e.detail) {
-						getAllLogs(maxTs, undefined)
-					} else {
-						timeout && clearTimeout(timeout)
-					}
-				}}
-				options={{
-					right: 'Auto-refresh',
-					rightTooltip: 'Fetch new log files every 5 seconds. Paused while searching.'
-				}}
-			/>
-		</div>
+		{#if searchTerm !== '' && queryParseErrors && queryParseErrors.length > 0}
+			<div class="absolute right-2 top-1/2 -translate-y-1/2 z-10 flex">
+				<Popover notClickable placement="bottom-end">
+					<AlertTriangle size={16} class="text-yellow-500" />
+					{#snippet text()}
+						<div class="flex flex-col gap-1 text-xs">
+							<span>Some search terms were ignored because they could not be parsed:</span>
+							<ul class="list-disc pl-4">
+								{#each queryParseErrors ?? [] as msg}
+									<li>{msg}</li>
+								{/each}
+							</ul>
+						</div>
+					{/snippet}
+				</Popover>
+			</div>
+		{/if}
 	</div>
+	<!-- No width of its own: the preset labels run to "1000 last service logs", and a fixed box
+	     narrower than that does not clip it — the control's overflow is visible, so it spills into
+	     whatever sits next to it in the bar. -->
+	<TimeframeSelect
+		unifiedSize="sm"
+		items={serviceLogsTimeframes}
+		bind:value={timeframe}
+		{loading}
+		wrapperClasses="shrink-0"
+		onClick={() => {
+			minTs = undefined
+			maxTs = undefined
+			allLogs = undefined
+			const ts = timeframe.computeMinMax()
+			getAllLogs(ts.minTs ?? undefined, ts.maxTs ?? undefined)
+		}}
+	/>
+	<!-- The two labelled switches are the widest thing in this row, and the search field is the one
+	     that pays for them: it is the only control that yields width. So they fold into a popover
+	     well before the bar is tight, which keeps the field at its full width down to a much
+	     narrower window. Folded, not dropped — the page below no longer carries a toolbar they
+	     could fall back to, so hiding them would put them out of reach. -->
+	{#if compactSwitches}
+		<MeltPopover placement="bottom-end">
+			{#snippet trigger()}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					iconOnly
+					startIcon={{ icon: SlidersHorizontal }}
+					title="Log listing options"
+				/>
+			{/snippet}
+			{#snippet content()}
+				<div class="flex flex-col gap-3 p-3">
+					{@render logSwitches()}
+				</div>
+			{/snippet}
+		</MeltPopover>
+	{:else}
+		<div class="flex items-center gap-4 shrink-0">
+			{@render logSwitches()}
+		</div>
+	{/if}
+{/snippet}
 
+{#snippet logSwitches()}
+	<Toggle
+		size="sm"
+		bind:checked={withError}
+		options={{
+			right: 'With errors only',
+			rightTooltip: 'Only list the log files that contain at least one error line'
+		}}
+		on:change={() => {
+			allLogs = undefined
+			getAllLogs(minTs, maxTs)
+		}}
+	/>
+	<Toggle
+		size="sm"
+		bind:checked={autoRefresh}
+		disabled={searchTerm != ''}
+		on:change={(e) => {
+			if (e.detail) {
+				getAllLogs(maxTs, undefined)
+			} else {
+				timeout && clearTimeout(timeout)
+			}
+		}}
+		options={{
+			right: 'Auto-refresh',
+			rightTooltip: 'Fetch new log files every 5 seconds. Paused while searching.'
+		}}
+	/>
+{/snippet}
+
+<!-- The page's name is the breadcrumb's, so the band carries the hint beside it and the toolbar at
+     its far end; the page below starts straight into the logs.
+     No `separator`: the default draws the edge only while something is passing under the bar, and
+     the two panes below start lower than it with borders of their own, so at rest there is nothing
+     for the band to divide. -->
+<PageHeaderContent afterName={serviceLogsHint} actions={serviceLogsActions} actionsFlexible />
+
+<div class="flex flex-col grow min-h-0 min-w-0 gap-2 py-2">
 	{#if searchError}
 		<Alert type="warning" title="Service logs search unavailable" size="xs">
 			{searchError}

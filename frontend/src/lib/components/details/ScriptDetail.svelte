@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import {
 		JobService,
 		ScriptService,
@@ -104,6 +103,7 @@
 		useOperatingUser,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
@@ -173,6 +173,9 @@
 			script.workspace_id == workspace &&
 			canWrite(script.path, script.extra_perms!, actingUser)
 	)
+	const editRights = useEditRights()
+	// The edit actions also need a role that authors scripts, which no operator has.
+	const canEdit = $derived(can_write && editRights.roleCanAuthor('script'))
 	let deploymentInProgress = $state(false)
 	let expandedModuleLocks: Record<string, boolean> = $state({})
 	let expandedModuleCode: Record<string, boolean> = $state({})
@@ -529,9 +532,9 @@
 			buttons.push({
 				label: 'Fork',
 				description: `Start a new script from a copy of this one`,
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: operatingHref(`${base}/scripts/add?template=${script.path}`),
+					href: operatingHref(`/scripts/add?template=${script.path}`),
 					onClick: interceptNav(onNavigate, `/scripts/add?template=${script.path}`),
 					unifiedSize: 'md',
 					variant: 'subtle',
@@ -550,7 +553,7 @@
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('script', workspace, $userWorkspaces),
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path, workspace),
 					onClick: (e: Event | undefined) => editInFork(e, script.path),
@@ -568,7 +571,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: operatingHref(`${base}/runs/${script.path}`),
+				href: operatingHref(`/runs/${script.path}`),
 				onClick: interceptNav(onNavigate, `/runs/${script.path}`),
 				unifiedSize: 'md',
 				variant: 'subtle',
@@ -576,14 +579,14 @@
 			}
 		})
 
-		if (!script || actingUser?.operator || !can_write) {
+		if (!script || !canEdit) {
 			return buttons
 		}
 
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
 				label: `History`,
-				narrow: 'menu',
+				placement: 'menu',
 				buttonProps: {
 					onClick: () => {
 						versionsDrawerOpen = !versionsDrawerOpen
@@ -599,7 +602,8 @@
 		if (!actingUser?.operator) {
 			buttons.push({
 				label: 'Build app',
-				narrow: 'menu',
+				placement: 'menu',
+				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromScript(script.path, script.summary, script.schema)
@@ -637,7 +641,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: operatingHref(`${base}${editUrl}`),
+						href: operatingHref(editUrl),
 						onClick: interceptNav(onNavigate, editUrl),
 						unifiedSize: 'md',
 						startIcon: Pen,
@@ -838,6 +842,7 @@
 		{#snippet header({ wide }: { wide: boolean })}
 			<DetailPageHeader
 				{wide}
+				ownsPageHeader={!embedded}
 				{mainButtons}
 				menuItems={getMenuItems(script, deployUiSettings)}
 				bind:errorHandlerMuted={
@@ -866,6 +871,12 @@
 						}
 					: undefined}
 			>
+				{#snippet name_marks()}
+					<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
+					{#if workspace && script && workspace === $workspaceStore}
+						<Star kind="script" path={script.path} summary={script.summary} />
+					{/if}
+				{/snippet}
 				{#snippet trigger_badges()}
 					<TriggersBadge
 						showOnlyWithCount={true}
@@ -883,12 +894,6 @@
 						}}
 					/>
 				{/snippet}
-				{#if workspace && script}
-					<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
-					{#if workspace === $workspaceStore}
-						<Star kind="script" path={script.path} summary={script.summary} />
-					{/if}
-				{/if}
 				{#if script?.auto_kind === 'wac'}
 					<Popover notClickable>
 						{#snippet text()}
@@ -981,7 +986,7 @@
 										<Alert type="warning" title="Not HEAD">
 											This hash is not HEAD (latest non-archived version at this path) :
 											<a
-												href="{base}/scripts/get/{topHash}?workspace={workspace}"
+												href="/scripts/get/{topHash}?workspace={workspace}"
 												onclick={interceptNav(onNavigate, `/scripts/get/${topHash}`)}
 												>Go to the HEAD of this path</a
 											>
@@ -1078,7 +1083,7 @@
 								{#if Object.keys(script?.schema?.properties ?? {}).length > 0}
 									<AIFormAssistant
 										instructions={promptForAi}
-										onEditInstructions={can_write && !actingUser?.operator
+										onEditInstructions={canEdit
 											? () => onNavigate(`/scripts/edit/${script?.path}?metadata_open=true`)
 											: undefined}
 										runnableType="script"
