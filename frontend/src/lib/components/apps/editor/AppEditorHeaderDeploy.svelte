@@ -4,7 +4,7 @@
 	import Badge from '$lib/components/Badge.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
-	import { Loader2 } from 'lucide-svelte'
+	import { Loader2, UserCog } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
@@ -317,9 +317,14 @@
 		tooltip={`The app's runnables run as this user whoever opens the app, so viewers need no access of their own. To keep that safe, the app can call only the runnables it was deployed with, and viewers cannot override their static inputs. Runnables still get the viewer's email in WM_END_USER_EMAIL${rawApp ? ', and inline ones can be set to read data tables and object storage as the viewer' : ''}.`}
 	>
 		{#if !canPreserve}
-			<div class="text-xs text-secondary">
-				Viewers run the app's runnables on behalf of you, the publisher. Only workspace admins and
-				members of {WM_DEPLOYERS_GROUP} can pick another user.
+			<div class="flex flex-col items-start gap-1">
+				<span class="inline-flex items-center gap-1 text-xs">
+					<UserCog class="w-4 h-4 text-green-500" />
+					u/{actingUser?.username}
+				</span>
+				<div class="text-2xs text-secondary">
+					Only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick another user.
+				</div>
 			</div>
 		{:else}
 			<div class="flex flex-col items-start gap-1">
