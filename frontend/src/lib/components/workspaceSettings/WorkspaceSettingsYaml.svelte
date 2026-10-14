@@ -31,6 +31,7 @@
 	let loadedKeys: string[] = []
 	let editor: SimpleEditor | undefined = $state(undefined)
 
+	let loadError = $state('')
 	let parseError = $state('')
 	let applyError = $state('')
 	let warnings: string[] = $state([])
@@ -41,21 +42,24 @@
 	let applying = $state(false)
 
 	async function load() {
+		const workspace = $workspaceStore!
 		loading = true
+		loadError = ''
+		let doc: Record<string, unknown> | undefined
 		try {
-			const doc = await WorkspaceService.getWorkspaceSettingsDocument({
-				workspace: $workspaceStore!
-			})
-			loadedKeys = Object.keys(doc)
-			code = YAML.stringify(doc)
-			initialCode = code
-			editor?.setCode(code)
-			parseError = ''
+			doc = await WorkspaceService.getWorkspaceSettingsDocument({ workspace })
 		} catch (e) {
-			applyError = errorMessage(e)
-		} finally {
-			loading = false
+			if (workspace === $workspaceStore) loadError = errorMessage(e)
 		}
+		// A response for a workspace that is no longer selected must not become the saved document,
+		// or saving would send it to the current workspace.
+		if (workspace !== $workspaceStore) return
+		loadedKeys = doc ? Object.keys(doc) : []
+		code = doc ? YAML.stringify(doc) : ''
+		initialCode = code
+		editor?.setCode(code)
+		parseError = ''
+		loading = false
 	}
 
 	$effect(() => {
@@ -139,7 +143,11 @@
 		}
 		// A failing write stops the apply but keeps the writes before it, so the form panes reload
 		// either way; the editor keeps the user's text on failure so it can be fixed and retried.
-		await Promise.all([ok ? load() : undefined, onApplied?.()])
+		try {
+			await Promise.all([ok ? load() : undefined, onApplied?.()])
+		} catch (e) {
+			sendUserToast(`Could not reload the settings: ${errorMessage(e)}`, true)
+		}
 	}
 
 	function discard() {
@@ -192,12 +200,16 @@
 					class="h-full"
 					lang="yaml"
 					bind:code
+					leadingChangeSync
 					fixedOverflowWidgets={false}
 				/>
 			{/await}
 		{/if}
 	</div>
 
+	{#if loadError}
+		<Alert type="error" title="The settings could not be loaded" size="xs">{loadError}</Alert>
+	{/if}
 	{#if parseError}
 		<Alert type="error" title="Invalid YAML" size="xs">{parseError}</Alert>
 	{/if}

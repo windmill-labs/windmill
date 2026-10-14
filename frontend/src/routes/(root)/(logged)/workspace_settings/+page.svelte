@@ -386,24 +386,38 @@
 	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
 	let yamlMode = $state(false)
+	// A workspace where the user is not an admin hides the toggle, so it must not stay in YAML mode.
+	const showYaml = $derived(yamlMode && canAdmin)
 	let yamlEditor: WorkspaceSettingsYaml | undefined = $state(undefined)
-	let confirmLeaveYaml = $state(false)
+	let yamlConfirm: 'enter' | 'leave' | undefined = $state(undefined)
 
-	function yamlHasUnsavedChanges() {
-		const changes = yamlEditor?.unsavedChanges()
-		return !!changes && hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
+	function paneHasUnsavedChanges() {
+		const changes = getAllUnsavedChanges()
+		return hasUnsavedChanges(changes.savedValue ?? {}, changes.modifiedValue ?? {})
 	}
 
-	// The check runs in the binding's setter, before the editor unmounts. A refused change still
-	// leaves the toggle's checkbox unchecked, so the toggle is remounted to show the mode again.
+	// Switching mode unmounts either the editor or the current pane, so the check runs in the
+	// binding's setter, before that happens. A refused change still leaves the toggle's checkbox
+	// flipped, so the toggle is remounted to show the mode again.
 	let yamlToggleKey = $state(0)
 	function setYamlMode(on: boolean) {
-		if (!on && yamlMode && yamlHasUnsavedChanges()) {
+		if (on === yamlMode) return
+		if (paneHasUnsavedChanges()) {
 			yamlToggleKey++
-			confirmLeaveYaml = true
+			yamlConfirm = on ? 'enter' : 'leave'
 			return
 		}
 		yamlMode = on
+	}
+
+	function confirmYamlSwitch() {
+		if (yamlConfirm === 'enter') {
+			discardAllChanges()
+			yamlMode = true
+		} else {
+			yamlMode = false
+		}
+		yamlConfirm = undefined
 	}
 
 	async function reloadAfterYamlApply() {
@@ -1217,7 +1231,7 @@
 
 	// Combined function to check for unsaved changes across all tabs
 	function getAllUnsavedChanges() {
-		if (yamlMode) {
+		if (showYaml) {
 			return yamlEditor?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
 		}
 		switch (tab) {
@@ -1515,7 +1529,7 @@
 		     two controls that sat beside the title are the page's actions. The panes below scroll
 		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
 		<PageHeaderContent
-			section={yamlMode
+			section={showYaml
 				? { parent: 'Workspace settings', label: 'YAML' }
 				: tabLabel
 					? { parent: 'Workspace settings', label: tabLabel }
@@ -1529,7 +1543,7 @@
 			<!-- The top padding belongs inside both scrollers, not above them: it is the gap under the
 			     separator at rest, and it has to travel with the content so what scrolls passes under
 			     the line rather than stopping short of it. -->
-			{#if !yamlMode}
+			{#if !showYaml}
 				<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
 					<SidebarNavigation
 						groups={navigationGroups}
@@ -1549,7 +1563,7 @@
 					<div class="h-fit px-6 pt-6" style="scrollbar-gutter: stable both-edges;">
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
-						{:else if yamlMode && canAdmin}
+						{:else if showYaml}
 							<WorkspaceSettingsYaml bind:this={yamlEditor} onApplied={reloadAfterYamlApply} />
 						{:else if tab == 'users'}
 							{#if canAdmin}
@@ -2481,18 +2495,19 @@ export async function main(
 />
 
 <ConfirmationModal
-	open={confirmLeaveYaml}
+	open={yamlConfirm !== undefined}
 	title="Unsaved changes detected"
 	confirmationText="Discard changes"
-	onConfirmed={() => {
-		confirmLeaveYaml = false
-		yamlMode = false
-	}}
+	onConfirmed={confirmYamlSwitch}
 	onCanceled={() => {
-		confirmLeaveYaml = false
+		yamlConfirm = undefined
 	}}
 >
-	<span>Leaving YAML mode discards the changes you made in the editor.</span>
+	<span>
+		{yamlConfirm === 'enter'
+			? 'Switching to YAML mode discards the changes you made in this pane.'
+			: 'Leaving YAML mode discards the changes you made in the editor.'}
+	</span>
 </ConfirmationModal>
 
 {#snippet settingsActions()}
