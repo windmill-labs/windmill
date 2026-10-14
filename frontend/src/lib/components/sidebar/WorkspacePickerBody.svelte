@@ -285,6 +285,11 @@
 	}
 
 	function onSearchKeydown(e: KeyboardEvent) {
+		// An IME uses arrows, Enter and Escape to pick and confirm a candidate; those keys are its own.
+		if (e.isComposing || e.keyCode === 229) {
+			e.stopPropagation()
+			return
+		}
 		if (e.key === 'Escape') return
 		e.stopPropagation()
 		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -300,10 +305,13 @@
 			}
 			closeMenu?.()
 			void tick().then(() => toggleSwitchWorkspace(target))
-		} else {
-			pickedId = undefined
-			collapsedInSearch.clear()
 		}
+	}
+
+	// A new query starts from its own best match with every matching family open.
+	function onSearchInput() {
+		pickedId = undefined
+		collapsedInSearch.clear()
 	}
 
 	// melt focuses an item on pointermove and its menu on pointerleave; stopped here, before they
@@ -404,7 +412,11 @@
 				<TextInput
 					bind:value={searchFilter}
 					size="sm"
-					inputProps={{ placeholder: 'Search workspaces...', autofocus: true }}
+					inputProps={{
+						placeholder: 'Search workspaces...',
+						autofocus: true,
+						oninput: onSearchInput
+					}}
 					class="!pr-8"
 				/>
 				<Search
