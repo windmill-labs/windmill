@@ -315,13 +315,21 @@ fn is_null(v: Option<&Value>) -> bool {
 }
 
 /// The endpoints drop a null member rather than store it, so a document stating one would
-/// otherwise differ from the stored value on every apply.
+/// otherwise differ from the stored value on every apply. A handler's `extra_args` is stored
+/// verbatim and its nulls are passed to the job as arguments, so it is compared as is.
 fn without_null_members(v: &Value) -> Value {
     match v {
         Value::Object(m) => Value::Object(
             m.iter()
                 .filter(|(_, v)| !v.is_null())
-                .map(|(k, v)| (k.clone(), without_null_members(v)))
+                .map(|(k, v)| {
+                    let v = if k == "extra_args" {
+                        v.clone()
+                    } else {
+                        without_null_members(v)
+                    };
+                    (k.clone(), v)
+                })
                 .collect(),
         ),
         Value::Array(a) => Value::Array(a.iter().map(without_null_members).collect()),
@@ -538,9 +546,27 @@ fn plan_document(
     for key in FALSE_WHEN_UNSET {
         typed(key, desired.get(*key), Value::is_boolean, "a boolean")?;
     }
-    for key in ["slack_oauth_client_id", "slack_oauth_client_secret"] {
+    // The rest are refused by their endpoint anyway, but only after the writes before them
+    // went through, and after a dry run reported them as changes.
+    for key in [
+        "slack_oauth_client_id",
+        "slack_oauth_client_secret",
+        "webhook",
+        "color",
+        "default_app",
+        "slack_command_script",
+        "teams_command_script",
+        "guest_jwt_public_key",
+        "guest_jwt_jwks_url",
+    ] {
         typed(key, desired.get(key), Value::is_string, "a string")?;
     }
+    typed(
+        "public_app_execution_limit_per_minute",
+        desired.get("public_app_execution_limit_per_minute"),
+        Value::is_number,
+        "a number",
+    )?;
     for (parent, key, ok, ty) in [
         (
             "auto_invite",
@@ -565,6 +591,17 @@ fn plan_document(
     ] {
         let v = desired.get(parent).and_then(|p| p.get(key));
         typed(&format!("{parent}.{key}"), v, ok, ty)?;
+    }
+    // The endpoint stores an omitted mute flag as `false`.
+    if let Some(handler) = desired
+        .get_mut("error_handler")
+        .and_then(Value::as_object_mut)
+    {
+        for key in ["muted_on_cancel", "muted_on_user_path"] {
+            if is_null(handler.get(key)) {
+                handler.insert(key.to_string(), Value::Bool(false));
+            }
+        }
     }
     for key in SECRET_KEYS {
         if let Some(v) = desired.remove(*key) {
@@ -1212,11 +1249,30 @@ mod tests {
             json!({ "slack_oauth_client_id": 123 }),
             json!({ "error_handler": { "path": "f/x", "muted_on_cancel": "yes" } }),
             json!({ "auto_invite": { "enabled": "true" } }),
+            json!({ "webhook": 123 }),
+            json!({ "public_app_execution_limit_per_minute": "5" }),
         ] {
             assert!(
                 plan_document(current(), doc(d.clone()), false, &mc).is_err(),
                 "{d}"
             );
         }
+    }
+
+    #[test]
+    fn a_null_handler_argument_is_a_change() {
+        let mc = WorkspaceCrypt::new("k");
+        let mut cur = current();
+        cur.insert(
+            "error_handler".into(),
+            json!({ "path": "f/x", "extra_args": {}, "muted_on_cancel": false, "muted_on_user_path": false }),
+        );
+        let d = doc(json!({ "error_handler": { "path": "f/x", "extra_args": { "input": null } } }));
+        let p = plan_document(cur.clone(), d, false, &mc).unwrap();
+        assert_eq!(keys(&p), ["error_handler"]);
+
+        let d = doc(json!({ "error_handler": { "path": "f/x", "extra_args": {} } }));
+        let p = plan_document(cur, d, false, &mc).unwrap();
+        assert!(p.changes.is_empty(), "{:?}", keys(&p));
     }
 }
