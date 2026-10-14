@@ -12,7 +12,8 @@
 	import { tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
 	import { saveFlowChatInputs } from './flowChatProps'
-	import type { FlowModule } from '$lib/gen'
+	import { ResourceService, type FlowModule } from '$lib/gen'
+	import { resource } from 'runed'
 	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import {
 		attachmentsTargetFor,
@@ -23,10 +24,12 @@
 	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
 	import {
 		agentModelGap,
+		chatLinkedAgentPaths,
 		composerOwnedInputs,
 		resolveAgentModelWiring,
 		showsModelButton,
-		withoutRejectedEffort
+		withoutRejectedEffort,
+		type SavedAgentProviders
 	} from './agentChatInputs'
 
 	interface Props {
@@ -107,7 +110,26 @@
 	// The model gets its own button, shaped like the copilot's model settings, driven by
 	// whichever provider fields the flow exposes. Attachments are the paperclip's; every other
 	// flow input is asked for in the Configure-inputs modal.
-	const modelWiring = $derived(resolveAgentModelWiring(flowModules))
+	// A step linked to a saved agent takes its provider from the agent, so that is read here. One
+	// the reader cannot load leaves the wiring unreadable, and the model button away.
+	const savedProviders = resource(
+		() => ({ workspace, paths: chatLinkedAgentPaths(flowModules) }),
+		async ({ workspace, paths }): Promise<SavedAgentProviders> => {
+			if (!workspace || paths.length === 0) return {}
+			const entries = await Promise.all(
+				paths.map(async (path) => {
+					try {
+						const value: any = await ResourceService.getResourceValue({ workspace, path })
+						return [path, value?.provider] as const
+					} catch {
+						return [path, undefined] as const
+					}
+				})
+			)
+			return Object.fromEntries(entries)
+		}
+	)
+	const modelWiring = $derived(resolveAgentModelWiring(flowModules, savedProviders.current))
 	// An agent with nothing to call cannot answer, and the composer cannot fix it, so the
 	// chat says what to go and do instead of offering controls that write nowhere.
 	const modelGap = $derived(agentModelGap(modelWiring, subject))

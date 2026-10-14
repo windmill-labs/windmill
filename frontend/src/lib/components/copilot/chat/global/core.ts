@@ -46,7 +46,7 @@ import type {
 	ScriptLang
 } from '$lib/gen/types.gen'
 import { loadSchemaFromModule, memoryPropertyFor } from '$lib/components/flows/flowInfers'
-import { flowLocalAgentSchema } from '$lib/components/flows/agentResourceUtils'
+import { linkedAgentStepSchema } from '$lib/components/flows/agentResourceUtils'
 import { AGENT_FIELDS, initialVisibleAgentFields } from '$lib/components/flows/agentFormFields'
 import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
@@ -6201,9 +6201,9 @@ async function agentStepRunForm(
 ): Promise<{ schema: Record<string, any>; args: Record<string, any> }> {
 	const transforms = (module.value as { input_transforms?: Record<string, any> }).input_transforms
 	// A linked step's brain belongs to the resource rather than to this flow, so only the inputs
-	// this flow supplies are its to edit.
+	// this flow supplies, and its overrides, are its to edit.
 	const full = (await loadSchemaFromModule(module, workspace)).schema
-	const schema = (module.value as { agent?: string }).agent ? flowLocalAgentSchema(full) : full
+	const schema = (module.value as { agent?: string }).agent ? linkedAgentStepSchema(full) : full
 
 	const visible = initialVisibleAgentFields(transforms, schema.properties)
 	// What the model asked to set, shown even where the step configures nothing: this form has no

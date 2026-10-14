@@ -18,6 +18,7 @@
 		flowLocalInputs,
 		inputTransformsToAgentConfig,
 		nonStaticBrainKeys,
+		providerWithOverrides,
 		summarizeAgentBrain,
 		type AIAgentConfig,
 		type AgentTool
@@ -61,7 +62,7 @@
 		flowPath = '',
 		fromAgentEditor = false,
 		chatInputEnabled = false,
-		linkedMemory = $bindable()
+		linkedAgent = $bindable()
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
@@ -80,8 +81,9 @@
 		// is the wrong way in.
 		fromAgentEditor?: boolean
 		chatInputEnabled?: boolean
-		// The linked agent's memory once its config has loaded, for the step's history inputs.
-		linkedMemory?: { memory: unknown } | undefined
+		// The linked agent's memory and provider once its config has loaded, for the step's history
+		// inputs and its overrides.
+		linkedAgent?: { memory: unknown; provider?: unknown } | undefined
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $operatingWorkspace)
@@ -226,7 +228,9 @@
 		loadedInfo?.ws === ws && loadedInfo?.path === agent ? loadedInfo : undefined
 	)
 	$effect(() => {
-		linkedMemory = linkedInfo ? { memory: linkedInfo.config?.memory } : undefined
+		linkedAgent = linkedInfo
+			? { memory: linkedInfo.config?.memory, provider: linkedInfo.config?.provider }
+			: undefined
 	})
 	let inheritedTools = $derived(linkedInfo?.tools ?? [])
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
@@ -512,7 +516,13 @@
 				local[key] = inputTransforms[key]
 			}
 		}
-		const forkedInputs = { ...agentConfigToInputTransforms(cfg), ...local }
+		// An unlinked step sets model and effort inside `provider`, so its overrides move there.
+		const provider = providerWithOverrides(cfg.provider, inputTransforms)
+		const forkedInputs = {
+			...agentConfigToInputTransforms(cfg),
+			...(provider ? { provider } : {}),
+			...local
+		}
 		const forkedTools = cfg.tools ?? []
 		inputTransforms = forkedInputs
 		for (const tool of forkedTools) {
