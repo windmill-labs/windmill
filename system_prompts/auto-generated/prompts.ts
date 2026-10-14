@@ -1146,6 +1146,9 @@ When a deploy widens who may open the app, tell the user in plain words.
 
 New apps are sandboxed: the frontend is isolated from the viewer's own Windmill session and reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. With isolation turned off, the frontend runs with the viewer's full session. The scopes are \`jobs:run\`, \`jobs:read\`, \`users:read\`, \`resources:read\`, \`variables:read\`, \`flow_conversations:read\` and \`flow_conversations:write\`; grant only the ones the frontend calls.
 
+Inside the sandbox, IndexedDB is unavailable, third-party sign-in and OAuth redirects fail, and requests to other services carry \`Origin: null\`, which an API that checks the origin rejects. Work around these first: call the service from a backend runnable, keep state in a data table or \`localStorage\`, or grant the frontend API scope the code needs. Suggest turning isolation off only when none of that works, and say plainly that it is a security risk: the app's code, and any XSS bug in it, then runs with the full Windmill permissions of everyone who opens the app.
+You cannot turn isolation off; the user does it in the app's deploy settings.
+
 ## Reading data as the viewer
 
 A backend runnable reads data as the app's identity (the publisher in publisher mode), the same for every viewer. An inline runnable can instead read data as the person using the app: its data table connections that name no role hold that viewer's roles, and object storage permission rules (which paths may be listed, read, written) are checked against the viewer. Resources, variables and everything else stay the app's, and an anonymous viewer is refused. Turn it on only when what the runnable reads should differ per viewer: row-level security on a data table, or per-user paths in object storage. Both are Enterprise Edition features.
