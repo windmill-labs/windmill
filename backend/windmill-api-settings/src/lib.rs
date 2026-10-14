@@ -132,6 +132,15 @@ async fn get_instance_ui(
     ))
 }
 
+/// Whether email notifications can go out, for the workspace admins who configure email
+/// handlers and cannot read `smtp_settings` itself (it holds the password). Asks the same
+/// resolver the senders use, so SMTP set through `SMTP_*` env vars counts too.
+async fn get_smtp_configured(Extension(db): Extension<DB>, _authed: ApiAuthed) -> JsonResult<bool> {
+    Ok(Json(
+        SMTP_ENABLED && windmill_common::server::is_smtp_configured(&db).await?,
+    ))
+}
+
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
     let r = Router::new()
@@ -152,6 +161,7 @@ pub fn global_service() -> Router {
         )
         .route("/instance_config/yaml", get(get_instance_config_yaml))
         .route("/test_smtp", post(test_email))
+        .route("/smtp_configured", get(get_smtp_configured))
         .route("/test_license_key", post(test_license_key))
         .route("/send_stats", post(send_stats))
         .route("/get_stats", get(get_stats))

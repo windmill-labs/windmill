@@ -88,8 +88,11 @@
 	import { randomSecret, randomUUID } from '$lib/utils/uuid'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { conformBuilderAppPolicy } from './builderAppPolicy'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderApps = useOperatorBuilderApps()
 
 	interface Props {
 		files?: Record<string, string>
@@ -412,6 +415,11 @@
 			destroyed = true
 			if (url) URL.revokeObjectURL(url)
 		}
+	})
+	// The deploy panel cannot switch Viewer mode off, nor drop the identity an app another user
+	// deployed carries, so the editor conforms the policy as soon as it opens.
+	$effect(() => {
+		if ($operatorBuilderApps && policy) conformBuilderAppPolicy(policy, $userStore)
 	})
 	// An app with sandbox isolation previews the way it runs once deployed: in the
 	// served, opaque-origin shell, framed with the deployed wrapper's flags. The nonce
@@ -889,6 +897,7 @@ addEventListener('message', function (e) {
 					content: runnable.inlineScript.content ?? ''
 				}
 			}
+			if (runnable.viewer_data_access) backendRunnable.viewerDataAccess = true
 		} else if (isRunnableByPath(runnable)) {
 			// Determine type based on runType
 			if (runnable.runType === 'flow') {
@@ -1192,6 +1201,9 @@ addEventListener('message', function (e) {
 							content: runnable.inlineScript.content,
 							language: runnable.inlineScript.language
 						},
+						...((runnable.viewerDataAccess ?? runnables[key]?.viewer_data_access) && {
+							viewer_data_access: true
+						}),
 						fields: runnable.staticInputs
 							? Object.fromEntries(
 									Object.entries(runnable.staticInputs).map(([k, v]) => [

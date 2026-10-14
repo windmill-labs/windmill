@@ -481,6 +481,12 @@ pub struct PolicyTriggerableInputs {
     sensitive_inputs: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tag: Option<String>,
+    /// The runnable reads data as the app's viewer rather than as the app's identity: data table
+    /// connections that name no role, and object storage advanced permission rules. Honored for
+    /// inline runnables only: their code is deployed with the app, so it is the publisher who
+    /// chose to read with the viewer's rights.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    viewer_data_access: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1009,7 +1015,6 @@ fn raw_app_wrapper_html(secret: &str) -> String {
 <html>
 <head>
 <meta charset="UTF-8" />
-<title>App</title>
 <link rel="stylesheet" href="./__SECRET__.css" />
 <script>
 (function () {
@@ -1060,6 +1065,17 @@ fn raw_app_wrapper_html(secret: &str) -> String {
   var _ps = history.pushState, _rs = history.replaceState;
   history.pushState = function () { _ps.apply(this, arguments); notifyParent(); };
   history.replaceState = function () { _rs.apply(this, arguments); notifyParent(); };
+
+  // The parent shows the app's document.title in its tab. This document has no
+  // <title> of its own: document.title reads the first one, so a placeholder would
+  // shadow the one a framework (React 19, react-helmet) appends.
+  var lastTitle = '';
+  new MutationObserver(function () {
+    var t = document.title;
+    if (t === lastTitle) return;
+    lastTitle = t;
+    try { window.parent.postMessage({ type: 'windmill:title', title: t }, '*'); } catch (_) {}
+  }).observe(document.head, { childList: true, subtree: true, characterData: true });
 
   // ctx handshake: the embedding parent hands us the user context (and any
   // persisted storage) before we evaluate the bundle, so `window.ctx` is set
@@ -4501,6 +4517,7 @@ async fn execute_component(
     // on the inline script is honored. In any other case we must read the
     // tag from the deployed policy and ignore the request body.
     let is_preview = payload.force_viewer_static_fields.is_some();
+    let is_inline = payload.raw_code.is_some();
 
     // Preview mode runs request-supplied code as a `Viewer`-mode job (the
     // app-editor equivalent of `/jobs/run/preview`), so it enforces the same
@@ -4595,6 +4612,8 @@ async fn execute_component(
                 delete_after_secs: force_viewer_delete_after_secs,
                 sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
                 tag: None,
+                // A preview runs as the caller, whose roles these are either way.
+                viewer_data_access: false,
             },
             None,
         ),
@@ -4734,34 +4753,48 @@ async fn execute_component(
     if let (ExecutionMode::Publisher, Some(authed)) = (policy.execution_mode(), opt_authed.as_ref())
     {
         lazy_static! {
-            /// Cache for the permit to execute an app component.
-            static ref PERMIT_CACHE: cache::Cache<[u8; 32], bool> = cache::Cache::new(1000);
+            /// When each (caller, app) was last granted the permit to execute.
+            static ref PERMIT_CACHE: cache::Cache<[u8; 32], std::time::Instant> =
+                cache::Cache::new(1000);
         }
+        // The outcome follows the app's `extra_perms` and the caller's groups and
+        // folders, all mutable and absent from the key. Only grants are cached, and
+        // briefly: a refusal is rechecked every time so a new grant applies at once,
+        // and a revocation takes effect within the TTL.
+        const PERMIT_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
-        // Avoid allocation for the permit key using a sha256 hash of:
-        // - the user email,
-        // - the application path,
-        // - the workspace id.
-        let permit_key: [u8; 32] = [authed.email.as_bytes(), path.as_bytes(), &w_id.as_bytes()]
+        let permit_key: [u8; 32] = [authed.email.as_bytes(), path.as_bytes(), w_id.as_bytes()]
             .iter()
-            .fold(Sha256::new(), |hasher, bytes| hasher.chain_update(bytes))
+            .fold(Sha256::new(), |hasher, bytes| {
+                hasher
+                    .chain_update((bytes.len() as u32).to_be_bytes())
+                    .chain_update(bytes)
+            })
             .finalize()
             .into();
-        let permit_fut = PERMIT_CACHE.get_or_insert_async(&permit_key, async {
-            let mut tx = user_db.clone().begin(authed).await?;
-            // Permissions are checked by the database; just fetch a row from app using `user_db`:
-            let row = sqlx::query_scalar!(
-                "SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2 LIMIT 1",
-                path,
-                &w_id,
-            )
-            .fetch_optional(&mut *tx)
-            .await?;
-            tx.commit().await?;
-            Result::Ok(row.is_some_and(|x| x.is_some()))
-        });
 
-        if !permit_fut.await? {
+        let granted = match PERMIT_CACHE.get(&permit_key) {
+            Some(at) if at.elapsed() < PERMIT_TTL => true,
+            _ => {
+                let mut tx = user_db.clone().begin(authed).await?;
+                // Permissions are checked by the database; just fetch a row from app using `user_db`:
+                let row = sqlx::query_scalar!(
+                    "SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2 LIMIT 1",
+                    path,
+                    &w_id,
+                )
+                .fetch_optional(&mut *tx)
+                .await?;
+                tx.commit().await?;
+                let granted = row.is_some_and(|x| x.is_some());
+                if granted {
+                    PERMIT_CACHE.insert(permit_key, std::time::Instant::now());
+                }
+                granted
+            }
+        };
+
+        if !granted {
             return Err(Error::NotAuthorized(format!(
                 "Missing read permissions on the `{}` app to execute `{}` runnable",
                 path, payload.component
@@ -4946,6 +4979,15 @@ async fn execute_component(
         scope_ceiling.as_deref(),
     )
     .await?;
+
+    if policy_triggerables.viewer_data_access && is_inline {
+        sqlx::query!(
+            "UPDATE job_perms SET viewer_data_access = true WHERE job_id = $1",
+            uuid
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     // Apply runnable query parameters if provided
     if let Some(ref run_query) = payload.run_query_params {
@@ -6028,11 +6070,10 @@ async fn app_load_table_count(
     let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
-    let resp =
-        crate::job_helpers_oss::load_table_count_internal(
-            job_authed, &db, None, &w_id, file_key, inner,
-        )
-            .await?;
+    let resp = crate::job_helpers_oss::load_table_count_internal(
+        job_authed, &db, None, &w_id, file_key, inner,
+    )
+    .await?;
     Ok(Json(resp).into_response())
 }
 

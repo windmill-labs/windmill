@@ -17,7 +17,6 @@
 	import {
 		SqsTriggerService,
 		type AwsAuthResourceType,
-		type ErrorHandler,
 		type Retry,
 		type TriggerMode
 	} from '$lib/gen'
@@ -28,7 +27,8 @@
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveSqsTriggerFromCfg } from './utils'
-	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
+	import { handlerDraftFromStored, handlerDraftToStored } from '../../handlerDraft.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
@@ -126,9 +126,10 @@
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let error_handler_path: string | undefined = $state()
-	let error_handler_args: Record<string, any> = $state({})
+	let errorHandler = $state(handlerDraftFromStored('error', undefined))
+	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
+	const error_handler_path = $derived(storedErrorHandler.path)
+	const error_handler_args = $derived(storedErrorHandler.args)
 	let retry: Retry | undefined = $state()
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
@@ -234,10 +235,13 @@
 			edit = false
 			dirtyPath = false
 			mode = defaultValues?.mode ?? 'enabled'
-			error_handler_path = defaultValues?.error_handler_path ?? undefined
-			error_handler_args = defaultValues?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				defaultValues?.error_handler_path,
+				'script',
+				defaultValues?.error_handler_args
+			)
 			retry = defaultValues?.retry ?? undefined
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
@@ -266,10 +270,13 @@
 			aws_auth_resource_type = cfg?.aws_auth_resource_type
 			permsPath = cfg?.path
 			permsForWrite = cfg?.extra_perms
-			error_handler_path = cfg?.error_handler_path
-			error_handler_args = cfg?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				cfg?.error_handler_path,
+				'script',
+				cfg?.error_handler_args
+			)
 			retry = cfg?.retry
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			permissionedAs = cfg?.permissioned_as
 			selectedPermissionedAs = cfg?.permissioned_as
 			preservePermissionedAs = !!cfg?.permissioned_as
@@ -604,9 +611,7 @@
 								{optionTabSelected}
 								{itemKind}
 								{can_write}
-								bind:errorHandlerSelected
-								bind:error_handler_path
-								bind:error_handler_args
+								bind:errorHandler
 								bind:retry
 							/>
 						</div>
