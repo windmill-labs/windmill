@@ -29,6 +29,7 @@
 	import { superadmin } from '$lib/stores'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { parseMigrationRole, withMigrationRole } from '../datatableMigrationRole'
+	import { scopesOverlap } from '../datatableMigrationSchemas'
 
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
@@ -257,7 +258,7 @@
 
 	// What makes two migrations depend on each other, for the out-of-order warnings.
 	function overlap(a: DatatableMigrationWithStatus, b: DatatableMigrationWithStatus): string {
-		if (!b.schemas) return `"${b.name}" applies to the whole database`
+		if (!b.schemas) return 'it applies to the whole database'
 		if (!a.schemas) return `"${a.name}" applies to the whole database`
 		return `both touch schema ${a.schemas.filter((s) => b.schemas?.includes(s)).join(', ')}`
 	}
@@ -265,12 +266,19 @@
 	// Run a single migration. Warn first if an earlier migration touching the same schemas hasn't
 	// run, since this one might depend on it.
 	async function runMigration(m: DatatableMigrationWithStatus) {
-		const blocker = migrations.find((x) => x.timestamp === m.blocked_by)
+		// `blocked_by` is only known when the applied versions could be read: when they could not,
+		// an earlier overlapping migration of unknown status may still be pending.
+		const blocker =
+			migrations.find((x) => x.timestamp === m.blocked_by) ??
+			migrations.find(
+				(x) =>
+					x.timestamp < m.timestamp && x.status === 'unknown' && scopesOverlap(x.schemas, m.schemas)
+			)
 		if (blocker) {
 			const confirmed = await confirmationModal.ask({
 				title: 'Run migration out of order',
 				confirmationText: 'Run anyway',
-				children: `"${blocker.name}" has not been run yet and ${overlap(m, blocker)}, so "${m.name}" might depend on it. Run it anyway?`
+				children: `"${blocker.name}" ${blocker.status === 'unknown' ? 'may not have been run yet' : 'has not been run yet'} and ${overlap(m, blocker)}, so "${m.name}" might depend on it. Run it anyway?`
 			})
 			if (!confirmed) return
 		}
