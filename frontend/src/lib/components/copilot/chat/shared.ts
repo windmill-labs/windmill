@@ -1728,6 +1728,9 @@ function parseResourceTypeSchema(schema: unknown): unknown {
 	}
 }
 
+export const HUB_SYNC_INSTRUCTIONS =
+	'Tell the user: no resource of a missing type can be created until a superadmin syncs resource types from the hub, with "Sync resource types with Hub" in the Add resource dialog of the Resources page.'
+
 export const getHubIntegrationTool = {
 	requires: NONE,
 	def: getHubIntegrationToolDef,

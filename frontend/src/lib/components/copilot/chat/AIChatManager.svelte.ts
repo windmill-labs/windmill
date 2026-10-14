@@ -49,7 +49,11 @@ import {
 import type { ScriptLintResult } from './shared'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './api/apiTools'
-import { prepareScriptUserMessage } from './script/core'
+import {
+	prepareScriptUserMessage,
+	resolveResourceTypeSync,
+	type ResourceTypeSync
+} from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getStreamedCompletionText } from '../lib'
@@ -2680,6 +2684,9 @@ export class AIChatManager implements ChatViewHost {
 		this.systemMessage = { ...target, content: `${target.content}\n\n${section}` }
 	}
 
+	/** Resolved per send with the rest of the pre-flight; see `resolveResourceTypeSync`. */
+	resourceTypeSync: ResourceTypeSync | undefined = undefined
+
 	// Same shape as refreshGlobalSkills. Re-resolved per send rather than once for the
 	// session's life: the operating workspace can change between sends, and a transient
 	// failure resolves fail-open, so the next message re-asks rather than keeping that answer.
@@ -3186,7 +3193,8 @@ export class AIChatManager implements ChatViewHost {
 							this.contextManager.getSelectedContext(),
 							{
 								workspace: this.operatingWorkspace,
-								activePreview: this.activePreviewResolver?.()
+								activePreview: this.activePreviewResolver?.(),
+								resourceTypeSync: this.resourceTypeSync
 							}
 						)
 					}
@@ -3716,7 +3724,10 @@ export class AIChatManager implements ChatViewHost {
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
 				this.refreshGlobalFolderInstructions(this.operatingWorkspace ?? ''),
 				this.refreshMcpServers(this.operatingWorkspace ?? ''),
-				this.refreshSessionAccess(this.operatingWorkspace ?? '')
+				this.refreshSessionAccess(this.operatingWorkspace ?? ''),
+				resolveResourceTypeSync(this.operatingWorkspace ?? '', this.messages).then((sync) => {
+					this.resourceTypeSync = sync
+				})
 			])
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
@@ -4006,7 +4017,8 @@ export class AIChatManager implements ChatViewHost {
 						workspace: this.operatingWorkspace,
 						activePreview: this.activePreviewResolver?.(),
 						images: sentImages,
-						files: files
+						files: files,
+						resourceTypeSync: this.resourceTypeSync
 					})
 					break
 				case AIMode.APP:

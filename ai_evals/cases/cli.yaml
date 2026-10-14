@@ -85,6 +85,22 @@
     - updates the step code so the returned greeting uses punctuation
     - defaults punctuation to an exclamation mark when omitted
 
+# An in-house API has no hub resource type, so its connection needs a type of the workspace's
+# own: a token parameter or a variable read inside the code is the fallback the guidance rules out.
+- id: cli-resource-type-custom-api
+  prompt: |-
+    Create a Windmill Bun script at `f/evals/get_invoice.ts` that fetches an invoice by id from our internal billing API at https://billing.acme.internal/api/v1. It authenticates with a bearer token.
+  cliExpect:
+    requiredSkills:
+      - write-script-bun
+    forbiddenExecutedCommands:
+      - ^wmill sync push
+  judgeChecklist:
+    - creates the script at f/evals/get_invoice.ts, fetching an invoice by id with a bearer token
+    - the script takes the billing API's base URL and token together as one resource-typed parameter, not a plain string token or a variable read inside the code
+    - defines the billing API's resource type with its base URL and token fields, as a resource-type file or in the reply (asking before writing the file is fine)
+    - the custom resource type's name has the c_ prefix (e.g. `RT.CAcmeBilling` in TypeScript, `c_acme_billing.resource-type.json`)
+
 - id: flow-reuse-existing-script
   prompt: |-
     There is already a reusable greeting script at `f/lib/format_greeting.ts`.
