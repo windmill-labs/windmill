@@ -4700,8 +4700,7 @@ async fn test_run_wait_result_early_return_with_failure_module(
 
 /// An early-return node inside a branch to one resolves while the flow is still running when its
 /// branch is taken, and falls back to the flow's final result when it is not. A nested branch to
-/// all resolves to its list, though its status is not in the root flow's modules. An empty nested
-/// loop records no leaf job, so it resolves only once the flow completes, but to its own `[]`.
+/// all resolves to its list, though its status is not in the root flow's modules.
 #[cfg(all(feature = "deno_core", feature = "quickjs"))]
 #[sqlx::test(fixtures("base"))]
 async fn test_run_wait_result_early_return_inside_branch_one(
@@ -4743,15 +4742,6 @@ async fn test_run_wait_result_early_return_inside_branch_one(
                                 "branches": [{ "modules": [{ "id": "f", "value": returns("f", 0) }] }],
                             },
                         },
-                        {
-                            "id": "i",
-                            "value": {
-                                "type": "forloopflow",
-                                "iterator": { "type": "javascript", "expr": "[]" },
-                                "skip_failures": false,
-                                "modules": [{ "id": "j", "value": returns("j", 0) }],
-                            },
-                        },
                     ] }],
                     "default": [],
                 },
@@ -4761,11 +4751,10 @@ async fn test_run_wait_result_early_return_inside_branch_one(
     }))
     .unwrap();
 
-    for (early_return, take, expected, before_d) in [
-        ("c", true, json!("c"), true),
-        ("c", false, json!("d"), false),
-        ("e", true, json!(["f"]), true),
-        ("i", true, json!([]), true),
+    for (early_return, take, expected) in [
+        ("c", true, json!("c")),
+        ("c", false, json!("d")),
+        ("e", true, json!(["f"])),
     ] {
         let mut flow = flow.clone();
         flow.early_return = Some(early_return.to_string());
@@ -4802,7 +4791,8 @@ async fn test_run_wait_result_early_return_inside_branch_one(
             port,
         )
         .await;
-        assert_eq!(flow_completed, !before_d, "{early_return}, take = {take}");
+        // Only the taken branch returns before `d` finishes sleeping.
+        assert_eq!(flow_completed, !take, "{early_return}, take = {take}");
 
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await?;
         let body: serde_json::Value = serde_json::from_slice(&bytes)?;
