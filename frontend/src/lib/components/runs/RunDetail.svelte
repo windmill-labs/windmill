@@ -1149,7 +1149,7 @@
 					{/if}
 				{/if}
 			{/if}
-			{#if !showEditButton && !isCloudHosted() && editInForkAllowed(workspaceId, $userWorkspaces)}
+			{#if (!showEditButton || actingUser?.operator) && !isCloudHosted() && editInForkAllowed(workspaceId, $userWorkspaces)}
 				<Button
 					href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '', workspaceId)}
 					onClick={(e) => editInFork(e, isScript ? 'script' : 'flow', job?.script_path ?? '')}

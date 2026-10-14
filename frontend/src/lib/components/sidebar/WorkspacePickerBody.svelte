@@ -160,8 +160,10 @@
 	const canForkHere = $derived(
 		(!isCloudHosted() || $maybePremium) && $workspaceStore !== 'admins' && canCreateFork($userStore)
 	)
+	// Rulesets are EE-only, so on CE the reason would point at a setting no admin can reach.
 	const forkBlockedHere = $derived(
-		(!isCloudHosted() || $maybePremium) &&
+		!!$enterpriseLicense &&
+			(!isCloudHosted() || $maybePremium) &&
 			$workspaceStore !== 'admins' &&
 			operatorForkBlocked($userStore)
 	)
