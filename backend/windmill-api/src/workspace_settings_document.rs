@@ -564,8 +564,8 @@ fn plan_document(
     typed(
         "public_app_execution_limit_per_minute",
         desired.get("public_app_execution_limit_per_minute"),
-        Value::is_number,
-        "a number",
+        |v| v.as_i64().is_some_and(|n| i32::try_from(n).is_ok()),
+        "a 32-bit integer",
     )?;
     for (parent, key, ok, ty) in [
         (
@@ -1251,6 +1251,8 @@ mod tests {
             json!({ "auto_invite": { "enabled": "true" } }),
             json!({ "webhook": 123 }),
             json!({ "public_app_execution_limit_per_minute": "5" }),
+            json!({ "public_app_execution_limit_per_minute": 1.5 }),
+            json!({ "public_app_execution_limit_per_minute": 2147483648i64 }),
         ] {
             assert!(
                 plan_document(current(), doc(d.clone()), false, &mc).is_err(),
