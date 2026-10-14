@@ -74,6 +74,7 @@
 	let filterText = $state<string>('')
 	let open = $state<boolean>(false)
 	let wrapperEl: HTMLDivElement | undefined = $state()
+	const listId = $props.id()
 	let searchInputEl: TextInput | undefined = $state()
 
 	let currentValue = $derived(value ?? [])
@@ -148,15 +149,21 @@
 		wrapperEl?.focus()
 	}
 
+	// Escape that closes the list must not also close the drawer or popover around the field.
+	// Melt popovers listen on `document`, where Svelte handles delegated events of portaled
+	// content too, so only stopping immediate propagation keeps the event from them.
+	function consumeEscape(e: KeyboardEvent) {
+		e.preventDefault()
+		e.stopImmediatePropagation()
+	}
+
 	function onFieldKeydown(e: KeyboardEvent) {
 		if (e.target !== wrapperEl) return
 		if (!open && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown')) {
 			e.preventDefault()
 			open = true
 		} else if (open && e.key === 'Escape') {
-			// Consumed here so a drawer around the field stays open.
-			e.preventDefault()
-			e.stopPropagation()
+			consumeEscape(e)
 			open = false
 		} else if (open && e.key === 'Tab') {
 			open = false
@@ -165,12 +172,11 @@
 
 	function onSearchKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
-			e.preventDefault()
-			e.stopPropagation()
+			consumeEscape(e)
 			closeAndFocusField()
 		} else if (e.key === 'Tab') {
-			// The list is portaled to the end of <body>: moving focus back to the field first lets
-			// Tab continue from the field rather than off the end of the page.
+			// The list may be portaled to the end of <body>: moving focus back to the field first
+			// lets Tab continue from the field rather than off the end of the page.
 			closeAndFocusField()
 		}
 	}
@@ -182,7 +188,8 @@
 
 <div
 	bind:this={wrapperEl}
-	role="button"
+	role="combobox"
+	aria-controls={listId}
 	aria-expanded={open && !disabled}
 	aria-haspopup="listbox"
 	aria-disabled={disabled}
@@ -198,11 +205,7 @@
 		className
 	)}
 	{style}
-	onpointerup={() => {
-		open = true
-		// Pressing the field focused it, out of an already open list's search input.
-		searchInputEl?.focus()
-	}}
+	onpointerup={() => (open = true)}
 	onkeydown={onFieldKeydown}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
 	{id}
@@ -257,6 +260,7 @@
 			disabled ? 'disabled' : ''
 		)}
 		ulClass="options"
+		{listId}
 	>
 		{#snippet header()}
 			{#if showSearch}
@@ -265,7 +269,9 @@
 						bind:this={searchInputEl}
 						bind:value={filterText}
 						inputProps={{
-							onblur: (e) => open && e.relatedTarget !== wrapperEl && searchInputEl?.focus(),
+							// Pressing the field or a chip focuses the field; typing must still filter.
+							// Not once the last option is picked, as the input is then unmounting.
+							onblur: () => open && showSearch && searchInputEl?.focus(),
 							onkeydown: onSearchKeydown,
 							placeholder: searchPlaceholder
 						}}
