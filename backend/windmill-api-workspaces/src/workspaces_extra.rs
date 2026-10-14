@@ -1643,6 +1643,32 @@ pub async fn drop_forked_datatable_databases(
                 ));
             }
         } else {
+            // Clones on one resource share its copy, which stays while any of them is kept. Only
+            // clones: a kept entry naming the resource cannot be put in the request.
+            let mut kept: Vec<&String> = datatables
+                .iter()
+                .filter(|(name, dt)| {
+                    !req.datatable_names.contains(name)
+                        && dt.forked_from.is_some()
+                        && dt.database.as_ref().is_some_and(|d| {
+                            d.resource_type == database.resource_type
+                                && d.resource_path == database.resource_path
+                        })
+                })
+                .map(|(name, _)| name)
+                .collect();
+            if !kept.is_empty() {
+                kept.sort();
+                errors.push(format!(
+                    "Could not drop the database of datatable://{dt_name}: it is still used by data \
+                     tables {}",
+                    kept.iter()
+                        .map(|name| format!("'{name}'"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                continue;
+            }
             let fork_pg = match crate::workspaces::resolve_pg_source_checked(
                 &db,
                 &user_db,

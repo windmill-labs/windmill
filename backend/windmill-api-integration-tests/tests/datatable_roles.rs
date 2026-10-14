@@ -1050,6 +1050,32 @@ async fn data_tables_on_one_database_are_copied_together(db: Pool<Postgres>) -> 
     .fetch_one(&db)
     .await?;
     assert_eq!(left, json!({}));
+
+    // Clones on one resource share its copy too: dropping it for one would take the other's data.
+    let copy = json!({"database": {"resource_type": "postgresql", "resource_path": "u/test-user/pg"},
+                      "forked_from": {"schema": {}}});
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = jsonb_build_object('datatables',
+             jsonb_build_object('a', $1::jsonb, 'b', $1::jsonb)) WHERE workspace_id = 'wm-fork-dt'",
+    )
+    .bind(&copy)
+    .execute(&db)
+    .await?;
+    let errors: Vec<String> = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/wm-fork-dt/workspaces/drop_forked_datatable_databases"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({"datatable_names": ["a"]}))
+    .send()
+    .await?
+    .json()
+    .await?;
+    assert!(
+        errors.len() == 1 && errors[0].contains("still used by data tables 'b'"),
+        "{errors:?}"
+    );
     Ok(())
 }
 
