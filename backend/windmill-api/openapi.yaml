@@ -6228,7 +6228,7 @@ paths:
 
   /w/{workspace}/workspaces/generate_initial_datatable_migration/{datatable_name}:
     post:
-      summary: snapshot the current schema as already-installed initial migrations, one per schema
+      summary: snapshot the current schema as an already-installed initial migration
       operationId: generateInitialDatatableMigration
       tags:
         - workspace
@@ -6239,21 +6239,13 @@ paths:
           required: true
           schema:
             type: string
-        - name: whole_database
-          in: query
-          required: false
-          description: snapshot the whole database as one migration declaring no scope
-          schema:
-            type: boolean
       responses:
         "200":
-          description: created migrations, in the order they replay
+          description: created migration
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/DatatableMigration"
+                $ref: "#/components/schemas/DatatableMigration"
 
   /w/{workspace}/workspaces/create_pg_database:
     post:

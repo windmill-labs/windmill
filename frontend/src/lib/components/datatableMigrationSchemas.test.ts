@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS "Sales"."orders" (
 );
 CREATE UNIQUE INDEX orders_idx ON sales.orders USING btree (id);
 ALTER TABLE sales.orders ALTER COLUMN amount TYPE numeric(12, 2);
-COMMENT ON COLUMN sales.orders.amount IS 'in cents';
+COMMENT ON TABLE sales.orders IS 'one row per order';
 END;`
 		expect(suggestMigrationSchemas(sql)).toEqual(['billing', 'sales', 'crm'])
 		// As the database manager's query builders write it.
@@ -80,7 +80,9 @@ END;`
 			'DROP TABLE sales.t, customers;',
 			'ALTER TABLE sales.t ATTACH PARTITION plain FOR VALUES IN (1);',
 			'ALTER TABLE sales.t INHERIT plain;',
-			'CREATE TABLE sales.t OF plain_type;'
+			'CREATE TABLE sales.t OF plain_type;',
+			// `t.c` names a table and a column, not a schema.
+			'COMMENT ON COLUMN t.c IS null;'
 		]) {
 			expect(suggestMigrationSchemas(`CREATE TABLE sales.a (id int);\n${sql}`), sql).toEqual([])
 		}

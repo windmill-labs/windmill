@@ -314,28 +314,21 @@
 		await revertOnly(m.timestamp)
 	}
 
-	async function generateInitial(wholeDatabase = false) {
+	async function generateInitial() {
 		const confirmed = await confirmationModal.ask({
-			title: 'Generate initial migrations',
+			title: 'Generate initial migration',
 			confirmationText: 'Generate',
-			children: wholeDatabase
-				? `This snapshots the current schema of "${datatable}" with pg_dump as one "initial" migration for the whole database and marks it as already applied, so it is never re-run on this data table. It has no down migration.`
-				: `This snapshots the current schema of "${datatable}" with pg_dump as one initial migration per schema, declaring that schema, and marks them as already applied, so they are never re-run on this data table. They have no down migration. Use this to start tracking migrations on an existing data table.`
+			children: `This snapshots the current schema of "${datatable}" with pg_dump as an "initial" migration and marks it as already applied, so it is never re-run on this data table. It has no down migration. Use this to start tracking migrations on an existing data table.`
 		})
 		if (!confirmed) return
 		busy = true
 		generatingInitial = true
 		try {
-			const created = await WorkspaceService.generateInitialDatatableMigration({
+			await WorkspaceService.generateInitialDatatableMigration({
 				workspace,
-				datatableName: datatable,
-				wholeDatabase
+				datatableName: datatable
 			})
-			sendUserToast(
-				created.length > 0
-					? `Generated ${created.length} initial migration(s)`
-					: 'The data table has no schema yet, so there is nothing to snapshot'
-			)
+			sendUserToast('Initial migration generated')
 			await loadMigrations()
 		} catch (e: any) {
 			sendUserToast(`Failed to generate initial migration: ${e?.body ?? e?.message ?? e}`, true)
@@ -547,19 +540,13 @@
 						<span>{generatingInitial ? 'Snapshotting current schema…' : 'No migrations yet'}</span>
 						<Button
 							variant="subtle"
-							unifiedSize="xs"
+							size="xs"
 							startIcon={{ icon: Camera }}
 							disabled={busy}
 							loading={generatingInitial}
-							on:click={() => generateInitial()}
-							dropdownItems={[
-								{
-									label: 'One migration for the whole database',
-									onClick: () => generateInitial(true)
-								}
-							]}
+							on:click={generateInitial}
 						>
-							Generate initial migrations
+							Generate initial migration
 						</Button>
 					</div>
 				{:else}

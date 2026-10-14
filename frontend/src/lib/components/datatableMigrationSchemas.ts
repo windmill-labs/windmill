@@ -100,11 +100,11 @@ function unquote(ident: string): string {
 	return ident.startsWith('"') ? ident.slice(1, -1).replaceAll('""', '"') : ident
 }
 
-// The statements a scope is read from: the table, index, schema, sequence and type DDL the
-// database manager and the schema diff generate. Anything else (a view, a function, a grant, data,
-// an extension) is outside the reader, and makes the scope the whole database.
+// The statements a scope is suggested for: table, index, schema, sequence and type DDL. Anything
+// else (a view, a function, a grant, data, an extension) is outside the reader, and suggests
+// nothing.
 const STATEMENT_SHAPE =
-	/^(?:CREATE\s+(?:UNIQUE\s+)?INDEX|DROP\s+INDEX|(?:CREATE|ALTER|DROP)\s+(?:TABLE|SCHEMA|SEQUENCE|TYPE)|COMMENT\s+ON\s+(?:TABLE|COLUMN|SCHEMA))\b/i
+	/^(?:CREATE\s+(?:UNIQUE\s+)?INDEX|DROP\s+INDEX|(?:CREATE|ALTER|DROP)\s+(?:TABLE|SCHEMA|SEQUENCE|TYPE)|COMMENT\s+ON\s+(?:TABLE|SCHEMA))\b/i
 const TRANSACTION_CONTROL = /^(?:BEGIN|COMMIT|END|START\s+TRANSACTION)$/i
 // Clauses that reach another object without naming it where the reader looks: a query, a copied
 // or inherited definition, a sequence named in a string, and a cascade, which drops whatever
@@ -170,11 +170,10 @@ const CONSTRAINT_WORDS = new Set([
 ])
 
 /**
- * The scope `sql` declares by what it touches, read conservatively: every statement must be one of
- * the DDL shapes above and name every object it reaches with its schema; otherwise this returns
- * `[]`, the whole database. Callers write it without asking, so it may only ever be wider than the
- * SQL, never narrower: a narrower scope lets a run for one schema apply the migration ahead of a
- * pending one it depends on.
+ * A scope to suggest for `sql`, read conservatively: every statement must be one of the DDL shapes
+ * above and name every object it reaches with its schema; otherwise this returns `[]`. It is only
+ * ever offered for the author to accept, never written for them: PostgreSQL reaches objects the
+ * SQL does not name (a partition, an inheriting table), so only the author can vouch for a scope.
  */
 export function suggestMigrationSchemas(sql: string): string[] {
 	const code = stripLiteralsAndComments(sql)
@@ -214,7 +213,7 @@ function namesAreQualified(s: string): boolean {
 		unqualifiedAfter(String.raw`\bDROP\s+INDEX(?:\s+CONCURRENTLY)?${relation}`),
 		unqualifiedAfter(String.raw`\bON${relation}`),
 		unqualifiedAfter(String.raw`\bREFERENCES`),
-		unqualifiedAfter(String.raw`\bCOMMENT\s+ON\s+(?:TABLE|COLUMN)`)
+		unqualifiedAfter(String.raw`\bCOMMENT\s+ON\s+TABLE`)
 	]) {
 		for (const m of s.matchAll(re)) {
 			if (!NOT_A_NAME.has(lower(m[1]))) return false
