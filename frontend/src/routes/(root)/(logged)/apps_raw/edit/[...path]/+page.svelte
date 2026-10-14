@@ -5,7 +5,6 @@
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { useOperatorBuilderApps, workspaceListLoaded } from '$lib/operatorWriteRights'
-	import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -537,12 +536,6 @@
 	function starterRunnables() {
 		return $operatorBuilderApps ? {} : structuredClone(STARTER_RUNNABLES)
 	}
-
-	// The deploy panel cannot switch Viewer mode off, nor drop the identity an app another user
-	// deployed carries, so the editor conforms the policy as soon as it opens.
-	$effect(() => {
-		if ($operatorBuilderApps && policy) conformBuilderAppPolicy(policy, $userStore)
-	})
 
 	async function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
 		const picked = {

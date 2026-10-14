@@ -615,6 +615,17 @@ pub async fn load_mcp_tools(
             None
         };
 
+        // A URL can carry the server's key, so it goes through the same
+        // permissioned path as the token.
+        if let Some(var_path) = mcp_resource.url.strip_prefix("$var:") {
+            mcp_resource.url = client.get_variable_value(var_path).await.map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to resolve variable {} for the url of MCP resource {}: {}",
+                    var_path, resource_name, e
+                ))
+            })?;
+        }
+
         // Header secrets go through the same permissioned path as the token.
         for (name, value) in mcp_resource.headers.iter_mut().flatten() {
             if let Some(var_path) = value.strip_prefix("$var:") {

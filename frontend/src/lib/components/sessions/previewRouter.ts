@@ -613,6 +613,18 @@ export type PreviewSlot =
 	| { kind: 'run'; jobId: string; workspace?: string }
 	| { kind: 'iframe' }
 
+/** Whether a tab on this slot shows a page, framed or mounted in process, and so has a
+ * location to stamp as the chat's ACTIVE PREVIEW. Editors register as the ACTIVE EDITOR. */
+export function slotShowsPage(kind: PreviewSlot['kind']): boolean {
+	return (
+		kind === 'iframe' ||
+		kind === 'pageitem' ||
+		kind === 'pagelist' ||
+		kind === 'run' ||
+		kind === 'viewer'
+	)
+}
+
 export function resolvePreviewTab(url: string): PreviewSlot {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return { kind: 'artifact', id: artifact.id, version: artifact.version }

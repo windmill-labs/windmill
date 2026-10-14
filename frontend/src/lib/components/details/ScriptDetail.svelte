@@ -532,7 +532,7 @@
 			buttons.push({
 				label: 'Fork',
 				description: `Start a new script from a copy of this one`,
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: operatingHref(`/scripts/add?template=${script.path}`),
 					onClick: interceptNav(onNavigate, `/scripts/add?template=${script.path}`),
@@ -548,7 +548,7 @@
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('script', workspace, $userWorkspaces),
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path, workspace),
 					onClick: (e: Event | undefined) => editInFork(e, script.path),
@@ -581,7 +581,7 @@
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
 				label: `History`,
-				narrow: 'menu',
+				placement: 'menu',
 				buttonProps: {
 					onClick: () => {
 						versionsDrawerOpen = !versionsDrawerOpen
@@ -597,7 +597,8 @@
 		if (!actingUser?.operator) {
 			buttons.push({
 				label: 'Build app',
-				narrow: 'menu',
+				placement: 'menu',
+				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromScript(script.path, script.summary, script.schema)
@@ -865,6 +866,12 @@
 						}
 					: undefined}
 			>
+				{#snippet name_marks()}
+					<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
+					{#if workspace && script && workspace === $workspaceStore}
+						<Star kind="script" path={script.path} summary={script.summary} />
+					{/if}
+				{/snippet}
 				{#snippet trigger_badges()}
 					<TriggersBadge
 						showOnlyWithCount={true}
@@ -882,12 +889,6 @@
 						}}
 					/>
 				{/snippet}
-				{#if workspace && script}
-					<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
-					{#if workspace === $workspaceStore}
-						<Star kind="script" path={script.path} summary={script.summary} />
-					{/if}
-				{/if}
 				{#if script?.auto_kind === 'wac'}
 					<Popover notClickable>
 						{#snippet text()}
