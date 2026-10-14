@@ -1741,7 +1741,16 @@ async fn upsert_datatable_migration(
     if unchanged {
         return Ok(upserted_message);
     }
-    let scope = parse_migration_schemas(&payload.code_up)?;
+    // Only up SQL being written is held to the annotation: a stored up that opens with prose
+    // starting with the word `schemas` predates scopes, and must still accept a down added to it.
+    let up_changed = existing
+        .as_ref()
+        .is_none_or(|existing| existing.code_up != payload.code_up);
+    let scope = if up_changed {
+        parse_migration_schemas(&payload.code_up)?
+    } else {
+        None
+    };
     ensure_may_edit_migration(
         &db,
         &w_id,
