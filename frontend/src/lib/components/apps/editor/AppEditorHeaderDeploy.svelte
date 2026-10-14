@@ -404,12 +404,11 @@
 					label="Frontend API access"
 					small
 					collapsable
-					initiallyCollapsed={!policy.frontend_sdk_scopes?.length}
 					tooltip="Each viewer approves these scopes before the app runs. The app's code, or an XSS bug in it, can use them as that viewer."
 				>
 					{#snippet badge()}
 						{#if policy.frontend_sdk_scopes?.length}
-							<div class="flex min-w-0 flex-wrap justify-end gap-1 ps-2">
+							<div class="flex grow min-w-0 flex-wrap gap-1 ps-2">
 								{#each FRONTEND_SDK_SCOPES.filter( (s) => policy.frontend_sdk_scopes.includes(s.value) ) as scope (scope.value)}
 									<Badge twBgColor="bg-surface-sunken" twTextColor="text-primary"
 										>{scope.label}</Badge
