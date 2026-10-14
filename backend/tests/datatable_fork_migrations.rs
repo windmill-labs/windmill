@@ -22,6 +22,19 @@ fn authed(b: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
 async fn a_forked_copy_keeps_its_applied_migrations(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let opts = (*db.connect_options()).clone();
+    // The copy takes its settings locks on a connection of its own, opened from `DATABASE_URL`
+    // rather than the pool: point that at this test's database, not the one sqlx creates it from.
+    // Only this test runs in the binary, and before anything has read the variable.
+    let base_url = std::env::var("DATABASE_URL")?;
+    let (prefix, rest) = base_url
+        .rsplit_once('/')
+        .expect("DATABASE_URL names a database");
+    let query = rest
+        .split_once('?')
+        .map(|(_, q)| format!("?{q}"))
+        .unwrap_or_default();
+    let test_db = opts.get_database().expect("test database name");
+    std::env::set_var("DATABASE_URL", format!("{prefix}/{test_db}{query}"));
     // Databases are cluster-wide, so both are named for this run alone.
     let suffix = format!(
         "{:x}",
