@@ -209,14 +209,16 @@
 	function relayLinkClick(e: MouseEvent) {
 		if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
 			return
-		const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+		// Attributes, not properties: on an SVG <a> those are SVGAnimatedString.
+		const a = (e.target as Element | null)?.closest?.('a[href]')
+		const target = a?.getAttribute('target')
 		if (
 			!a ||
 			a.hasAttribute('download') ||
-			(a.target && !['_self', '_top', '_parent'].includes(a.target))
+			(target && !['_self', '_top', '_parent'].includes(target))
 		)
 			return
-		const url = new URL(a.href, window.location.href)
+		const url = new URL(a.getAttribute('href')!, document.baseURI)
 		// The embedder only relays http(s); mailto:, tel: and the like work in the frame.
 		if (url.protocol !== 'http:' && url.protocol !== 'https:') return
 		const sameOrigin = url.origin === window.location.origin
